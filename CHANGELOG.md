@@ -1,6 +1,7 @@
 # CHANGELOG
 
-All notable changes to VODER - Voice Blender will be documented in this file.
+- All notable changes to VODER - Voice Blender will be documented in this file.
+- this project does not use Version names like v1.2.3, it just timestamped to note changes, it will always be updated everytime i notice something wrong
 
 ## Feb/9/2026
 - Status: unstable, untested, under development
