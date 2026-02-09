@@ -1,0 +1,3 @@
+# Paste your HuggingFace token here
+# Get your token from: https://huggingface.co/settings/tokens
+# Some models may require a token for gated repositories
