@@ -3,6 +3,7 @@
 All notable changes to VODER - Voice Blender will be documented in this file.
 
 ## Feb/9/2026
+- Status: unstable, untested, under development
 
 **Initial Release - Unstable Development Build**
 
