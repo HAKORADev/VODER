@@ -25,14 +25,14 @@ VODER offers six distinct voice processing modes, each designed for specific aud
 | **TTM** | Text-to-Music Generation | Text | Audio |
 | **TTM+VC** | Text-to-Music + Voice Conversion | Text + Reference | Audio |
 
-### 🧠 **AI Model Integration**
+###  **AI Model Integration**
 
 VODER leverages state-of-the-art open-source models for professional-grade audio processing:
 
-- **Speech Recognition:** []() — Whisper for accurate audio transcription
-- **Voice Synthesis:** []() — Qwen3-TTS for natural text-to-speech
-- **Voice Conversion:** []() — Seed-VC for speech-to-speech transformation
-- **Music Generation:** []() — ACE-Step for lyrics-to-music synthesis
+- **Speech Recognition:** [openai/whisper](https://github.com/openai/whisper) — Whisper for accurate audio transcription
+- **Voice Synthesis:** [QwenLM/Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) — Qwen3-TTS for natural text-to-speech
+- **Voice Conversion:** [Plachtaa/seed-vc](https://github.com/Plachtaa/seed-vc) — Seed-VC for speech-to-speech transformation
+- **Music Generation:** [ace-step/ACE-Step-1.5](https://github.com/ace-step/ACE-Step-1.5) — ACE-Step for lyrics-to-music synthesis
 
 ---
 
