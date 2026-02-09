@@ -6,7 +6,26 @@
 
 **VODER** is a professional-grade voice processing and transformation tool that enables seamless conversion between speech, text, and music. Built for creators, developers, and audio professionals, VODER delivers **high-quality synthesis, voice cloning, and music generation** capabilities through an intuitive interface.
 
+This software was not tested as thoroughly as it should be — all code was written blindly without sufficient computing resources to properly validate it. Development continues as much as possible given real-world constraints.
+
 🤖 **For AI agents and automated tools:** See [Bots.md](Bots.md)
+
+---
+
+## System Requirements
+
+### Minimum Requirements
+
+| Component | Specification |
+|-----------|---------------|
+| CPU | 4-6 cores |
+| GPU | 8GB+ VRAM (NVIDIA recommended) |
+| RAM | 16GB system memory |
+| Storage | SSD recommended |
+
+### Recommended Requirements
+
+There is no "recommended" configuration in the traditional sense. This is not a video game where higher frame rates provide a better experience. The goal is simply to avoid running out of memory (OOM) during processing. Any system meeting the minimum requirements will work — the focus is on functionality, not performance benchmarks.
 
 ---
 
@@ -25,7 +44,7 @@ VODER offers six distinct voice processing modes, each designed for specific aud
 | **TTM** | Text-to-Music Generation | Text | Audio |
 | **TTM+VC** | Text-to-Music + Voice Conversion | Text + Reference | Audio |
 
-###  **AI Model Integration**
+### **AI Model Integration**
 
 VODER leverages state-of-the-art open-source models for professional-grade audio processing:
 
@@ -113,6 +132,30 @@ python src/voder.py ttm+vc lyrics "..." styling "pop" 30 target "voice.wav"
 - **[Guide.md](Guide.md)** — Detailed usage guide, technical implementation, and creative techniques
 - **[CHANGELOG.md](CHANGELOG.md)** — Development history and changes
 - **[Bots.md](Bots.md)** — Guidelines for AI agents and automated systems
+
+---
+
+## Notes
+
+### Testing Limitations
+
+This project was not and may never be tested as thoroughly as it should be because I do not have the required computing power to properly validate all features. I am doing the best I can with the resources available to me. If you can or wish to help make this project better and bigger, please reach out on X: [@HAKORAdev](https://x.com/HAKORAdev)
+
+### Project Vision
+
+The goal of VODER is to be a local, free, open-source alternative to commercial voice synthesis platforms like ElevenLabs. Real-life limitations (hardware, resources, time) have slowed development, but I kept working on it anyway because waiting for someone else to build it would have meant it might never exist at all.
+
+### Quality Expectations
+
+This project may not and likely will not reach the same quality level as my other projects. The reason is simple: I was never able to run, test, or properly validate VODER due to hardware limitations. I am an independent developer with no funding — no corporate sponsors, no sugar daddy, just passion and limited resources.
+
+### Why VODER Exists
+
+I created VODER because no existing tool (including ComfyUI or other workflow-based solutions) provides all six audio processing capabilities in a single, unified interface. I took the first step by building this tool. Perhaps someone else will finish what I started, or perhaps the community will help evolve it further. Either way, having this tool exist is better than having nothing at all.
+
+### Model Configuration
+
+VODER uses hardcoded default models because they represent the best available quality. Smaller, quantized, or "fast" models produce significantly worse results — to the point where not using the tool would be preferable to using degraded models. That said, if you have the technical capability and wish to modify the code to use different models or configurations, the source code is available for you to do so.
 
 ---
 
