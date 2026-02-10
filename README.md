@@ -44,6 +44,14 @@ VODER offers six distinct voice processing modes, each designed for specific aud
 | **TTM** | Text-to-Music Generation | Text | Audio |
 | **TTM+VC** | Text-to-Music + Voice Conversion | Text + Reference | Audio |
 
+---
+
+#Notes:
+- TTS, TTS+VC Supports dialouge mode
+- Dialogues: a feature to write scripts to make full podcasts or AI-News
+- in TTS+VC you can clone real Human voices
+- Dialogues are GUI-exclusive feature!
+
 ### **AI Model Integration**
 
 VODER leverages state-of-the-art open-source models for professional-grade audio processing:
@@ -99,7 +107,7 @@ python src/voder.py cli
    - **STS:** Load base audio and target voice audio
    - **TTM:** Enter lyrics and style prompt
    - **TTM+VC:** Enter lyrics, style prompt, and load target voice audio
-4. Click "Patch Audio" to process
+4. Click "Patch" to process
 5. Listen to output and save results
 
 ### CLI Mode (Interactive)
