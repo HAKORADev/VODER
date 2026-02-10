@@ -45,4 +45,3 @@ loguru
 # - Linux: Install PyTorch with CUDA support separately if needed
 # - macOS: PyTorch with MPS support available for Apple Silicon
 # - Windows: PyTorch with CUDA support available
-# - Important: if you got "module not found" errors, just pip install them and you are ok
