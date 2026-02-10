@@ -7,7 +7,7 @@
 **VODER** is a professional-grade voice processing and transformation tool that enables seamless conversion between speech, text, and music. Built for creators, developers, and audio professionals, VODER delivers **high-quality synthesis, voice cloning, and music generation** capabilities through an intuitive interface.
 
 ### NEW!:
--**Regardless** of all these drama, the tool actually works very perfectly now, it is STABLE NOW!
+- **Regardless** of all these drama, the tool actually works very perfectly now, it is STABLE NOW!
 
 🤖 **For AI agents and automated tools:** See [Bots.md](Bots.md)
 
