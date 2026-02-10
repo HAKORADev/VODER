@@ -6,6 +6,8 @@
 
 **VODER** is a professional-grade voice processing and transformation tool that enables seamless conversion between speech, text, and music. Built for creators, developers, and audio professionals, VODER delivers **high-quality synthesis, voice cloning, and music generation** capabilities through an intuitive interface.
 
+###NEW!:
+-**Regardless** of all these drama, the tool actually works very perfectly now, it is STABLE NOW!
 
 🤖 **For AI agents and automated tools:** See [Bots.md](Bots.md)
 
@@ -18,7 +20,7 @@
 | Component | Specification |
 |-----------|---------------|
 | CPU | 4-6 cores |
-| GPU | 8GB+ VRAM (NVIDIA recommended) |
+| GPU | 8GB+ VRAM (NVIDIA) |
 | RAM | 16GB system memory |
 | Storage | SSD recommended |
 
@@ -131,6 +133,8 @@ python src/voder.py ttm lyrics "Verse 1: ..." styling "upbeat pop" 30
 # Text-to-Music with Voice Conversion
 python src/voder.py ttm+vc lyrics "..." styling "pop" 30 target "voice.wav"
 ```
+#Note:
+- STT+TTS not in one-line cli because it requires interaction
 
 ---
 
