@@ -1,387 +1,465 @@
 # VODER Technical Guide
 
-## BEFORE YOU GO
-- these info here are outdated
-- if you are human (and i guess you are) use GUI for full features, if using clouds, then you lost dialogues!
-
 ## Table of Contents
 
-- [Introduction](#introduction)
-- [Core Processing Concepts](#core-processing-concepts)
-  - [FFmpeg Integration](#ffmpeg-integration)
-  - [Audio Sampling and Resampling](#audio-sampling-and-resampling)
-  - [Input Format Handling](#input-format-handling)
+- [Introduction & Vision](#introduction--vision)
+- [The Philosophy: Quality Over Speed](#the-philosophy-quality-over-speed)
+- [Why Hardcoded Models?](#why-hardcoded-models)
+  - [The Quality Imperative](#the-quality-imperative)
+  - [Custom Model Support](#custom-model-support)
+  - [Custom Versions](#custom-versions)
 - [Processing Modes Deep Dive](#processing-modes-deep-dive)
-  - [STT+TTS Mode](#stttts-mode)
-  - [TTS Mode](#tts-mode)
-  - [TTS+VC Mode](#ttsvc-mode)
-  - [STS Mode](#sts-mode)
-  - [TTM Mode](#ttm-mode)
-  - [TTM+VC Mode](#ttmvc-mode)
-- [Dialogue System](#dialogue-system)
+  - [TTS: Text-to-Speech](#tts-text-to-speech)
+  - [TTS+VC: Text-to-Speech + Voice Cloning](#ttsvc-text-to-speech--voice-cloning)
+  - [STS: Speech-to-Speech Voice Conversion](#sts-speech-to-speech-voice-conversion)
+  - [TTM: Text-to-Music](#ttm-text-to-music)
+  - [TTM+VC: Text-to-Music + Voice Conversion](#ttmvc-text-to-music--voice-conversion)
+  - [STT+TTS: Speech-to-Text + Synthesis](#stttts-speech-to-text--synthesis)
+- [The Dialogue System](#the-dialogue-system)
+  - [What Dialogue Mode Is](#what-dialogue-mode-is)
+  - [How It Works](#how-it-works)
+  - [Why Not Multi-Speaker Input?](#why-not-multi-speaker-input)
   - [Dialogue Format](#dialogue-format)
   - [Voice Prompt Configuration](#voice-prompt-configuration)
-  - [Character Routing](#character-routing)
-  - [Processing Pipeline](#processing-pipeline)
-- [Mode Compatibility and Limitations](#mode-compatibility-and-limitations)
-  - [Working Modes](#working-modes)
-  - [Problematic Modes](#problematic-modes)
-  - [GPU Requirements](#gpu-requirements)
-- [Output and File Management](#output-and-file-management)
-- [Troubleshooting](#troubleshooting)
+- [Tips & Tricks](#tips--tricks)
+  - [Getting Better Results](#getting-better-results)
+  - [Multi-Speaker Scenarios](#multi-speaker-scenarios)
+  - [Using Same Audio Source](#using-same-audio-source)
+  - [Voice Cloning Best Practices](#voice-cloning-best-practices)
+- [Version Information](#version-information)
+- [Troubleshooting & Common Issues](#troubleshooting--common-issues)
 
 ---
 
-## Introduction
+## Introduction & Vision
 
-This guide provides an in-depth explanation of VODER's internal workings, technical decisions, and implementation details. Unlike model documentation (which covers the AI systems themselves), this document focuses on how VODER orchestrates these models, handles audio data, and implements the six processing modes.
+VODER is a professional-grade voice processing tool that brings together six distinct audio transformation capabilities in a single, unified interface. Unlike tools that force you to jump between multiple applications for different voice-related tasks, VODER provides everything from text-to-speech synthesis to music generation under one roof.
 
-Understanding these details helps users troubleshoot issues, understand why certain limitations exist, and make informed decisions about their workflows. The guide also explains design choices that may seem arbitrary but were made for specific technical reasons.
+**What VODER Actually Does:**
+
+At its core, VODER orchestrates state-of-the-art AI models to perform voice-related transformations. It can convert speech to text and back to speech with a different voice, generate speech from text using either designed voices or cloned references, transform one voice into another while preserving content, and create music from lyrics with optional voice conversion for the vocalist. This isn't about chasing the fastest processing times or highest frame rates — it's about achieving professional-quality results that actually sound good.
+
+**Why VODER Exists:**
+
+The voice synthesis market is dominated by expensive commercial platforms that charge per character or per month. ElevenLabs, OpenAI, and others offer powerful capabilities, but at costs that add up quickly for creators, developers, and businesses alike. More importantly, no existing open-source solution offered all six processing capabilities in a unified interface. You could find separate tools for TTS, voice conversion, and music generation, but none that worked together seamlessly.
+
+VODER was built to fill this gap. The goal from day one was to create a local, free, open-source alternative that doesn't compromise on quality. Is it perfect? No software is. But it works, it keeps improving, and it provides genuine utility without subscription fees or usage limits.
+
+**What Makes VODER Different:**
+
+Most voice processing tools focus on a single use case. VODER takes a different approach — it treats voice and audio processing as a unified problem space. The same interface that generates speech from text can also convert that speech between voices, and the same voice cloning technology can apply to both speech and singing. This integration enables workflows that would otherwise require multiple tools and significant manual effort.
 
 ---
 
-## Core Processing Concepts
+## The Philosophy: Quality Over Speed
 
-### FFmpeg Integration
+### We Don't Chase FPS
 
-FFmpeg is a mandatory dependency for VODER. It is not optional and must be installed separately from Python packages.
+This is worth emphasizing because it's fundamental to VODER's design philosophy. There are no "recommended requirements" in the traditional sense. This isn't a video game where higher frame rates give you a better experience. The only metric that matters is avoiding one thing: Out Of Memory (OOM) errors.
 
-**Why FFmpeg is Required:**
+When we say "minimum requirements" with 8GB VRAM, that's not a performance target — it's a reliability floor. If you have exactly 8GB, VODER will work. If you have 12GB, it won't process things twice as fast. It just means you have more headroom for longer audio files or more complex operations. The quality remains the same because we're not offering quality presets that sacrifice output fidelity for speed.
 
-FFmpeg handles several critical operations that VODER cannot perform without it:
+**Why We Don't Offer Fast Modes:**
 
-1. **Video Audio Extraction**: When users provide video files (MP4, AVI, MOV, MKV), VODER uses FFmpeg to extract only the audio track. The video content itself is never processed — only the audio is used for voice synthesis, conversion, or transformation. This is by design: VODER is a voice processing tool, not a video editor.
+Every other tool on the market offers "fast" or "efficient" variants of their models. Smaller models, quantized weights, reduced quality settings. We explicitly chose not to include these options. Here's why: a degraded model produces output that is genuinely worse, not just faster to generate. If you're using voice synthesis for content creation, professional work, or anything where quality matters, you'd be better off not using the tool at all than using a degraded version.
 
-2. **Audio Concatenation**: The dialogue system generates multiple audio segments (one per character line) and uses FFmpeg to concatenate them into a single output file. This ensures smooth transitions between segments and proper format consistency.
+Think of it like photography. You can have a cheap smartphone camera that takes pictures instantly, or you can use a professional camera that requires proper technique and takes slightly longer. The smartphone photo is "faster" but the professional camera photo is objectively better quality. VODER is the professional camera of voice processing tools.
 
-3. **Format Conversion**: FFmpeg handles format conversions between different audio codecs, sample rates, and channel configurations that may arise during processing.
+**The OOM Reality:**
 
-**Installation:**
+Some operations require significant memory. Voice conversion models, especially, need to load multiple neural network components and maintain activations throughout the processing pipeline. If you try to process a 10-minute audio file and run out of VRAM, the solution isn't to use a smaller model — it's to process shorter segments. VODER doesn't offer shortcuts that compromise quality because shortcuts in AI almost always mean worse output.
 
-FFmpeg must be installed separately as it is a system application, not a Python package:
+**System Requirements Explained:**
 
-- **Windows**: `winget install FFmpeg` or download from gyan.dev and add to PATH
-- **macOS**: `brew install ffmpeg`
-- **Linux**: `sudo apt install ffmpeg`
+When we list minimum requirements, we're being honest about what actually works:
 
-Without FFmpeg in the system PATH, VODER will fail when attempting video processing or dialogue concatenation operations.
+- **CPU**: 4-6 cores minimum for model loading and non-GPU operations
+- **GPU**: 8GB+ VRAM for Seed-VC modes (STS, TTM+VC)
+- **RAM**: 16GB system memory for model caching and audio buffers
+- **Storage**: SSD recommended for model downloads and result saving
 
-### Audio Sampling and Resampling
+These aren't arbitrary numbers. They're based on actual testing of the models VODER uses. Less VRAM than 8GB will cause failures in Seed-VC modes. More VRAM just means more headroom, not faster processing.
 
-**Sample Rate Fundamentals:**
+---
 
-Audio sample rate refers to how many samples of audio are captured per second, measured in Hertz (Hz). Common sample rates include:
+## Why Hardcoded Models?
 
-- 22050 Hz (22.05 kHz) — Used by Seed-VC
-- 44100 Hz (44.1 kHz) — CD quality, VODER's output standard
-- 48000 Hz (48 kHz) — Professional video standard
+VODER uses hardcoded default models. This isn't an accident or a limitation — it's a deliberate design choice made for quality reasons.
 
-**Why Resampling is Necessary:**
+### The Quality Imperative
 
-Seed-VC, the voice conversion model used in STS and TTM+VC modes, is specifically designed to work with audio at 22050 Hz. This is a hard requirement of the model's architecture — it cannot process audio at other sample rates.
+The models VODER uses were selected because they represent the best available quality in their respective categories. Qwen3-TTS for text-to-speech, Seed-VC v2 for voice conversion, ACE-Step for music generation — these aren't arbitrary choices. They're the result of evaluating multiple alternatives and selecting the ones that produce the best results.
 
-**VODER's Resampling Pipeline:**
+Smaller models exist. Quantized variants exist. "Fast" versions exist. We deliberately don't use them because they produce noticeably worse output. A smaller TTS model sounds less natural, has more artifacts, and fails on complex text. A quantized voice conversion model loses the subtle characteristics that make voice cloning convincing. Using degraded models would undermine the entire purpose of having VODER exist.
 
-For modes using Seed-VC (STS and TTM+VC), VODER implements a three-stage resampling pipeline:
+**The HF_TOKEN.txt File:**
 
-1. **Input Resampling (to 22050 Hz)**: When users provide audio at 44100 Hz, 48000 Hz, or any other rate, VODER uses FFmpeg to convert it to 22050 Hz before passing it to Seed-VC. This conversion is automatic and transparent to the user.
+You'll find a file called `HF_TOKEN.txt` in the VODER directory. This exists for one reason: to allow advanced users to modify model configurations if they really want to. The file contains instructions for getting your HuggingFace token, and if you provide a valid token, VODER will use it for gated model repositories.
 
-2. **Model Processing**: Seed-VC processes the 22050 Hz audio according to the selected operation (voice conversion).
+**We Do Not Recommend Changing Models:**
 
-3. **Output Resampling (to 44100 Hz)**: The output from Seed-VC is at 22050 Hz. VODER upsample it to 44100 Hz using FFmpeg before saving the final output. This higher sample rate produces better quality output files that are compatible with standard audio players.
+This needs to be stated clearly. The hardcoded models are there because they're the best options available. If you have technical expertise and want to experiment with different model configurations, the capability exists. But VODER is optimized for its default configuration, and deviation from these defaults may produce worse results or cause errors.
 
-**Technical Implementation:**
+Think of it like a restaurant that only serves one dish. They chose that dish because it's the best thing they can make. You can ask them to make something else, but it won't be as good as their specialty. VODER's specialty is orchestrating these specific models together — that's what it does best.
 
-The resampling is handled by PyQt5's torchaudio library, which provides high-quality resampling algorithms. The code uses torchaudio.transforms.Resample to perform the conversion:
+### Custom Versions
 
-```python
-# Example resampling logic
-resampler = torchaudio.transforms.Resample(original_sr, 22050)
-waveform_resampled = resampler(waveform_original)
-```
+If someone creates a modified version of VODER with different model configurations, that's exactly what it is: a modified version. Custom configurations won't be supported in the main VODER documentation or issue tracker because the main project only guarantees quality for its default configuration.
 
-This ensures that regardless of the input format, Seed-VC always receives audio at its required 22050 Hz sample rate, and users always receive output at the standard 44100 Hz.
-
-### Input Format Handling
-
-**Supported Audio Formats:**
-
-VODER accepts various audio formats through PyQt5's torchaudio backend:
-
-- WAV (uncompressed PCM)
-- MP3 (compressed)
-- FLAC (lossless compressed)
-- Other formats supported by FFmpeg
-
-**Video Format Handling:**
-
-When users provide video files (MP4, AVI, MOV, MKV), VODER's handling is straightforward:
-
-1. FFmpeg extracts the audio track
-2. The video content is discarded
-3. Only the extracted audio proceeds to processing
-
-This design choice means users can provide video files containing the voice they want to process without needing to extract audio first. The video itself is never analyzed or transformed.
-
-**Sample Rate Normalization:**
-
-All input audio is normalized to a consistent internal format before processing. This ensures predictable behavior regardless of the source file's original characteristics.
+For those interested in exploring custom model configurations, we'll maintain a separate document (CUSTOM_VERSIONS.md) where community-contributed modifications can be documented. These are not official VODER builds, but if you want to share your experiments with different models or configurations, that file provides a place to do so.
 
 ---
 
 ## Processing Modes Deep Dive
 
-### STT+TTS Mode
+### TTS: Text-to-Speech
 
 **What It Does:**
 
-STT+TTS (Speech-to-Text + Text-to-Speech) transcribes audio content using Whisper, allows users to edit the transcribed text, then synthesizes the edited text with a target voice.
+TTS generates speech from text using Qwen3-TTS VoiceDesign. You provide a text script and a voice prompt describing the desired voice characteristics, and VODER produces audio of that voice saying that text.
 
-**Why This Mode Exists:**
+**How It Works:**
 
-This mode enables voice modification — making a person say things they never actually said. By providing the same audio file as both base (content) and target (voice), users can:
+The VoiceDesign model interprets natural language descriptions to generate appropriate voice characteristics. Unlike traditional TTS systems that use pre-recorded voice samples, VoiceDesign creates voices from scratch based on your description. This makes it incredibly flexible — you can describe voices that don't exist in any database.
 
-- Change words, phrases, or entire speeches
-- Fix transcription errors automatically
-- Localize content into different languages
-- Create fictional dialogue from real voice samples
+**Why It's Like That:**
 
-**Processing Pipeline:**
+VoiceDesign exists because not everyone wants to clone an existing voice. Sometimes you need a generic voice for narration, or you want to create a character voice that doesn't correspond to any real person. The descriptive approach provides infinite flexibility without requiring reference audio files.
 
-1. **Transcription**: Whisper transcribes the base audio to text with word timestamps
-2. **Review**: User sees the transcribed text and can edit it
-3. **Voice Extraction**: Voice characteristics are extracted from target audio
-4. **Synthesis**: The edited text is synthesized using the target voice
+**Best For:**
 
-**Why It Is CLI-Only:**
+- Narration and voiceover work
+- Creating character voices for content
+- Situations where you don't have reference audio
+- Rapid prototyping of voice concepts
+- Generating multiple voice variations for comparison
 
-STT+TTS requires user interaction to review and edit the transcribed text. The one-liner mode cannot accommodate this interactive workflow. Users must either:
+**Voice Prompt Examples:**
 
-- Use the interactive CLI: `python voder.py cli` and select option 1
-- Use the GUI for full visual feedback
+| Desired Voice | Example Prompt |
+|---------------|----------------|
+| Professional male | "adult male, deep voice, clear pronunciation, professional tone" |
+| Warm female | "adult female, warm tone, gentle, conversational" |
+| Energetic young | "young adult, energetic, fast-paced, enthusiastic" |
+| News anchor | "middle-aged, authoritative, measured pace, broadcasting quality" |
+| Storytelling | "deep narrative voice, expressive, dramatic pauses" |
 
-**Multi-Voice Warning:**
+**Technical Notes:**
 
-If the base audio contains multiple speakers, Whisper will transcribe all of them. The synthesis will still use a single target voice for the entire text. This creates an unnatural result where multiple speakers sound like the same person. For true multi-voice dialogue, use the dialogue system.
+TTS mode works on CPU without GPU acceleration. Processing time scales with text length, not with prompt complexity. The VoiceDesign model interprets prompts at generation time, so more detailed prompts give the model more information to work with but don't significantly affect processing time.
 
-### TTS Mode
+---
 
-**What It Does:**
-
-TTS (Text-to-Speech) generates speech from text using Qwen3-TTS VoiceDesign. Users provide a text script and a voice prompt describing the desired voice characteristics.
-
-**Voice Design Prompts:**
-
-The voice prompt is a text description that Qwen3-TTS interprets to generate appropriate voice characteristics. Effective prompts describe:
-
-- Gender and age (male, female, child)
-- Tone and emotion (cheerful, serious, mysterious)
-- Speaking style (fast, slow, dramatic)
-- Accent or dialect (if applicable)
-
-**Example Prompts:**
-
-- "Warm adult female voice with gentle tone"
-- "Energetic young male narrator"
-- "Professional news anchor voice"
-
-**Processing Simplicity:**
-
-TTS mode is the simplest mode in VODER:
-
-1. Receive text and voice prompt
-2. Pass to Qwen3-TTS VoiceDesign
-3. Generate and save audio
-
-**No Voice Reference Required:**
-
-Unlike TTS+VC, this mode does not require a reference audio file. The voice is generated entirely from the prompt description.
-
-### TTS+VC Mode
+### TTS+VC: Text-to-Speech + Voice Cloning
 
 **What It Does:**
 
-TTS+VC (Text-to-Speech + Voice Cloning) generates speech from text then applies voice cloning to match a reference voice. This uses Qwen3-TTS Base (not Seed-VC).
+TTS+VC generates speech from text and then applies voice cloning to match a reference voice. The text is synthesized using Qwen3-TTS Base, and the output is transformed to sound like the voice in your reference audio.
 
-**Processing Pipeline:**
+**How It Works:**
 
-1. **Synthesis**: Qwen3-TTS Base generates speech from the text
-2. **Voice Extraction**: Extract voice characteristics from reference audio
-3. **Cloning**: Apply cloned voice characteristics to the synthesized speech
+The process happens in two stages. First, Qwen3-TTS Base generates speech from your text using its default voice characteristics. Then, the voice cloning system extracts distinctive features from your reference audio and applies them to the generated speech. The result is your text spoken by a voice that matches your reference.
 
-**Why Qwen3-TTS Base:**
+**Why It's Like That:**
 
-Qwen3-TTS Base includes built-in voice cloning capabilities. It can learn a voice from a reference audio sample and apply it to generated speech. This is different from Seed-VC, which performs voice conversion on existing audio.
+Voice cloning opens possibilities that pure TTS can't match. You can clone a specific person's voice and use it consistently across all your content. You can match voices between different speakers in a dialogue. You can create synthetic content that sounds like real people (with appropriate consent and ethical considerations).
+
+**Best For:**
+
+- Consistent voice branding across content
+- Dialogue with cloned character voices
+- Matching voice characteristics between speakers
+- Creating content in a voice you don't have but can record
+- Localization while preserving original voice characteristics
+
+**Reference Audio Requirements:**
+
+| Factor | Recommendation |
+|--------|----------------|
+| Duration | 10-30 seconds optimal |
+| Quality | Clear audio, minimal background noise |
+| Content | Continuous speech, not singing or silence |
+| Speakers | Single speaker only |
+| Format | WAV preferred, MP3 supported |
 
 **Single vs Dialogue Mode:**
 
-For single-voice scripts:
+When you provide one reference audio file, the entire script uses that voice. When you provide multiple reference files (in GUI mode), each character in a dialogue script can be assigned a different voice. This is the foundation of VODER's dialogue system.
 
-- User provides one reference audio file
-- The entire script uses that voice
+**Technical Notes:**
 
-For dialogue scripts:
+TTS+VC works on CPU without GPU. The voice cloning happens during synthesis, not as a post-processing step, which ensures the cloned voice characteristics are integrated throughout the generated speech rather than applied superficially.
 
-- User provides multiple reference audio files (numbered)
-- Each character in the script is routed to a different reference
-- The dialogue system handles routing and concatenation
+---
 
-**CPU Compatibility:**
-
-TTS+VC works on CPU without GPU. This makes it accessible for users without NVIDIA graphics hardware.
-
-### STS Mode
+### STS: Speech-to-Speech Voice Conversion
 
 **What It Does:**
 
-STS (Speech-to-Speech) performs voice conversion — transforming source audio to sound like a target voice while preserving the original content, emotion, and prosody.
+STS (Speech-to-Speech) transforms source audio to sound like a target voice while preserving the original content, emotion, timing, and prosody. The speaker changes, but everything they say remains exactly the same.
 
-**Processing Pipeline:**
+**How It Works:**
 
-1. **Load Audio**: Load base (source) and target (reference) audio files
-2. **Resample to 22050 Hz**: Prepare both for Seed-VC processing
-3. **Voice Conversion**: Seed-VC transforms source to target voice
-4. **Resample to 44100 Hz**: Prepare output for standard playback
-5. **Save Result**: Export converted audio
+Seed-VC v2 analyzes both the source and target audio to extract content representations and voice characteristics. It then synthesizes new audio that combines the source content with the target voice. This isn't simple audio manipulation — it's neural voice conversion that genuinely reconstructs the speech in a different voice.
 
-**Seed-VC Dependency:**
+**Why It's Like That:**
 
-STS relies entirely on Seed-VC v2 for the conversion process. All resampling and processing is designed around Seed-VC's requirements.
+Voice conversion serves specific use cases that TTS and TTS+VC can't handle. You might have archival audio that needs voice preservation but content modification. You might want to maintain the exact delivery and emotion of a performance while changing the voice. Voice conversion preserves paralinguistic features that text-to-speech can't reproduce.
 
-**Limitations:**
+**Best For:**
 
-Seed-VC v2 may have compatibility issues with certain audio types:
+- Preserving delivery while changing voice
+- Content modification in existing audio
+- Voice anonymization or de-identification
+- Consistent voice application across multiple recordings
+- Archival content republishing with voice updates
 
-- Very short audio clips (insufficient content for analysis)
-- Very long audio clips (memory constraints)
-- Audio with unusual characteristics (extreme dynamics, artifacts)
+**Input Considerations:**
 
-**GPU Requirement:**
+| Factor | Recommendation |
+|--------|----------------|
+| Duration | 5-60 seconds optimal per segment |
+| Content | Clear speech, minimal background music |
+| Quality | Studio quality preferred, phone quality works but loses detail |
+| Format | WAV or high-bitrate MP3 |
 
-STS requires NVIDIA GPU with minimum 8GB VRAM. Seed-VC cannot run on CPU or non-NVIDIA graphics cards.
+**Technical Notes:**
 
-### TTM Mode
+STS requires NVIDIA GPU with minimum 8GB VRAM. The Seed-VC model only runs on GPU and cannot be used on CPU. Input audio is automatically resampled to 22050 Hz for model processing, and output is resampled to 44100 Hz for playback.
+
+---
+
+### TTM: Text-to-Music
 
 **What It Does:**
 
-TTM (Text-to-Music) generates music from lyrics and a style prompt using ACE-Step. Users provide song lyrics, a description of the desired musical style, and a duration.
+TTM (Text-to-Music) generates original music from lyrics and a style prompt using ACE-Step. You provide song lyrics, describe the desired musical style, and specify duration — VODER creates original music with vocals matching your lyrics.
+
+**How It Works:**
+
+ACE-Step interprets your lyrics as vocal content and your style prompt as musical direction. It generates both the instrumental arrangement and the vocal performance, synchronized to your specified duration. The lyrics become the vocal melody, and the style prompt guides the instrumentation, genre, and mood.
+
+**Why It's Like That:**
+
+Music generation from lyrics is distinct from instrumental generation because vocals add a layer of complexity. The lyrics must be converted to actual singing, which requires understanding of melody, rhythm, and phonetics. ACE-Step handles this by treating lyrics as both content and guidance for the vocal generation pipeline.
+
+**Best For:**
+
+- Creating original background music with vocals
+- Song prototyping and demo creation
+- Content needing custom music with lyrics
+- Experimental music creation
+- Rapid music visualization from lyrics
 
 **Lyrics Format:**
-
-Lyrics should be formatted with section markers:
 
 ```
 Verse 1:
 Walking down the empty street
 Feeling the rhythm in my feet
+The city lights are shining bright
+Guiding me through the night
 
 Chorus:
 This is our moment, this is our time
 Everything's gonna be just fine
+Dancing under the moonlight
+Everything feels so right
 ```
 
-**Style Prompts:**
+**Style Prompt Examples:**
 
-The style prompt describes the musical characteristics:
+| Genre/Mood | Example Prompt |
+|------------|----------------|
+| Upbeat pop | "upbeat pop, catchy melody, modern production, female vocals" |
+| Rock ballad | "electric guitar, driving drums, powerful vocals, emotional" |
+| Electronic dance | "synthesizer, dance beat, energetic, electronic production" |
+| Acoustic folk | "acoustic guitar, gentle arrangement, folk style, warm vocals" |
 
-- Genre (pop, rock, jazz, electronic)
-- Mood (happy, melancholic, energetic)
-- Instrumentation (piano, synthesizer, full band)
-- Tempo (upbeat, slow, moderate)
+**Duration Considerations:**
 
-**Duration Limits:**
+| Duration | Use Case |
+|----------|----------|
+| 10-30 seconds | Short clips, transitions, soundbites |
+| 30-60 seconds | Full verses or choruses |
+| 60-120 seconds | Complete short songs |
+| 120-300 seconds | Full compositions with multiple sections |
 
-The 5-minute (300 seconds) limit is a technical safeguard, not a validated optimum:
+Shorter durations are more reliable and consistent. Very long durations may produce variable results depending on the complexity of lyrics and style combination.
 
-- Shorter durations (10-60 seconds) are more reliable
-- Maximum duration may cause crashes depending on system resources
-- The limit exists to prevent runaway generation that could consume all available memory
+**Technical Notes:**
 
-**Processing Steps:**
-
-1. Parse lyrics and style prompt
-2. Initialize ACE-Step with configuration
-3. Generate music with specified parameters
-4. Save output audio
-
-**CPU Compatibility:**
-
-TTM works on CPU without GPU. Processing will be slower but functional.
-
-### TTM+VC Mode
-
-**What It Does:**
-
-TTM+VC (Text-to-Music + Voice Conversion) generates music then applies voice conversion to change the vocalist's voice.
-
-**Processing Pipeline:**
-
-TTM+VC is essentially TTM followed by STS:
-
-1. **TTM Stage**: Generate music using ACE-Step (same as TTM mode)
-2. **Resample to 22050 Hz**: Prepare TTM output for Seed-VC
-3. **STS Stage**: Apply voice conversion using Seed-VC
-4. **Resample to 44100 Hz**: Prepare final output
-5. **Save Result**: Export processed music
-
-**Composite Mode:**
-
-TTM+VC chains two operations together. The generated music (TTM output) becomes the "base" audio for voice conversion.
-
-**Crash Risk:**
-
-This mode has elevated crash risk due to:
-
-- TTM output variability (different audio characteristics)
-- Seed-VC sensitivity to input quality
-- Potential mismatches between TTM output sample rate and Seed-VC requirements
-
-The error message "unmatched data" may appear when Seed-VC cannot process the TTM output successfully.
-
-**GPU Requirement:**
-
-TTM+VC requires NVIDIA GPU with minimum 8GB VRAM due to Seed-VC dependency.
+TTM works on CPU without GPU. Processing time scales primarily with duration rather than lyrics length. The style prompt complexity doesn't significantly affect processing time but does affect the musical output characteristics.
 
 ---
 
-## Dialogue System
+### TTM+VC: Text-to-Music + Voice Conversion
+
+**What It Does:**
+
+TTM+VC generates music from lyrics and style (same as TTM) and then applies voice conversion to change the vocalist's voice. This combines music generation with voice cloning for the singing voice.
+
+**How It Works:**
+
+The pipeline is straightforward: first generate the music with ACE-Step (TTM stage), then apply Seed-VC voice conversion to the vocal track (VC stage). The generated music's vocals are transformed to match your reference voice while preserving the melody, timing, and musical characteristics.
+
+**Why It's Like That:**
+
+Sometimes the generated vocals from ACE-Step don't match the specific voice you need. TTM+VC allows you to generate music efficiently with default vocals, then swap in a cloned voice. This is particularly useful for consistent voice branding in music content or when you need a specific singer's voice in your generated music.
+
+**Best For:**
+
+- Music with specific vocalist voice
+- Consistent voice across multiple generated tracks
+- Voice-preserving music modifications
+- Professional music production workflows
+- Content requiring both music generation and voice cloning
+
+**Technical Notes:**
+
+TTM+VC requires NVIDIA GPU with minimum 8GB VRAM due to the Seed-VC stage. This is a composite mode that chains TTM and STS operations, so it inherits the reliability characteristics of both stages. Longer durations increase the chance of issues in the voice conversion stage.
+
+---
+
+### STT+TTS: Speech-to-Text + Synthesis
+
+**What It Does:**
+
+STT+TTS transcribes audio to text using Whisper, allows you to edit the transcribed content, and then synthesizes the edited text with a target voice. This enables voice modification while preserving the original delivery characteristics.
+
+**How It Works:**
+
+The transcription stage converts speech to text with word-level timestamps. You can review and modify the transcribed text before synthesis. The synthesis stage then reads your (possibly edited) text and produces audio in the target voice. This preserves the timing and delivery structure from the original audio if you don't modify the text significantly.
+
+**Why It's Like That:**
+
+This mode is for when you have existing audio content that needs voice transformation. By transcribing, editing, and resynthesizing, you can change what someone says while keeping the general timing and delivery. It's not a simple voice conversion — it's a reconstructive process that allows complete content modification.
+
+**Best For:**
+
+- Changing content in existing audio
+- Fixing transcription errors automatically
+- Localizing content into different languages
+- Creating fictional dialogue from real voice samples
+- Voice modification with full control over content
+
+**Interactive Nature:**
+
+STT+TTS requires user interaction for text editing, which is why it's only available in interactive CLI mode and GUI mode. The one-liner mode cannot accommodate this workflow. You must either use `python src/voder.py cli` and select the STT+TTS option, or use the GUI for full visual feedback.
+
+**Multi-Speaker Warning:**
+
+If your base audio contains multiple speakers, Whisper will transcribe all of them. The synthesis will use a single target voice for the entire text. This creates an unnatural result where multiple speakers sound like the same person. For true multi-voice dialogue, use the dialogue system instead.
+
+**Technical Notes:**
+
+STT+TTS works on CPU without GPU for the Whisper transcription stage. Voice cloning in the synthesis stage also works on CPU. This makes it accessible for users without NVIDIA graphics hardware.
+
+---
+
+## The Dialogue System
+
+### What Dialogue Mode Is
+
+VODER's dialogue system enables multi-speaker script generation. You write a script with multiple characters, assign voice references to each character, and VODER generates a cohesive audio track where each line is spoken by the appropriate voice.
+
+**What It Is NOT:**
+
+Despite how it might seem, dialogue mode is not AI systems conversing with each other. There are no neural networks having conversations. Each line is synthesized independently, one after another, using the specified voice reference. The "conversation" effect is achieved through:
+
+- Sequential processing of script lines in order
+- Voice routing that matches characters to their assigned samples
+- FFmpeg concatenation that preserves timing and flow
+- Independent synthesis of each line with consistent voice characteristics
+
+It's automation, not artificial conversation intelligence.
+
+### How It Works
+
+The dialogue processing pipeline follows these stages:
+
+1. **Parse Script**: Extract dialogue items with sequence number, character name, and text
+2. **Parse Voice Prompts**: Build character-to-audio-file-number mapping
+3. **Validate**: Ensure every character has a voice reference
+4. **Temporary Files**: Create temporary directory for segment audio files
+5. **Iterate Lines**: For each dialogue line:
+   - Load corresponding voice reference audio
+   - Extract voice characteristics from reference
+   - Synthesize the line text using that voice
+   - Save segment to temporary file
+6. **Concatenate**: Use FFmpeg to combine all segments into one file
+7. **Clean Up**: Remove temporary files
+8. **Export**: Save final dialogue to results folder
+
+### Why Not Multi-Speaker Input?
+
+You might wonder: why not just load audio with multiple speakers and let the AI figure it out? Here's why that approach fails:
+
+**Speaker Separation is Hard:**
+
+Even state-of-the-art speaker diarization systems make mistakes. When you have multiple speakers in one audio file, separating who said what accurately is a challenging problem. Errors in speaker identification lead to wrong voice assignments, which ruins the final output.
+
+**Voice Consistency Issues:**
+
+When speakers aren't cleanly separated, the voice cloning produces inconsistent results. One line might sound like the target voice, the next line might drift. This creates a jarring listening experience where the same character sounds different from one sentence to the next.
+
+**No Character Control:**
+
+Multi-speaker input gives you no control over which voice says which line. If you have three voice references and one audio file with two speakers, how do you assign voices? The system can't know your creative intent.
+
+**Dialogue Mode Solves These Problems:**
+
+With dialogue mode, you have explicit control:
+
+- You write exactly what each character says
+- You assign specific voice references to specific characters
+- Each line gets processed independently with the correct voice
+- The result is consistent, controllable, professional
 
 ### Dialogue Format
 
-**Script Format:**
-
-Dialogue scripts use a numbered character format:
+Dialogue scripts use a structured format:
 
 ```
-1:James: "Welcome to our podcast! Today we'll discuss AI."
-2:Sarah: "Thanks James! I'm excited to share my research."
-3:James: "Let's start with the basics. What is AI?"
+1:James: "Welcome to our podcast! Today we'll discuss AI advances."
+2:Sarah: "Thanks James! I'm excited to share my latest research."
+3:James: "Let's start with the basics. What is machine learning?"
+4:Narrator: "And so began an illuminating conversation."
 ```
 
 **Format Rules:**
 
-- Each line starts with a number (sequence)
-- Followed by colon
-- Character name
-- Colon
-- Dialogue in quotation marks
+| Element | Rule |
+|---------|------|
+| Line number | Sequential, starting from 1 (1, 2, 3, 4...) |
+| Character name | Any text, case-insensitive matching |
+| Dialogue | Enclosed in quotation marks |
+| Separator | Colons separate all elements |
 
-**Sequencing:**
+**Valid Examples:**
 
-Dialogue lines must be numbered sequentially starting from 1:
+```
+1:Host: "Welcome everyone to the show."
+2:Guest: "Thanks for having me."
+3:Host: "Let's dive right in."
+```
 
-- Valid: 1, 2, 3, 4, 5
-- Invalid: 1, 4, 2, 3 (out of order)
+**Invalid Examples:**
 
-The sequence determines processing order and is preserved in the final output.
+```
+# Missing quotes
+1:Host: Welcome everyone
 
-**Character Names:**
+# Out of order (will fail validation)
+1:Host: "First line"
+3:Guest: "Third line"
+2:Narrator: "Second line"
 
-Character names must match between the script and voice prompt configuration. Names are case-insensitive (James, james, JAMES all work) but must be spelled identically.
+# Missing line numbers
+Host: "This won't work"
+```
 
 ### Voice Prompt Configuration
-
-**Format:**
 
 Voice prompts map character names to audio file references:
 
@@ -391,290 +469,269 @@ Sarah:2
 Narrator:3
 ```
 
-**Audio File References:**
+**How References Work:**
 
-The number references the audio file shown in the GUI:
+The number refers to the audio file shown in the GUI's reference list:
 
 - "1" references the first loaded audio file
 - "2" references the second loaded audio file
-- Files are numbered sequentially as loaded in the GUI
+- Files are numbered sequentially as loaded
 
-**Example:**
-
-If the GUI shows:
+**Example GUI Display:**
 
 ```
-41.wav - James voice sample
-42.wav - Sarah voice sample
-43.wav - Narrator voice sample
+[1] speaker_james.wav - James voice sample (15s)
+[2] speaker_sarah.wav - Sarah voice sample (12s)
+[3] narrator_voice.wav - Narrator deep voice (20s)
 ```
 
-The voice prompts would be:
+**Corresponding Voice Prompts:**
 
 ```
-James:41
-Sarah:42
-Narrator:43
+James:1
+Sarah:2
+Narrator:3
 ```
 
-Users can click on the audio file in the GUI to hear what voice it contains before routing it to a character.
-
-### Character Routing
-
-**How Routing Works:**
-
-The dialogue system routes each script line to its corresponding voice reference:
-
-1. Parse dialogue script to extract (number, character, text) tuples
-2. For each line, look up the character name in voice prompts
-3. Get the audio file number from the prompt mapping
-4. Generate that line using the specified voice reference
-5. Track which voice reference each line used
-
-**Single Voice Simplicity:**
-
-If only one audio file is loaded, all characters use that voice regardless of script configuration.
-
-**Dialogue Mode Requirement:**
-
-Dialogue mode requires at least two audio files. Single-voice dialogue uses the standard TTS+VC flow without character routing.
-
-### Processing Pipeline
-
-**Stage-by-Stage:**
-
-The dialogue processing pipeline is fully automated:
-
-1. **Parse Script**: Extract dialogue items with sequence, character, and text
-2. **Parse Voice Prompts**: Build character-to-audio mapping
-3. **Validate**: Ensure all characters have voice references
-4. **Temporary Files**: Create temporary directory for segment audio files
-5. **Iterate Lines**: For each dialogue line:
-   - Load corresponding voice reference
-   - Extract voice characteristics
-   - Synthesize the line
-   - Save to temporary file
-6. **Concatenate**: Use FFmpeg to combine all segments into one file
-7. **Clean Up**: Remove temporary files
-8. **Export**: Save final dialogue to results folder
-
-**No AI-to-AI Conversation:**
-
-Despite the appearance, dialogue mode does not involve AI systems conversing with each other. Each line is synthesized independently using the specified voice reference. The "conversation" effect is achieved through:
-
-- Sequential processing of script lines
-- Voice routing that matches characters to their samples
-- FFmpeg concatenation that preserves timing
-
-This automation makes it seem like the AIs are talking to each other, but it is actually just sequential synthesis with voice routing.
+You can click on audio files in the GUI to preview them before assigning to characters.
 
 ---
 
-## Mode Compatibility and Limitations
+## Tips & Tricks
 
-### Working Modes
+### Getting Better Results
 
-The following modes have been validated and work correctly:
+**For TTS (Voice Design):**
 
-**STT+TTS:**
-- Whisper transcription is reliable
-- Qwen3-TTS synthesis produces consistent results
-- Voice cloning in the synthesis stage works as expected
-- User interaction for text editing enables voice modification
+- Be specific in voice prompts — "warm adult female" is better than just "female"
+- Include pacing hints if you want specific rhythm — "slow, deliberate" or "fast, energetic"
+- Mention the use case if relevant — "podcast host" or "news broadcast voice"
+- Experiment with variations — small prompt changes can significantly affect output
 
-**TTS:**
-- Qwen3-TTS VoiceDesign generates consistent voices
-- Voice prompts are interpreted correctly
-- No external dependencies beyond the model
-- Works reliably on both GPU and CPU
+**For TTS+VC (Voice Cloning):**
 
-**TTM (Generally):**
-- ACE-Step generates music from lyrics
-- Style prompts influence output characteristics
-- Shorter durations (under 2 minutes) are most reliable
-- May be inconsistent with very complex lyrics
+- Use 10-30 seconds of clean reference audio
+- Avoid background music or noise in reference
+- Ensure consistent volume throughout reference
+- Single continuous speech is better than multiple short clips
+- The reference voice quality directly affects clone quality
 
-**TTS+VC:**
-- Qwen3-TTS Base handles voice cloning correctly
-- Single-voice mode is fully validated
-- Voice extraction from reference audio works consistently
-- CPU operation is supported
+**For STS (Voice Conversion):**
 
-### Problematic Modes
-
-The following modes may have issues due to Seed-VC v2 compatibility:
-
-**STS:**
-- May fail with certain audio types
-- Requires specific audio characteristics
-- Can fail silently or produce poor results
-- GPU memory constraints affect reliability
-
-**TTM+VC:**
-- Highest failure risk due to multi-stage pipeline
-- TTM output variability affects Seed-VC input
-- "Unmatched data" errors may occur
-- Memory-intensive due to multiple model loads
-
-**General Seed-VC Issues:**
-
-Seed-VC v2 may not work correctly with:
-
-- Very short audio clips (under 2 seconds)
-- Very long audio clips (over 5 minutes)
-- Audio with significant background noise
-- Audio with unusual sample rates or formats
-- Audio with extreme dynamics (very quiet to very loud)
-
-### GPU Requirements
-
-**Modes Requiring GPU:**
-
-The following modes require NVIDIA GPU with minimum 8GB VRAM:
-
-- STS (Speech-to-Speech Voice Conversion)
-- TTM+VC (Text-to-Music + Voice Conversion)
-
-Seed-VC cannot operate on:
-
-- CPU-only systems
-- AMD GPUs
-- Intel integrated graphics
-- Apple Silicon (no CUDA support)
-
-**Modes Working Without GPU:**
-
-The following modes work on CPU:
-
-- TTS (Text-to-Speech)
-- TTS+VC (Text-to-Speech + Voice Cloning)
-- TTM (Text-to-Music)
-
-Processing will be significantly slower without GPU acceleration.
-
----
-
-## Output and File Management
-
-**Results Directory:**
-
-All output files are automatically saved to the `results/` folder located next to `voder.py`:
-
-```
-VODER/
-  voder.py
-  results/
-    voder_tts_20260210_120000.wav
-    voder_sts_20260210_120100.wav
-    voder_tts_vc_dialogue_20260210_120200.wav
-    ...
-```
-
-**Automatic Naming:**
-
-Output files are named with:
-
-- Mode identifier (tts, sts, ttm, etc.)
-- Timestamp (YYYYMMDD_HHMMSS)
-- Appropriate file extension (.wav)
-
-**No Manual Export Required:**
-
-Users do not need to specify output paths. The tool automatically exports results to the results folder with unique filenames based on timestamp.
-
----
-
-## Troubleshooting
-
-### Getting Help
-
-**Preferred Contact Method:**
-
-For issues, bugs, or feature requests, Direct Message on X (Twitter) is preferred over GitHub issues:
-
-- **X**: [@HAKORAdev](https://x.com/HAKORAdev)
-
-DMing allows for:
-
-- Direct communication with the developer
-- Faster response times
-- Discussion of issues not suitable for public tracking
-- Collaborative problem-solving
-
-It is like having a genie that will work on your issues and tell you when to check again.
-
-### Common Issues
-
-**STS/TTM+VC Fails Immediately:**
-
-- **Cause**: No NVIDIA GPU detected or insufficient VRAM
-- **Solution**: Verify GPU installation and VRAM availability
-
-**Unmatched Data Error (TTM+VC):**
-
-- **Cause**: Seed-VC cannot process TTM output
-- **Solution**: Try shorter duration, simpler style prompt, or different lyrics
-
-**Dialogue Character Not Found:**
-
-- **Cause**: Character name mismatch between script and voice prompts
-- **Solution**: Verify names match exactly (case-insensitive but spelling must match)
-
-**Out of Memory:**
-
-- **Cause**: Model too large for available memory
-- **Solution**: Process shorter audio, reduce TTM duration, close other applications
-
-**FFmpeg Not Found:**
-
-- **Cause**: FFmpeg not installed or not in system PATH
-- **Solution**: Install FFmpeg separately (see Installation section)
-
-**Quality Issues with TTM:**
-
-- **Cause**: Complex lyrics or ambitious style prompts
-- **Solution**: Simplify lyrics structure, use more conventional style descriptions
-
-### Mode-Specific Tips
-
-**STT+TTS:**
-- Use clear audio for best transcription
-- Review transcribed text carefully before synthesis
-- Same audio as base and target enables voice modification
-
-**TTS:**
-- Experiment with voice prompts for different characteristics
-- Shorter scripts process faster
-
-**TTS+VC:**
-- High-quality reference audio produces better clones
-- 10-30 seconds of reference audio is ideal
-
-**STS:**
 - Base and target should have similar audio characteristics
-- Avoid very short or very long source files
+- If base is phone-quality, target should also be phone-quality
+- Very short clips (under 2 seconds) may not convert well
+- Very long clips (over 5 minutes) may cause memory issues
+- Clear speech converts better than expressive/emphatic speech
 
-**TTM:**
-- Start with shorter durations (30-60 seconds)
-- Simple lyrics structures work best
-- Conventional genre/style prompts are more reliable
+**For TTM (Music Generation):**
 
-**TTM+VC:**
-- Expect higher failure rate than other modes
-- Have backup TTM-only output ready
-- Consider TTS+VC for voice-focused work instead
+- Structure lyrics with verse/chorus markers for better organization
+- Keep lyrics simple for more coherent results
+- Style prompts work best when specific — "80s synthpop" is better than "good"
+- Shorter durations (30-60 seconds) are more reliable
+- Complex lyrics with unusual structures may produce inconsistent results
+
+### Multi-Speaker Scenarios
+
+**Always Use Dialogue Mode:**
+
+If you need multiple voices, use dialogue mode. This is not optional advice — it's how VODER is designed to work. Trying to work around dialogue mode by:
+
+- Loading multi-speaker audio and hoping for the best
+- Manually stitching together separate TTS+VC outputs
+- Using voice conversion on multi-speaker audio
+
+...all of these produce worse results than simply using the dialogue system that's built specifically for this purpose.
+
+**Dialogue Planning:**
+
+1. Write your script with character names
+2. Gather reference audio for each character (10-30 seconds each)
+3. Assign references to characters in the GUI
+4. Generate dialogue in one operation
+5. Review and iterate if needed
+
+**Character Consistency:**
+
+Once you've assigned a voice reference to a character, keep using the same reference for that character throughout the project. Changing references mid-dialogue creates inconsistent results.
+
+### Using Same Audio Source
+
+**The Modification Trick:**
+
+For STT+TTS mode, if you use the same audio file as both base (content) and target (voice), you get voice modification. The transcribed text becomes editable, and the synthesis uses the same voice characteristics from the original audio. This allows you to:
+
+- Change words or phrases while keeping the original voice
+- Fix awkward phrasing while maintaining voice consistency
+- Localize content while preserving original voice characteristics
+- Create fictional quotes from real voice samples
+
+**When This Works Best:**
+
+- Reference audio is clean and of good quality
+- You want minimal change to the overall delivery
+- You're making small edits, not rewriting entire passages
+- The original voice has clear, consistent characteristics
+
+### Voice Cloning Best Practices
+
+**Reference Audio Quality Hierarchy:**
+
+| Quality | Characteristics | Result |
+|---------|-----------------|--------|
+| Excellent | Studio recording, no noise, consistent volume | Best clone quality |
+| Good | Clean recording, minimal background, consistent | Good clone quality |
+| Acceptable | Some background, slight inconsistencies | Acceptable quality |
+| Poor | Heavy noise, compression artifacts, inconsistent | Poor clone quality |
+
+**What to Avoid in Reference Audio:**
+
+- Background music or sounds
+- Multiple speakers (even briefly)
+- Extreme volume variations
+- Phone-quality or highly compressed audio
+- Emotional extremes that distort voice characteristics
+- Audio that has been heavily processed or filtered
+
+**The 10-30 Second Sweet Spot:**
+
+Reference audio between 10 and 30 seconds produces the best results. Shorter references may not capture enough voice characteristics. Longer references don't significantly improve quality and take longer to process.
 
 ---
 
-## Summary
+## Version Information
 
-VODER's architecture is designed around several key principles:
+**Timestamp-Based Versioning:**
 
-1. **Modularity**: Each mode is self-contained with clear inputs and outputs
-2. **Automation**: Dialogues and multi-stage pipelines run without user intervention
-3. **Compatibility**: FFmpeg handles format conversions transparently
-4. **Limitations**: Seed-VC constraints define the boundaries of certain modes
+VODER uses timestamp-based versioning rather than semantic versioning (v1.2.3, etc.). Each build is identified by its creation timestamp in YYYYMMDD_HHMMSS format. This approach reflects VODER's development philosophy — continuous improvement rather than numbered releases.
 
-Understanding these internal details helps users work within VODER's capabilities and troubleshoot issues effectively. The tool is actively developed, and reported issues help prioritize future improvements.
+**Why Not Semantic Versioning:**
 
-For questions, issues, or collaboration opportunities, reach out on X: [@HAKORAdev](https://x.com/HAKORAdev)
+Traditional semantic versioning implies discrete releases with specific feature sets and bug fixes between versions. VODER development doesn't follow that pattern. Changes are made when they're ready, tested, and merged. A user downloading VODER today gets the absolute latest version with all improvements since the last commit.
+
+**Version Tracking:**
+
+- Each commit to the main branch gets a timestamp
+- The CHANGELOG.md documents significant changes with dates
+- No numbered releases means no "latest stable version" confusion
+- Everyone always uses the current development version
+
+**No PyPI Package:**
+
+Unlike IMDER, VODER is not distributed via PyPI. Running from source is the only way to use VODER. This ensures:
+
+- Always access to latest features
+- No version compatibility issues
+- Direct access to development version
+- Transparency in what's running
+
+---
+
+## Troubleshooting & Common Issues
+
+### STS/TTM+VC Fails Immediately
+
+**Cause:** No NVIDIA GPU detected or insufficient VRAM
+
+**Solution:**
+```bash
+# Verify GPU is detected
+python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+
+# Check VRAM
+nvidia-smi
+```
+
+If no GPU is detected, Seed-VC modes cannot work. These modes require NVIDIA GPU with minimum 8GB VRAM.
+
+### Out of Memory Errors
+
+**Cause:** Model too large for available memory
+
+**Solution:**
+- Process shorter audio segments
+- Reduce TTM duration (shorter music = less memory)
+- Close other GPU-intensive applications
+- Ensure no other processes are using GPU memory
+
+### FFmpeg Not Found
+
+**Cause:** FFmpeg not installed or not in system PATH
+
+**Solution:**
+```bash
+# Verify FFmpeg installation
+ffmpeg -version
+
+# Install if needed
+# Windows: winget install FFmpeg
+# macOS: brew install ffmpeg
+# Linux: sudo apt install ffmpeg
+```
+
+### HuggingFace Model Download Fails
+
+**Cause:** Network issues or gated repository access
+
+**Solution:**
+1. Check internet connection
+2. Add HuggingFace token to HF_TOKEN.txt for gated models
+3. Clear cache and retry:
+   ```bash
+   rm -rf ./models ./checkpoints
+   python src/voder.py
+   ```
+
+### Voice Cloning Produces Poor Results
+
+**Cause:** Poor quality reference audio
+
+**Solution:** Use high-quality reference audio:
+- 10-30 seconds duration
+- Clear speech, minimal background noise
+- Single speaker, no music
+- Consistent volume levels
+- No post-processing or effects
+
+### Dialogue Character Not Found
+
+**Cause:** Character name mismatch between script and voice prompts
+
+**Solution:** Verify names match exactly:
+- Case is ignored (James = james = JAMES)
+- Spelling must match exactly
+- Check for extra spaces or characters
+
+### Quality Issues with TTM
+
+**Cause:** Complex lyrics or ambitious style prompts
+
+**Solution:**
+- Simplify lyrics structure
+- Use more conventional style descriptions
+- Try shorter durations first
+- Start with well-known genres ("pop", "rock") before experimenting
+
+### Mode-Specific Reference
+
+| Mode | Common Issue | Solution |
+|------|--------------|----------|
+| STT+TTS | Multi-speaker confusion | Use dialogue mode instead |
+| TTS | Unnatural voice | More detailed prompts |
+| TTS+VC | Clone quality issues | Better reference audio |
+| STS | Conversion fails | Shorter input, check VRAM |
+| TTM | Inconsistent music | Shorter duration, simpler lyrics |
+| TTM+VC | Unmatched data | Shorter duration, try TTM only |
+
+---
+
+## Final Notes
+
+VODER is a tool built for creators, developers, and audio professionals who need professional-grade voice processing without subscription fees or usage limits. It prioritizes quality over speed, simplicity over complexity, and utility over marketing.
+
+All six processing modes work reliably. The "problematic modes" designation from earlier versions is outdated — Seed-VC v2 has proven stable across the use cases VODER supports. If you encounter issues, they're more likely to be related to resource constraints or input quality than mode-specific bugs.
+
+For questions, issues, or collaboration opportunities, visit the GitHub repository or reach out through community channels.
+
+**Remember:** Quality over speed. Use dialogue mode for multi-speaker content. Reference audio quality matters. And when in doubt, start with simpler configurations before experimenting with advanced workflows.
