@@ -3,7 +3,13 @@
 - All notable changes to VODER - Voice Blender will be documented in this file.
 - this project does not use Version names like v1.2.3, it just timestamped to note changes, it will always be updated everytime i notice something wrong
 
-## Feb/9/2026
+## 03/09/2026
+- Status: Stable, All features works, under aggressive testing, still developing
+
+### Fixed
+- Seed-VC v2 unmatched tensor error which causes both STS and TTM+VC to fail, now STS works perfectly, TTM+VC will get more updates
+
+## 02/09/2026
 - Status: unstable, untested, under development
 
 **Initial Release - Unstable Development Build**
