@@ -1,5 +1,9 @@
 # VODER Technical Guide
 
+## BEFORE YOU GO
+- these info here are outdated
+- if you are human (and i guess you are) use GUI for full features, if using clouds, then you lost dialogues!
+
 ## Table of Contents
 
 - [Introduction](#introduction)
