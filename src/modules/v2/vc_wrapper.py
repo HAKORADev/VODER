@@ -385,8 +385,10 @@ class VoiceConversionWrapper(torch.nn.Module):
                 inference_cfg_rate=inference_cfg_rate,
             )
         vc_mel = vc_mel[:, :, target_mel_len:]
-        vc_wave = self.vocoder(vc_mel.float()).squeeze()[None]
-        return vc_wave.cpu().numpy()
+        vc_wave = self.vocoder(vc_mel.float()).squeeze()
+        # Ensure proper format: convert to float32 and squeeze to 1D array
+        vc_wave_np = vc_wave.cpu().float().numpy().squeeze()
+        return vc_wave_np
 
     @torch.no_grad()
     @torch.inference_mode()
@@ -458,8 +460,10 @@ class VoiceConversionWrapper(torch.nn.Module):
                 inference_cfg_rate=inference_cfg_rate,
             )
         vc_mel = vc_mel[:, :, target_mel_len:]
-        vc_wave = self.vocoder(vc_mel.float()).squeeze()[None]
-        return vc_wave.cpu().numpy()
+        vc_wave = self.vocoder(vc_mel.float()).squeeze()
+        # Ensure proper format: convert to float32 and squeeze to 1D array
+        vc_wave_np = vc_wave.cpu().float().numpy().squeeze()
+        return vc_wave_np
 
     def _process_content_features(self, audio_16k_tensor, is_narrow=False):
         """Process audio through Whisper model to extract features."""
@@ -617,7 +621,11 @@ class VoiceConversionWrapper(torch.nn.Module):
                         random_voice=anonymization_only,
                     )
                     vc_mel = vc_mel[:, :, target_mel_len:original_len]
-                vc_wave = self.vocoder(vc_mel).squeeze()[None]
+                vc_wave = self.vocoder(vc_mel).squeeze()
+                # Ensure proper format for audio processing
+                vc_wave = vc_wave.cpu().float().numpy()
+                if vc_wave.ndim > 1:
+                    vc_wave = vc_wave.squeeze()
                 processed_frames, previous_chunk, should_break, mp3_bytes, full_audio = self._stream_wave_chunks(
                     vc_wave, processed_frames, vc_mel, overlap_wave_len,
                     generated_wave_chunks, previous_chunk, is_last_chunk, stream_output
@@ -653,7 +661,11 @@ class VoiceConversionWrapper(torch.nn.Module):
                         random_voice=anonymization_only,
                     )
                 vc_mel = vc_mel[:, :, target_mel_len:original_len]
-                vc_wave = self.vocoder(vc_mel).squeeze()[None]
+                vc_wave = self.vocoder(vc_mel).squeeze()
+                # Ensure proper format for audio processing
+                vc_wave = vc_wave.cpu().float().numpy()
+                if vc_wave.ndim > 1:
+                    vc_wave = vc_wave.squeeze()
 
                 processed_frames, previous_chunk, should_break, mp3_bytes, full_audio = self._stream_wave_chunks(
                     vc_wave, processed_frames, vc_mel, overlap_wave_len,
