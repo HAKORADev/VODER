@@ -664,6 +664,14 @@ class SeedVCV2:
 
                 self.model.to(self.device)
                 self.model.eval()
+                
+                # Setup AR model caches (required for proper RoPE initialization)
+                self.model.setup_ar_caches(
+                    max_batch_size=1, 
+                    max_seq_len=4096, 
+                    dtype=self.dtype, 
+                    device=self.device
+                )
             except ImportError as e:
                 print(f"Missing dependency for Seed-VC: {e}")
             except Exception as e:
