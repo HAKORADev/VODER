@@ -375,6 +375,9 @@ class VoiceConversionWrapper(torch.nn.Module):
 
             cat_condition = torch.cat([prompt_condition, cond], dim=1)
             # generate mel spectrogram
+            # CFM expects inference_cfg_rate as a list [intelligibility, similarity]
+            if isinstance(inference_cfg_rate, float):
+                inference_cfg_rate = [inference_cfg_rate, inference_cfg_rate]
             vc_mel = self.cfm.inference(
                 cat_condition,
                 torch.LongTensor([cat_condition.size(1)]).to(device),
@@ -445,6 +448,9 @@ class VoiceConversionWrapper(torch.nn.Module):
 
             cat_condition = torch.cat([prompt_condition, cond], dim=1)
             # generate mel spectrogram
+            # CFM expects inference_cfg_rate as a list [intelligibility, similarity]
+            if isinstance(inference_cfg_rate, float):
+                inference_cfg_rate = [inference_cfg_rate, inference_cfg_rate]
             vc_mel = self.cfm.inference(
                 cat_condition,
                 torch.LongTensor([cat_condition.size(1)]).to(device),
