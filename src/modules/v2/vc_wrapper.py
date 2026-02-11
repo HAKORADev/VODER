@@ -380,8 +380,6 @@ class VoiceConversionWrapper(torch.nn.Module):
                 torch.LongTensor([cat_condition.size(1)]).to(device),
                 target_mel, target_style, diffusion_steps,
                 inference_cfg_rate=inference_cfg_rate,
-                sway_sampling=use_sway_sampling,
-                amo_sampling=use_amo_sampling,
             )
         vc_mel = vc_mel[:, :, target_mel_len:]
         vc_wave = self.vocoder(vc_mel.float()).squeeze()[None]
@@ -452,8 +450,6 @@ class VoiceConversionWrapper(torch.nn.Module):
                 torch.LongTensor([cat_condition.size(1)]).to(device),
                 target_mel, target_style, diffusion_steps,
                 inference_cfg_rate=inference_cfg_rate,
-                sway_sampling=use_sway_sampling,
-                amo_sampling=use_amo_sampling,
             )
         vc_mel = vc_mel[:, :, target_mel_len:]
         vc_wave = self.vocoder(vc_mel.float()).squeeze()[None]
