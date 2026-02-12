@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QDesktopWidget, QComboBox, QMenu, QAction, QSlider,
                              QGridLayout, QInputDialog, QTextEdit, QSplitter,
                              QListWidget, QListWidgetItem, QLineEdit, QSpinBox,
-                             QScrollArea)
+                             QScrollArea, QDialog)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize, QPoint, QRect
 from PyQt5.QtGui import QImage, QPixmap, QIcon, QFont, QColor, QPalette, QPainter, QPen, QBrush
 from omegaconf import DictConfig
@@ -79,7 +79,7 @@ THEME = {
 def get_main_button_style():
     return """
         QPushButton {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                 stop:0 #121212, stop:0.3 #121212, stop:0.7 #1a1a1a, stop:1 #121212);
             border: 2px solid #E5E5E5;
             border-radius: 8px;
@@ -89,12 +89,12 @@ def get_main_button_style():
             padding: 8px 16px;
         }
         QPushButton:hover {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                 stop:0 #121212, stop:0.3 #161616, stop:0.7 #1e1e1e, stop:1 #121212);
             border: 2px solid #E5E5E5;
         }
         QPushButton:pressed {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                 stop:0 #0e0e0e, stop:0.3 #121212, stop:0.7 #161616, stop:1 #0e0e0e);
             border: 2px solid #E5E5E5;
         }
@@ -108,7 +108,7 @@ def get_main_button_style():
 def get_secondary_button_style():
     return """
         QPushButton {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                 stop:0 #121212, stop:0.3 #121212, stop:0.7 #1a1a1a, stop:1 #121212);
             border: 2px solid #E5E5E5;
             border-radius: 8px;
@@ -118,12 +118,12 @@ def get_secondary_button_style():
             padding: 8px 16px;
         }
         QPushButton:hover {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                 stop:0 #121212, stop:0.3 #161616, stop:0.7 #1e1e1e, stop:1 #121212);
             border: 2px solid #E5E5E5;
         }
         QPushButton:pressed {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                 stop:0 #0e0e0e, stop:0.3 #121212, stop:0.7 #161616, stop:1 #0e0e0e);
             border: 2px solid #E5E5E5;
         }
@@ -1018,7 +1018,8 @@ class ProcessingThread(QThread):
     error_signal = pyqtSignal(str)
 
     def __init__(self, mode, base_path=None, target_path=None, text=None, output_path=None,
-                 voice_instruct=None, dialogue_data=None, voice_prompts=None, duration=None):
+                 voice_instruct=None, dialogue_data=None, voice_prompts=None, duration=None,
+                 music_description=None, assignments=None):
         super().__init__()
         self.mode = mode
         self.base_path = base_path
@@ -1029,6 +1030,8 @@ class ProcessingThread(QThread):
         self.dialogue_data = dialogue_data
         self.voice_prompts = voice_prompts
         self.duration = duration
+        self.music_description = music_description
+        self.assignments = assignments
         self.stt = None
         self.tts = None
         self.tts_voice_design = None
@@ -1104,16 +1107,158 @@ class ProcessingThread(QThread):
                 if self.tts_voice_design.model is None:
                     self.error_signal.emit("Failed to load VoiceDesign model")
                     return
+                self.status_signal.emit("Generating dialogue...")
+                dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                dialogue_temp.close()
                 success, message = self.tts_voice_design.synthesize_dialogue(
                     self.dialogue_data,
                     self.voice_prompts,
-                    self.output_path
+                    dialogue_temp.name
                 )
-                if success:
-                    self.progress_signal.emit(100)
-                    self.finished_signal.emit(self.output_path)
-                else:
+                if not success:
                     self.error_signal.emit(message)
+                    return
+                self.progress_signal.emit(50)
+                if self.music_description:
+                    self.status_signal.emit("Generating background music...")
+                    try:
+                        info = torchaudio.info(dialogue_temp.name)
+                        duration = info.num_frames / info.sample_rate
+                    except:
+                        duration = 30
+                    music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                    music_temp.close()
+                    self.ace_tt = AceStepWrapper()
+                    if self.ace_tt.handler is None:
+                        self.error_signal.emit("Failed to load ACE-Step model")
+                        return
+                    self.progress_signal.emit(60)
+                    music_success = self.ace_tt.generate(
+                        lyrics="...",
+                        style_prompt=self.music_description,
+                        output_path=music_temp.name,
+                        duration=int(duration)
+                    )
+                    self.progress_signal.emit(80)
+                    if not music_success:
+                        self.error_signal.emit("Background music generation failed")
+                        return
+                    del self.ace_tt
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    self.status_signal.emit("Mixing dialogue with music...")
+                    mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                    mixed_temp.close()
+                    cmd = [
+                        'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp.name,
+                        '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
+                        '-y', mixed_temp.name
+                    ]
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    if result.returncode != 0:
+                        self.error_signal.emit(f"FFmpeg mixing failed: {result.stderr}")
+                        return
+                    os.replace(mixed_temp.name, self.output_path)
+                    os.unlink(dialogue_temp.name)
+                    os.unlink(music_temp.name)
+                else:
+                    os.replace(dialogue_temp.name, self.output_path)
+                self.progress_signal.emit(100)
+                self.finished_signal.emit(self.output_path)
+
+            elif self.mode == "tts_vc_dialogue":
+                self.status_signal.emit("Loading Qwen-TTS model...")
+                self.tts = QwenTTS()
+                self.progress_signal.emit(10)
+                if self.tts.model is None:
+                    self.error_signal.emit("Failed to load Qwen-TTS model")
+                    return
+                temp_dir = tempfile.mkdtemp()
+                temp_files = []
+                try:
+                    total = len(self.dialogue_data)
+                    for i, (num, char, script_text) in enumerate(self.dialogue_data):
+                        char_lower = char.lower()
+                        audio_path = self.assignments[char_lower]
+                        self.status_signal.emit(f"Generating line {num}/{total} for '{char}'...")
+                        progress = int((i / total) * 40)
+                        self.progress_signal.emit(progress + 10)
+                        success = self.tts.extract_voice(audio_path)
+                        if not success:
+                            self.error_signal.emit(f"Voice extraction failed for {char}")
+                            return
+                        temp_file = os.path.join(temp_dir, f"line_{num}.wav")
+                        temp_files.append((num, temp_file))
+                        success = self.tts.synthesize(script_text, temp_file)
+                        if not success:
+                            self.error_signal.emit(f"Synthesis failed for line {num}")
+                            return
+                    self.progress_signal.emit(50)
+                    temp_files.sort(key=lambda x: x[0])
+                    dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                    dialogue_temp.close()
+                    concat_list = os.path.join(temp_dir, "concat_list.txt")
+                    with open(concat_list, 'w') as f:
+                        for _, tf in temp_files:
+                            f.write(f"file '{tf}'\n")
+                    cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_list, '-y', dialogue_temp.name]
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    if result.returncode != 0:
+                        self.error_signal.emit(f"FFmpeg concatenation failed: {result.stderr}")
+                        return
+                    self.progress_signal.emit(70)
+                    if self.music_description:
+                        self.status_signal.emit("Generating background music...")
+                        try:
+                            info = torchaudio.info(dialogue_temp.name)
+                            duration = info.num_frames / info.sample_rate
+                        except:
+                            duration = 30
+                        music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                        music_temp.close()
+                        self.ace_tt = AceStepWrapper()
+                        if self.ace_tt.handler is None:
+                            self.error_signal.emit("Failed to load ACE-Step model")
+                            return
+                        self.progress_signal.emit(80)
+                        music_success = self.ace_tt.generate(
+                            lyrics="...",
+                            style_prompt=self.music_description,
+                            output_path=music_temp.name,
+                            duration=int(duration)
+                        )
+                        self.progress_signal.emit(85)
+                        if not music_success:
+                            self.error_signal.emit("Background music generation failed")
+                            return
+                        del self.ace_tt
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        self.status_signal.emit("Mixing dialogue with music...")
+                        mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                        mixed_temp.close()
+                        cmd = [
+                            'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp.name,
+                            '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
+                            '-y', mixed_temp.name
+                        ]
+                        result = subprocess.run(cmd, capture_output=True, text=True)
+                        if result.returncode != 0:
+                            self.error_signal.emit(f"FFmpeg mixing failed: {result.stderr}")
+                            return
+                        os.replace(mixed_temp.name, self.output_path)
+                        os.unlink(dialogue_temp.name)
+                        os.unlink(music_temp.name)
+                    else:
+                        os.replace(dialogue_temp.name, self.output_path)
+                finally:
+                    import shutil
+                    try:
+                        shutil.rmtree(temp_dir)
+                    except:
+                        pass
+                self.progress_signal.emit(100)
+                self.finished_signal.emit(self.output_path)
 
             elif self.mode == "seed_vc_convert":
                 self.status_signal.emit("Loading Seed-VC v2 model...")
@@ -1338,6 +1483,44 @@ The music plays, I start to move
 Grooving to the funky groove
 Don't care what tomorrow brings
 Tonight my heart just sings"""
+
+class BackgroundMusicDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Background Music")
+        self.setModal(True)
+        layout = QVBoxLayout()
+        label = QLabel("Enter music description (or press Skip):")
+        layout.addWidget(label)
+        self.text_edit = QLineEdit()
+        self.text_edit.setPlaceholderText("e.g., soft piano, cinematic strings, ambient")
+        layout.addWidget(self.text_edit)
+        btn_layout = QHBoxLayout()
+        self.ok_btn = QPushButton("OK")
+        self.ok_btn.setStyleSheet(get_main_button_style())
+        self.ok_btn.setCursor(Qt.PointingHandCursor)
+        self.skip_btn = QPushButton("Skip")
+        self.skip_btn.setStyleSheet(get_secondary_button_style())
+        self.skip_btn.setCursor(Qt.PointingHandCursor)
+        btn_layout.addWidget(self.ok_btn)
+        btn_layout.addWidget(self.skip_btn)
+        layout.addLayout(btn_layout)
+        self.setLayout(layout)
+        self.ok_btn.clicked.connect(self.on_ok)
+        self.skip_btn.clicked.connect(self.on_skip)
+        self.result = None
+
+    def on_ok(self):
+        desc = self.text_edit.text().strip()
+        if not desc:
+            QMessageBox.warning(self, "Warning", "Description cannot be empty. Press Skip to skip music.")
+            return
+        self.result = desc
+        self.accept()
+
+    def on_skip(self):
+        self.result = None
+        self.reject()
 
 class VODERGUI(QMainWindow):
     def __init__(self):
@@ -2150,37 +2333,29 @@ class VODERGUI(QMainWindow):
             QMessageBox.warning(self, "Missing Voice Prompts",
                                 f"The following characters have no voice prompt:\n{', '.join(set(missing))}")
             return
+        music_description = None
+        if len(dialogue_items) > 1:
+            dlg = BackgroundMusicDialog(self)
+            if dlg.exec_() == QDialog.Accepted:
+                music_description = dlg.result
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        if len(dialogue_items) == 1:
-            output_path = os.path.join("results", f"voder_tts_single_{timestamp}.wav")
-            _, char, text = dialogue_items[0]
-            voice_instruct = valid_prompts[char.lower()]
-            self.set_processing_state(True)
-            self.status_bar.setText("Generating speech with VoiceDesign...")
-            self.progress.setValue(0)
-            self.worker = ProcessingThread("tts_voice_design",
-                                           text=text,
-                                           voice_instruct=voice_instruct,
-                                           output_path=output_path)
-            self.worker.progress_signal.connect(self.progress.setValue)
-            self.worker.status_signal.connect(self.status_bar.setText)
-            self.worker.finished_signal.connect(self.on_synthesis_finished)
-            self.worker.error_signal.connect(self.on_error)
-            self.worker.start()
-        else:
-            output_path = os.path.join("results", f"voder_tts_dialogue_{timestamp}.wav")
-            self.set_processing_state(True)
-            self.status_bar.setText("Processing dialogue...")
-            self.progress.setValue(0)
-            self.worker = ProcessingThread("tts_voice_design_dialogue",
-                                           dialogue_data=dialogue_items,
-                                           voice_prompts=valid_prompts,
-                                           output_path=output_path)
-            self.worker.progress_signal.connect(self.progress.setValue)
-            self.worker.status_signal.connect(self.status_bar.setText)
-            self.worker.finished_signal.connect(self.on_synthesis_finished)
-            self.worker.error_signal.connect(self.on_error)
-            self.worker.start()
+        base_name = f"voder_tts_dialogue_{timestamp}"
+        if music_description:
+            base_name += "_m"
+        output_path = os.path.join("results", f"{base_name}.wav")
+        self.set_processing_state(True)
+        self.status_bar.setText("Processing dialogue..." + (" with music" if music_description else ""))
+        self.progress.setValue(0)
+        self.worker = ProcessingThread("tts_voice_design_dialogue",
+                                       dialogue_data=dialogue_items,
+                                       voice_prompts=valid_prompts,
+                                       output_path=output_path,
+                                       music_description=music_description)
+        self.worker.progress_signal.connect(self.progress.setValue)
+        self.worker.status_signal.connect(self.status_bar.setText)
+        self.worker.finished_signal.connect(self.on_synthesis_finished)
+        self.worker.error_signal.connect(self.on_error)
+        self.worker.start()
 
     def patch_audio_tts_vc(self):
         script_valid, script_msg = self.tts_script_widget.validate()
@@ -2206,6 +2381,7 @@ class VODERGUI(QMainWindow):
                                 f"The following characters have no audio file assigned:\n{', '.join(set(missing))}")
             return
         audio_files = self.tts_vc_get_all_audio_files()
+        assignments_paths = {}
         for char, num_str in valid_assignments.items():
             try:
                 num = int(num_str)
@@ -2217,14 +2393,34 @@ class VODERGUI(QMainWindow):
                 QMessageBox.warning(self, "Audio File Missing",
                                     f"Audio file number {num} not found. It may have been deleted.")
                 return
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
+            assignments_paths[char] = audio_files[num]
         if len(dialogue_items) == 1:
             _, char, text = dialogue_items[0]
-            audio_num = int(valid_assignments[char.lower()])
-            audio_path = audio_files[audio_num]
+            audio_path = assignments_paths[char.lower()]
             self.generate_tts_vc_single(text, audio_path)
         else:
-            self.generate_tts_vc_dialogue(dialogue_items, valid_assignments, audio_files)
+            music_description = None
+            dlg = BackgroundMusicDialog(self)
+            if dlg.exec_() == QDialog.Accepted:
+                music_description = dlg.result
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            base_name = f"voder_tts_vc_dialogue_{timestamp}"
+            if music_description:
+                base_name += "_m"
+            output_path = os.path.join("results", f"{base_name}.wav")
+            self.set_processing_state(True)
+            self.status_bar.setText("Processing dialogue with voice clone..." + (" with music" if music_description else ""))
+            self.progress.setValue(0)
+            self.worker = ProcessingThread("tts_vc_dialogue",
+                                           dialogue_data=dialogue_items,
+                                           assignments=assignments_paths,
+                                           output_path=output_path,
+                                           music_description=music_description)
+            self.worker.progress_signal.connect(self.progress.setValue)
+            self.worker.status_signal.connect(self.status_bar.setText)
+            self.worker.finished_signal.connect(self.on_synthesis_finished)
+            self.worker.error_signal.connect(self.on_error)
+            self.worker.start()
 
     def generate_tts_vc_single(self, script_text, audio_path):
         self.set_processing_state(True)
@@ -2246,61 +2442,6 @@ class VODERGUI(QMainWindow):
         else:
             QMessageBox.warning(self, "Error", "Speech generation failed")
             self.set_processing_state(False)
-
-    def generate_tts_vc_dialogue(self, dialogue_items, assignments, audio_files):
-        self.set_processing_state(True)
-        self.status_bar.setText("Processing dialogue with voice cloning...")
-        self.progress.setValue(0)
-        temp_dir = tempfile.mkdtemp()
-        temp_files = []
-        tts = QwenTTS()
-        try:
-            total_steps = len(dialogue_items)
-            for i, (num, char, script_text) in enumerate(dialogue_items):
-                char_lower = char.lower()
-                audio_num = int(assignments[char_lower])
-                audio_path = audio_files[audio_num]
-                self.status_bar.setText(f"Generating line {num}/{total_steps} for '{char}'...")
-                progress = int((i / total_steps) * 80)
-                self.progress.setValue(progress)
-                success = tts.extract_voice(audio_path)
-                if not success:
-                    QMessageBox.warning(self, "Error", f"Failed to extract voice from audio {audio_num}")
-                    self.set_processing_state(False)
-                    return
-                temp_file = os.path.join(temp_dir, f"line_{num}.wav")
-                temp_files.append((num, temp_file))
-                success = tts.synthesize(script_text, temp_file)
-                if not success:
-                    QMessageBox.warning(self, "Error", f"Failed to generate speech for line {num}")
-                    self.set_processing_state(False)
-                    return
-            self.status_bar.setText("Compiling dialogue...")
-            self.progress.setValue(90)
-            if len(temp_files) < 1:
-                QMessageBox.warning(self, "Error", "No audio files generated")
-                self.set_processing_state(False)
-                return
-            temp_files.sort(key=lambda x: x[0])
-            concat_list = os.path.join(temp_dir, "concat_list.txt")
-            with open(concat_list, 'w') as f:
-                for _, tf in temp_files:
-                    f.write(f"file '{tf}'\n")
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            output_path = os.path.join("results", f"voder_tts_vc_dialogue_{timestamp}.wav")
-            cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_list, '-y', output_path]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                QMessageBox.warning(self, "Error", f"FFmpeg concatenation failed: {result.stderr}")
-                self.set_processing_state(False)
-                return
-            self.on_synthesis_finished(output_path)
-        finally:
-            import shutil
-            try:
-                shutil.rmtree(temp_dir)
-            except:
-                pass
 
     def patch_audio_sts(self):
         if not self.base_audio_path or not self.target_audio_path:
@@ -2455,11 +2596,11 @@ class VODERGUI(QMainWindow):
 
 def print_banner():
     print("""
-██    ██  ██████  ██████  ███████ ██████  
-██    ██ ██    ██ ██   ██ ██      ██   ██ 
-██    ██ ██    ██ ██   ██ █████   ██████  
- ██  ██  ██    ██ ██   ██ ██      ██   ██ 
-  ████    ██████  ██████  ███████ ██   ██ 
+██    ██  ██████  ██████  ███████ ██████
+██    ██ ██    ██ ██   ██ ██      ██   ██
+██    ██ ██    ██ ██   ██ █████   ██████
+ ██  ██  ██    ██ ██   ██ ██      ██   ██
+  ████    ██████  ██████  ███████ ██   ██
 """)
     print("=" * 60)
     print("Interactive CLI Mode - Voice Blender Tool")
@@ -2573,6 +2714,13 @@ def cli_tts_mode():
             voice_prompts[char_lower] = prompt
             print(f"Progress: {i+1}/{len(chars)} completed")
 
+        music_description = None
+        add_music = input("\nAdd background music? (y/N): ").strip().lower()
+        if add_music in ('y', 'yes'):
+            music_desc = input("Music description: ").strip()
+            if music_desc:
+                music_description = music_desc
+
         print("\nLoading Qwen-TTS VoiceDesign model...")
         tts_design = QwenTTSVoiceDesign()
         if tts_design.model is None:
@@ -2580,23 +2728,111 @@ def cli_tts_mode():
             return False
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
+        base_name = f"voder_tts_dialogue_{timestamp}"
+        if music_description:
+            base_name += "_m"
+        output_path = os.path.join("results", f"{base_name}.wav")
+
         if len(dialogue_items) == 1:
-            output_path = os.path.join("results", f"voder_tts_single_{timestamp}.wav")
             _, char, text = dialogue_items[0]
             voice_instruct = voice_prompts[char.lower()]
-            success = tts_design.synthesize(text, voice_instruct, output_path)
+            dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            dialogue_temp.close()
+            success = tts_design.synthesize(text, voice_instruct, dialogue_temp.name)
             if not success:
                 print("Error: VoiceDesign synthesis failed")
                 return False
+            if music_description:
+                try:
+                    info = torchaudio.info(dialogue_temp.name)
+                    duration = info.num_frames / info.sample_rate
+                except:
+                    duration = 30
+                print("Generating background music...")
+                ace = AceStepWrapper()
+                if ace.handler is None:
+                    print("Error: Failed to load ACE-Step model")
+                    return False
+                music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                music_temp.close()
+                music_success = ace.generate(
+                    lyrics="...",
+                    style_prompt=music_description,
+                    output_path=music_temp.name,
+                    duration=int(duration)
+                )
+                if not music_success:
+                    print("Error: Background music generation failed")
+                    return False
+                del ace
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                print("Mixing dialogue with music...")
+                mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                mixed_temp.close()
+                cmd = [
+                    'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp.name,
+                    '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
+                    '-y', mixed_temp.name
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    print(f"FFmpeg mixing failed: {result.stderr}")
+                    return False
+                os.replace(mixed_temp.name, output_path)
+                os.unlink(dialogue_temp.name)
+                os.unlink(music_temp.name)
+            else:
+                os.replace(dialogue_temp.name, output_path)
             print(f"\n✓ Success! Output saved to: {output_path}")
             return True
         else:
-            os.makedirs("results", exist_ok=True)
-            output_path = os.path.join("results", f"voder_tts_dialogue_{timestamp}.wav")
             success, msg = tts_design.synthesize_dialogue(dialogue_items, voice_prompts, output_path)
             if not success:
                 print(f"Error: {msg}")
                 return False
+            if music_description:
+                print("Generating background music...")
+                try:
+                    info = torchaudio.info(output_path)
+                    duration = info.num_frames / info.sample_rate
+                except:
+                    duration = 30
+                ace = AceStepWrapper()
+                if ace.handler is None:
+                    print("Error: Failed to load ACE-Step model")
+                    return False
+                music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                music_temp.close()
+                music_success = ace.generate(
+                    lyrics="...",
+                    style_prompt=music_description,
+                    output_path=music_temp.name,
+                    duration=int(duration)
+                )
+                if not music_success:
+                    print("Error: Background music generation failed")
+                    return False
+                del ace
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                print("Mixing dialogue with music...")
+                mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                mixed_temp.close()
+                cmd = [
+                    'ffmpeg', '-i', output_path, '-i', music_temp.name,
+                    '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
+                    '-y', mixed_temp.name
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    print(f"FFmpeg mixing failed: {result.stderr}")
+                    return False
+                final_path = os.path.join("results", f"voder_tts_dialogue_{timestamp}_m.wav")
+                os.replace(mixed_temp.name, final_path)
+                os.unlink(output_path)
+                os.unlink(music_temp.name)
+                output_path = final_path
             print(f"\n✓ Success! Output saved to: {output_path}")
             return True
 
@@ -2696,22 +2932,76 @@ def cli_tts_vc_mode():
             assignments[char_lower] = path
             print(f"Progress: {i+1}/{len(chars)} completed")
 
+        music_description = None
+        add_music = input("\nAdd background music? (y/N): ").strip().lower()
+        if add_music in ('y', 'yes'):
+            music_desc = input("Music description: ").strip()
+            if music_desc:
+                music_description = music_desc
+
         print("\nLoading Qwen-TTS model...")
         tts = QwenTTS()
         timestamp = time.strftime("%Y%m%d_%H%M%S")
+        base_name = f"voder_tts_vc_dialogue_{timestamp}"
+        if music_description:
+            base_name += "_m"
+        output_path = os.path.join("results", f"{base_name}.wav")
 
         if len(dialogue_items) == 1:
-            output_path = os.path.join("results", f"voder_tts_vc_single_{timestamp}.wav")
             _, char, text = dialogue_items[0]
             audio_path = assignments[char.lower()]
             success = tts.extract_voice(audio_path)
             if not success:
                 print("Error: Voice extraction failed")
                 return False
-            success = tts.synthesize(text, output_path)
+            dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            dialogue_temp.close()
+            success = tts.synthesize(text, dialogue_temp.name)
             if not success:
                 print("Error: Synthesis failed")
                 return False
+            if music_description:
+                try:
+                    info = torchaudio.info(dialogue_temp.name)
+                    duration = info.num_frames / info.sample_rate
+                except:
+                    duration = 30
+                print("Generating background music...")
+                ace = AceStepWrapper()
+                if ace.handler is None:
+                    print("Error: Failed to load ACE-Step model")
+                    return False
+                music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                music_temp.close()
+                music_success = ace.generate(
+                    lyrics="...",
+                    style_prompt=music_description,
+                    output_path=music_temp.name,
+                    duration=int(duration)
+                )
+                if not music_success:
+                    print("Error: Background music generation failed")
+                    return False
+                del ace
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                print("Mixing dialogue with music...")
+                mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                mixed_temp.close()
+                cmd = [
+                    'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp.name,
+                    '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
+                    '-y', mixed_temp.name
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    print(f"FFmpeg mixing failed: {result.stderr}")
+                    return False
+                os.replace(mixed_temp.name, output_path)
+                os.unlink(dialogue_temp.name)
+                os.unlink(music_temp.name)
+            else:
+                os.replace(dialogue_temp.name, output_path)
             print(f"\n✓ Success! Output saved to: {output_path}")
             return True
         else:
@@ -2733,17 +3023,59 @@ def cli_tts_vc_mode():
                         print(f"Error: Failed to generate speech for line {num}")
                         return False
                 temp_files.sort(key=lambda x: x[0])
+                dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                dialogue_temp.close()
                 concat_list = os.path.join(temp_dir, "concat_list.txt")
                 with open(concat_list, 'w') as f:
                     for _, tf in temp_files:
                         f.write(f"file '{tf}'\n")
-                os.makedirs("results", exist_ok=True)
-                output_path = os.path.join("results", f"voder_tts_vc_dialogue_{timestamp}.wav")
-                cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_list, '-y', output_path]
+                cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_list, '-y', dialogue_temp.name]
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:
                     print(f"Error: FFmpeg concatenation failed: {result.stderr}")
                     return False
+                if music_description:
+                    try:
+                        info = torchaudio.info(dialogue_temp.name)
+                        duration = info.num_frames / info.sample_rate
+                    except:
+                        duration = 30
+                    print("Generating background music...")
+                    ace = AceStepWrapper()
+                    if ace.handler is None:
+                        print("Error: Failed to load ACE-Step model")
+                        return False
+                    music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                    music_temp.close()
+                    music_success = ace.generate(
+                        lyrics="...",
+                        style_prompt=music_description,
+                        output_path=music_temp.name,
+                        duration=int(duration)
+                    )
+                    if not music_success:
+                        print("Error: Background music generation failed")
+                        return False
+                    del ace
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    print("Mixing dialogue with music...")
+                    mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                    mixed_temp.close()
+                    cmd = [
+                        'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp.name,
+                        '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
+                        '-y', mixed_temp.name
+                    ]
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    if result.returncode != 0:
+                        print(f"FFmpeg mixing failed: {result.stderr}")
+                        return False
+                    os.replace(mixed_temp.name, output_path)
+                    os.unlink(dialogue_temp.name)
+                    os.unlink(music_temp.name)
+                else:
+                    os.replace(dialogue_temp.name, output_path)
                 print(f"\n✓ Success! Output saved to: {output_path}")
                 return True
             finally:
@@ -3023,7 +3355,7 @@ def parse_oneline_args(args):
     i = 1
     while i < len(args):
         keyword = args[i].lower()
-        if keyword in ['script', 'voice', 'lyrics', 'styling', 'base', 'target']:
+        if keyword in ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'music']:
             if i + 1 >= len(args):
                 result['error'] = f'Missing value for parameter: {keyword}'
                 return result
@@ -3072,15 +3404,16 @@ def show_oneline_usage():
     print("Dialogue mode examples:")
     print('  python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female"')
     print('  python voder.py tts+vc script "James: Hello" script "Sarah: Hi" target "James: james.wav" target "Sarah: sarah.wav"')
+    print('  python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "soft piano"')
     print()
     print("Parameters (can appear multiple times):")
     print("  script   - Dialogue line in 'Character: text' format, or plain text for single mode")
     print("  voice    - Voice prompt in 'Character: description' format (TTS)")
-    print("  target   - Audio file path in 'Character: path' format (TTS+VC)")
+    print("  target   - Audio file path in 'Character: path' format (TTS+VC) or single path (STS/TTM+VC)")
     print("  lyrics   - Song lyrics for TTM (single)")
     print("  styling  - Style prompt for TTM (single)")
     print("  base     - Base audio/video path")
-    print("  target   - Target voice path (for STS/TTM+VC)")
+    print("  music    - Music description for background music (dialogue only)")
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
 
 def execute_oneline_command(parsed):
@@ -3104,6 +3437,8 @@ def execute_oneline_command(parsed):
 def oneline_tts(params):
     scripts = params.get('script', [])
     voices = params.get('voice', [])
+    music_params = params.get('music', [])
+    music_description = music_params[0] if music_params else None
 
     if not scripts:
         print("Error: TTS mode requires at least one 'script' parameter")
@@ -3122,6 +3457,8 @@ def oneline_tts(params):
         if len(voices) != 1:
             print("Error: Single mode expects exactly one voice argument")
             return False
+        if music_description:
+            print("Warning: Background music is only supported for dialogue mode. Ignoring music parameter.")
         script = scripts[0].replace('\\n', '\n')
         voice_prompt = voices[0]
         print("Loading Qwen-TTS VoiceDesign model...")
@@ -3177,6 +3514,9 @@ def oneline_tts(params):
             print(f"Error: Missing voice prompts for characters: {', '.join(missing)}")
             return False
 
+        if music_description and music_description.strip() == "":
+            music_description = None
+
         print("Loading Qwen-TTS VoiceDesign model...")
         tts_design = QwenTTSVoiceDesign()
         if tts_design.model is None:
@@ -3184,29 +3524,121 @@ def oneline_tts(params):
             return False
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
+        base_name = f"voder_tts_dialogue_{timestamp}"
+        if music_description:
+            base_name += "_m"
+        output_path = os.path.join("results", f"{base_name}.wav")
+
         if len(dialogue_items) == 1:
-            output_path = os.path.join("results", f"voder_tts_single_{timestamp}.wav")
             _, char, text = dialogue_items[0]
             voice_instruct = voice_prompts[char.lower()]
-            success = tts_design.synthesize(text, voice_instruct, output_path)
+            dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            dialogue_temp.close()
+            success = tts_design.synthesize(text, voice_instruct, dialogue_temp.name)
             if not success:
                 print("Error: VoiceDesign synthesis failed")
                 return False
+            if music_description:
+                try:
+                    info = torchaudio.info(dialogue_temp.name)
+                    duration = info.num_frames / info.sample_rate
+                except:
+                    duration = 30
+                print("Generating background music...")
+                ace = AceStepWrapper()
+                if ace.handler is None:
+                    print("Error: Failed to load ACE-Step model")
+                    return False
+                music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                music_temp.close()
+                music_success = ace.generate(
+                    lyrics="...",
+                    style_prompt=music_description,
+                    output_path=music_temp.name,
+                    duration=int(duration)
+                )
+                if not music_success:
+                    print("Error: Background music generation failed")
+                    return False
+                del ace
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                print("Mixing dialogue with music...")
+                mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                mixed_temp.close()
+                cmd = [
+                    'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp.name,
+                    '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
+                    '-y', mixed_temp.name
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    print(f"FFmpeg mixing failed: {result.stderr}")
+                    return False
+                os.replace(mixed_temp.name, output_path)
+                os.unlink(dialogue_temp.name)
+                os.unlink(music_temp.name)
+            else:
+                os.replace(dialogue_temp.name, output_path)
             print(f"✓ Success! Output saved to: {output_path}")
             return True
         else:
-            os.makedirs("results", exist_ok=True)
-            output_path = os.path.join("results", f"voder_tts_dialogue_{timestamp}.wav")
-            success, msg = tts_design.synthesize_dialogue(dialogue_items, voice_prompts, output_path)
+            dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            dialogue_temp.close()
+            success, msg = tts_design.synthesize_dialogue(dialogue_items, voice_prompts, dialogue_temp.name)
             if not success:
                 print(f"Error: {msg}")
                 return False
+            if music_description:
+                try:
+                    info = torchaudio.info(dialogue_temp.name)
+                    duration = info.num_frames / info.sample_rate
+                except:
+                    duration = 30
+                print("Generating background music...")
+                ace = AceStepWrapper()
+                if ace.handler is None:
+                    print("Error: Failed to load ACE-Step model")
+                    return False
+                music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                music_temp.close()
+                music_success = ace.generate(
+                    lyrics="...",
+                    style_prompt=music_description,
+                    output_path=music_temp.name,
+                    duration=int(duration)
+                )
+                if not music_success:
+                    print("Error: Background music generation failed")
+                    return False
+                del ace
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                print("Mixing dialogue with music...")
+                mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                mixed_temp.close()
+                cmd = [
+                    'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp.name,
+                    '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
+                    '-y', mixed_temp.name
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    print(f"FFmpeg mixing failed: {result.stderr}")
+                    return False
+                os.replace(mixed_temp.name, output_path)
+                os.unlink(dialogue_temp.name)
+                os.unlink(music_temp.name)
+            else:
+                os.replace(dialogue_temp.name, output_path)
             print(f"✓ Success! Output saved to: {output_path}")
             return True
 
 def oneline_tts_vc(params):
     scripts = params.get('script', [])
     targets = params.get('target', [])
+    music_params = params.get('music', [])
+    music_description = music_params[0] if music_params else None
 
     if not scripts:
         print("Error: TTS+VC mode requires at least one 'script' parameter")
@@ -3225,6 +3657,8 @@ def oneline_tts_vc(params):
         if len(targets) != 1:
             print("Error: Single mode expects exactly one target argument")
             return False
+        if music_description:
+            print("Warning: Background music is only supported for dialogue mode. Ignoring music parameter.")
         script = scripts[0].replace('\\n', '\n')
         target_path = targets[0]
         valid, msg = validate_audio_file(target_path)
@@ -3304,22 +3738,72 @@ def oneline_tts_vc(params):
             print(f"Error: Missing target assignments for characters: {', '.join(missing)}")
             return False
 
+        if music_description and music_description.strip() == "":
+            music_description = None
+
         print("Loading Qwen-TTS model...")
         tts = QwenTTS()
         timestamp = time.strftime("%Y%m%d_%H%M%S")
+        base_name = f"voder_tts_vc_dialogue_{timestamp}"
+        if music_description:
+            base_name += "_m"
+        output_path = os.path.join("results", f"{base_name}.wav")
 
         if len(dialogue_items) == 1:
-            output_path = os.path.join("results", f"voder_tts_vc_single_{timestamp}.wav")
             _, char, text = dialogue_items[0]
             audio_path = assignments[char.lower()]
             success = tts.extract_voice(audio_path)
             if not success:
                 print("Error: Voice extraction failed")
                 return False
-            success = tts.synthesize(text, output_path)
+            dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            dialogue_temp.close()
+            success = tts.synthesize(text, dialogue_temp.name)
             if not success:
                 print("Error: Synthesis failed")
                 return False
+            if music_description:
+                try:
+                    info = torchaudio.info(dialogue_temp.name)
+                    duration = info.num_frames / info.sample_rate
+                except:
+                    duration = 30
+                print("Generating background music...")
+                ace = AceStepWrapper()
+                if ace.handler is None:
+                    print("Error: Failed to load ACE-Step model")
+                    return False
+                music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                music_temp.close()
+                music_success = ace.generate(
+                    lyrics="...",
+                    style_prompt=music_description,
+                    output_path=music_temp.name,
+                    duration=int(duration)
+                )
+                if not music_success:
+                    print("Error: Background music generation failed")
+                    return False
+                del ace
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                print("Mixing dialogue with music...")
+                mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                mixed_temp.close()
+                cmd = [
+                    'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp.name,
+                    '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
+                    '-y', mixed_temp.name
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    print(f"FFmpeg mixing failed: {result.stderr}")
+                    return False
+                os.replace(mixed_temp.name, output_path)
+                os.unlink(dialogue_temp.name)
+                os.unlink(music_temp.name)
+            else:
+                os.replace(dialogue_temp.name, output_path)
             print(f"✓ Success! Output saved to: {output_path}")
             return True
         else:
@@ -3341,17 +3825,59 @@ def oneline_tts_vc(params):
                         print(f"Error: Failed to generate speech for line {num}")
                         return False
                 temp_files.sort(key=lambda x: x[0])
+                dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                dialogue_temp.close()
                 concat_list = os.path.join(temp_dir, "concat_list.txt")
                 with open(concat_list, 'w') as f:
                     for _, tf in temp_files:
                         f.write(f"file '{tf}'\n")
-                os.makedirs("results", exist_ok=True)
-                output_path = os.path.join("results", f"voder_tts_vc_dialogue_{timestamp}.wav")
-                cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_list, '-y', output_path]
+                cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_list, '-y', dialogue_temp.name]
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:
                     print(f"Error: FFmpeg concatenation failed: {result.stderr}")
                     return False
+                if music_description:
+                    try:
+                        info = torchaudio.info(dialogue_temp.name)
+                        duration = info.num_frames / info.sample_rate
+                    except:
+                        duration = 30
+                    print("Generating background music...")
+                    ace = AceStepWrapper()
+                    if ace.handler is None:
+                        print("Error: Failed to load ACE-Step model")
+                        return False
+                    music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                    music_temp.close()
+                    music_success = ace.generate(
+                        lyrics="...",
+                        style_prompt=music_description,
+                        output_path=music_temp.name,
+                        duration=int(duration)
+                    )
+                    if not music_success:
+                        print("Error: Background music generation failed")
+                        return False
+                    del ace
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    print("Mixing dialogue with music...")
+                    mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                    mixed_temp.close()
+                    cmd = [
+                        'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp.name,
+                        '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
+                        '-y', mixed_temp.name
+                    ]
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    if result.returncode != 0:
+                        print(f"FFmpeg mixing failed: {result.stderr}")
+                        return False
+                    os.replace(mixed_temp.name, output_path)
+                    os.unlink(dialogue_temp.name)
+                    os.unlink(music_temp.name)
+                else:
+                    os.replace(dialogue_temp.name, output_path)
                 print(f"✓ Success! Output saved to: {output_path}")
                 return True
             finally:
