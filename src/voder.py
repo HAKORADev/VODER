@@ -743,7 +743,6 @@ class QwenTTSVoiceDesign:
                     return False, f"Failed to synthesize segment {i+1}"
             if len(temp_files) < 2:
                 if temp_files:
-                    import shutil
                     shutil.copy(temp_files[0], output_path)
                 return len(temp_files) > 0, "Single segment processed" if temp_files else "No segments generated"
             concat_list = os.path.join(temp_dir, "concat_list.txt")
@@ -758,7 +757,6 @@ class QwenTTSVoiceDesign:
         except Exception as e:
             return False, f"Dialogue processing error: {str(e)}"
         finally:
-            import shutil
             try:
                 shutil.rmtree(temp_dir)
             except:
@@ -1129,6 +1127,10 @@ class ProcessingThread(QThread):
                         duration = 30
                     music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                     music_temp.close()
+                    del self.tts_voice_design
+                    self.tts_voice_design = None
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                     self.ace_tt = AceStepWrapper()
                     if self.ace_tt.handler is None:
                         self.error_signal.emit("Failed to load ACE-Step model")
@@ -1217,6 +1219,10 @@ class ProcessingThread(QThread):
                             duration = 30
                         music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                         music_temp.close()
+                        del self.tts
+                        self.tts = None
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
                         self.ace_tt = AceStepWrapper()
                         if self.ace_tt.handler is None:
                             self.error_signal.emit("Failed to load ACE-Step model")
@@ -1253,7 +1259,6 @@ class ProcessingThread(QThread):
                     else:
                         shutil.move(dialogue_temp.name, self.output_path)
                 finally:
-                    import shutil
                     try:
                         shutil.rmtree(temp_dir)
                     except:
@@ -2750,6 +2755,10 @@ def cli_tts_mode():
                 except:
                     duration = 30
                 print("Generating background music...")
+                del tts_design
+                tts_design = None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -2800,6 +2809,10 @@ def cli_tts_mode():
                     duration = info.num_frames / info.sample_rate
                 except:
                     duration = 30
+                del tts_design
+                tts_design = None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -2969,6 +2982,10 @@ def cli_tts_vc_mode():
                 except:
                     duration = 30
                 print("Generating background music...")
+                del tts
+                tts = None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -3043,6 +3060,10 @@ def cli_tts_vc_mode():
                     except:
                         duration = 30
                     print("Generating background music...")
+                    del tts
+                    tts = None
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                     ace = AceStepWrapper()
                     if ace.handler is None:
                         print("Error: Failed to load ACE-Step model")
@@ -3081,7 +3102,6 @@ def cli_tts_vc_mode():
                 print(f"\n✓ Success! Output saved to: {output_path}")
                 return True
             finally:
-                import shutil
                 try:
                     shutil.rmtree(temp_dir)
                 except:
@@ -3547,6 +3567,10 @@ def oneline_tts(params):
                 except:
                     duration = 30
                 print("Generating background music...")
+                del tts_design
+                tts_design = None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -3598,6 +3622,10 @@ def oneline_tts(params):
                 except:
                     duration = 30
                 print("Generating background music...")
+                del tts_design
+                tts_design = None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -3771,6 +3799,10 @@ def oneline_tts_vc(params):
                 except:
                     duration = 30
                 print("Generating background music...")
+                del tts
+                tts = None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -3845,6 +3877,10 @@ def oneline_tts_vc(params):
                     except:
                         duration = 30
                     print("Generating background music...")
+                    del tts
+                    tts = None
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                     ace = AceStepWrapper()
                     if ace.handler is None:
                         print("Error: Failed to load ACE-Step model")
@@ -3883,7 +3919,6 @@ def oneline_tts_vc(params):
                 print(f"✓ Success! Output saved to: {output_path}")
                 return True
             finally:
-                import shutil
                 try:
                     shutil.rmtree(temp_dir)
                 except:
