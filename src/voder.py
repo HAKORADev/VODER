@@ -1128,6 +1128,10 @@ class ProcessingThread(QThread):
                         duration = 30
                     music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                     music_temp.close()
+                    del self.tts_voice_design
+                    self.tts_voice_design = None
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                     self.ace_tt = AceStepWrapper()
                     if self.ace_tt.handler is None:
                         self.error_signal.emit("Failed to load ACE-Step model")
@@ -1216,6 +1220,10 @@ class ProcessingThread(QThread):
                             duration = 30
                         music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                         music_temp.close()
+                        del self.tts
+                        self.tts = None
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
                         self.ace_tt = AceStepWrapper()
                         if self.ace_tt.handler is None:
                             self.error_signal.emit("Failed to load ACE-Step model")
@@ -2749,6 +2757,10 @@ def cli_tts_mode():
                 except:
                     duration = 30
                 print("Generating background music...")
+                del tts_design
+                tts_design = None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -2799,6 +2811,10 @@ def cli_tts_mode():
                     duration = info.num_frames / info.sample_rate
                 except:
                     duration = 30
+                del tts_design
+                tts_design = None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -2968,6 +2984,10 @@ def cli_tts_vc_mode():
                 except:
                     duration = 30
                 print("Generating background music...")
+                del tts
+                tts = None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -3042,6 +3062,10 @@ def cli_tts_vc_mode():
                     except:
                         duration = 30
                     print("Generating background music...")
+                    del tts
+                    tts = None
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                     ace = AceStepWrapper()
                     if ace.handler is None:
                         print("Error: Failed to load ACE-Step model")
@@ -3546,6 +3570,10 @@ def oneline_tts(params):
                 except:
                     duration = 30
                 print("Generating background music...")
+                del tts_design
+                tts_design = None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -3597,6 +3625,10 @@ def oneline_tts(params):
                 except:
                     duration = 30
                 print("Generating background music...")
+                del tts_design
+                tts_design = None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -3770,6 +3802,10 @@ def oneline_tts_vc(params):
                 except:
                     duration = 30
                 print("Generating background music...")
+                del tts
+                tts = None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -3844,6 +3880,10 @@ def oneline_tts_vc(params):
                     except:
                         duration = 30
                     print("Generating background music...")
+                    del tts
+                    tts = None
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                     ace = AceStepWrapper()
                     if ace.handler is None:
                         print("Error: Failed to load ACE-Step model")
