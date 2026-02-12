@@ -2787,6 +2787,7 @@ def cli_tts_mode():
             print(f"\n✓ Success! Output saved to: {output_path}")
             return True
         else:
+            os.makedirs("results", exist_ok=True)
             success, msg = tts_design.synthesize_dialogue(dialogue_items, voice_prompts, output_path)
             if not success:
                 print(f"Error: {msg}")
