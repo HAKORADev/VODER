@@ -2,6 +2,7 @@ import sys
 import os
 import time
 import tempfile
+import shutil
 import numpy as np
 import torch
 import torchaudio
@@ -1128,10 +1129,6 @@ class ProcessingThread(QThread):
                         duration = 30
                     music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                     music_temp.close()
-                    del self.tts_voice_design
-                    self.tts_voice_design = None
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
                     self.ace_tt = AceStepWrapper()
                     if self.ace_tt.handler is None:
                         self.error_signal.emit("Failed to load ACE-Step model")
@@ -1162,11 +1159,11 @@ class ProcessingThread(QThread):
                     if result.returncode != 0:
                         self.error_signal.emit(f"FFmpeg mixing failed: {result.stderr}")
                         return
-                    os.replace(mixed_temp.name, self.output_path)
+                    shutil.move(mixed_temp.name, self.output_path)
                     os.unlink(dialogue_temp.name)
                     os.unlink(music_temp.name)
                 else:
-                    os.replace(dialogue_temp.name, self.output_path)
+                    shutil.move(dialogue_temp.name, self.output_path)
                 self.progress_signal.emit(100)
                 self.finished_signal.emit(self.output_path)
 
@@ -1220,10 +1217,6 @@ class ProcessingThread(QThread):
                             duration = 30
                         music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                         music_temp.close()
-                        del self.tts
-                        self.tts = None
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
                         self.ace_tt = AceStepWrapper()
                         if self.ace_tt.handler is None:
                             self.error_signal.emit("Failed to load ACE-Step model")
@@ -1254,11 +1247,11 @@ class ProcessingThread(QThread):
                         if result.returncode != 0:
                             self.error_signal.emit(f"FFmpeg mixing failed: {result.stderr}")
                             return
-                        os.replace(mixed_temp.name, self.output_path)
+                        shutil.move(mixed_temp.name, self.output_path)
                         os.unlink(dialogue_temp.name)
                         os.unlink(music_temp.name)
                     else:
-                        os.replace(dialogue_temp.name, self.output_path)
+                        shutil.move(dialogue_temp.name, self.output_path)
                 finally:
                     import shutil
                     try:
@@ -2757,10 +2750,6 @@ def cli_tts_mode():
                 except:
                     duration = 30
                 print("Generating background music...")
-                del tts_design
-                tts_design = None
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -2791,11 +2780,11 @@ def cli_tts_mode():
                 if result.returncode != 0:
                     print(f"FFmpeg mixing failed: {result.stderr}")
                     return False
-                os.replace(mixed_temp.name, output_path)
+                shutil.move(mixed_temp.name, output_path)
                 os.unlink(dialogue_temp.name)
                 os.unlink(music_temp.name)
             else:
-                os.replace(dialogue_temp.name, output_path)
+                shutil.move(dialogue_temp.name, output_path)
             print(f"\n✓ Success! Output saved to: {output_path}")
             return True
         else:
@@ -2811,10 +2800,6 @@ def cli_tts_mode():
                     duration = info.num_frames / info.sample_rate
                 except:
                     duration = 30
-                del tts_design
-                tts_design = None
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -2846,7 +2831,7 @@ def cli_tts_mode():
                     print(f"FFmpeg mixing failed: {result.stderr}")
                     return False
                 final_path = os.path.join("results", f"voder_tts_dialogue_{timestamp}_m.wav")
-                os.replace(mixed_temp.name, final_path)
+                shutil.move(mixed_temp.name, final_path)
                 os.unlink(output_path)
                 os.unlink(music_temp.name)
                 output_path = final_path
@@ -2984,10 +2969,6 @@ def cli_tts_vc_mode():
                 except:
                     duration = 30
                 print("Generating background music...")
-                del tts
-                tts = None
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -3018,11 +2999,11 @@ def cli_tts_vc_mode():
                 if result.returncode != 0:
                     print(f"FFmpeg mixing failed: {result.stderr}")
                     return False
-                os.replace(mixed_temp.name, output_path)
+                shutil.move(mixed_temp.name, output_path)
                 os.unlink(dialogue_temp.name)
                 os.unlink(music_temp.name)
             else:
-                os.replace(dialogue_temp.name, output_path)
+                shutil.move(dialogue_temp.name, output_path)
             print(f"\n✓ Success! Output saved to: {output_path}")
             return True
         else:
@@ -3062,10 +3043,6 @@ def cli_tts_vc_mode():
                     except:
                         duration = 30
                     print("Generating background music...")
-                    del tts
-                    tts = None
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
                     ace = AceStepWrapper()
                     if ace.handler is None:
                         print("Error: Failed to load ACE-Step model")
@@ -3096,11 +3073,11 @@ def cli_tts_vc_mode():
                     if result.returncode != 0:
                         print(f"FFmpeg mixing failed: {result.stderr}")
                         return False
-                    os.replace(mixed_temp.name, output_path)
+                    shutil.move(mixed_temp.name, output_path)
                     os.unlink(dialogue_temp.name)
                     os.unlink(music_temp.name)
                 else:
-                    os.replace(dialogue_temp.name, output_path)
+                    shutil.move(dialogue_temp.name, output_path)
                 print(f"\n✓ Success! Output saved to: {output_path}")
                 return True
             finally:
@@ -3570,10 +3547,6 @@ def oneline_tts(params):
                 except:
                     duration = 30
                 print("Generating background music...")
-                del tts_design
-                tts_design = None
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -3604,11 +3577,11 @@ def oneline_tts(params):
                 if result.returncode != 0:
                     print(f"FFmpeg mixing failed: {result.stderr}")
                     return False
-                os.replace(mixed_temp.name, output_path)
+                shutil.move(mixed_temp.name, output_path)
                 os.unlink(dialogue_temp.name)
                 os.unlink(music_temp.name)
             else:
-                os.replace(dialogue_temp.name, output_path)
+                shutil.move(dialogue_temp.name, output_path)
             print(f"✓ Success! Output saved to: {output_path}")
             return True
         else:
@@ -3625,10 +3598,6 @@ def oneline_tts(params):
                 except:
                     duration = 30
                 print("Generating background music...")
-                del tts_design
-                tts_design = None
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -3659,11 +3628,11 @@ def oneline_tts(params):
                 if result.returncode != 0:
                     print(f"FFmpeg mixing failed: {result.stderr}")
                     return False
-                os.replace(mixed_temp.name, output_path)
+                shutil.move(mixed_temp.name, output_path)
                 os.unlink(dialogue_temp.name)
                 os.unlink(music_temp.name)
             else:
-                os.replace(dialogue_temp.name, output_path)
+                shutil.move(dialogue_temp.name, output_path)
             print(f"✓ Success! Output saved to: {output_path}")
             return True
 
@@ -3802,10 +3771,6 @@ def oneline_tts_vc(params):
                 except:
                     duration = 30
                 print("Generating background music...")
-                del tts
-                tts = None
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
                 ace = AceStepWrapper()
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
@@ -3836,11 +3801,11 @@ def oneline_tts_vc(params):
                 if result.returncode != 0:
                     print(f"FFmpeg mixing failed: {result.stderr}")
                     return False
-                os.replace(mixed_temp.name, output_path)
+                shutil.move(mixed_temp.name, output_path)
                 os.unlink(dialogue_temp.name)
                 os.unlink(music_temp.name)
             else:
-                os.replace(dialogue_temp.name, output_path)
+                shutil.move(dialogue_temp.name, output_path)
             print(f"✓ Success! Output saved to: {output_path}")
             return True
         else:
@@ -3880,10 +3845,6 @@ def oneline_tts_vc(params):
                     except:
                         duration = 30
                     print("Generating background music...")
-                    del tts
-                    tts = None
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
                     ace = AceStepWrapper()
                     if ace.handler is None:
                         print("Error: Failed to load ACE-Step model")
@@ -3914,11 +3875,11 @@ def oneline_tts_vc(params):
                     if result.returncode != 0:
                         print(f"FFmpeg mixing failed: {result.stderr}")
                         return False
-                    os.replace(mixed_temp.name, output_path)
+                    shutil.move(mixed_temp.name, output_path)
                     os.unlink(dialogue_temp.name)
                     os.unlink(music_temp.name)
                 else:
-                    os.replace(dialogue_temp.name, output_path)
+                    shutil.move(dialogue_temp.name, output_path)
                 print(f"✓ Success! Output saved to: {output_path}")
                 return True
             finally:
