@@ -2480,7 +2480,7 @@ def validate_audio_file(path):
     if ext in VIDEO_EXTENSIONS:
         return True, "video"
     try:
-        torchaudio.info(path)
+        torchaudio.load(path)
         return True, "audio"
     except Exception as e:
         return False, f"Unsupported or corrupt audio/video format: {str(e)}"
