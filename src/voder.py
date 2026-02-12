@@ -2591,6 +2591,7 @@ def cli_tts_mode():
             print(f"\n✓ Success! Output saved to: {output_path}")
             return True
         else:
+            os.makedirs("results", exist_ok=True)
             output_path = os.path.join("results", f"voder_tts_dialogue_{timestamp}.wav")
             success, msg = tts_design.synthesize_dialogue(dialogue_items, voice_prompts, output_path)
             if not success:
@@ -2736,6 +2737,7 @@ def cli_tts_vc_mode():
                 with open(concat_list, 'w') as f:
                     for _, tf in temp_files:
                         f.write(f"file '{tf}'\n")
+                os.makedirs("results", exist_ok=True)
                 output_path = os.path.join("results", f"voder_tts_vc_dialogue_{timestamp}.wav")
                 cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_list, '-y', output_path]
                 result = subprocess.run(cmd, capture_output=True, text=True)
@@ -3193,6 +3195,7 @@ def oneline_tts(params):
             print(f"✓ Success! Output saved to: {output_path}")
             return True
         else:
+            os.makedirs("results", exist_ok=True)
             output_path = os.path.join("results", f"voder_tts_dialogue_{timestamp}.wav")
             success, msg = tts_design.synthesize_dialogue(dialogue_items, voice_prompts, output_path)
             if not success:
@@ -3342,6 +3345,7 @@ def oneline_tts_vc(params):
                 with open(concat_list, 'w') as f:
                     for _, tf in temp_files:
                         f.write(f"file '{tf}'\n")
+                os.makedirs("results", exist_ok=True)
                 output_path = os.path.join("results", f"voder_tts_vc_dialogue_{timestamp}.wav")
                 cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_list, '-y', output_path]
                 result = subprocess.run(cmd, capture_output=True, text=True)
