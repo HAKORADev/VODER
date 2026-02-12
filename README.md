@@ -65,6 +65,18 @@ VODER features a powerful **row-based dialogue editor** designed for creating mu
 - First row has no delete button; subsequent rows can be deleted individually.
 - Voice prompts or audio assignments appear dynamically for every character found in the script.
 
+**Optional Background Music:**
+- When generating dialogue (TTS or TTS+VC mode), VODER can automatically **add ambient background music** that matches the length of the spoken audio.
+- A clean dialog appears before processing, asking: *“Enter music description (or press Skip):”*
+- If a description is provided (e.g., `"soft piano, cinematic strings"`), VODER:
+  - Generates music via ACE-Step using the description as style prompt and `"..."` as empty lyrics.
+  - Automatically fits the music duration to the exact length of the dialogue.
+  - Mixes the music at **35% volume** relative to the dialogue.
+  - Cleans up temporary files and saves the final result with an `_m` suffix (e.g., `voder_tts_dialogue_..._m.wav`).
+- If the user skips, processing proceeds normally without music.
+
+This feature is available in both **GUI** and **CLI** modes (interactive and one‑line). It is **only triggered for dialogue scripts** (i.e., more than one line, or a single line containing a colon).
+
 **Example Script (conceptual):**
 ```plaintext
 James: Welcome to our podcast! Today we'll explore AI advances.
@@ -76,6 +88,7 @@ James: Let's dive in. First, tell us about neural networks.
 - Multi-character script support with real-time character extraction
 - Individual voice prompts for each character (TTS mode)
 - Reference audio assignment per character via dropdown numbers (TTS+VC mode)
+- **Optional background music** – automatically generated, duration‑fitted, volume‑controlled
 - Automatic audio concatenation with proper pacing
 - Ideal for podcasts, news segments, interviews, and storytelling
 
@@ -102,8 +115,10 @@ VODER leverages state-of-the-art open-source models for professional-grade audio
 2. Select mode from dropdown (6 available modes)
 3. Load input files based on mode:
    - **STT+TTS:** Load base audio (content), then load target audio (voice)
-   - **TTS:** Enter dialogue row‑by‑row in the script area, and fill the automatically generated voice prompts for each character
-   - **TTS+VC:** Enter dialogue rows, load voice reference audio files (each assigned a number), then assign each character an audio number via dropdown
+   - **TTS:** Enter dialogue row‑by‑row in the script area, and fill the automatically generated voice prompts for each character  
+     **Optional:** Before generation, a dialog will ask if you want background music; enter a description or press Skip.
+   - **TTS+VC:** Enter dialogue rows, load voice reference audio files (each assigned a number), then assign each character an audio number via dropdown  
+     **Optional:** The same background music dialog appears before generation.
    - **STS:** Load base audio and target voice audio
    - **TTM:** Enter lyrics and style prompt
    - **TTM+VC:** Enter lyrics, style prompt, and load target voice audio
@@ -118,10 +133,14 @@ The interactive CLI now supports full dialogue creation:
 - Enter multiple lines (empty line to finish).
 - Lines without a colon → **single mode** (one text, one voice prompt/audio).
 - Lines with colon (`Character: text`) → **dialogue mode**.
-- VODER will then ask for a voice prompt (TTS) or audio file path (TTS+VC) for each character, in order.
+- VODER will ask for a voice prompt (TTS) or audio file path (TTS+VC) for each character, in order.
+- **After** collecting all voice prompts/assignments, you will be asked:  
+  `Add background music? (y/N):`  
+  If you answer `y` or `yes`, you can enter a music description.  
+  Leaving the description blank or entering empty skips the music.
 
 ### One-Line Commands
-One‑line commands now support **dialogue mode** through repeated `script`, `voice`, and `target` parameters.
+One‑line commands now support **dialogue mode** through repeated `script`, `voice`, and `target` parameters, as well as the optional **`music`** parameter for background music.
 
 **Single mode examples:**
 ```bash
@@ -141,24 +160,44 @@ python src/voder.py ttm lyrics "Verse 1: ..." styling "upbeat pop" 30
 python src/voder.py ttm+vc lyrics "..." styling "pop" 30 target "voice.wav"
 ```
 
-**Dialogue mode examples:**
+**Dialogue mode examples (TTS):**
 ```bash
-# TTS dialogue
+# Without background music
 python src/voder.py tts \
   script "James: Welcome to the show!" \
   script "Sarah: Glad to be here." \
   voice "James: deep male voice, authoritative" \
   voice "Sarah: bright female voice, energetic"
 
-# TTS+VC dialogue
+# With background music
+python src/voder.py tts \
+  script "James: Welcome to the show!" \
+  script "Sarah: Glad to be here." \
+  voice "James: deep male voice, authoritative" \
+  voice "Sarah: bright female voice, energetic" \
+  music "soft piano, cinematic"
+```
+
+**Dialogue mode examples (TTS+VC):**
+```bash
+# Without background music
 python src/voder.py tts+vc \
   script "James: Let's start with AI." \
   script "Sarah: I've been working on this for years." \
   target "James: /path/to/james_voice.wav" \
   target "Sarah: /path/to/sarah_voice.wav"
+
+# With background music
+python src/voder.py tts+vc \
+  script "James: Let's start with AI." \
+  script "Sarah: I've been working on this for years." \
+  target "James: /path/to/james_voice.wav" \
+  target "Sarah: /path/to/sarah_voice.wav" \
+  music "ambient electronic, chill"
 ```
 
-**Note:** STT+TTS mode is not available in one-line CLI because it requires interactive text editing.
+**Note:** STT+TTS mode is not available in one-line CLI because it requires interactive text editing.  
+If the `music` parameter is supplied in single‑mode (plain text without colon), it is ignored with a warning.
 
 ---
 
@@ -188,6 +227,7 @@ VODER is designed to maximize output quality rather than speed. Meeting the mini
 - **Music Generation:** Lyrics-to-music synthesis with style control and voice conversion
 - **Cross-Modal Transformation:** Speech-to-speech, text-to-speech, and speech-to-text conversions
 - **Memory Optimisation:** TTM+VC pipeline now releases GPU memory between stages to reduce VRAM usage
+- **Background Music for Dialogue:** Automatically generated, duration‑fitted, volume‑controlled ambient music – a unique enhancement for narrated content
 
 ---
 
