@@ -21,12 +21,21 @@
   - [Why Not Multi-Speaker Input?](#why-not-multi-speaker-input)
   - [Dialogue Input in GUI](#dialogue-input-in-gui)
   - [Dialogue Input in CLI](#dialogue-input-in-cli)
+    - [Interactive CLI Dialogue](#interactive-cli-dialogue)
+    - [One‑Liner Dialogue](#one-liner-dialogue)
   - [Voice Prompt Configuration](#voice-prompt-configuration)
+  - [Optional Background Music for Dialogue](#optional-background-music-for-dialogue)
+    - [How It Works](#how-it-works-1)
+    - [GUI Workflow](#gui-workflow)
+    - [Interactive CLI Workflow](#interactive-cli-workflow)
+    - [One‑Liner CLI Workflow](#one-liner-cli-workflow)
+    - [Technical Implementation](#technical-implementation)
 - [Tips & Tricks](#tips--tricks)
   - [Getting Better Results](#getting-better-results)
   - [Multi-Speaker Scenarios](#multi-speaker-scenarios)
   - [Using Same Audio Source](#using-same-audio-source)
   - [Voice Cloning Best Practices](#voice-cloning-best-practices)
+  - [Background Music Best Practices](#background-music-best-practices)
 - [Version Information](#version-information)
 - [Troubleshooting & Common Issues](#troubleshooting--common-issues)
 
@@ -127,6 +136,10 @@ The VoiceDesign model interprets natural language descriptions to generate appro
 
 VoiceDesign exists because not everyone wants to clone an existing voice. Sometimes you need a generic voice for narration, or you want to create a character voice that doesn't correspond to any real person. The descriptive approach provides infinite flexibility without requiring reference audio files.
 
+**Optional Background Music (Dialogue Only):**
+
+When using TTS in **dialogue mode** (multiple speakers, script lines containing a colon), you can optionally add automatically generated background music. After the dialogue is synthesized, VODER generates a music track using ACE‑Step with empty lyrics `"..."` and a duration matching the exact length of the dialogue. The music is mixed at **35% volume** relative to the dialogue, creating a subtle ambient bed. The final file is saved with an `_m` suffix (e.g., `voder_tts_dialogue_..._m.wav`). This feature is available in GUI (via a clean modal dialog), interactive CLI (prompt after voice prompts), and one‑liner CLI (optional `music` parameter). See [Optional Background Music for Dialogue](#optional-background-music-for-dialogue) for full details.
+
 **Best For:**
 
 - Narration and voiceover work
@@ -134,6 +147,7 @@ VoiceDesign exists because not everyone wants to clone an existing voice. Someti
 - Situations where you don't have reference audio
 - Rapid prototyping of voice concepts
 - Generating multiple voice variations for comparison
+- **Dialogue with ambient soundtrack** (podcasts, storytelling)
 
 **Voice Prompt Examples:**
 
@@ -165,6 +179,10 @@ The process happens in two stages. First, Qwen3‑TTS Base generates speech from
 
 Voice cloning opens possibilities that pure TTS can't match. You can clone a specific person's voice and use it consistently across all your content. You can match voices between different speakers in a dialogue. You can create synthetic content that sounds like real people (with appropriate consent and ethical considerations).
 
+**Optional Background Music (Dialogue Only):**
+
+Just like in TTS mode, when TTS+VC is used in **dialogue mode** you can optionally add automatically generated background music. The music is generated **after** all dialogue lines have been synthesized, concatenated, and voice‑cloned. It uses the same ACE‑Step process (empty lyrics, auto‑duration, 35% volume) and the same output naming (`_m` suffix). The feature is accessible through the same GUI dialog, interactive CLI prompt, and one‑liner `music` parameter. This allows you to create fully produced podcast episodes, narrated stories, or interview segments with ambient background music — all in a single operation.
+
 **Best For:**
 
 - Consistent voice branding across content
@@ -172,6 +190,7 @@ Voice cloning opens possibilities that pure TTS can't match. You can clone a spe
 - Matching voice characteristics between speakers
 - Creating content in a voice you don't have but can record
 - Localization while preserving original voice characteristics
+- **Produced dialogue with background ambience**
 
 **Reference Audio Requirements:**
 
@@ -243,6 +262,10 @@ ACE‑Step interprets your lyrics as vocal content and your style prompt as musi
 **Why It's Like That:**
 
 Music generation from lyrics is distinct from instrumental generation because vocals add a layer of complexity. The lyrics must be converted to actual singing, which requires understanding of melody, rhythm, and phonetics. ACE‑Step handles this by treating lyrics as both content and guidance for the vocal generation pipeline.
+
+**Note on Background Music:**
+
+The same ACE‑Step engine is used to generate background music for dialogue. In that context, the lyrics are set to `"..."` (a placeholder for empty vocals), and the style prompt is taken from the user's music description. This yields purely instrumental music suitable for ambient use.
 
 **Best For:**
 
@@ -397,8 +420,9 @@ The dialogue processing pipeline follows these stages:
    - Synthesize the line text using that voice
    - Save segment to temporary file
 6. **Concatenate**: Use FFmpeg to combine all segments into one file
-7. **Clean Up**: Remove temporary files
-8. **Export**: Save final dialogue to results folder
+7. **Optional Background Music**: If requested, generate and mix music
+8. **Clean Up**: Remove temporary files
+9. **Export**: Save final dialogue to results folder
 
 ### Why Not Multi-Speaker Input?
 
@@ -463,7 +487,8 @@ VODER's GUI now uses a **row‑based dialogue editor** instead of a free‑text 
    `james` → `1`  
    `sarah` → `2`  
    `james` → `3` (or you can reuse `1` if you prefer the same reference)
-6. Click **Generate**. VODER synthesizes each line with the appropriate cloned voice and concatenates them.
+6. (Optional) A dialog will appear asking if you want background music — see [Optional Background Music for Dialogue](#optional-background-music-for-dialogue).
+7. Click **Generate**. VODER synthesizes each line with the appropriate cloned voice, concatenates them, and (if requested) mixes with background music.
 
 **Why This Design:**
 
@@ -504,7 +529,13 @@ james: deep male voice, authoritative
 sarah: bright female voice, cheerful
 ```
 
-VODER then generates the full dialogue.
+**After** collecting all voice prompts/assignments, you will be asked:
+
+```
+Add background music? (y/N):
+```
+
+If you answer `y` or `yes`, you can enter a music description. Leaving the description blank or pressing Enter without input skips the music. VODER then generates the full dialogue (with or without background music).
 
 **Example (TTS+VC):**
 
@@ -521,6 +552,8 @@ Audio file paths for 3 character(s):
 narrator: /voices/narrator.wav
 alice: /voices/alice.wav
 bob: /voices/bob.wav
+Add background music? (y/N): y
+Music description: soft piano, cinematic strings
 ```
 
 **Why Interactive CLI Dialogue Exists:**
@@ -528,6 +561,7 @@ bob: /voices/bob.wav
 - Users who prefer terminal workflows can now create full multi‑speaker content without launching the GUI.
 - The interactive prompts ensure that every character receives a valid voice reference before processing begins.
 - It bridges the gap between full automation (one‑liner) and visual interfaces.
+- The optional music prompt fits naturally into this interactive flow.
 
 #### One‑Liner Dialogue
 
@@ -553,31 +587,48 @@ python src/voder.py tts+vc \
   target "Character2: /path/to/reference2.wav"
 ```
 
+**Optional Background Music in One‑Liner:**
+
+To add background music, simply include a `music` parameter with your description:
+
+```bash
+python src/voder.py tts \
+  script "James: Hello" \
+  script "Sarah: Hi" \
+  voice "James: deep male" \
+  voice "Sarah: cheerful female" \
+  music "soft piano, cinematic"
+```
+
+If the `music` parameter is supplied but the script is **not** in dialogue mode (i.e., no colon in any `script` parameter), it is ignored with a warning. If the `music` parameter is present but its value is an empty string (`music ""`), it is treated as if no music was requested.
+
 **Important Rules:**
 
 - The order of `script` parameters must match the order of dialogue lines.
 - The order of `voice`/`target` parameters must match the order of `script` parameters **character‑wise**, not necessarily line‑by‑line, but every character's prompt must appear exactly once in the same sequence as their first appearance in the script.
-- For single‑speaker scripts, you may omit the colon in both script and voice/target; the system will treat it as single mode.
+- For single‑speaker scripts, you may omit the colon in both script and voice/target; the system will treat it as single mode and ignore any `music` parameter.
 
 **Examples:**
 
 ```bash
-# TTS dialogue – two characters, three lines
+# TTS dialogue with background music
 python src/voder.py tts \
   script "James: Hello, Sarah." \
   script "Sarah: Hi James, how are you?" \
   script "James: I'm great, thanks for asking!" \
   voice "James: deep male, warm" \
-  voice "Sarah: young female, cheerful"
+  voice "Sarah: young female, cheerful" \
+  music "ambient electronic, chill"
 
-# TTS+VC dialogue – two characters, each with their own reference
+# TTS+VC dialogue with background music
 python src/voder.py tts+vc \
   script "Host: Welcome to the podcast." \
   script "Guest: Thanks for having me." \
   script "Host: So, tell us about your work." \
   target "Host: /voices/host.wav" \
   target "Guest: /voices/guest.wav" \
-  target "Host: /voices/host.wav"
+  target "Host: /voices/host.wav" \
+  music "soft piano, strings"
 ```
 
 **Validation:**
@@ -614,6 +665,118 @@ The mapping between characters and their voice references (audio file numbers or
 **No More Numbered Prompts in GUI:**
 
 Older versions of VODER required you to write prompts like `James:1` in a text box. This is **no longer used in the GUI**. The dropdown system eliminates syntax errors and makes voice assignment explicit.
+
+---
+
+### Optional Background Music for Dialogue
+
+VODER includes a unique feature that automatically generates and mixes ambient background music into dialogue scripts. This is **only available for dialogue mode** (i.e., when the script contains at least one line with a colon) and works for both **TTS** and **TTS+VC** modes.
+
+#### How It Works
+
+1. **Dialogue Synthesis** – VODER first generates all dialogue segments, concatenates them into a single audio file using FFmpeg, and saves it temporarily.
+2. **Duration Measurement** – The exact duration of the dialogue audio is calculated (using `torchaudio.info`).
+3. **Music Generation** – The ACE‑Step model is loaded (if not already) and used to generate a music track with:
+   - **Lyrics**: `"..."` (a placeholder that yields pure instrumental music)
+   - **Style prompt**: the description provided by the user (e.g., `"soft piano, cinematic strings"`)
+   - **Duration**: exactly the length of the dialogue audio (rounded to nearest whole second)
+4. **Volume Adjustment** – The music track is reduced to **35% of its original volume** using FFmpeg's `volume=0.35` filter. This level has been empirically chosen to provide a noticeable but non‑intrusive ambient bed.
+5. **Mixing** – The attenuated music is mixed with the dialogue using FFmpeg's `amix` filter, which sums the two streams and preserves the longer duration (the music is generated to match exactly, so both durations are equal).
+6. **Memory Management** – After dialogue synthesis, the Qwen‑TTS model is released from memory. After music generation, the ACE‑Step handler is explicitly deleted and, if CUDA is available, `torch.cuda.empty_cache()` is called. This reduces peak VRAM usage and makes the feature viable on 8GB cards.
+7. **File Cleanup** – Both the temporary dialogue file and the temporary music file are deleted. Only the final mixed file remains in the `results/` directory.
+8. **Output Naming** – The output file is named with an `_m` suffix, e.g., `voder_tts_dialogue_20250212_143022_m.wav`. This makes it immediately clear that the file contains background music.
+
+#### GUI Workflow
+
+When you click **Generate** in TTS or TTS+VC mode **and** the script contains at least one line with a colon (i.e., dialogue mode), VODER displays a clean modal dialog before any processing begins:
+
+<p align="center">
+  <i>Background Music Dialog</i><br>
+  <code>Enter music description (or press Skip):</code><br>
+  <code>[ OK ] [ Skip ]</code>
+</p>
+
+- **OK**: If you enter a non‑empty description and click OK, VODER will proceed with music generation as described above. If the description is empty, a warning is shown and you are returned to the dialog.
+- **Skip**: Clicking Skip bypasses music generation entirely.
+
+The dialog is styled consistently with the rest of VODER's GUI and respects the same color scheme and font choices.
+
+#### Interactive CLI Workflow
+
+In interactive CLI mode (TTS or TTS+VC), after you have entered all script lines and provided all voice prompts/audio paths, VODER asks:
+
+```
+Add background music? (y/N):
+```
+
+- If you type `y` or `yes`, it then prompts:
+  ```
+  Music description:
+  ```
+  Enter your description (e.g., `soft piano, cinematic`). If you press Enter without typing anything, the description is considered empty and VODER **skips** music generation (no warning; it's treated as a normal skip).
+- If you type anything else (or just press Enter), music is skipped.
+
+This flow is natural, non‑intrusive, and requires only one extra decision point.
+
+#### One‑Liner CLI Workflow
+
+For one‑liner commands, the `music` parameter is used:
+
+```bash
+python src/voder.py tts \
+  script "James: Hello" script "Sarah: Hi" \
+  voice "James: deep" voice "Sarah: bright" \
+  music "soft piano"
+```
+
+- If the `music` parameter is **present and its value is non‑empty**, background music is generated.
+- If the `music` parameter is **present but its value is an empty string** (`music ""`), it is ignored (no music).
+- If the `music` parameter is **absent**, no music is generated.
+- If the script is **not** in dialogue mode (i.e., all `script` parameters are plain text without colon), the `music` parameter is ignored and a warning is printed.
+
+This design allows automated scripts to optionally include music without breaking existing workflows.
+
+#### Technical Implementation
+
+The feature is implemented in `ProcessingThread` with two new modes:
+
+- `tts_voice_design_dialogue` – handles TTS dialogue + optional music
+- `tts_vc_dialogue` – handles TTS+VC dialogue + optional music
+
+Both modes follow the same pattern:
+
+```python
+# 1. Generate dialogue audio
+dialogue_temp = synthesize_and_concat(...)
+
+# 2. If music_description is not None:
+if music_description:
+    # 3. Get dialogue duration
+    duration = get_audio_duration(dialogue_temp)
+    # 4. Generate music with ACE‑Step
+    music_temp = ace.generate(lyrics="...", style_prompt=music_description, duration=duration)
+    # 5. Mix at 35% volume using FFmpeg
+    mixed_temp = ffmpeg_mix(dialogue_temp, music_temp, volume=0.35)
+    # 6. Replace output with mixed file
+    os.replace(mixed_temp, output_path)
+    # 7. Clean up temporary files
+    os.unlink(dialogue_temp)
+    os.unlink(music_temp)
+else:
+    os.replace(dialogue_temp, output_path)
+```
+
+**Why 35%?** This value was determined through listening tests: at 35% relative volume, the music is clearly audible but does not compete with the spoken word for attention. Higher volumes (>40%) begin to mask speech; lower volumes (<30%) become too subtle. The value is hardcoded for consistency – there is no user‑adjustable volume control, because that would introduce another variable and complicate the user experience. If you need different mixing levels, you can always post‑process the output with an external audio editor.
+
+**Why `"..."` as lyrics?** ACE‑Step requires a non‑empty lyrics string. Using three dots `...` is a conventional placeholder that reliably produces instrumental music with no discernible vocals. It has been tested across many style prompts and consistently yields the desired ambient track.
+
+**Why auto‑fit duration?** Manually specifying a duration would create two problems: (1) the user would need to know the exact dialogue length in advance, and (2) the music would either be cut off or fade out before the dialogue ends. By auto‑fitting, VODER guarantees that the music plays for the entire dialogue and stops exactly when the speech ends. This creates a polished, professional feel.
+
+**Memory optimisation:** The dialogue generation stage loads either Qwen3‑TTS VoiceDesign or Qwen3‑TTS Base. After the dialogue file is written, these models are allowed to be garbage‑collected. When music is requested, ACE‑Step is loaded, used, and then explicitly deleted with `del self.ace_tt` followed by `torch.cuda.empty_cache()`. This frees GPU memory before the next operation (which is none, since mixing is done via FFmpeg on CPU). This careful management makes the feature usable even on 8GB GPUs.
+
+**File naming:** The `_m` suffix is added to the base filename. This is a simple, visible indicator that the file contains background music. It also prevents accidental overwriting of the non‑music version if you generate both variants.
+
+**Cleanup:** All temporary files (individual dialogue segments, concatenated dialogue, generated music) are deleted. Only the final output file remains in `results/`. This keeps your working directory tidy and avoids accumulating gigabytes of intermediate audio.
 
 ---
 
@@ -676,8 +839,9 @@ If you need multiple voices, use dialogue mode. This is not optional advice — 
 2. Gather reference audio for each character (10‑30 seconds each)
 3. In GUI: load references, assign via dropdowns
 4. In CLI: provide references via repeated `target` parameters or interactively
-5. Generate dialogue in one operation
-6. Review and iterate if needed
+5. (Optional) Decide if you want background music
+6. Generate dialogue in one operation
+7. Review and iterate if needed
 
 **Character Consistency:**
 
@@ -724,6 +888,61 @@ For STT+TTS mode, if you use the same audio file as both base (content) and targ
 **The 10‑30 Second Sweet Spot:**
 
 Reference audio between 10 and 30 seconds produces the best results. Shorter references may not capture enough voice characteristics. Longer references don't significantly improve quality and take longer to process.
+
+### Background Music Best Practices
+
+**When to Use It:**
+
+Background music enhances dialogue when used tastefully. It's particularly effective for:
+
+- Podcast intros and outros
+- Narrative storytelling (audiobooks, guided meditations)
+- Cinematic dialogue scenes
+- Interview segments with ambient backing
+- Educational content that benefits from a relaxed mood
+
+**When to Skip It:**
+
+Not every dialogue needs music. Consider skipping if:
+
+- The content is informational/dry (music can be distracting)
+- You plan to add music later in post‑production
+- The dialogue itself is the primary focus (e.g., news reading)
+- You're testing or iterating rapidly (music generation adds time)
+
+**Choosing a Music Description:**
+
+The style prompt for background music should match the mood of the content. Some guidelines:
+
+| Mood | Description Example |
+|------|---------------------|
+| Relaxed, thoughtful | "soft piano, gentle strings, ambient" |
+| Energetic, upbeat | "upbeat electronic, modern production" |
+| Mysterious, suspenseful | "dark ambient, low drone, cinematic" |
+| Inspirational, uplifting | "orchestral, emotional, building crescendo" |
+| Corporate, professional | "corporate background, subtle, professional" |
+
+**Avoid** overly complex or specific descriptions like "solo violin in D minor, arpeggios, with reverb" – ACE‑Step works better with broader genre/mood cues.
+
+**Duration Handling:**
+
+The music is always exactly as long as the dialogue. This means:
+
+- If your dialogue is 42.7 seconds, the music will be 42 seconds (rounded to nearest whole second).
+- No fade‑out is applied; the music stops abruptly when the dialogue ends. This is intentional – if you need a fade, you can add it later.
+- Very short dialogue (<10 seconds) may still generate music, but ACE‑Step performs best with durations ≥10 seconds.
+
+**Volume Level:**
+
+The fixed 35% volume has been carefully chosen. If you find it too loud or too soft, you can adjust it with an external audio editor. We do not provide a user‑adjustable volume slider because it would add complexity and likely be misused (e.g., set to 100% and then complain that the music overpowers the speech).
+
+**Performance Impact:**
+
+Generating background music adds approximately 10‑20 seconds of processing time for a 30‑second dialogue (on a modern CPU). On GPU, it is faster. This is usually negligible compared to the time saved by not having to manually find, edit, and mix a music track.
+
+**File Management:**
+
+All temporary files are deleted. Only the final `.wav` file (with the `_m` suffix) remains in `results/`. If you need both the dialogue‑only and music‑mixed versions, generate twice (once without music, once with). The naming convention prevents accidental overwrites.
 
 ---
 
@@ -847,6 +1066,37 @@ python src/voder.py tts \
 
 **Solution:** Click **"Add Audio"** and load at least one reference file. The dropdowns will populate automatically.
 
+### Background Music Not Added (GUI)
+
+**Cause:** You pressed Skip or left the description empty
+
+**Solution:** In the dialog, enter a non‑empty description and click OK. If you accidentally skipped, you must regenerate with the correct option.
+
+### Background Music Not Added (One‑Liner)
+
+**Cause:** The `music` parameter was omitted, its value was empty, or the script was not in dialogue mode
+
+**Solution:** Ensure:
+- At least one `script` parameter contains a colon (`Character: text`)
+- You include `music "description"` with a non‑empty string
+- You are in TTS or TTS+VC mode
+
+### Background Music Generation Fails
+
+**Cause:** ACE‑Step model not loaded, insufficient resources, or invalid music description
+
+**Solution:**
+- Check that you have sufficient RAM (16GB recommended)
+- Try a simpler music description (e.g., "piano")
+- Verify that FFmpeg is installed and in PATH
+- If using GPU, ensure you have at least 8GB VRAM (or use CPU – slower but works)
+
+### Music Volume Seems Off
+
+**Cause:** Subjective perception; 35% is a fixed default
+
+**Solution:** If you consistently find the volume too high or too low, you can post‑process the output file with an audio editor. For automated workflows, you could add an FFmpeg command after generation to adjust the volume further.
+
 ### Quality Issues with TTM
 
 **Cause:** Complex lyrics or ambitious style prompts
@@ -867,6 +1117,8 @@ python src/voder.py tts \
 | STS | Conversion fails | Shorter input, check VRAM |
 | TTM | Inconsistent music | Shorter duration, simpler lyrics |
 | TTM+VC | Out of memory | Memory optimisation already helps; try shorter duration |
+| Dialogue (any) | Missing character assignment | Ensure every character has a voice prompt/audio path |
+| Dialogue (music) | Music not generated | Use non‑empty description, ensure dialogue mode |
 
 ---
 
@@ -876,8 +1128,16 @@ VODER is a tool built for creators, developers, and audio professionals who need
 
 All six processing modes work reliably. The "problematic modes" designation from earlier versions is outdated — Seed‑VC v2 has proven stable across the use cases VODER supports. If you encounter issues, they're more likely to be related to resource constraints or input quality than mode‑specific bugs.
 
-**Dialogue is now everywhere.** The GUI provides a visual, error‑free script editor with dropdown voice assignments. The CLI offers both interactive and one‑liner dialogue creation. Choose the interface that fits your workflow.
+**Dialogue is now everywhere.** The GUI provides a visual, error‑free script editor with dropdown voice assignments. The CLI offers both interactive and one‑liner dialogue creation. **And now, dialogue can be optionally enhanced with automatically generated, duration‑fitted background music.** This feature completes the dialogue production pipeline, allowing you to create finished, polished audio content in a single operation.
 
-For questions, issues, or collaboration opportunities, visit the GitHub repository or reach out through community channels.
+**Background music is the final piece.** With it, VODER transforms from a mere voice processor into a complete audio production workstation. Podcasters can generate entire episodes with music beds. Storytellers can add cinematic ambience. Educators can create engaging narrated content. All of this is possible because we integrated the music generation model we already had (ACE‑Step) into the dialogue pipeline in a thoughtful, user‑friendly way.
 
-**Remember:** Quality over speed. Use dialogue mode for multi‑speaker content. Reference audio quality matters. And when in doubt, start with simpler configurations before experimenting with advanced workflows.
+**Choose the interface that fits your workflow.** If you love visual interaction, use the GUI. If you live in the terminal, use the interactive CLI. If you're an AI agent or need to automate thousands of generations, use the one‑liner. Every interface has full access to dialogue, voice cloning, and now background music.
+
+**Remember:** Quality over speed. Use dialogue mode for multi‑speaker content. Reference audio quality matters. Music descriptions should match the mood. And when in doubt, start with simpler configurations before experimenting with advanced workflows.
+
+For questions, issues, or collaboration opportunities, visit the GitHub repository or reach out through (X)[https://x.com/HAKORAdev].
+
+---
+
+*VODER — They say what you want them to say.*
