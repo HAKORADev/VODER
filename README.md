@@ -57,23 +57,29 @@ VODER offers six distinct voice processing modes, each designed for specific aud
 
 ### 🎭 **Dialogue System**
 
-VODER features a powerful dialogue system designed for creating multi-speaker audio content such as podcasts, AI news broadcasts, audiobooks, and conversational content. This feature enables script-based generation where multiple characters speak with distinct voices in a cohesive narrative flow.
+VODER features a powerful **row-based dialogue editor** designed for creating multi-speaker audio content such as podcasts, AI news broadcasts, audiobooks, and conversational content. This system enables script-based generation where multiple characters speak with distinct voices in a cohesive narrative flow.
 
-**Dialogue Format:**
+**GUI Dialogue Input:**
+- Each line is a separate row with **Character** and **Dialogue** fields.
+- New rows are added automatically when you fill the last row.
+- First row has no delete button; subsequent rows can be deleted individually.
+- Voice prompts or audio assignments appear dynamically for every character found in the script.
+
+**Example Script (conceptual):**
 ```plaintext
-1:James: "Welcome to our podcast! Today we'll explore AI advances."
-2:Sarah: "Thanks James! I'm excited to discuss my latest research."
-3:James: "Let's dive in. First, tell us about neural networks."
+James: Welcome to our podcast! Today we'll explore AI advances.
+Sarah: Thanks James! I'm excited to discuss my latest research.
+James: Let's dive in. First, tell us about neural networks.
 ```
 
 **Key Features:**
-- Multi-character script support with sequential line numbering
-- Individual voice prompts for each character
-- Reference audio-based voice cloning per speaker
+- Multi-character script support with real-time character extraction
+- Individual voice prompts for each character (TTS mode)
+- Reference audio assignment per character via dropdown numbers (TTS+VC mode)
 - Automatic audio concatenation with proper pacing
 - Ideal for podcasts, news segments, interviews, and storytelling
 
-The dialogue system is available in both TTS (Voice Design) and TTS+VC (Voice Cloning) modes, allowing you to create voices either through descriptive prompts or by cloning from real audio samples.
+The dialogue system is available in both **TTS** (Voice Design) and **TTS+VC** (Voice Cloning) modes, allowing you to create voices either through descriptive prompts or by cloning from real audio samples.
 
 ---
 
@@ -96,20 +102,28 @@ VODER leverages state-of-the-art open-source models for professional-grade audio
 2. Select mode from dropdown (6 available modes)
 3. Load input files based on mode:
    - **STT+TTS:** Load base audio (content), then load target audio (voice)
-   - **TTS:** Enter script text and voice prompt (supports dialogue mode)
-   - **TTS+VC:** Enter script text and load voice reference audio (supports dialogue mode)
+   - **TTS:** Enter dialogue row‑by‑row in the script area, and fill the automatically generated voice prompts for each character
+   - **TTS+VC:** Enter dialogue rows, load voice reference audio files (each assigned a number), then assign each character an audio number via dropdown
    - **STS:** Load base audio and target voice audio
    - **TTM:** Enter lyrics and style prompt
    - **TTM+VC:** Enter lyrics, style prompt, and load target voice audio
-4. Click "Patch" to process
+4. Click **"Generate"** (TTS/TTS+VC/TTM/TTM+VC) or **"Patch"** (STT+TTS/STS)
 5. Listen to output and save results
 
 ### CLI Mode (Interactive)
 ```bash
 python src/voder.py cli
 ```
+The interactive CLI now supports full dialogue creation:
+- Enter multiple lines (empty line to finish).
+- Lines without a colon → **single mode** (one text, one voice prompt/audio).
+- Lines with colon (`Character: text`) → **dialogue mode**.
+- VODER will then ask for a voice prompt (TTS) or audio file path (TTS+VC) for each character, in order.
 
 ### One-Line Commands
+One‑line commands now support **dialogue mode** through repeated `script`, `voice`, and `target` parameters.
+
+**Single mode examples:**
 ```bash
 # Text-to-Speech
 python src/voder.py tts script "Hello world" voice "female, cheerful"
@@ -124,7 +138,24 @@ python src/voder.py sts base "input.wav" target "voice.wav"
 python src/voder.py ttm lyrics "Verse 1: ..." styling "upbeat pop" 30
 
 # Text-to-Music with Voice Conversion
-python src voder.py ttm+vc lyrics "..." styling "pop" 30 target "voice.wav"
+python src/voder.py ttm+vc lyrics "..." styling "pop" 30 target "voice.wav"
+```
+
+**Dialogue mode examples:**
+```bash
+# TTS dialogue
+python src/voder.py tts \
+  script "James: Welcome to the show!" \
+  script "Sarah: Glad to be here." \
+  voice "James: deep male voice, authoritative" \
+  voice "Sarah: bright female voice, energetic"
+
+# TTS+VC dialogue
+python src/voder.py tts+vc \
+  script "James: Let's start with AI." \
+  script "Sarah: I've been working on this for years." \
+  target "James: /path/to/james_voice.wav" \
+  target "Sarah: /path/to/sarah_voice.wav"
 ```
 
 **Note:** STT+TTS mode is not available in one-line CLI because it requires interactive text editing.
@@ -151,11 +182,12 @@ VODER is designed to maximize output quality rather than speed. Meeting the mini
 ## Technical Highlights
 
 - **Unified Audio Pipeline:** Six processing modes in a single interface eliminates the need for multiple tools
+- **Intelligent Dialogue Editor:** Row‑based script input with automatic character tracking and per‑voice assignment
 - **State-of-the-Art Models:** Production-quality models from leading AI research organizations
-- **Dialogue Scripting:** Multi-speaker content creation with character-specific voice assignments
 - **Voice Cloning:** Extract and replicate voice characteristics from reference audio samples
 - **Music Generation:** Lyrics-to-music synthesis with style control and voice conversion
 - **Cross-Modal Transformation:** Speech-to-speech, text-to-speech, and speech-to-text conversions
+- **Memory Optimisation:** TTM+VC pipeline now releases GPU memory between stages to reduce VRAM usage
 
 ---
 
