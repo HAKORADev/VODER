@@ -26,6 +26,7 @@ VODER is a professional‑grade voice processing tool that enables seamless conv
 - **CLI‑First Design**: All core features accessible via command line
 - **No GUI Required**: Runs entirely in headless terminals
 - **Full Dialogue Support**: Multi‑speaker script generation **now available in CLI** (both interactive and one‑liner)
+- **Optional Background Music for Dialogue**: Automatically generated, duration‑fitted ambient music with 35% volume – available in both interactive and one‑liner CLI
 - **Music Generation**: Lyrics‑to‑music synthesis with voice conversion
 - **Voice Cloning**: Extract and replicate voice characteristics from reference audio
 
@@ -49,14 +50,15 @@ python src/voder.py tts script "Hello world" voice "male voice"
 python src/voder.py tts script "Hello" voice "female" && python src/voder.py tts script "World" voice "male"
 ```
 
-**For dialogue mode** (multiple characters), use repeated `script` and `voice`/`target` parameters:
+**For dialogue mode** (multiple characters), use repeated `script` and `voice`/`target` parameters. **To add background music**, include the `music` parameter with a description:
 
 ```bash
 python src/voder.py tts \
   script "James: Welcome to the show!" \
   script "Sarah: Glad to be here." \
   voice "James: deep male voice, authoritative" \
-  voice "Sarah: bright female voice, energetic"
+  voice "Sarah: bright female voice, energetic" \
+  music "soft piano, cinematic"
 ```
 
 ---
@@ -155,28 +157,41 @@ AI agents can chain commands using `&&` or `;` in shell environments.
 python src/voder.py <mode> param "value" param "value"
 ```
 
-### Dialogue Mode (One‑Liner)
+### Dialogue Mode with Optional Background Music (One‑Liner)
 
-Dialogue is supported in **TTS** and **TTS+VC** modes using repeated parameters:
+Dialogue is supported in **TTS** and **TTS+VC** modes using repeated parameters. **Background music is optional** and only available in dialogue mode (not single mode).
 
-- For **TTS**: supply one `script` line per character, and one `voice` line per character **in the same order**.
-- For **TTS+VC**: supply one `script` line per character, and one `target` file path per character.
+- For **TTS**: supply one `script` line per character, one `voice` line per character **in the same order**, and optionally one `music` parameter.
+- For **TTS+VC**: supply one `script` line per character, one `target` file path per character, and optionally one `music` parameter.
 
 ```bash
-# TTS dialogue
+# TTS dialogue with background music
 python src/voder.py tts \
   script "James: Hello, I'm James." \
   script "Sarah: Hi James, I'm Sarah." \
   voice "James: deep male voice, calm" \
-  voice "Sarah: young female voice, cheerful"
+  voice "Sarah: young female voice, cheerful" \
+  music "ambient electronic, chill"
 
-# TTS+VC dialogue
+# TTS+VC dialogue with background music
 python src/voder.py tts+vc \
   script "James: Let's start the meeting." \
   script "Sarah: I've prepared the slides." \
   target "James: /path/to/james.wav" \
-  target "Sarah: /path/to/sarah.wav"
+  target "Sarah: /path/to/sarah.wav" \
+  music "soft piano, strings"
 ```
+
+**What happens when `music` is supplied:**
+- VODER synthesises all dialogue segments and concatenates them.
+- It then measures the exact duration of the combined dialogue.
+- A music track is generated using ACE‑Step with:
+  - Lyrics: `"..."` (empty placeholder)
+  - Style: the value of the `music` parameter
+  - Duration: exactly the dialogue length
+- The music is mixed at **35% volume** relative to the dialogue.
+- The final file is saved with an `_m` suffix (e.g., `voder_tts_dialogue_..._m.wav`).
+- If `music` is omitted or set to an empty string (`music ""`), no background music is added.
 
 ### Command Chaining Examples
 
@@ -198,9 +213,15 @@ python src/voder.py sts base "input.wav" target "voice1.wav" && python src/voder
 python src/voder.py ttm lyrics "Verse 1:..." styling "pop" 30 && python src/voder.py ttm lyrics "Chorus:..." styling "rock" 30
 ```
 
-### Interactive Mode (Also Supports Dialogue)
+### Interactive Mode (Also Supports Dialogue & Background Music)
 
-Interactive CLI mode (`python src/voder.py cli`) allows you to enter multiple lines of script (empty line to finish) and automatically detects single vs. dialogue mode. It then prompts you for voice prompts (TTS) or audio file paths (TTS+VC) for each character. This mode is **not recommended for fully automated bots**, but can be used in semi‑automated workflows.
+Interactive CLI mode (`python src/voder.py cli`) allows you to enter multiple lines of script (empty line to finish) and automatically detects single vs. dialogue mode. It then prompts you for voice prompts (TTS) or audio file paths (TTS+VC) for each character. **After** all prompts are collected, you will be asked:
+
+```
+Add background music? (y/N):
+```
+
+If you answer `y` or `yes`, you can enter a music description. Leaving the description blank or pressing Enter without input skips the music. This mode is **not recommended for fully automated bots**, but can be used in semi‑automated workflows.
 
 ---
 
@@ -216,8 +237,8 @@ python src/voder.py <mode> [parameters]
 
 | Mode | Description | GPU Required | One‑Liner |
 |------|-------------|--------------|-----------|
-| `tts` | Text‑to‑Speech with Voice Design | No | ✅ Yes (single & dialogue) |
-| `tts+vc` | Text‑to‑Speech + Voice Cloning | No | ✅ Yes (single & dialogue) |
+| `tts` | Text‑to‑Speech with Voice Design | No | ✅ Yes (single & dialogue + optional music) |
+| `tts+vc` | Text‑to‑Speech + Voice Cloning | No | ✅ Yes (single & dialogue + optional music) |
 | `sts` | Speech‑to‑Speech (Voice Conversion) | Yes | ✅ Yes (single only) |
 | `ttm` | Text‑to‑Music Generation | No | ✅ Yes (single only) |
 | `ttm+vc` | Text‑to‑Music + Voice Conversion | Yes | ✅ Yes (single only) |
@@ -226,14 +247,14 @@ python src/voder.py <mode> [parameters]
 ### Text‑to‑Speech (tts)
 
 Generate speech from text using Qwen3‑TTS VoiceDesign model.  
-**Supports both single and dialogue modes.**
+**Supports both single and dialogue modes. Dialogue mode supports optional background music.**
 
 **Single mode:**
 ```bash
 python src/voder.py tts script "text here" voice "voice description"
 ```
 
-**Dialogue mode:**
+**Dialogue mode (no music):**
 ```bash
 python src/voder.py tts \
   script "Character1: line1" \
@@ -242,12 +263,23 @@ python src/voder.py tts \
   voice "Character2: voice prompt for char2"
 ```
 
+**Dialogue mode with background music:**
+```bash
+python src/voder.py tts \
+  script "Character1: line1" \
+  script "Character2: line2" \
+  voice "Character1: voice prompt for char1" \
+  voice "Character2: voice prompt for char2" \
+  music "description of background music"
+```
+
 **Parameters:**
 
 | Parameter | Description | Required |
 |-----------|-------------|----------|
 | `script` | Text to synthesize (single mode) OR `Character: text` (dialogue mode) | Yes |
 | `voice` | Voice prompt (single mode) OR `Character: prompt` (dialogue mode) | Yes |
+| `music` | Description for automatically generated background music (dialogue only) | No |
 
 **Voice Prompt Examples:**
 
@@ -258,17 +290,26 @@ python src/voder.py tts \
 | Energetic | "young adult, excited tone, fast speech" |
 | Narrator | "middle‑aged, authoritative, slow pace" |
 
+**Music Description Examples:**
+
+| Mood | Description |
+|------|-------------|
+| Cinematic | "soft piano, cinematic strings, emotional" |
+| Ambient | "ambient electronic, chill, atmospheric" |
+| Corporate | "corporate background, professional, subtle" |
+| Fantasy | "orchestral fantasy, magical, adventurous" |
+
 ### Text‑to‑Speech + Voice Clone (tts+vc)
 
 Generate speech from text then clone it to target voice using Qwen3‑TTS Base model.  
-**Supports both single and dialogue modes.**
+**Supports both single and dialogue modes. Dialogue mode supports optional background music.**
 
 **Single mode:**
 ```bash
 python src/voder.py tts+vc script "text here" target "voice_reference.wav"
 ```
 
-**Dialogue mode:**
+**Dialogue mode (no music):**
 ```bash
 python src/voder.py tts+vc \
   script "Character1: line1" \
@@ -277,12 +318,23 @@ python src/voder.py tts+vc \
   target "Character2: /path/to/ref2.wav"
 ```
 
+**Dialogue mode with background music:**
+```bash
+python src/voder.py tts+vc \
+  script "Character1: line1" \
+  script "Character2: line2" \
+  target "Character1: /path/to/ref1.wav" \
+  target "Character2: /path/to/ref2.wav" \
+  music "description of background music"
+```
+
 **Parameters:**
 
 | Parameter | Description | Required |
 |-----------|-------------|----------|
 | `script` | Text to synthesize (single) OR `Character: text` (dialogue) | Yes |
 | `target` | Path to voice reference audio (single) OR `Character: path` (dialogue) | Yes |
+| `music` | Description for automatically generated background music (dialogue only) | No |
 
 **Voice Reference Requirements:**
 - Format: WAV (recommended), MP3 supported
@@ -382,6 +434,7 @@ VODER offers different experiences depending on the interface. Understanding the
 | **Batch Processing** | Chain multiple commands with `&&` |
 | **Headless Operation** | No GUI required, fully automated |
 | **Direct Mode Access** | All five modes available directly |
+| **Music Parameter** | One‑liner background music addition (dialogue only) |
 
 ### GUI‑Only Features
 
@@ -392,6 +445,7 @@ VODER offers different experiences depending on the interface. Understanding the
 | **Audio List Management** | Visual drag‑and‑drop reference audio organization |
 | **Progress Bar & Status Updates** | Detailed visual feedback |
 | **Interactive Segment Selection** | Click on transcribed segments to edit text |
+| **Background Music Dialog** | Clean modal dialog asking for music description before generation |
 
 ### Shared Features
 
@@ -399,14 +453,15 @@ Available in **both** CLI and GUI:
 
 | Feature | CLI Implementation | GUI Implementation |
 |---------|-------------------|-------------------|
-| **Text‑to‑Speech (TTS)** | One‑liner with `script`/`voice` | Row‑based script + voice prompt fields |
-| **TTS+VC (Voice Cloning)** | One‑liner with `script`/`target` | Row‑based script + audio number dropdowns |
-| **Dialogue Mode** | ✅ Repeated parameters or interactive input | ✅ Visual script editor with character tracking |
+| **Text‑to‑Speech (TTS)** | One‑liner with `script`/`voice` + optional `music` | Row‑based script + voice prompt fields + optional music dialog |
+| **TTS+VC (Voice Cloning)** | One‑liner with `script`/`target` + optional `music` | Row‑based script + audio number dropdowns + optional music dialog |
+| **Dialogue Mode** | ✅ Repeated parameters or interactive input + optional `music` | ✅ Visual script editor with character tracking + music prompt |
+| **Background Music** | ✅ `music` parameter (one‑liner) or interactive yes/no | ✅ Modal dialog before generation |
 | **STS / TTM / TTM+VC** | ✅ One‑liner commands | ✅ Dedicated panels |
 | **Output File Generation** | ✅ Saved to `results/` | ✅ Saved to `results/` |
 | **Parameter Customisation** | ✅ Duration, prompts, etc. | ✅ Duration, prompts, etc. |
 
-**Important:** Dialogue mode is **no longer GUI‑exclusive**. It is fully supported in CLI for both TTS and TTS+VC, using either one‑liner repeated parameters or interactive multi‑line input.
+**Important:** Dialogue mode and optional background music are **fully supported in CLI** for both TTS and TTS+VC, using either one‑liner repeated parameters or interactive multi‑line input.
 
 ---
 
@@ -433,7 +488,7 @@ The following modes work on CPU‑only systems:
 | `tts+vc` | Text‑to‑Speech with Voice Clone | Slower but functional |
 | `ttm` | Text‑to‑Music | Slower but functional |
 
-Processing will be significantly slower without GPU acceleration.
+Processing will be significantly slower without GPU acceleration. **Background music generation (ACE‑Step) also works on CPU**, though slower.
 
 ### Recommended GPU Configuration
 
@@ -459,6 +514,7 @@ python -c "import torch; print('CUDA available:', torch.cuda.is_available()); pr
 2. **No Visual Audio Management**: Cannot drag‑and‑drop reference files
 3. **STT+TTS Unavailable in One‑Liner**: Speech‑to‑text + TTS requires interactive text editing (available in `python src/voder.py cli` interactive mode, but not one‑liner)
 4. **Single Mode for STS/TTM/TTM+VC**: These modes do not support multi‑speaker dialogue in CLI
+5. **Music only for Dialogue**: `music` parameter is ignored in single mode
 
 ### GUI Mode Limitations
 
@@ -472,6 +528,7 @@ python -c "import torch; print('CUDA available:', torch.cuda.is_available()); pr
 1. **Video Input Requires FFmpeg**: Without FFmpeg, video file audio extraction fails
 2. **Audio Resampling Requires FFmpeg**: Sample rate conversion needs FFmpeg
 3. **Audio Concatenation Requires FFmpeg**: Dialogue segment joining needs FFmpeg
+4. **Music Mixing Requires FFmpeg**: Dialogue + background music mixing needs FFmpeg
 
 ### Model Download Requirements
 
@@ -534,6 +591,21 @@ python src/voder.py tts \
   voice "Sarah: cheerful voice"
 ```
 
+### Issue: Background music not added even though `music` parameter is supplied
+
+**Cause**: The command is not in dialogue mode (i.e., all `script` parameters are plain text without colon). Background music is only available for dialogue scripts.
+
+**Solution**: Use `Character: text` format for at least one script parameter, or use multiple script lines with colon format.
+
+### Issue: Music generation is slow or fails
+
+**Cause**: ACE‑Step model loading time; insufficient resources; empty music description
+
+**Solution**: 
+- Ensure `music` description is not empty.
+- Use CPU mode if GPU not available (slower but works).
+- Reduce dialogue length (shorter music duration = faster generation).
+
 ### Issue: Slow processing
 
 **Cause**: Running on CPU without GPU acceleration (for STS or TTM+VC modes)
@@ -568,6 +640,7 @@ VODER is a mature tool with all modes fully operational. When issues occur, they
 3. **Insufficient GPU VRAM**: Use modes that work on CPU or upgrade GPU
 4. **Poor reference audio quality**: Use clear, single‑speaker audio samples
 5. **Model download failures**: Check network or add HuggingFace token
+6. **Misuse of music parameter**: Only valid in dialogue mode
 
 VODER handles all internal error cases gracefully with clear error messages.
 
@@ -596,7 +669,7 @@ python src/voder.py tts+vc script "Let's begin with our first topic." target "ho
 ls results/
 ```
 
-### Workflow 2: Dialogue Generation with Voice Design (CLI One‑Liner)
+### Workflow 2: Dialogue Generation with Voice Design + Background Music (CLI One‑Liner)
 
 ```bash
 python src/voder.py tts \
@@ -605,10 +678,11 @@ python src/voder.py tts \
   script "Bob: Let's find out together!" \
   voice "Narrator: calm male voice, slow and measured" \
   voice "Alice: bright female voice, curious" \
-  voice "Bob: enthusiastic male voice, friendly"
+  voice "Bob: enthusiastic male voice, friendly" \
+  music "orchestral fantasy, magical, adventurous"
 ```
 
-### Workflow 3: Dialogue Generation with Voice Cloning (CLI One‑Liner)
+### Workflow 3: Dialogue Generation with Voice Cloning + Background Music (CLI One‑Liner)
 
 ```bash
 python src/voder.py tts+vc \
@@ -617,7 +691,8 @@ python src/voder.py tts+vc \
   script "James: So, Sarah, tell us about your work." \
   target "James: /voices/james_reference.wav" \
   target "Sarah: /voices/sarah_reference.wav" \
-  target "James: /voices/james_reference.wav"
+  target "James: /voices/james_reference.wav" \
+  music "soft piano, cinematic strings"
 ```
 
 ### Workflow 4: Voice Conversion with Video Input
@@ -646,15 +721,17 @@ python src/voder.py ttm+vc lyrics "Chorus:\nThis is our moment\nEverything feels
 mv results/*.wav /path/to/final/output/
 ```
 
-### Workflow 6: Interactive Dialogue Creation (Semi‑Automated)
+### Workflow 6: Interactive Dialogue Creation with Background Music (Semi‑Automated)
 
-For complex scripts, use interactive CLI mode:
+For complex scripts where you want to decide about music interactively:
 
 ```bash
 python src/voder.py cli
 # Select option 2 (TTS) or 3 (TTS+VC)
 # Enter multiple lines of dialogue (empty line to finish)
 # VODER will automatically prompt you for voice prompts / audio paths per character
+# Then it will ask: "Add background music? (y/N):"
+# Answer y and enter a description, or just press Enter to skip
 ```
 
 ---
@@ -662,9 +739,11 @@ python src/voder.py cli
 ## Summary for AI Agents
 
 1. **Always use one‑liner commands**: `python src/voder.py <mode> [params]`
-2. **Dialogue is now available in CLI** for TTS and TTS+VC – use repeated `script`/`voice` or `script`/`target` parameters.
+2. **Dialogue + optional background music** is now available in CLI for TTS and TTS+VC:
+   - Use repeated `script`/`voice` or `script`/`target` parameters.
+   - Add `music "description"` to automatically generate background music.
 3. **Install dependencies first**: `pip install -r requirements.txt`
-4. **Install FFmpeg**: Required for audio processing and video input
+4. **Install FFmpeg**: Required for audio processing, video input, and music mixing
 5. **GPU required for**: STS and TTM+VC modes only (Seed‑VC)
 6. **CPU‑only modes**: TTS, TTS+VC, TTM (no GPU needed)
 7. **STT+TTS is CLI‑interactive only**: Use `python src/voder.py cli`
@@ -673,6 +752,7 @@ python src/voder.py cli
 10. **TTM duration**: 10‑300 seconds
 11. **Video support**: VODER supports video input (auto audio extraction via FFmpeg)
 12. **HuggingFace token**: Add to `HF_TOKEN.txt` for gated models
+13. **Music parameter behaviour**: Only effective for dialogue scripts; ignored otherwise; empty string treated as skip
 
 ---
 
