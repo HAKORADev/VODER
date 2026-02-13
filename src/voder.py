@@ -3443,25 +3443,47 @@ def parse_oneline_args(args):
         return {'error': 'No arguments provided'}
     mode = args[0].lower()
     result = {'mode': mode, 'params': {}, 'error': None}
+    valid_keywords = ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'music', 'duration']
     i = 1
+    current_keyword = None
     while i < len(args):
-        keyword = args[i].lower()
-        if keyword in ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'music']:
-            if i + 1 >= len(args):
-                result['error'] = f'Missing value for parameter: {keyword}'
-                return result
-            value = args[i + 1]
-            result['params'].setdefault(keyword, []).append(value)
-            i += 2
+        arg = args[i]
+        arg_lower = arg.lower()
+        if arg_lower in valid_keywords:
+            current_keyword = arg_lower
+            result['params'].setdefault(current_keyword, [])
+            i += 1
+        elif current_keyword is not None:
+            try:
+                duration_val = int(arg)
+                remaining = args[i+1:]
+                is_duration = all(is_num(x) for x in remaining)
+                if is_duration:
+                    result['params']['duration'] = duration_val
+                elif current_keyword == 'duration':
+                    result['params']['duration'] = duration_val
+                else:
+                    result['params'][current_keyword].append(arg)
+                i += 1
+            except ValueError:
+                result['params'][current_keyword].append(arg)
+                i += 1
         else:
             try:
-                duration = int(keyword)
+                duration = int(arg)
                 result['params']['duration'] = duration
                 i += 1
             except ValueError:
-                result['error'] = f'Unknown parameter: {keyword}'
+                result['error'] = f'Unknown parameter: {arg}'
                 return result
     return result
+
+def is_num(s):
+    try:
+        int(s)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 def validate_oneline_mode(mode_name):
     valid_modes = ['tts', 'tts+vc', 'sts', 'ttm', 'ttm+vc']
