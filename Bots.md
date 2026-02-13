@@ -50,15 +50,10 @@ python src/voder.py tts script "Hello world" voice "male voice"
 python src/voder.py tts script "Hello" voice "female" && python src/voder.py tts script "World" voice "male"
 ```
 
-**For dialogue mode** (multiple characters), use repeated `script` and `voice`/`target` parameters. **To add background music**, include the `music` parameter with a description:
+**For dialogue mode** (multiple characters), use multiple values per parameter. **To add background music**, include the `music` parameter with a description:
 
 ```bash
-python src/voder.py tts \
-  script "James: Welcome to the show!" \
-  script "Sarah: Glad to be here." \
-  voice "James: deep male voice, authoritative" \
-  voice "Sarah: bright female voice, energetic" \
-  music "soft piano, cinematic"
+python src/voder.py tts script "James: Welcome to the show!" "Sarah: Glad to be here." voice "James: deep male voice, authoritative" "Sarah: bright female voice, energetic" music "soft piano, cinematic"
 ```
 
 ---
@@ -159,27 +154,15 @@ python src/voder.py <mode> param "value" param "value"
 
 ### Dialogue Mode with Optional Background Music (One‑Liner)
 
-Dialogue is supported in **TTS** and **TTS+VC** modes using repeated parameters. **Background music is optional** and only available in dialogue mode (not single mode).
+Dialogue is supported in **TTS** and **TTS+VC** modes using multiple values per parameter. **Background music is optional** and only available in dialogue mode (not single mode).
 
-- For **TTS**: supply one `script` line per character, one `voice` line per character **in the same order**, and optionally one `music` parameter.
-- For **TTS+VC**: supply one `script` line per character, one `target` file path per character, and optionally one `music` parameter.
+- For **TTS**: supply one or more `script` lines, one or more `voice` lines (in the same character order), and optionally one `music` parameter.
+- For **TTS+VC**: supply one or more `script` lines, one or more `target` file paths (in the same character order), and optionally one `music` parameter.
 
 ```bash
-# TTS dialogue with background music
-python src/voder.py tts \
-  script "James: Hello, I'm James." \
-  script "Sarah: Hi James, I'm Sarah." \
-  voice "James: deep male voice, calm" \
-  voice "Sarah: young female voice, cheerful" \
-  music "ambient electronic, chill"
+python src/voder.py tts script "James: Hello, I'm James." "Sarah: Hi James, I'm Sarah." voice "James: deep male voice, calm" "Sarah: young female voice, cheerful" music "ambient electronic, chill"
 
-# TTS+VC dialogue with background music
-python src/voder.py tts+vc \
-  script "James: Let's start the meeting." \
-  script "Sarah: I've prepared the slides." \
-  target "James: /path/to/james.wav" \
-  target "Sarah: /path/to/sarah.wav" \
-  music "soft piano, strings"
+python src/voder.py tts+vc script "James: Let's start the meeting." "Sarah: I've prepared the slides." target "James: /path/to/james.wav" "Sarah: /path/to/sarah.wav" music "soft piano, strings"
 ```
 
 **What happens when `music` is supplied:**
@@ -256,21 +239,12 @@ python src/voder.py tts script "text here" voice "voice description"
 
 **Dialogue mode (no music):**
 ```bash
-python src/voder.py tts \
-  script "Character1: line1" \
-  script "Character2: line2" \
-  voice "Character1: voice prompt for char1" \
-  voice "Character2: voice prompt for char2"
+python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Character1: voice prompt for char1" "Character2: voice prompt for char2"
 ```
 
 **Dialogue mode with background music:**
 ```bash
-python src/voder.py tts \
-  script "Character1: line1" \
-  script "Character2: line2" \
-  voice "Character1: voice prompt for char1" \
-  voice "Character2: voice prompt for char2" \
-  music "description of background music"
+python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Character1: voice prompt for char1" "Character2: voice prompt for char2" music "description of background music"
 ```
 
 **Parameters:**
@@ -311,21 +285,12 @@ python src/voder.py tts+vc script "text here" target "voice_reference.wav"
 
 **Dialogue mode (no music):**
 ```bash
-python src/voder.py tts+vc \
-  script "Character1: line1" \
-  script "Character2: line2" \
-  target "Character1: /path/to/ref1.wav" \
-  target "Character2: /path/to/ref2.wav"
+python src/voder.py tts+vc script "Character1: line1" "Character2: line2" target "Character1: /path/to/ref1.wav" "Character2: /path/to/ref2.wav"
 ```
 
 **Dialogue mode with background music:**
 ```bash
-python src/voder.py tts+vc \
-  script "Character1: line1" \
-  script "Character2: line2" \
-  target "Character1: /path/to/ref1.wav" \
-  target "Character2: /path/to/ref2.wav" \
-  music "description of background music"
+python src/voder.py tts+vc script "Character1: line1" "Character2: line2" target "Character1: /path/to/ref1.wav" "Character2: /path/to/ref2.wav" music "description of background music"
 ```
 
 **Parameters:**
@@ -401,7 +366,7 @@ python src/voder.py ttm lyrics "Verse 1:\nWalking down the street" styling "upbe
 Generate music using ACE‑Step then apply voice conversion using Seed‑VC.
 
 ```bash
-python src/voder.py ttm+vc lyrics "song lyrics" styling "style" duration target "voice.wav"
+python src/voder.py ttm+vc lyrics "song lyrics" styling "style" duration 30 target "voice.wav"
 ```
 
 **Parameters:**
@@ -410,14 +375,14 @@ python src/voder.py ttm+vc lyrics "song lyrics" styling "style" duration target 
 |-----------|-------------|----------|
 | `lyrics` | Song lyrics | Yes |
 | `styling` | Style prompt | Yes |
-| `duration` | Duration in seconds (10‑300) | Yes |
+| `duration` | Duration in seconds (10-300) | Yes |
 | `target` | Voice reference audio path | Yes |
 
 **Memory optimisation:** This mode automatically releases the ACE‑Step model from GPU memory before loading Seed‑VC, reducing peak VRAM usage.
 
 **Example:**
 ```bash
-python src/voder.py ttm+vc lyrics "Chorus:\nThis is our moment" styling "rock ballad" 30 target "singer_reference.wav"
+python src/voder.py ttm+vc lyrics "Chorus:\nThis is our moment" styling "rock ballad" duration 30 target "singer_reference.wav"
 ```
 
 ---
@@ -467,41 +432,44 @@ Available in **both** CLI and GUI:
 
 ## GPU Requirements
 
-### Modes Requiring GPU
+### All Modes Run on CPU
 
-The following modes require NVIDIA GPU with minimum 8GB VRAM because they use Seed‑VC:
+VODER operates entirely on CPU. No GPU is required for any mode. This makes VODER accessible to users without NVIDIA graphics hardware.
 
-| Mode | Description | Minimum VRAM |
-|------|-------------|--------------|
-| `sts` | Speech‑to‑Speech Voice Conversion | 8GB |
-| `ttm+vc` | Text‑to‑Music + Voice Conversion | 8GB |
+### Memory Requirements by Mode
 
-**Seed‑VC only works on NVIDIA GPUs and cannot run on CPU or non‑NVIDIA graphics cards.**
+| Mode | RAM Required | Notes |
+|------|--------------|-------|
+| TTS, TTS+VC (no music) | 12GB | 8GB base + 4GB (Qwen) |
+| TTS, TTS+VC (with music) | 23GB | 8GB base + 15GB (ACE) |
+| STT+TTS | 12GB | 8GB base + 4GB (Qwen) |
+| STS | 13GB | 8GB base + 5GB (Seed-VC) |
+| TTM | 23GB | 8GB base + 15GB (ACE) |
+| TTM+VC | 23GB | 8GB base + 15GB (ACE) |
 
-### Modes Working Without GPU
+### Modes Requiring More Memory
 
-The following modes work on CPU‑only systems:
+The following modes require approximately 23GB RAM due to the ACE-Step model:
 
-| Mode | Description | Performance |
-|------|-------------|-------------|
-| `tts` | Text‑to‑Speech with Voice Design | Slower but functional |
-| `tts+vc` | Text‑to‑Speech with Voice Clone | Slower but functional |
-| `ttm` | Text‑to‑Music | Slower but functional |
+- **TTM** (Text-to-Music)
+- **TTM+VC** (Text-to-Music + Voice Conversion)
+- **TTS** with background music
+- **TTS+VC** with background music
 
-Processing will be significantly slower without GPU acceleration. **Background music generation (ACE‑Step) also works on CPU**, though slower.
+### Modes Working With Less Memory
 
-### Recommended GPU Configuration
+The following modes work with approximately 12-13GB RAM:
 
-| GPU Model | VRAM | Capability |
-|-----------|------|------------|
-| RTX 3060 | 8GB | Minimum for all modes |
-| RTX 4070 | 12GB | Recommended, faster processing |
-| RTX 4090 | 24GB | Optimal for production use |
+- **TTS** (Text-to-Speech) - 12GB
+- **TTS+VC** (TTS + Voice Cloning) - 12GB
+- **STT+TTS** (Speech-to-Text + TTS) - 12GB
+- **STS** (Speech-to-Speech) - 13GB
 
-### Verify GPU Availability
+### Verify System Memory
 
 ```bash
-python -c "import torch; print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None')"
+# Check available RAM
+free -h
 ```
 
 ---
@@ -542,19 +510,25 @@ python -c "import torch; print('CUDA available:', torch.cuda.is_available()); pr
 
 ### Issue: Voice conversion fails immediately
 
-**Cause**: No NVIDIA GPU detected or insufficient VRAM
+**Cause**: Insufficient system memory
 
-**Solution**: Verify NVIDIA GPU is installed and has at least 8GB VRAM:
+**Solution**: Verify you have enough RAM:
 
 ```bash
-python -c "import torch; print('CUDA:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None')"
+# Check available RAM
+free -h
 ```
+
+For STS mode, ensure at least 13GB RAM is available. For TTM/TTM+VC or TTS/TTS+VC with music, ensure at least 23GB RAM is available.
 
 ### Issue: Out of memory errors
 
-**Cause**: Model too large for available GPU memory
+**Cause**: Model too large for available system memory
 
-**Solution**: 
+**Solution**:
+- For TTS/TTS+VC without music: Ensure at least 12GB RAM available
+- For TTS/TTS+VC with music, TTM, or TTM+VC: Ensure at least 23GB RAM available
+- For STS: Ensure at least 13GB RAM available
 - Reduce TTM duration (shorter audio = less memory)
 - Process shorter audio segments for STS
 - Use TTS modes instead of voice conversion modes
@@ -581,14 +555,10 @@ python -c "import torch; print('CUDA:', torch.cuda.is_available()); print('GPU:'
 
 **Cause**: Missing or incorrectly ordered `voice`/`target` parameters
 
-**Solution**: Ensure each `script` entry in dialogue order is followed by a corresponding `voice` (or `target`) entry **in the same character order**. Example:
+**Solution**: Ensure each character in the script has a corresponding `voice` (or `target`) entry **in the same character order**. Example:
 
 ```bash
-python src/voder.py tts \
-  script "James: Hello" \
-  script "Sarah: Hi" \
-  voice "James: deep voice" \
-  voice "Sarah: cheerful voice"
+python src/voder.py tts script "James: Hello" "Sarah: Hi" voice "James: deep voice" "Sarah: cheerful voice"
 ```
 
 ### Issue: Background music not added even though `music` parameter is supplied
@@ -672,27 +642,13 @@ ls results/
 ### Workflow 2: Dialogue Generation with Voice Design + Background Music (CLI One‑Liner)
 
 ```bash
-python src/voder.py tts \
-  script "Narrator: Once upon a time, in a digital realm," \
-  script "Alice: I wonder what secrets this code holds." \
-  script "Bob: Let's find out together!" \
-  voice "Narrator: calm male voice, slow and measured" \
-  voice "Alice: bright female voice, curious" \
-  voice "Bob: enthusiastic male voice, friendly" \
-  music "orchestral fantasy, magical, adventurous"
+python src/voder.py tts script "Narrator: Once upon a time, in a digital realm," "Alice: I wonder what secrets this code holds." "Bob: Let's find out together!" voice "Narrator: calm male voice, slow and measured" "Alice: bright female voice, curious" "Bob: enthusiastic male voice, friendly" music "orchestral fantasy, magical, adventurous"
 ```
 
 ### Workflow 3: Dialogue Generation with Voice Cloning + Background Music (CLI One‑Liner)
 
 ```bash
-python src/voder.py tts+vc \
-  script "James: Welcome to our podcast!" \
-  script "Sarah: Thanks for having me, James." \
-  script "James: So, Sarah, tell us about your work." \
-  target "James: /voices/james_reference.wav" \
-  target "Sarah: /voices/sarah_reference.wav" \
-  target "James: /voices/james_reference.wav" \
-  music "soft piano, cinematic strings"
+python src/voder.py tts+vc script "James: Welcome to our podcast!" "Sarah: Thanks for having me, James." "James: So, Sarah, tell us about your work." target "James: /voices/james_reference.wav" "Sarah: /voices/sarah_reference.wav" "James: /voices/james_reference.wav" music "soft piano, cinematic strings"
 ```
 
 ### Workflow 4: Voice Conversion with Video Input
@@ -740,16 +696,16 @@ python src/voder.py cli
 
 1. **Always use one‑liner commands**: `python src/voder.py <mode> [params]`
 2. **Dialogue + optional background music** is now available in CLI for TTS and TTS+VC:
-   - Use repeated `script`/`voice` or `script`/`target` parameters.
+   - Use multiple values per parameter (e.g., `script "line1" "line2"`)
    - Add `music "description"` to automatically generate background music.
 3. **Install dependencies first**: `pip install -r requirements.txt`
 4. **Install FFmpeg**: Required for audio processing, video input, and music mixing
-5. **GPU required for**: STS and TTM+VC modes only (Seed‑VC)
-6. **CPU‑only modes**: TTS, TTS+VC, TTM (no GPU needed)
+5. **RAM required**: 12GB minimum (23GB for TTM, TTM+VC, or TTS/TTS+VC with music)
+6. **CPU-only operation**: All modes run on CPU, no GPU required
 7. **STT+TTS is CLI‑interactive only**: Use `python src/voder.py cli`
 8. **Output location**: Results saved to `results/` directory
 9. **Available modes**: tts, tts+vc, sts, ttm, ttm+vc
-10. **TTM duration**: 10‑300 seconds
+10. **TTM duration**: 10‑300 seconds (use `duration n` or just `n` at the end)
 11. **Video support**: VODER supports video input (auto audio extraction via FFmpeg)
 12. **HuggingFace token**: Add to `HF_TOKEN.txt` for gated models
 13. **Music parameter behaviour**: Only effective for dialogue scripts; ignored otherwise; empty string treated as skip
