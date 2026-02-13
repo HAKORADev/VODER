@@ -140,63 +140,30 @@ The interactive CLI now supports full dialogue creation:
   Leaving the description blank or entering empty skips the music.
 
 ### One-Line Commands
-One‑line commands now support **dialogue mode** through repeated `script`, `voice`, and `target` parameters, as well as the optional **`music`** parameter for background music.
+One‑line commands now support **dialogue mode** through multiple values per parameter, as well as the optional **`music`** parameter for background music.
 
 **Single mode examples:**
 ```bash
-# Text-to-Speech
 python src/voder.py tts script "Hello world" voice "female, cheerful"
-
-# Text-to-Speech with Voice Cloning
 python src/voder.py tts+vc script "Hello" target "voice.wav"
-
-# Speech-to-Speech Voice Conversion
 python src/voder.py sts base "input.wav" target "voice.wav"
-
-# Text-to-Music
 python src/voder.py ttm lyrics "Verse 1: ..." styling "upbeat pop" 30
-
-# Text-to-Music with Voice Conversion
-python src/voder.py ttm+vc lyrics "..." styling "pop" 30 target "voice.wav"
+python src/voder.py ttm+vc lyrics "..." styling "pop" duration 30 target "voice.wav"
 ```
 
 **Dialogue mode examples (TTS):**
 ```bash
-# Without background music
-python src/voder.py tts \
-  script "James: Welcome to the show!" \
-  script "Sarah: Glad to be here." \
-  voice "James: deep male voice, authoritative" \
-  voice "Sarah: bright female voice, energetic"
-
-# With background music
-python src/voder.py tts \
-  script "James: Welcome to the show!" \
-  script "Sarah: Glad to be here." \
-  voice "James: deep male voice, authoritative" \
-  voice "Sarah: bright female voice, energetic" \
-  music "soft piano, cinematic"
+python src/voder.py tts script "James: Welcome to the show!" "Sarah: Glad to be here." voice "James: deep male voice, authoritative" "Sarah: bright female voice, energetic"
+python src/voder.py tts script "James: Welcome to the show!" "Sarah: Glad to be here." voice "James: deep male voice, authoritative" "Sarah: bright female voice, energetic" music "soft piano, cinematic"
 ```
 
 **Dialogue mode examples (TTS+VC):**
 ```bash
-# Without background music
-python src/voder.py tts+vc \
-  script "James: Let's start with AI." \
-  script "Sarah: I've been working on this for years." \
-  target "James: /path/to/james_voice.wav" \
-  target "Sarah: /path/to/sarah_voice.wav"
-
-# With background music
-python src/voder.py tts+vc \
-  script "James: Let's start with AI." \
-  script "Sarah: I've been working on this for years." \
-  target "James: /path/to/james_voice.wav" \
-  target "Sarah: /path/to/sarah_voice.wav" \
-  music "ambient electronic, chill"
+python src/voder.py tts+vc script "James: Let's start with AI." "Sarah: I've been working on this for years." target "James: /path/to/james_voice.wav" "Sarah: /path/to/sarah_voice.wav"
+python src/voder.py tts+vc script "James: Let's start with AI." "Sarah: I've been working on this for years." target "James: /path/to/james_voice.wav" "Sarah: /path/to/sarah_voice.wav" music "ambient electronic, chill"
 ```
 
-**Note:** STT+TTS mode is not available in one-line CLI because it requires interactive text editing.  
+**Note:** STT+TTS mode is not available in one-line CLI because it requires interactive text editing.
 If the `music` parameter is supplied in single‑mode (plain text without colon), it is ignored with a warning.
 
 ---
@@ -208,13 +175,14 @@ If the `music` parameter is supplied in single‑mode (plain text without colon)
 | Component | Specification |
 |-----------|---------------|
 | CPU | 4-6 cores |
-| GPU | 8GB+ VRAM (NVIDIA) |
-| RAM | 16GB system memory |
+| RAM | 12GB+ system memory |
 | Storage | SSD recommended |
+
+**Note:** VODER runs entirely on CPU. No GPU is required for any mode. |
 
 ### Recommended Requirements
 
-VODER is designed to maximize output quality rather than speed. Meeting the minimum requirements ensures reliable operation — the focus is on achieving professional-grade audio results, not processing benchmarks. Higher VRAM allows for longer audio generation and more complex workflows.
+VODER is designed to maximize output quality rather than speed. Meeting the minimum requirements ensures reliable operation — the focus is on achieving professional-grade audio results, not processing benchmarks. More RAM allows for longer audio generation and more complex workflows.
 
 ---
 
