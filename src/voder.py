@@ -3,6 +3,7 @@ import os
 import time
 import tempfile
 import shutil
+import gc
 import numpy as np
 import torch
 import torchaudio
@@ -3327,6 +3328,7 @@ def cli_ttm_vc_mode():
             print("Error: Music generation failed")
             return False
         print("Resampling TTM output to 22050Hz...")
+        
         import torchaudio
         waveform_ttm, sr_ttm = torchaudio.load(temp_ttm_output.name)
         if sr_ttm != 22050:
@@ -3339,6 +3341,12 @@ def cli_ttm_vc_mode():
             resampler_target = torchaudio.transforms.Resample(sr_target, 22050)
             waveform_target = resampler_target(waveform_target)
         torchaudio.save(temp_target_22k.name, waveform_target, 22050)
+        print("Clearing ACE-Step from memory...")
+        del ace_step
+        ace_step = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         print("Loading Seed-VC model...")
         seed_vc = SeedVCV2()
         if seed_vc.model is None:
