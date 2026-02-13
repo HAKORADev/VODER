@@ -1122,10 +1122,17 @@ class ProcessingThread(QThread):
                 if self.music_description:
                     self.status_signal.emit("Generating background music...")
                     try:
-                        info = torchaudio.info(dialogue_temp.name)
-                        duration = info.num_frames / info.sample_rate
-                    except:
-                        duration = 30
+                        info = sf.info(dialogue_temp.name)
+                        duration = info.duration
+                        print(f"Dialogue duration: {duration:.2f}s")
+                    except Exception as e:
+                        print(f"Could not get audio duration with soundfile: {e}")
+                        try:
+                            info = torchaudio.info(dialogue_temp.name)
+                            duration = info.num_frames / info.sample_rate
+                        except Exception as e2:
+                            print(f"Torchaudio also failed: {e2}")
+                            duration = 30
                     music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                     music_temp.close()
                     del self.tts_voice_design
@@ -1214,10 +1221,17 @@ class ProcessingThread(QThread):
                     if self.music_description:
                         self.status_signal.emit("Generating background music...")
                         try:
-                            info = torchaudio.info(dialogue_temp.name)
-                            duration = info.num_frames / info.sample_rate
-                        except:
-                            duration = 30
+                            info = sf.info(dialogue_temp.name)
+                            duration = info.duration
+                            print(f"Dialogue duration: {duration:.2f}s")
+                        except Exception as e:
+                            print(f"Could not get audio duration with soundfile: {e}")
+                            try:
+                                info = torchaudio.info(dialogue_temp.name)
+                                duration = info.num_frames / info.sample_rate
+                            except Exception as e2:
+                                print(f"Torchaudio also failed: {e2}")
+                                duration = 30
                         music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                         music_temp.close()
                         del self.tts
@@ -2751,10 +2765,17 @@ def cli_tts_mode():
                 return False
             if music_description:
                 try:
-                    info = torchaudio.info(dialogue_temp.name)
-                    duration = info.num_frames / info.sample_rate
-                except:
-                    duration = 30
+                    info = sf.info(dialogue_temp.name)
+                    duration = info.duration
+                    print(f"Dialogue duration: {duration:.2f}s")
+                except Exception as e:
+                    print(f"Could not get audio duration with soundfile: {e}")
+                    try:
+                        info = torchaudio.info(dialogue_temp.name)
+                        duration = info.num_frames / info.sample_rate
+                    except Exception as e2:
+                        print(f"Torchaudio also failed: {e2}")
+                        duration = 30
                 print("Generating background music...")
                 del tts_design
                 tts_design = None
@@ -2806,10 +2827,17 @@ def cli_tts_mode():
             if music_description:
                 print("Generating background music...")
                 try:
-                    info = torchaudio.info(output_path)
-                    duration = info.num_frames / info.sample_rate
-                except:
-                    duration = 30
+                    info = sf.info(output_path)
+                    duration = info.duration
+                    print(f"Dialogue duration: {duration:.2f}s")
+                except Exception as e:
+                    print(f"Could not get audio duration with soundfile: {e}")
+                    try:
+                        info = torchaudio.info(output_path)
+                        duration = info.num_frames / info.sample_rate
+                    except Exception as e2:
+                        print(f"Torchaudio also failed: {e2}")
+                        duration = 30
                 del tts_design
                 tts_design = None
                 if torch.cuda.is_available():
@@ -2978,10 +3006,17 @@ def cli_tts_vc_mode():
                 return False
             if music_description:
                 try:
-                    info = torchaudio.info(dialogue_temp.name)
-                    duration = info.num_frames / info.sample_rate
-                except:
-                    duration = 30
+                    info = sf.info(dialogue_temp.name)
+                    duration = info.duration
+                    print(f"Dialogue duration: {duration:.2f}s")
+                except Exception as e:
+                    print(f"Could not get audio duration with soundfile: {e}")
+                    try:
+                        info = torchaudio.info(dialogue_temp.name)
+                        duration = info.num_frames / info.sample_rate
+                    except Exception as e2:
+                        print(f"Torchaudio also failed: {e2}")
+                        duration = 30
                 print("Generating background music...")
                 del tts
                 tts = None
@@ -3056,10 +3091,17 @@ def cli_tts_vc_mode():
                     return False
                 if music_description:
                     try:
-                        info = torchaudio.info(dialogue_temp.name)
-                        duration = info.num_frames / info.sample_rate
-                    except:
-                        duration = 30
+                        info = sf.info(dialogue_temp.name)
+                        duration = info.duration
+                        print(f"Dialogue duration: {duration:.2f}s")
+                    except Exception as e:
+                        print(f"Could not get audio duration with soundfile: {e}")
+                        try:
+                            info = torchaudio.info(dialogue_temp.name)
+                            duration = info.num_frames / info.sample_rate
+                        except Exception as e2:
+                            print(f"Torchaudio also failed: {e2}")
+                            duration = 30
                     print("Generating background music...")
                     del tts
                     tts = None
@@ -3570,10 +3612,17 @@ def oneline_tts(params):
                 return False
             if music_description:
                 try:
-                    info = torchaudio.info(dialogue_temp.name)
-                    duration = info.num_frames / info.sample_rate
-                except:
-                    duration = 30
+                    info = sf.info(dialogue_temp.name)
+                    duration = info.duration
+                    print(f"Dialogue duration: {duration:.2f}s")
+                except Exception as e:
+                    print(f"Could not get audio duration with soundfile: {e}")
+                    try:
+                        info = torchaudio.info(dialogue_temp.name)
+                        duration = info.num_frames / info.sample_rate
+                    except Exception as e2:
+                        print(f"Torchaudio also failed: {e2}")
+                        duration = 30
                 print("Generating background music...")
                 del tts_design
                 tts_design = None
@@ -3625,10 +3674,17 @@ def oneline_tts(params):
                 return False
             if music_description:
                 try:
-                    info = torchaudio.info(dialogue_temp.name)
-                    duration = info.num_frames / info.sample_rate
-                except:
-                    duration = 30
+                    info = sf.info(dialogue_temp.name)
+                    duration = info.duration
+                    print(f"Dialogue duration: {duration:.2f}s")
+                except Exception as e:
+                    print(f"Could not get audio duration with soundfile: {e}")
+                    try:
+                        info = torchaudio.info(dialogue_temp.name)
+                        duration = info.num_frames / info.sample_rate
+                    except Exception as e2:
+                        print(f"Torchaudio also failed: {e2}")
+                        duration = 30
                 print("Generating background music...")
                 del tts_design
                 tts_design = None
@@ -3802,10 +3858,17 @@ def oneline_tts_vc(params):
                 return False
             if music_description:
                 try:
-                    info = torchaudio.info(dialogue_temp.name)
-                    duration = info.num_frames / info.sample_rate
-                except:
-                    duration = 30
+                    info = sf.info(dialogue_temp.name)
+                    duration = info.duration
+                    print(f"Dialogue duration: {duration:.2f}s")
+                except Exception as e:
+                    print(f"Could not get audio duration with soundfile: {e}")
+                    try:
+                        info = torchaudio.info(dialogue_temp.name)
+                        duration = info.num_frames / info.sample_rate
+                    except Exception as e2:
+                        print(f"Torchaudio also failed: {e2}")
+                        duration = 30
                 print("Generating background music...")
                 del tts
                 tts = None
@@ -3880,10 +3943,17 @@ def oneline_tts_vc(params):
                     return False
                 if music_description:
                     try:
-                        info = torchaudio.info(dialogue_temp.name)
-                        duration = info.num_frames / info.sample_rate
-                    except:
-                        duration = 30
+                        info = sf.info(dialogue_temp.name)
+                        duration = info.duration
+                        print(f"Dialogue duration: {duration:.2f}s")
+                    except Exception as e:
+                        print(f"Could not get audio duration with soundfile: {e}")
+                        try:
+                            info = torchaudio.info(dialogue_temp.name)
+                            duration = info.num_frames / info.sample_rate
+                        except Exception as e2:
+                            print(f"Torchaudio also failed: {e2}")
+                            duration = 30
                     print("Generating background music...")
                     del tts
                     tts = None
