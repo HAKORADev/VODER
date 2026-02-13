@@ -1555,7 +1555,9 @@ class VODERGUI(QMainWindow):
         self.output_audio_path = None
         self.transcription_data = None
         self.voice_embedded = False
-        os.makedirs("results", exist_ok=True)
+        self.original_cwd = os.getcwd()
+        self.results_dir = os.path.join(self.original_cwd, "results")
+        os.makedirs(self.results_dir, exist_ok=True)
         self.setup_ui()
 
     def load_icon(self):
@@ -2325,7 +2327,7 @@ class VODERGUI(QMainWindow):
         self.status_bar.setText("Synthesizing with target voice...")
         self.progress.setValue(0)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join("results", f"voder_output_{timestamp}.wav")
+        output_path = os.path.join(self.results_dir, f"voder_output_{timestamp}.wav")
         self.worker = ProcessingThread("synthesize", target_path=self.target_audio_path,
                                        text=text, output_path=output_path)
         self.worker.progress_signal.connect(self.progress.setValue)
@@ -2363,7 +2365,7 @@ class VODERGUI(QMainWindow):
         base_name = f"voder_tts_dialogue_{timestamp}"
         if music_description:
             base_name += "_m"
-        output_path = os.path.join("results", f"{base_name}.wav")
+        output_path = os.path.join(self.results_dir, f"{base_name}.wav")
         self.set_processing_state(True)
         self.status_bar.setText("Processing dialogue..." + (" with music" if music_description else ""))
         self.progress.setValue(0)
@@ -2428,7 +2430,7 @@ class VODERGUI(QMainWindow):
             base_name = f"voder_tts_vc_dialogue_{timestamp}"
             if music_description:
                 base_name += "_m"
-            output_path = os.path.join("results", f"{base_name}.wav")
+            output_path = os.path.join(self.results_dir, f"{base_name}.wav")
             self.set_processing_state(True)
             self.status_bar.setText("Processing dialogue with voice clone..." + (" with music" if music_description else ""))
             self.progress.setValue(0)
@@ -2454,7 +2456,7 @@ class VODERGUI(QMainWindow):
             self.set_processing_state(False)
             return
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join("results", f"voder_tts_vc_single_{timestamp}.wav")
+        output_path = os.path.join(self.results_dir, f"voder_tts_vc_single_{timestamp}.wav")
         self.status_bar.setText("Generating speech with cloned voice...")
         self.progress.setValue(50)
         success = tts.synthesize(script_text, output_path)
@@ -2471,7 +2473,7 @@ class VODERGUI(QMainWindow):
         self.status_bar.setText("Converting voice with Seed-VC...")
         self.progress.setValue(0)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join("results", f"voder_sts_output_{timestamp}.wav")
+        output_path = os.path.join(self.results_dir, f"voder_sts_output_{timestamp}.wav")
         self.worker = ProcessingThread("seed_vc_convert", base_path=self.base_audio_path,
                                        target_path=self.target_audio_path, output_path=output_path)
         self.worker.progress_signal.connect(self.progress.setValue)
@@ -2494,7 +2496,7 @@ class VODERGUI(QMainWindow):
             QMessageBox.warning(self, "Error", "Please enter style prompt")
             return
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join("results", f"voder_ttm_output_{timestamp}.wav")
+        output_path = os.path.join(self.results_dir, f"voder_ttm_output_{timestamp}.wav")
         self.set_processing_state(True)
         self.status_bar.setText("Generating music with ACE-Step...")
         self.progress.setValue(0)
@@ -2526,7 +2528,7 @@ class VODERGUI(QMainWindow):
             QMessageBox.warning(self, "Error", "Please load target voice audio")
             return
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join("results", f"voder_ttm_vc_output_{timestamp}.wav")
+        output_path = os.path.join(self.results_dir, f"voder_ttm_vc_output_{timestamp}.wav")
         self.set_processing_state(True)
         self.status_bar.setText("Generating music with TTM+VC...")
         self.progress.setValue(0)
@@ -2661,6 +2663,10 @@ def extract_audio_from_video_cli(video_path):
         return None
 
 def cli_tts_mode():
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
     print("\n--- TTS Mode ---")
     print("Enter script lines. Use format 'Character: text' for dialogue, or plain text for single speech.")
     print("Empty line finishes script entry.")
@@ -2696,9 +2702,8 @@ def cli_tts_mode():
             print("Error: Failed to load VoiceDesign model")
             return False
         print("Generating speech...")
-        os.makedirs("results", exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join("results", f"voder_tts_{timestamp}.wav")
+        output_path = os.path.join(results_dir, f"voder_tts_{timestamp}.wav")
         success = tts_design.synthesize(script, voice_prompt, output_path)
         if not success:
             print("Error: VoiceDesign synthesis failed")
@@ -2752,7 +2757,7 @@ def cli_tts_mode():
         base_name = f"voder_tts_dialogue_{timestamp}"
         if music_description:
             base_name += "_m"
-        output_path = os.path.join("results", f"{base_name}.wav")
+        output_path = os.path.join(results_dir, f"{base_name}.wav")
 
         if len(dialogue_items) == 1:
             _, char, text = dialogue_items[0]
@@ -2819,7 +2824,6 @@ def cli_tts_mode():
             print(f"\n✓ Success! Output saved to: {output_path}")
             return True
         else:
-            os.makedirs("results", exist_ok=True)
             success, msg = tts_design.synthesize_dialogue(dialogue_items, voice_prompts, output_path)
             if not success:
                 print(f"Error: {msg}")
@@ -2872,7 +2876,7 @@ def cli_tts_mode():
                 if result.returncode != 0:
                     print(f"FFmpeg mixing failed: {result.stderr}")
                     return False
-                final_path = os.path.join("results", f"voder_tts_dialogue_{timestamp}_m.wav")
+                final_path = os.path.join(results_dir, f"voder_tts_dialogue_{timestamp}_m.wav")
                 shutil.move(mixed_temp.name, final_path)
                 os.unlink(output_path)
                 os.unlink(music_temp.name)
@@ -2881,6 +2885,10 @@ def cli_tts_mode():
             return True
 
 def cli_tts_vc_mode():
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
     print("\n--- TTS+VC Mode ---")
     print("Enter script lines. Use format 'Character: text' for dialogue, or plain text for single speech.")
     print("Empty line finishes script entry.")
@@ -2926,9 +2934,8 @@ def cli_tts_vc_mode():
             print("Error: Voice extraction failed")
             return False
         print("Generating speech with cloned voice...")
-        os.makedirs("results", exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join("results", f"voder_tts_vc_{timestamp}.wav")
+        output_path = os.path.join(results_dir, f"voder_tts_vc_{timestamp}.wav")
         success = tts.synthesize(script, output_path)
         if not success:
             print("Error: Synthesis failed")
@@ -2989,7 +2996,7 @@ def cli_tts_vc_mode():
         base_name = f"voder_tts_vc_dialogue_{timestamp}"
         if music_description:
             base_name += "_m"
-        output_path = os.path.join("results", f"{base_name}.wav")
+        output_path = os.path.join(results_dir, f"{base_name}.wav")
 
         if len(dialogue_items) == 1:
             _, char, text = dialogue_items[0]
@@ -3151,6 +3158,10 @@ def cli_tts_vc_mode():
                     pass
 
 def cli_stt_tts_mode():
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
     print("\n--- STT+TTS Mode ---")
     print("Convert speech from base audio to target voice")
     print()
@@ -3194,9 +3205,8 @@ def cli_stt_tts_mode():
         print("Error: Voice extraction failed")
         return False
     print("\nSynthesizing speech with target voice...")
-    os.makedirs("results", exist_ok=True)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    output_path = os.path.join("results", f"voder_stt_tts_{timestamp}.wav")
+    output_path = os.path.join(results_dir, f"voder_stt_tts_{timestamp}.wav")
     success = tts.synthesize(text, output_path)
     if not success:
         print("Error: Synthesis failed")
@@ -3205,6 +3215,10 @@ def cli_stt_tts_mode():
     return True
 
 def cli_sts_mode():
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
     print("\n--- STS Mode ---")
     print("Convert voice from base audio to target voice")
     print()
@@ -3257,9 +3271,8 @@ def cli_sts_mode():
         if sr_out != 44100:
             resampler_out = torchaudio.transforms.Resample(sr_out, 44100)
             waveform_out = resampler_out(waveform_out)
-        os.makedirs("results", exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join("results", f"voder_sts_{timestamp}.wav")
+        output_path = os.path.join(results_dir, f"voder_sts_{timestamp}.wav")
         torchaudio.save(output_path, waveform_out, 44100)
         print(f"\n✓ Success! Output saved to: {output_path}")
         return True
@@ -3269,6 +3282,10 @@ def cli_sts_mode():
                 os.remove(temp_file)
 
 def cli_ttm_mode():
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
     print("\n--- TTM Mode ---")
     print("Generate music from lyrics and style")
     print()
@@ -3302,9 +3319,8 @@ def cli_ttm_mode():
         print("Error: Failed to load ACE-Step model")
         return False
     print(f"Generating music ({duration}s duration)...")
-    os.makedirs("results", exist_ok=True)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    output_path = os.path.join("results", f"voder_ttm_{timestamp}.wav")
+    output_path = os.path.join(results_dir, f"voder_ttm_{timestamp}.wav")
     success = ace_step.generate(
         lyrics=lyrics,
         style_prompt=style,
@@ -3318,6 +3334,10 @@ def cli_ttm_mode():
     return True
 
 def cli_ttm_vc_mode():
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
     print("\n--- TTM+VC Mode ---")
     print("Generate music then convert to target voice")
     print()
@@ -3408,9 +3428,8 @@ def cli_ttm_vc_mode():
         if sr_out != 44100:
             resampler_out = torchaudio.transforms.Resample(sr_out, 44100)
             waveform_out = resampler_out(waveform_out)
-        os.makedirs("results", exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join("results", f"voder_ttm_vc_{timestamp}.wav")
+        output_path = os.path.join(results_dir, f"voder_ttm_vc_{timestamp}.wav")
         torchaudio.save(output_path, waveform_out, 44100)
         print(f"\n✓ Success! Output saved to: {output_path}")
         return True
@@ -3507,6 +3526,10 @@ def execute_oneline_command(parsed):
         return False
 
 def oneline_tts(params):
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
     scripts = params.get('script', [])
     voices = params.get('voice', [])
     music_params = params.get('music', [])
@@ -3539,9 +3562,8 @@ def oneline_tts(params):
             print("Error: Failed to load VoiceDesign model")
             return False
         print("Generating speech...")
-        os.makedirs("results", exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join("results", f"voder_tts_{timestamp}.wav")
+        output_path = os.path.join(results_dir, f"voder_tts_{timestamp}.wav")
         success = tts_design.synthesize(script, voice_prompt, output_path)
         if not success:
             print("Error: VoiceDesign synthesis failed")
@@ -3599,7 +3621,7 @@ def oneline_tts(params):
         base_name = f"voder_tts_dialogue_{timestamp}"
         if music_description:
             base_name += "_m"
-        output_path = os.path.join("results", f"{base_name}.wav")
+        output_path = os.path.join(results_dir, f"{base_name}.wav")
 
         if len(dialogue_items) == 1:
             _, char, text = dialogue_items[0]
@@ -3729,6 +3751,10 @@ def oneline_tts(params):
             return True
 
 def oneline_tts_vc(params):
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
     scripts = params.get('script', [])
     targets = params.get('target', [])
     music_params = params.get('music', [])
@@ -3774,9 +3800,8 @@ def oneline_tts_vc(params):
             print("Error: Voice extraction failed")
             return False
         print("Generating speech with cloned voice...")
-        os.makedirs("results", exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join("results", f"voder_tts_vc_{timestamp}.wav")
+        output_path = os.path.join(results_dir, f"voder_tts_vc_{timestamp}.wav")
         success = tts.synthesize(script, output_path)
         if not success:
             print("Error: Synthesis failed")
@@ -3841,7 +3866,7 @@ def oneline_tts_vc(params):
         base_name = f"voder_tts_vc_dialogue_{timestamp}"
         if music_description:
             base_name += "_m"
-        output_path = os.path.join("results", f"{base_name}.wav")
+        output_path = os.path.join(results_dir, f"{base_name}.wav")
 
         if len(dialogue_items) == 1:
             _, char, text = dialogue_items[0]
@@ -4003,6 +4028,10 @@ def oneline_tts_vc(params):
                     pass
 
 def oneline_sts(params):
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
     if 'base' not in params or len(params['base']) != 1:
         print("Error: STS mode requires exactly one 'base' parameter")
         return False
@@ -4062,9 +4091,8 @@ def oneline_sts(params):
         if sr_out != 44100:
             resampler_out = torchaudio.transforms.Resample(sr_out, 44100)
             waveform_out = resampler_out(waveform_out)
-        os.makedirs("results", exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join("results", f"voder_sts_{timestamp}.wav")
+        output_path = os.path.join(results_dir, f"voder_sts_{timestamp}.wav")
         torchaudio.save(output_path, waveform_out, 44100)
         print(f"✓ Success! Output saved to: {output_path}")
         return True
@@ -4074,6 +4102,10 @@ def oneline_sts(params):
                 os.remove(temp_file)
 
 def oneline_ttm(params):
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
     if 'lyrics' not in params or len(params['lyrics']) != 1:
         print("Error: TTM mode requires exactly one 'lyrics' parameter")
         return False
@@ -4095,9 +4127,8 @@ def oneline_ttm(params):
         print("Error: Failed to load ACE-Step model")
         return False
     print(f"Generating music ({duration}s duration)...")
-    os.makedirs("results", exist_ok=True)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    output_path = os.path.join("results", f"voder_ttm_{timestamp}.wav")
+    output_path = os.path.join(results_dir, f"voder_ttm_{timestamp}.wav")
     success = ace_step.generate(
         lyrics=lyrics,
         style_prompt=style,
@@ -4111,6 +4142,10 @@ def oneline_ttm(params):
     return True
 
 def oneline_ttm_vc(params):
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
     if 'lyrics' not in params or len(params['lyrics']) != 1:
         print("Error: TTM+VC mode requires exactly one 'lyrics' parameter")
         return False
@@ -4185,9 +4220,8 @@ def oneline_ttm_vc(params):
         if sr_out != 44100:
             resampler_out = torchaudio.transforms.Resample(sr_out, 44100)
             waveform_out = resampler_out(waveform_out)
-        os.makedirs("results", exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join("results", f"voder_ttm_vc_{timestamp}.wav")
+        output_path = os.path.join(results_dir, f"voder_ttm_vc_{timestamp}.wav")
         torchaudio.save(output_path, waveform_out, 44100)
         print(f"✓ Success! Output saved to: {output_path}")
         return True
