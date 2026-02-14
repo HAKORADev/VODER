@@ -959,7 +959,7 @@ class SeedVCV1:
         self.whisper_feature_extractor = None
         self.campplus_model = None
         self.bigvgan_model = None
-        self.rmvpe_model = None
+        self.rmvpe = None
         self.to_mel = None
         self.sr = 44100
         self.hop_length = 512
@@ -1027,7 +1027,7 @@ class SeedVCV1:
                 self.bigvgan_model = self.bigvgan_model.eval().to(self.device)
 
                 rmvpe_path = load_custom_model_from_hf("lj1995/VoiceConversionWebUI", "rmvpe.pt")
-                self.rmvpe_model = RMVPE(rmvpe_path, is_half=False, device=self.device)
+                self.rmvpe = RMVPE(rmvpe_path, is_half=False, device=self.device)
 
                 print("Seed-VC v1 (seed-uvit-whisper-base-f0-44k) loaded successfully")
             except ImportError as e:
@@ -1143,11 +1143,34 @@ class SeedVCV1:
             feat2 = feat2 - feat2.mean(dim=0, keepdim=True)
             style2 = self.campplus_model(feat2.unsqueeze(0))
 
+            F0_ori = self.rmvpe.infer_from_audio(ref_waves_16k[0], thred=0.03)
+            F0_alt = self.rmvpe.infer_from_audio(converted_waves_16k[0], thred=0.03)
+
+            if self.device.type == "mps":
+                F0_ori = torch.from_numpy(F0_ori).float().to(self.device)[None]
+                F0_alt = torch.from_numpy(F0_alt).float().to(self.device)[None]
+            else:
+                F0_ori = torch.from_numpy(F0_ori).to(self.device)[None]
+                F0_alt = torch.from_numpy(F0_alt).to(self.device)[None]
+
+            voiced_F0_ori = F0_ori[F0_ori > 1]
+            voiced_F0_alt = F0_alt[F0_alt > 1]
+
+            log_f0_alt = torch.log(F0_alt + 1e-5)
+            voiced_log_f0_ori = torch.log(voiced_F0_ori + 1e-5)
+            voiced_log_f0_alt = torch.log(voiced_F0_alt + 1e-5)
+            median_log_f0_ori = torch.median(voiced_log_f0_ori)
+            median_log_f0_alt = torch.median(voiced_log_f0_alt)
+
+            shifted_log_f0_alt = log_f0_alt.clone()
+            shifted_log_f0_alt[F0_alt > 1] = log_f0_alt[F0_alt > 1] - median_log_f0_alt + median_log_f0_ori
+            shifted_f0_alt = torch.exp(shifted_log_f0_alt)
+
             cond, _, codes, commitment_loss, codebook_loss = self.model.length_regulator(
-                S_alt, ylens=target_lengths, n_quantizers=3, f0=None
+                S_alt, ylens=target_lengths, n_quantizers=3, f0=shifted_f0_alt
             )
             prompt_condition, _, codes, commitment_loss, codebook_loss = self.model.length_regulator(
-                S_ori, ylens=target2_lengths, n_quantizers=3, f0=None
+                S_ori, ylens=target2_lengths, n_quantizers=3, f0=F0_ori
             )
 
             max_context_window = self.sr // self.hop_length * 30
@@ -1169,6 +1192,8 @@ class SeedVCV1:
             return True
         except Exception as e:
             print(f"Seed-VC v1 conversion error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
 class AceStepWrapper:
