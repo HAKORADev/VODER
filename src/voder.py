@@ -947,6 +947,230 @@ class SeedVCV2:
             print(f"Seed-VC conversion error: {e}")
             return False
 
+SEEDVC_V1_CHECKPOINTS_DIR = "./models/seed_vc_v1/checkpoints"
+
+class SeedVCV1:
+    def __init__(self):
+        self.model = None
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.dtype = torch.float16
+        self.checkpoints_dir = SEEDVC_V1_CHECKPOINTS_DIR
+        self.whisper_model = None
+        self.whisper_feature_extractor = None
+        self.campplus_model = None
+        self.bigvgan_model = None
+        self.rmvpe_model = None
+        self.to_mel = None
+        self.sr = 44100
+        self.hop_length = 512
+        self.ensure_model()
+
+    def ensure_model(self):
+        os.makedirs(self.checkpoints_dir, exist_ok=True)
+        if self.model is None:
+            try:
+                import sys
+                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                from hf_utils import load_custom_model_from_hf
+                from modules.commons import build_model, load_checkpoint, recursive_munch
+                from modules.campplus.DTDNN import CAMPPlus
+                from modules.bigvgan import bigvgan
+                from modules.audio import mel_spectrogram
+                from modules.rmvpe import RMVPE
+                from transformers import WhisperModel, AutoFeatureExtractor
+
+                dit_checkpoint_path, dit_config_path = load_custom_model_from_hf(
+                    "Plachta/Seed-VC",
+                    "DiT_seed_v2_uvit_whisper_base_f0_44k_bigvgan_pruned_ft_ema.pth",
+                    "config_dit_mel_seed_uvit_whisper_base_f0_44k.yml"
+                )
+                config = yaml.safe_load(open(dit_config_path, 'r'))
+                model_params = recursive_munch(config['model_params'])
+                self.model = build_model(model_params, stage='DiT')
+                self.hop_length = config['preprocess_params']['spect_params']['hop_length']
+                self.sr = config['preprocess_params']['sr']
+
+                self.model, _, _, _ = load_checkpoint(
+                    self.model, None, dit_checkpoint_path,
+                    load_only_params=True, ignore_modules=[], is_distributed=False
+                )
+                for key in self.model:
+                    self.model[key].eval()
+                    self.model[key].to(self.device)
+                self.model.cfm.estimator.setup_caches(max_batch_size=1, max_seq_length=8192)
+
+                mel_fn_args = {
+                    "n_fft": config['preprocess_params']['spect_params']['n_fft'],
+                    "win_size": config['preprocess_params']['spect_params']['win_length'],
+                    "hop_size": config['preprocess_params']['spect_params']['hop_length'],
+                    "num_mels": config['preprocess_params']['spect_params']['n_mels'],
+                    "sampling_rate": self.sr,
+                    "fmin": 0,
+                    "fmax": None,
+                    "center": False
+                }
+                self.to_mel = lambda x: mel_spectrogram(x, **mel_fn_args)
+
+                whisper_name = "openai/whisper-small"
+                self.whisper_model = WhisperModel.from_pretrained(whisper_name, torch_dtype=torch.float16).to(self.device)
+                del self.whisper_model.decoder
+                self.whisper_feature_extractor = AutoFeatureExtractor.from_pretrained(whisper_name)
+
+                campplus_ckpt_path = load_custom_model_from_hf("funasr/campplus", "campplus_cn_common.bin")
+                self.campplus_model = CAMPPlus(feat_dim=80, embedding_size=192)
+                self.campplus_model.load_state_dict(torch.load(campplus_ckpt_path, map_location="cpu"))
+                self.campplus_model.eval()
+                self.campplus_model.to(self.device)
+
+                self.bigvgan_model = bigvgan.BigVGAN.from_pretrained('nvidia/bigvgan_v2_44khz_128band_512x', use_cuda_kernel=False)
+                self.bigvgan_model.remove_weight_norm()
+                self.bigvgan_model = self.bigvgan_model.eval().to(self.device)
+
+                rmvpe_path = load_custom_model_from_hf("lj1995/VoiceConversionWebUI", "rmvpe.pt")
+                self.rmvpe_model = RMVPE(rmvpe_path, is_half=False, device=self.device)
+
+                print("Seed-VC v1 (seed-uvit-whisper-base-f0-44k) loaded successfully")
+            except ImportError as e:
+                print(f"Missing dependency for Seed-VC v1: {e}")
+            except Exception as e:
+                print(f"Error loading Seed-VC v1: {e}")
+
+    def download_checkpoint(self, repo_id, filename, local_name):
+        local_path = os.path.join(self.checkpoints_dir, local_name)
+        if os.path.exists(local_path):
+            return local_path
+        try:
+            downloaded_path = hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                cache_dir=self.checkpoints_dir,
+                force_filename=local_name
+            )
+            return downloaded_path if os.path.exists(downloaded_path) else local_path
+        except Exception as e:
+            print(f"Error downloading {filename}: {e}")
+            return None
+
+    def _process_whisper_features(self, audio_16k):
+        if audio_16k.size(-1) <= 16000 * 30:
+            inputs = self.whisper_feature_extractor(
+                [audio_16k.squeeze(0).cpu().numpy()],
+                return_tensors="pt",
+                return_attention_mask=True,
+                sampling_rate=16000
+            )
+            input_features = self.whisper_model._mask_input_features(
+                inputs.input_features, attention_mask=inputs.attention_mask
+            ).to(self.device)
+            outputs = self.whisper_model.encoder(
+                input_features.to(self.whisper_model.encoder.dtype),
+                head_mask=None,
+                output_attentions=False,
+                output_hidden_states=False,
+                return_dict=True,
+            )
+            features = outputs.last_hidden_state.to(torch.float32)
+            features = features[:, :audio_16k.size(-1) // 320 + 1]
+        else:
+            overlapping_time = 5
+            features_list = []
+            buffer = None
+            traversed_time = 0
+            while traversed_time < audio_16k.size(-1):
+                if buffer is None:
+                    chunk = audio_16k[:, traversed_time:traversed_time + 16000 * 30]
+                else:
+                    chunk = torch.cat([
+                        buffer,
+                        audio_16k[:, traversed_time:traversed_time + 16000 * (30 - overlapping_time)]
+                    ], dim=-1)
+                inputs = self.whisper_feature_extractor(
+                    [chunk.squeeze(0).cpu().numpy()],
+                    return_tensors="pt",
+                    return_attention_mask=True,
+                    sampling_rate=16000
+                )
+                input_features = self.whisper_model._mask_input_features(
+                    inputs.input_features, attention_mask=inputs.attention_mask
+                ).to(self.device)
+                outputs = self.whisper_model.encoder(
+                    input_features.to(self.whisper_model.encoder.dtype),
+                    head_mask=None,
+                    output_attentions=False,
+                    output_hidden_states=False,
+                    return_dict=True,
+                )
+                chunk_features = outputs.last_hidden_state.to(torch.float32)
+                chunk_features = chunk_features[:, :chunk.size(-1) // 320 + 1]
+                if traversed_time == 0:
+                    features_list.append(chunk_features)
+                else:
+                    features_list.append(chunk_features[:, 50 * overlapping_time:])
+                buffer = chunk[:, -16000 * overlapping_time:]
+                traversed_time += 30 * 16000 if traversed_time == 0 else chunk.size(-1) - 16000 * overlapping_time
+            features = torch.cat(features_list, dim=1)
+        return features
+
+    def convert(self, source_path, reference_path, output_path):
+        if self.model is None:
+            return False
+        try:
+            import librosa
+            source_audio = librosa.load(source_path, sr=self.sr)[0]
+            ref_audio = librosa.load(reference_path, sr=self.sr)[0]
+
+            source_audio = torch.tensor(source_audio).unsqueeze(0).float().to(self.device)
+            ref_audio = torch.tensor(ref_audio[:self.sr * 25]).unsqueeze(0).float().to(self.device)
+
+            ref_waves_16k = torchaudio.functional.resample(ref_audio, self.sr, 16000)
+            converted_waves_16k = torchaudio.functional.resample(source_audio, self.sr, 16000)
+
+            S_alt = self._process_whisper_features(converted_waves_16k)
+            S_ori = self._process_whisper_features(ref_waves_16k)
+
+            mel = self.to_mel(source_audio.to(self.device).float())
+            mel2 = self.to_mel(ref_audio.to(self.device).float())
+
+            target_lengths = torch.LongTensor([int(mel.size(2))]).to(mel.device)
+            target2_lengths = torch.LongTensor([mel2.size(2)]).to(mel2.device)
+
+            feat2 = torchaudio.compliance.kaldi.fbank(
+                ref_waves_16k,
+                num_mel_bins=80,
+                dither=0,
+                sample_frequency=16000
+            )
+            feat2 = feat2 - feat2.mean(dim=0, keepdim=True)
+            style2 = self.campplus_model(feat2.unsqueeze(0))
+
+            cond, _, codes, commitment_loss, codebook_loss = self.model.length_regulator(
+                S_alt, ylens=target_lengths, n_quantizers=3, f0=None
+            )
+            prompt_condition, _, codes, commitment_loss, codebook_loss = self.model.length_regulator(
+                S_ori, ylens=target2_lengths, n_quantizers=3, f0=None
+            )
+
+            max_context_window = self.sr // self.hop_length * 30
+            max_source_window = max_context_window - mel2.size(2)
+
+            with torch.autocast(device_type=self.device.type, dtype=torch.float16):
+                vc_target = self.model.cfm.inference(
+                    torch.cat([prompt_condition, cond], dim=1),
+                    torch.LongTensor([torch.cat([prompt_condition, cond], dim=1).size(1)]).to(mel2.device),
+                    mel2, style2, None, 10,
+                    inference_cfg_rate=0.7
+                )
+                vc_target = vc_target[:, :, mel2.size(-1):]
+
+            vc_wave = self.bigvgan_model(vc_target.float())[0]
+
+            output_audio = vc_wave[0].cpu().numpy()
+            sf.write(output_path, output_audio, self.sr)
+            return True
+        except Exception as e:
+            print(f"Seed-VC v1 conversion error: {e}")
+            return False
+
 class AceStepWrapper:
     def __init__(self):
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1353,7 +1577,7 @@ class ProcessingThread(QThread):
                 temp_ttm_output = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                 temp_ttm_22k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                 temp_target_22k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                temp_vc_output_22k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                temp_vc_output = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                 try:
                     self.status_signal.emit("Loading ACE-Step model...")
                     self.ace_tt = AceStepWrapper()
@@ -1391,33 +1615,29 @@ class ProcessingThread(QThread):
                         resampler_target = torchaudio.transforms.Resample(sr_target, 22050)
                         waveform_target = resampler_target(waveform_target)
                     torchaudio.save(temp_target_22k.name, waveform_target, 22050)
-                    self.status_signal.emit("Loading Seed-VC model...")
-                    self.seed_vc = SeedVCV2()
+                    self.status_signal.emit("Loading Seed-VC v1 model...")
+                    self.seed_vc = SeedVCV1()
                     self.progress_signal.emit(70)
                     if self.seed_vc.model is None:
-                        self.error_signal.emit("Failed to load Seed-VC model")
+                        self.error_signal.emit("Failed to load Seed-VC v1 model")
                         return
                     self.status_signal.emit("Converting voice...")
                     self.progress_signal.emit(80)
                     vc_success = self.seed_vc.convert(
                         source_path=temp_ttm_22k.name,
                         reference_path=temp_target_22k.name,
-                        output_path=temp_vc_output_22k.name
+                        output_path=temp_vc_output.name
                     )
                     if not vc_success:
                         self.error_signal.emit("Voice conversion failed")
                         return
-                    self.status_signal.emit("Upsampling output to 44100Hz...")
+                    self.status_signal.emit("Saving output...")
                     self.progress_signal.emit(95)
-                    waveform_out, sr_out = torchaudio.load(temp_vc_output_22k.name)
-                    if sr_out != 44100:
-                        resampler_out = torchaudio.transforms.Resample(sr_out, 44100)
-                        waveform_out = resampler_out(waveform_out)
-                    torchaudio.save(self.output_path, waveform_out, 44100)
+                    shutil.copy(temp_vc_output.name, self.output_path)
                     self.progress_signal.emit(100)
                     self.finished_signal.emit(self.output_path)
                 finally:
-                    for temp_file in [temp_ttm_output.name, temp_ttm_22k.name, temp_target_22k.name, temp_vc_output_22k.name]:
+                    for temp_file in [temp_ttm_output.name, temp_ttm_22k.name, temp_target_22k.name, temp_vc_output.name]:
                         if os.path.exists(temp_file):
                             os.remove(temp_file)
         except Exception as e:
@@ -3377,7 +3597,7 @@ def cli_ttm_vc_mode():
     temp_ttm_output = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
     temp_ttm_22k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
     temp_target_22k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-    temp_vc_output_22k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    temp_vc_output = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
     try:
         print(f"Generating music ({duration}s duration)...")
         success = ace_step.generate(
@@ -3390,7 +3610,7 @@ def cli_ttm_vc_mode():
             print("Error: Music generation failed")
             return False
         print("Resampling TTM output to 22050Hz...")
-        
+
         import torchaudio
         waveform_ttm, sr_ttm = torchaudio.load(temp_ttm_output.name)
         if sr_ttm != 22050:
@@ -3409,32 +3629,28 @@ def cli_ttm_vc_mode():
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        print("Loading Seed-VC model...")
-        seed_vc = SeedVCV2()
+        print("Loading Seed-VC v1 model...")
+        seed_vc = SeedVCV1()
         if seed_vc.model is None:
-            print("Error: Failed to load Seed-VC model")
+            print("Error: Failed to load Seed-VC v1 model")
             return False
         print("Converting voice...")
         vc_success = seed_vc.convert(
             source_path=temp_ttm_22k.name,
             reference_path=temp_target_22k.name,
-            output_path=temp_vc_output_22k.name
+            output_path=temp_vc_output.name
         )
         if not vc_success:
             print("Error: Voice conversion failed")
             return False
-        print("Upsampling output to 44100Hz...")
-        waveform_out, sr_out = torchaudio.load(temp_vc_output_22k.name)
-        if sr_out != 44100:
-            resampler_out = torchaudio.transforms.Resample(sr_out, 44100)
-            waveform_out = resampler_out(waveform_out)
+        print("Saving output...")
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         output_path = os.path.join(results_dir, f"voder_ttm_vc_{timestamp}.wav")
-        torchaudio.save(output_path, waveform_out, 44100)
+        shutil.copy(temp_vc_output.name, output_path)
         print(f"\n✓ Success! Output saved to: {output_path}")
         return True
     finally:
-        for temp_file in [temp_ttm_output.name, temp_ttm_22k.name, temp_target_22k.name, temp_vc_output_22k.name]:
+        for temp_file in [temp_ttm_output.name, temp_ttm_22k.name, temp_target_22k.name, temp_vc_output.name]:
             if os.path.exists(temp_file):
                 os.remove(temp_file)
 
@@ -4198,7 +4414,7 @@ def oneline_ttm_vc(params):
     temp_ttm_output = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
     temp_ttm_22k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
     temp_target_22k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-    temp_vc_output_22k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    temp_vc_output = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
     try:
         print(f"Generating music ({duration}s duration)...")
         success = ace_step.generate(
@@ -4223,32 +4439,28 @@ def oneline_ttm_vc(params):
             resampler_target = torchaudio.transforms.Resample(sr_target, 22050)
             waveform_target = resampler_target(waveform_target)
         torchaudio.save(temp_target_22k.name, waveform_target, 22050)
-        print("Loading Seed-VC model...")
-        seed_vc = SeedVCV2()
+        print("Loading Seed-VC v1 model...")
+        seed_vc = SeedVCV1()
         if seed_vc.model is None:
-            print("Error: Failed to load Seed-VC model")
+            print("Error: Failed to load Seed-VC v1 model")
             return False
         print("Converting voice...")
         vc_success = seed_vc.convert(
             source_path=temp_ttm_22k.name,
             reference_path=temp_target_22k.name,
-            output_path=temp_vc_output_22k.name
+            output_path=temp_vc_output.name
         )
         if not vc_success:
             print("Error: Voice conversion failed")
             return False
-        print("Upsampling output to 44100Hz...")
-        waveform_out, sr_out = torchaudio.load(temp_vc_output_22k.name)
-        if sr_out != 44100:
-            resampler_out = torchaudio.transforms.Resample(sr_out, 44100)
-            waveform_out = resampler_out(waveform_out)
+        print("Saving output...")
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         output_path = os.path.join(results_dir, f"voder_ttm_vc_{timestamp}.wav")
-        torchaudio.save(output_path, waveform_out, 44100)
+        shutil.copy(temp_vc_output.name, output_path)
         print(f"✓ Success! Output saved to: {output_path}")
         return True
     finally:
-        for temp_file in [temp_ttm_output.name, temp_ttm_22k.name, temp_target_22k.name, temp_vc_output_22k.name]:
+        for temp_file in [temp_ttm_output.name, temp_ttm_22k.name, temp_target_22k.name, temp_vc_output.name]:
             if os.path.exists(temp_file):
                 os.remove(temp_file)
 
