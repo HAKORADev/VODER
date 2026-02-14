@@ -952,7 +952,12 @@ SEEDVC_V1_CHECKPOINTS_DIR = "./models/seed_vc_v1/checkpoints"
 class SeedVCV1:
     def __init__(self):
         self.model = None
-        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        elif torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+        else:
+            self.device = torch.device("cpu")
         self.dtype = torch.float16
         self.checkpoints_dir = SEEDVC_V1_CHECKPOINTS_DIR
         self.whisper_model = None
@@ -1622,24 +1627,24 @@ class ProcessingThread(QThread):
                     if not success or not os.path.exists(temp_ttm_output.name):
                         self.error_signal.emit("Music generation failed")
                         return
-                    self.status_signal.emit("Resampling TTM output to 22050Hz...")
+                    self.status_signal.emit("Resampling TTM output to 44100Hz...")
                     self.progress_signal.emit(50)
                     waveform_ttm, sr_ttm = torchaudio.load(temp_ttm_output.name)
-                    if sr_ttm != 22050:
-                        resampler_ttm = torchaudio.transforms.Resample(sr_ttm, 22050)
+                    if sr_ttm != 44100:
+                        resampler_ttm = torchaudio.transforms.Resample(sr_ttm, 44100)
                         waveform_ttm = resampler_ttm(waveform_ttm)
-                    torchaudio.save(temp_ttm_22k.name, waveform_ttm, 22050)
+                    torchaudio.save(temp_ttm_22k.name, waveform_ttm, 44100)
                     self.status_signal.emit("Clearing ACE-Step from memory...")
                     del self.ace_tt
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
-                    self.status_signal.emit("Resampling target voice to 22050Hz...")
+                    self.status_signal.emit("Resampling target voice to 44100Hz...")
                     self.progress_signal.emit(60)
                     waveform_target, sr_target = torchaudio.load(self.target_path)
-                    if sr_target != 22050:
-                        resampler_target = torchaudio.transforms.Resample(sr_target, 22050)
+                    if sr_target != 44100:
+                        resampler_target = torchaudio.transforms.Resample(sr_target, 44100)
                         waveform_target = resampler_target(waveform_target)
-                    torchaudio.save(temp_target_22k.name, waveform_target, 22050)
+                    torchaudio.save(temp_target_22k.name, waveform_target, 44100)
                     self.status_signal.emit("Loading Seed-VC v1 model...")
                     self.seed_vc = SeedVCV1()
                     self.progress_signal.emit(70)
@@ -3634,20 +3639,20 @@ def cli_ttm_vc_mode():
         if not success:
             print("Error: Music generation failed")
             return False
-        print("Resampling TTM output to 22050Hz...")
+        print("Resampling TTM output to 44100Hz...")
 
         import torchaudio
         waveform_ttm, sr_ttm = torchaudio.load(temp_ttm_output.name)
-        if sr_ttm != 22050:
-            resampler_ttm = torchaudio.transforms.Resample(sr_ttm, 22050)
+        if sr_ttm != 44100:
+            resampler_ttm = torchaudio.transforms.Resample(sr_ttm, 44100)
             waveform_ttm = resampler_ttm(waveform_ttm)
-        torchaudio.save(temp_ttm_22k.name, waveform_ttm, 22050)
-        print("Resampling target voice to 22050Hz...")
+        torchaudio.save(temp_ttm_22k.name, waveform_ttm, 44100)
+        print("Resampling target voice to 44100Hz...")
         waveform_target, sr_target = torchaudio.load(target_path)
-        if sr_target != 22050:
-            resampler_target = torchaudio.transforms.Resample(sr_target, 22050)
+        if sr_target != 44100:
+            resampler_target = torchaudio.transforms.Resample(sr_target, 44100)
             waveform_target = resampler_target(waveform_target)
-        torchaudio.save(temp_target_22k.name, waveform_target, 22050)
+        torchaudio.save(temp_target_22k.name, waveform_target, 44100)
         print("Clearing ACE-Step from memory...")
         del ace_step
         ace_step = None
@@ -4451,19 +4456,19 @@ def oneline_ttm_vc(params):
         if not success:
             print("Error: Music generation failed")
             return False
-        print("Resampling TTM output to 22050Hz...")
+        print("Resampling TTM output to 44100Hz...")
         import torchaudio
         waveform_ttm, sr_ttm = torchaudio.load(temp_ttm_output.name)
-        if sr_ttm != 22050:
-            resampler_ttm = torchaudio.transforms.Resample(sr_ttm, 22050)
+        if sr_ttm != 44100:
+            resampler_ttm = torchaudio.transforms.Resample(sr_ttm, 44100)
             waveform_ttm = resampler_ttm(waveform_ttm)
-        torchaudio.save(temp_ttm_22k.name, waveform_ttm, 22050)
-        print("Resampling target voice to 22050Hz...")
+        torchaudio.save(temp_ttm_22k.name, waveform_ttm, 44100)
+        print("Resampling target voice to 44100Hz...")
         waveform_target, sr_target = torchaudio.load(target_path)
-        if sr_target != 22050:
-            resampler_target = torchaudio.transforms.Resample(sr_target, 22050)
+        if sr_target != 44100:
+            resampler_target = torchaudio.transforms.Resample(sr_target, 44100)
             waveform_target = resampler_target(waveform_target)
-        torchaudio.save(temp_target_22k.name, waveform_target, 22050)
+        torchaudio.save(temp_target_22k.name, waveform_target, 44100)
         print("Loading Seed-VC v1 model...")
         seed_vc = SeedVCV1()
         if seed_vc.model is None:
