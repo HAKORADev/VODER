@@ -41,6 +41,7 @@ modelscope>=1.9.0
 librosa>=0.10.0
 loguru
 dac
+descript-audio-codec==1.0.0
 
 # Note: For optimal performance on different platforms:
 # - Linux: Install PyTorch with CUDA support separately if needed
