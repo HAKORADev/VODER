@@ -43,6 +43,9 @@ git clone https://github.com/HAKORADev/VODER.git && cd VODER
 # Install dependencies (one‑liner)
 pip install -r requirements.txt
 
+# IMPORTANT: Upgrade protobuf to avoid compatibility issues
+pip install --upgrade protobuf==5.29.6
+
 # Process files immediately (one‑liner)
 python src/voder.py tts script "Hello world" voice "male voice"
 
@@ -66,6 +69,12 @@ Install all required packages in a single command:
 
 ```bash
 pip install -r requirements.txt
+```
+
+**IMPORTANT: After installing requirements, upgrade protobuf to avoid compatibility issues:**
+
+```bash
+pip install --upgrade protobuf==5.29.6
 ```
 
 **Package explanations:**
@@ -434,18 +443,32 @@ Available in **both** CLI and GUI:
 
 ### All Modes Run on CPU
 
-VODER operates entirely on CPU. No GPU is required for any mode. This makes VODER accessible to users without NVIDIA graphics hardware.
+VODER operates entirely on CPU. No GPU is required for any mode. This makes VODER accessible to users without NVIDIA graphics hardware. However, having a GPU with sufficient VRAM can significantly improve processing speed for certain modes.
 
 ### Memory Requirements by Mode
 
-| Mode | RAM Required | Notes |
-|------|--------------|-------|
-| TTS, TTS+VC (no music) | 12GB | 8GB base + 4GB (Qwen) |
-| TTS, TTS+VC (with music) | 23GB | 8GB base + 15GB (ACE) |
-| STT+TTS | 12GB | 8GB base + 4GB (Qwen) |
-| STS | 13GB | 8GB base + 5GB (Seed-VC) |
-| TTM | 23GB | 8GB base + 15GB (ACE) |
-| TTM+VC | 23GB | 8GB base + 15GB (ACE) |
+| Mode | RAM Required | GPU (CUDA) | VRAM | Notes |
+|------|--------------|-------------|------|-------|
+| TTS, TTS+VC (no music) | 12GB | Optional | 4GB (minimum, GTX 1060 Ti) | 8GB base + 4GB (Qwen) |
+| TTS, TTS+VC (with music) | 23GB | Optional | 15GB (recommended, RTX 3080 or 16GB GPU) | 8GB base + 15GB (ACE) |
+| STT+TTS | 12GB | Optional | 4GB (minimum, GTX 1060 Ti) | 8GB base + 4GB (Qwen) |
+| STS | 13GB | Optional | 14GB | 8GB base + 5GB (Seed-VC) |
+| TTM | 23GB | Optional | 15GB (recommended, RTX 3080 or 16GB GPU) | 8GB base + 15GB (ACE) |
+| TTM+VC | 23GB | Optional | 16GB | 8GB base + 15GB (ACE) |
+
+### VRAM Guidelines
+
+| VRAM | Performance | Suitable Modes |
+|------|-------------|----------------|
+| No GPU (CPU only) | Slow | All modes work on CPU |
+| 4GB | Usable | TTS, TTS+VC (no music), STT+TTS |
+| 6GB | Minimum | TTS, TTS+VC (no music), STT+TTS |
+| 14GB | Mid-range | STS, all TTS modes |
+| 15-16GB | Recommended | TTS+VC with music, TTM, TTM+VC |
+| 24GB | Maximum (RTX 4090) | All modes at full speed |
+| T4 (16GB) | Server-grade | All modes (not consumer GPU) |
+
+**Note:** The T4 GPU has 16GB VRAM but is a server-grade GPU, not a typical consumer card like GTX 1660 Super.
 
 ### Modes Requiring More Memory
 
@@ -626,6 +649,7 @@ cd /workspace
 git clone https://github.com/HAKORADev/VODER.git
 cd VODER
 pip install -r requirements.txt
+pip install --upgrade protobuf==5.29.6
 
 # Create output directory
 mkdir -p results
@@ -699,16 +723,18 @@ python src/voder.py cli
    - Use multiple values per parameter (e.g., `script "line1" "line2"`)
    - Add `music "description"` to automatically generate background music.
 3. **Install dependencies first**: `pip install -r requirements.txt`
-4. **Install FFmpeg**: Required for audio processing, video input, and music mixing
-5. **RAM required**: 12GB minimum (23GB for TTM, TTM+VC, or TTS/TTS+VC with music)
-6. **CPU-only operation**: All modes run on CPU, no GPU required
-7. **STT+TTS is CLI‑interactive only**: Use `python src/voder.py cli`
-8. **Output location**: Results saved to `results/` directory
-9. **Available modes**: tts, tts+vc, sts, ttm, ttm+vc
-10. **TTM duration**: 10‑300 seconds (use `duration n` or just `n` at the end)
-11. **Video support**: VODER supports video input (auto audio extraction via FFmpeg)
-12. **HuggingFace token**: Add to `HF_TOKEN.txt` for gated models
-13. **Music parameter behaviour**: Only effective for dialogue scripts; ignored otherwise; empty string treated as skip
+4. **Upgrade protobuf**: `pip install --upgrade protobuf==5.29.6` (avoids compatibility issues)
+5. **Install FFmpeg**: Required for audio processing, video input, and music mixing
+6. **RAM required**: 12GB minimum (23GB for TTM, TTM+VC, or TTS/TTS+VC with music)
+7. **GPU/VRAM**: Optional - 4GB minimum (6GB recommended, 16GB for best performance)
+8. **CPU-only operation**: All modes run on CPU, no GPU required
+9. **STT+TTS is CLI‑interactive only**: Use `python src/voder.py cli`
+10. **Output location**: Results saved to `results/` directory
+11. **Available modes**: tts, tts+vc, sts, ttm, ttm+vc
+12. **TTM duration**: 10‑300 seconds (use `duration n` or just `n` at the end)
+13. **Video support**: VODER supports video input (auto audio extraction via FFmpeg)
+14. **HuggingFace token**: Add to `HF_TOKEN.txt` for gated models
+15. **Music parameter behaviour**: Only effective for dialogue scripts; ignored otherwise; empty string treated as skip
 
 ---
 
