@@ -81,20 +81,34 @@ Some operations require significant memory. Voice conversion models, especially,
 
 **System Requirements Explained:**
 
-When we list minimum requirements, we're being honest about what actually works. All VODER modes run on CPU — no GPU is required.
+When we list minimum requirements, we're being honest about what actually works. All VODER modes run on CPU — no GPU is required. However, having a GPU with sufficient VRAM can significantly improve processing speed for certain modes.
 
-| Mode | Base Memory | Additional | Total RAM |
-|------|--------------|------------|------------|
-| TTS, TTS+VC (no music) | 8GB | +4GB (Qwen) | 12GB |
-| TTS, TTS+VC (with music) | 8GB | +15GB (ACE) | 23GB |
-| STT+TTS | 8GB | +4GB (Qwen) | 12GB |
-| STS | 8GB | +5GB (Seed-VC) | 13GB |
-| TTM | 8GB | +15GB (ACE) | 23GB |
-| TTM+VC | 8GB | +15GB (ACE) | 23GB |
+| Mode | Base Memory | Additional | Total RAM | GPU (CUDA) | VRAM |
+|------|--------------|------------|-----------|------------|------|
+| TTS, TTS+VC (no music) | 8GB | +4GB (Qwen) | 12GB | Optional | 4GB (GTX 1060 Ti) |
+| TTS, TTS+VC (with music) | 8GB | +15GB (ACE) | 23GB | Optional | 15GB (RTX 3080/16GB GPU) |
+| STT+TTS | 8GB | +4GB (Qwen) | 12GB | Optional | 4GB (GTX 1060 Ti) |
+| STS | 8GB | +5GB (Seed-VC) | 13GB | Optional | 14GB |
+| TTM | 8GB | +15GB (ACE) | 23GB | Optional | 15GB (RTX 3080/16GB GPU) |
+| TTM+VC | 8GB | +15GB (ACE) | 23GB | Optional | 16GB |
 
 - **CPU**: 4-6 cores minimum for model loading and non-GPU operations
 - **RAM**: 12GB minimum for basic modes, 23GB for ACE-related modes (TTM, TTM+VC, or TTS/TTS+VC with music)
+- **GPU (CUDA)**: Optional - all modes work on CPU. GPU acceleration significantly speeds up STS, TTM, and TTM+VC modes
+- **VRAM**: 4GB minimum (6GB recommended, 16GB for best performance with music modes)
 - **Storage**: SSD recommended for model downloads and result saving
+
+**VRAM Guidelines:**
+
+| VRAM | Performance Level | Suitable Modes |
+|------|-------------------|----------------|
+| No GPU (CPU only) | Slow | All modes |
+| 4GB | Usable | TTS, TTS+VC (no music), STT+TTS |
+| 6GB | Minimum | TTS, TTS+VC (no music), STT+TTS |
+| 14GB | Mid-range | STS, all TTS modes |
+| 15-16GB | Recommended | TTS+VC with music, TTM, TTM+VC |
+| 24GB | Maximum | All modes at full speed (RTX 4090) |
+| T4 (16GB) | Server-grade | All modes (not typical consumer GPU) |
 
 These aren't arbitrary numbers. They're based on actual testing of the models VODER uses.
 
