@@ -42,6 +42,9 @@ librosa>=0.10.0
 loguru
 dac
 descript-audio-codec==1.0.0
+#IMPORTANT:
+#AFTER DOWNLOADING REQUIREMENTS
+#pip install --upgrade protobuf==5.29.6
 
 # Note: For optimal performance on different platforms:
 # - Linux: Install PyTorch with CUDA support separately if needed
