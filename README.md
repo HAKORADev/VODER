@@ -21,6 +21,9 @@ cd VODER
 # Install dependencies
 pip install -r requirements.txt
 
+# IMPORTANT: After installing requirements, upgrade protobuf to avoid compatibility issues
+pip install --upgrade protobuf==5.29.6
+
 # Launch GUI
 python src/voder.py
 
@@ -176,9 +179,11 @@ If the `music` parameter is supplied in single‑mode (plain text without colon)
 |-----------|---------------|
 | CPU | 4-6 cores |
 | RAM | 12GB+ system memory |
+| GPU (CUDA) | Optional (CPU-only operation supported) |
+| VRAM | 4GB minimum (6GB recommended, 16GB for best performance) |
 | Storage | SSD recommended |
 
-**Note:** VODER runs entirely on CPU. No GPU is required for any mode. |
+**Note:** VODER runs entirely on CPU. No GPU is required for any mode. However, having a GPU with sufficient VRAM can significantly improve processing speed for certain modes.
 
 ### Recommended Requirements
 
