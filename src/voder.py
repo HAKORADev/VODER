@@ -1190,7 +1190,7 @@ class SeedVCV1:
                 )
                 vc_target = vc_target[:, :, mel2.size(-1):]
 
-            vc_wave = self.bigvgan_model(vc_target.float())[0]
+            vc_wave = self.bigvgan_model(vc_target.clone().float())[0]
 
             output_audio = vc_wave[0].cpu().numpy()
             sf.write(output_path, output_audio, self.sr)
