@@ -4,7 +4,7 @@
   <img src="src/voder.png" alt="VODER Logo" width="128" height="128"/>
 </p>
 
-**VODER** is a professional-grade voice processing and transformation tool that enables seamless conversion between speech, text, and music. Built for creators, developers, and audio professionals, VODER delivers **high-quality synthesis, voice cloning, and music generation** capabilities through an intuitive interface.
+**VODER** is a Local, Free, Offline, professional-grade voice processing and transformation tool that enables seamless conversion between speech, text, and music. Built for creators, developers, and audio professionals, VODER delivers **high-quality synthesis, voice cloning, and music generation** capabilities through an intuitive interface.
 
 🚀 **Ready in Colab:** [Open VODER in Google Colab](https://colab.research.google.com/drive/1hditIfW9JzusNcFhlHFoclCIIsNiRFNk?usp=sharing)
 
