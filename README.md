@@ -6,6 +6,8 @@
 
 **VODER** is a professional-grade voice processing and transformation tool that enables seamless conversion between speech, text, and music. Built for creators, developers, and audio professionals, VODER delivers **high-quality synthesis, voice cloning, and music generation** capabilities through an intuitive interface.
 
+🚀 **Ready in Colab:** [Open VODER in Google Colab](https://colab.research.google.com/drive/1hditIfW9JzusNcFhlHFoclCIIsNiRFNk?usp=sharing)
+
 🤖 **For AI agents and automated tools:** See [Bots.md](Bots.md)
 
 ---
@@ -30,6 +32,11 @@ python src/voder.py
 # Or use CLI mode
 python src/voder.py cli
 ```
+
+### Run in Google Colab
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1hditIfW9JzusNcFhlHFoclCIIsNiRFNk?usp=sharing)
+
+Open the link, connect to a runtime, and press **Run All** (or run cells one by one until the last one). Once execution completes, VODER is ready to use directly in your browser — no installation required.
 
 ### Installation Requirements
 ```bash
