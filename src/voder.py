@@ -1293,6 +1293,26 @@ class ProcessingThread(QThread):
         self.seed_vc = None
         self.ace_tt = None
 
+    def cleanup(self):
+        if self.stt is not None:
+            del self.stt
+            self.stt = None
+        if self.tts is not None:
+            del self.tts
+            self.tts = None
+        if self.tts_voice_design is not None:
+            del self.tts_voice_design
+            self.tts_voice_design = None
+        if self.seed_vc is not None:
+            del self.seed_vc
+            self.seed_vc = None
+        if self.ace_tt is not None:
+            del self.ace_tt
+            self.ace_tt = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
     def run(self):
         try:
             if self.mode == "analyze_base":
@@ -1312,6 +1332,7 @@ class ProcessingThread(QThread):
                         })
                     text = result.get("text", "").strip()
                     self.finished_signal.emit(json.dumps({"text": text, "segments": segments}))
+                    self.cleanup()
                 else:
                     self.error_signal.emit("Transcription failed")
 
@@ -1324,6 +1345,7 @@ class ProcessingThread(QThread):
                 self.progress_signal.emit(70)
                 if success:
                     self.finished_signal.emit("Voice extracted successfully")
+                    self.cleanup()
                 else:
                     self.error_signal.emit("Voice extraction failed")
 
@@ -1337,6 +1359,7 @@ class ProcessingThread(QThread):
                 self.progress_signal.emit(100)
                 if success and os.path.exists(self.output_path):
                     self.finished_signal.emit(self.output_path)
+                    self.cleanup()
                 else:
                     self.error_signal.emit("Synthesis failed")
 
@@ -1352,6 +1375,7 @@ class ProcessingThread(QThread):
                 self.progress_signal.emit(80)
                 if success and os.path.exists(self.output_path):
                     self.finished_signal.emit(self.output_path)
+                    self.cleanup()
                 else:
                     self.error_signal.emit("VoiceDesign synthesis failed")
 
@@ -1431,6 +1455,7 @@ class ProcessingThread(QThread):
                     shutil.move(dialogue_temp.name, self.output_path)
                 self.progress_signal.emit(100)
                 self.finished_signal.emit(self.output_path)
+                self.cleanup()
 
             elif self.mode == "tts_vc_dialogue":
                 self.status_signal.emit("Loading Qwen-TTS model...")
@@ -1439,20 +1464,28 @@ class ProcessingThread(QThread):
                 if self.tts.model is None:
                     self.error_signal.emit("Failed to load Qwen-TTS model")
                     return
+                unique_chars = set()
+                for _, char, _ in self.dialogue_data:
+                    unique_chars.add(char.lower())
+                voice_prompts = {}
+                for char_lower in unique_chars:
+                    audio_path = self.assignments[char_lower]
+                    self.status_signal.emit(f"Extracting voice for '{char_lower}'...")
+                    success = self.tts.extract_voice(audio_path)
+                    if not success:
+                        self.error_signal.emit(f"Voice extraction failed for {char_lower}")
+                        return
+                    voice_prompts[char_lower] = self.tts.voice_prompt
                 temp_dir = tempfile.mkdtemp()
                 temp_files = []
                 try:
                     total = len(self.dialogue_data)
                     for i, (num, char, script_text) in enumerate(self.dialogue_data):
                         char_lower = char.lower()
-                        audio_path = self.assignments[char_lower]
                         self.status_signal.emit(f"Generating line {num}/{total} for '{char}'...")
                         progress = int((i / total) * 40)
                         self.progress_signal.emit(progress + 10)
-                        success = self.tts.extract_voice(audio_path)
-                        if not success:
-                            self.error_signal.emit(f"Voice extraction failed for {char}")
-                            return
+                        self.tts.voice_prompt = voice_prompts[char_lower]
                         temp_file = os.path.join(temp_dir, f"line_{num}.wav")
                         temp_files.append((num, temp_file))
                         success = self.tts.synthesize(script_text, temp_file)
@@ -1535,6 +1568,7 @@ class ProcessingThread(QThread):
                         pass
                 self.progress_signal.emit(100)
                 self.finished_signal.emit(self.output_path)
+                self.cleanup()
 
             elif self.mode == "seed_vc_convert":
                 if self.is_music:
@@ -1571,6 +1605,7 @@ class ProcessingThread(QThread):
                             shutil.copy(temp_output_44k.name, self.output_path)
                             self.progress_signal.emit(90)
                             self.finished_signal.emit(self.output_path)
+                            self.cleanup()
                         else:
                             self.error_signal.emit("Voice conversion failed")
                     finally:
@@ -1616,6 +1651,7 @@ class ProcessingThread(QThread):
                             torchaudio.save(self.output_path, waveform_out, 44100)
                             self.progress_signal.emit(90)
                             self.finished_signal.emit(self.output_path)
+                            self.cleanup()
                         else:
                             self.error_signal.emit("Voice conversion failed")
                     finally:
@@ -1642,6 +1678,7 @@ class ProcessingThread(QThread):
                 self.progress_signal.emit(90)
                 if success and os.path.exists(self.output_path):
                     self.finished_signal.emit(self.output_path)
+                    self.cleanup()
                 else:
                     self.error_signal.emit("Music generation failed")
 
@@ -1708,6 +1745,7 @@ class ProcessingThread(QThread):
                     shutil.copy(temp_vc_output.name, self.output_path)
                     self.progress_signal.emit(100)
                     self.finished_signal.emit(self.output_path)
+                    self.cleanup()
                 finally:
                     for temp_file in [temp_ttm_output.name, temp_ttm_22k.name, temp_target_22k.name, temp_vc_output.name]:
                         if os.path.exists(temp_file):
@@ -3047,6 +3085,11 @@ def cli_tts_mode():
             print("Error: VoiceDesign synthesis failed")
             return False
         print(f"\n✓ Success! Output saved to: {output_path}")
+        del tts_design
+        tts_design = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return True
     else:
         dialogue_items = []
@@ -3160,6 +3203,11 @@ def cli_tts_mode():
             else:
                 shutil.move(dialogue_temp.name, output_path)
             print(f"\n✓ Success! Output saved to: {output_path}")
+            del tts_design
+            tts_design = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             return True
         else:
             success, msg = tts_design.synthesize_dialogue(dialogue_items, voice_prompts, output_path)
@@ -3220,6 +3268,11 @@ def cli_tts_mode():
                 os.unlink(music_temp.name)
                 output_path = final_path
             print(f"\n✓ Success! Output saved to: {output_path}")
+            del tts_design
+            tts_design = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             return True
 
 def cli_tts_vc_mode():
@@ -3279,6 +3332,11 @@ def cli_tts_vc_mode():
             print("Error: Synthesis failed")
             return False
         print(f"\n✓ Success! Output saved to: {output_path}")
+        del tts
+        tts = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return True
     else:
         dialogue_items = []
@@ -3403,19 +3461,32 @@ def cli_tts_vc_mode():
             else:
                 shutil.move(dialogue_temp.name, output_path)
             print(f"\n✓ Success! Output saved to: {output_path}")
+            del tts
+            tts = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             return True
         else:
             temp_dir = tempfile.mkdtemp()
             temp_files = []
+            unique_chars = set()
+            for _, char, _ in dialogue_items:
+                unique_chars.add(char.lower())
+            voice_prompts = {}
+            for char_lower in unique_chars:
+                audio_path = assignments[char_lower]
+                print(f"Extracting voice for '{char_lower}'...")
+                success = tts.extract_voice(audio_path)
+                if not success:
+                    print(f"Error: Failed to extract voice from {audio_path}")
+                    return False
+                voice_prompts[char_lower] = tts.voice_prompt
             try:
                 for i, (num, char, script_text) in enumerate(dialogue_items):
                     char_lower = char.lower()
-                    audio_path = assignments[char_lower]
                     print(f"Processing line {num} for '{char}'...")
-                    success = tts.extract_voice(audio_path)
-                    if not success:
-                        print(f"Error: Failed to extract voice from {audio_path}")
-                        return False
+                    tts.voice_prompt = voice_prompts[char_lower]
                     temp_file = os.path.join(temp_dir, f"line_{num}.wav")
                     temp_files.append((num, temp_file))
                     success = tts.synthesize(script_text, temp_file)
@@ -3488,6 +3559,11 @@ def cli_tts_vc_mode():
                 else:
                     shutil.move(dialogue_temp.name, output_path)
                 print(f"\n✓ Success! Output saved to: {output_path}")
+                del tts
+                tts = None
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 return True
             finally:
                 try:
@@ -3550,6 +3626,13 @@ def cli_stt_tts_mode():
         print("Error: Synthesis failed")
         return False
     print(f"\n✓ Success! Output saved to: {output_path}")
+    del stt
+    stt = None
+    del tts
+    tts = None
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     return True
 
 def cli_sts_mode():
@@ -3620,6 +3703,11 @@ def cli_sts_mode():
             output_path = os.path.join(results_dir, f"voder_m_sts_{timestamp}.wav")
             shutil.copy(temp_output_44k.name, output_path)
             print(f"\n✓ Success! Output saved to: {output_path}")
+            del seed_vc
+            seed_vc = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             return True
         finally:
             for temp_file in [temp_base.name, temp_target.name, temp_output_44k.name]:
@@ -3665,6 +3753,11 @@ def cli_sts_mode():
             output_path = os.path.join(results_dir, f"voder_sts_{timestamp}.wav")
             torchaudio.save(output_path, waveform_out, 44100)
             print(f"\n✓ Success! Output saved to: {output_path}")
+            del seed_vc
+            seed_vc = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             return True
         finally:
             for temp_file in [temp_base.name, temp_target.name, temp_output_22k.name]:
@@ -3721,6 +3814,11 @@ def cli_ttm_mode():
         print("Error: Music generation failed")
         return False
     print(f"\n✓ Success! Output saved to: {output_path}")
+    del ace_step
+    ace_step = None
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     return True
 
 def cli_ttm_vc_mode():
@@ -3818,6 +3916,11 @@ def cli_ttm_vc_mode():
         output_path = os.path.join(results_dir, f"voder_ttm_vc_{timestamp}.wav")
         shutil.copy(temp_vc_output.name, output_path)
         print(f"\n✓ Success! Output saved to: {output_path}")
+        del seed_vc
+        seed_vc = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return True
     finally:
         for temp_file in [temp_ttm_output.name, temp_ttm_22k.name, temp_target_22k.name, temp_vc_output.name]:
@@ -4357,15 +4460,23 @@ def oneline_tts_vc(params):
         else:
             temp_dir = tempfile.mkdtemp()
             temp_files = []
+            unique_chars = set()
+            for _, char, _ in dialogue_items:
+                unique_chars.add(char.lower())
+            voice_prompts = {}
+            for char_lower in unique_chars:
+                audio_path = assignments[char_lower]
+                print(f"Extracting voice for '{char_lower}'...")
+                success = tts.extract_voice(audio_path)
+                if not success:
+                    print(f"Error: Failed to extract voice from {audio_path}")
+                    return False
+                voice_prompts[char_lower] = tts.voice_prompt
             try:
                 for i, (num, char, script_text) in enumerate(dialogue_items):
                     char_lower = char.lower()
-                    audio_path = assignments[char_lower]
                     print(f"Processing line {num} for '{char}'...")
-                    success = tts.extract_voice(audio_path)
-                    if not success:
-                        print(f"Error: Failed to extract voice from {audio_path}")
-                        return False
+                    tts.voice_prompt = voice_prompts[char_lower]
                     temp_file = os.path.join(temp_dir, f"line_{num}.wav")
                     temp_files.append((num, temp_file))
                     success = tts.synthesize(script_text, temp_file)
