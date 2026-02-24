@@ -3,6 +3,29 @@
 - All notable changes to VODER - Voice Blender will be documented in this file.
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 
+## 02/24/2026
+- Status: Stable, all features work, under aggressive testing, still developing
+
+### Added
+- **MSTS (Music-STS) in STS mode** – STS now supports musical inputs via the Seed-VC v1 model (44.1kHz) for better music voice conversion quality.
+  - **GUI**: When pressing Generate in STS mode, a dialog appears asking "musical inputs?" with Yes/No buttons. Yes uses v1 model at 44.1kHz; No uses standard v2 at 22.05kHz.
+  - **Interactive CLI**: After entering base and target paths, user is prompted "Are the inputs musical? (Y/N):". Y uses v1 model; N uses standard v2.
+  - **One-line CLI**: New `music` keyword parameter: `voder.py sts path/base path/target music`. Invalid parameters show error message.
+  - **Output naming**: MSTS outputs prefixed with `voder_m_sts_timestamp.wav`; standard STS uses `voder_sts_timestamp.wav`.
+
+### Fixed
+- **TTS+VC dialogue voice cloning stability** – Voice characteristics are now extracted once per character instead of re-extracting for each line.
+  - In dialogue with multiple lines per character (e.g., 5 lines for "James"), the voice prompt is extracted once and reused for all lines of that character.
+  - This ensures consistent voice quality throughout the dialogue, eliminating variations that occurred when re-extracting voice for each line.
+  - Applies to GUI, interactive CLI, and one-line CLI modes.
+
+### Optimized
+- **Memory offloading after processing** – Models are now explicitly unloaded from memory/VRAM after each operation completes.
+  - In GUI mode: ProcessingThread now calls cleanup() after finishing, releasing all loaded models.
+  - In interactive CLI mode: Each mode (TTS, TTS+VC, STS, STT+TTS, TTM, TTM+VC) now offloads models before returning.
+  - This prevents memory accumulation when performing multiple operations in a single session.
+  - Pattern applied: `del model`, `gc.collect()`, `torch.cuda.empty_cache()`.
+
 ## 02/12/2026
 - Status: Stable, all features work, under aggressive testing, still developing
 
