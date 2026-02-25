@@ -230,6 +230,10 @@ Just like in TTS mode, when TTS+VC is used in **dialogue mode** you can optional
 
 In **single mode** (one reference file), the entire script uses that voice. In **dialogue mode** (multiple reference files), each character in a dialogue script is assigned a different reference audio. This is the foundation of VODER's dialogue system, and it is available in **both GUI and CLI**.
 
+**Voice Consistency in Dialogue:**
+
+VODER now extracts voice characteristics **once per character** in dialogue mode, rather than re-extracting for each line. This ensures consistent voice quality throughout the dialogue. If a character speaks multiple lines (e.g., 5 lines for "James"), the voice prompt is extracted once and reused for all lines of that character. This eliminates variations that occurred when re-extracting voice for each line, providing stable and professional-quality voice cloning across entire dialogues.
+
 **Technical Notes:**
 
 TTS+VC works on CPU without GPU. The voice cloning happens during synthesis, not as a post‑processing step, which ensures the cloned voice characteristics are integrated throughout the generated speech rather than applied superficially.
@@ -243,6 +247,15 @@ TTS+VC works on CPU without GPU. The voice cloning happens during synthesis, not
 **What It Does:**
 
 STS (Speech‑to‑Speech) transforms source audio to sound like a target voice while preserving the original content, emotion, timing, and prosody. The speaker changes, but everything they say remains exactly the same.
+
+**MSTS (Music-STS):**
+
+STS now supports musical inputs via the **MSTS** feature. When converting voice in songs or musical audio, use the `music` parameter to switch to Seed‑VC v1 (44.1kHz) instead of the standard v2 model (22.05kHz). This provides better voice conversion quality for music content because v1 is optimized for higher sample rates and musical waveforms.
+
+- **GUI**: A dialog asks "musical inputs?" with Yes/No buttons before processing
+- **Interactive CLI**: After entering base and target paths, prompted "Are the inputs musical? (Y/N):"
+- **One-line CLI**: Add `music` keyword at the end: `voder.py sts path/base path/target music`
+- **Output**: MSTS outputs use `voder_m_sts_timestamp.wav` naming; standard STS uses `voder_sts_timestamp.wav`
 
 **How It Works:**
 
@@ -359,7 +372,13 @@ The pipeline is straightforward: first generate the music with ACE‑Step (TTM s
 
 **Memory Optimisation:**
 
-VODER now explicitly clears the ACE‑Step model from CPU memory and runs garbage collection before loading Seed‑VC. This reduces peak RAM usage and makes the pipeline more reliable.
+VODER now explicitly offloads models from memory after each operation completes. This applies to all modes in both GUI and interactive CLI:
+
+- **GUI Mode**: ProcessingThread calls cleanup() after finishing, releasing all loaded models (STT, TTS, TTS+VC, STS, TTM)
+- **Interactive CLI**: Each mode (TTS, TTS+VC, STS, STT+TTS, TTM, TTM+VC) offloads models before returning
+- **Pattern Applied**: `del model`, `gc.collect()`, `torch.cuda.empty_cache()`
+
+This prevents memory accumulation when performing multiple operations in a single session, making VODER more reliable for batch processing workflows.
 
 **Why It's Like That:**
 
