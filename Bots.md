@@ -452,9 +452,9 @@ VODER operates entirely on CPU. No GPU is required for any mode. This makes VODE
 
 | Mode | RAM Required | GPU (CUDA) | VRAM | Notes |
 |------|--------------|-------------|------|-------|
-| TTS, TTS+VC (no music) | 12GB | Optional | 4GB (minimum, GTX 1060 Ti) | 8GB base + 4GB (Qwen) |
+| TTS, TTS+VC (no music) | 12GB | Optional | 4GB (minimum, GTX 1060) | 8GB base + 4GB (Qwen) |
 | TTS, TTS+VC (with music) | 23GB | Optional | 15GB (recommended, RTX 3080 or 16GB GPU) | 8GB base + 15GB (ACE) |
-| STT+TTS | 12GB | Optional | 4GB (minimum, GTX 1060 Ti) | 8GB base + 4GB (Qwen) |
+| STT+TTS | 12GB | Optional | 4GB (minimum, GTX 1060) | 8GB base + 4GB (Qwen) |
 | STS | 13GB | Optional | 14GB | 8GB base + 5GB (Seed-VC) |
 | TTM | 23GB | Optional | 15GB (recommended, RTX 3080 or 16GB GPU) | 8GB base + 15GB (ACE) |
 | TTM+VC | 23GB | Optional | 16GB | 8GB base + 15GB (ACE) |
