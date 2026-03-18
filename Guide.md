@@ -85,9 +85,9 @@ When we list minimum requirements, we're being honest about what actually works.
 
 | Mode | Base Memory | Additional | Total RAM | GPU (CUDA) | VRAM |
 |------|--------------|------------|-----------|------------|------|
-| TTS, TTS+VC (no music) | 8GB | +4GB (Qwen) | 12GB | Optional | 4GB (GTX 1060 Ti) |
+| TTS, TTS+VC (no music) | 8GB | +4GB (Qwen) | 12GB | Optional | 4GB (GTX 1060) |
 | TTS, TTS+VC (with music) | 8GB | +15GB (ACE) | 23GB | Optional | 15GB (RTX 3080/16GB GPU) |
-| STT+TTS | 8GB | +4GB (Qwen) | 12GB | Optional | 4GB (GTX 1060 Ti) |
+| STT+TTS | 8GB | +4GB (Qwen) | 12GB | Optional | 4GB (GTX 1060) |
 | STS | 8GB | +5GB (Seed-VC) | 13GB | Optional | 14GB |
 | TTM | 8GB | +15GB (ACE) | 23GB | Optional | 15GB (RTX 3080/16GB GPU) |
 | TTM+VC | 8GB | +15GB (ACE) | 23GB | Optional | 16GB |
