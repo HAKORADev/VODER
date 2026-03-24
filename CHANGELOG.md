@@ -4,7 +4,7 @@
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 
 ## 02/24/2026
-- Status: Stable, all features work, still developing maybe
+- Status: Stable, all features work, still developing, there will be a major update!
 
 ### Added
 - **MSTS (Music-STS) in STS mode** – STS now supports musical inputs via the Seed-VC v1 model (44.1kHz) for better music voice conversion quality.
