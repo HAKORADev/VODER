@@ -1,0 +1,79 @@
+# MIT License
+#
+# Copyright (c) 2024-2025 CNRS
+# Copyright (c) 2026- pyannoteAI
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+
+from pathlib import Path
+
+from pyannote.audio.core.io import Audio, AudioFile
+from pyannote.core import Annotation, Segment, Timeline
+from pyannote.database.util import load_rttm
+
+
+def load_stm(file_stm: str | Path) -> dict[str, list[dict]]:
+    session_ids = {}
+
+    with open(file_stm, "r") as stm:
+        for line in stm:
+            infos = line.strip().split()
+            session_id, _, spk, start, end, *words = infos
+
+            entry = {
+                "start": float(start),
+                "end": float(end),
+                "text": " ".join(words),
+                "speaker": spk,
+            }
+
+            session_ids.setdefault(session_id, []).append(entry)
+
+    return session_ids
+
+
+def _sample(uri: str = "sample") -> AudioFile:
+    sample_wav = Path(__file__).parent / f"{uri}.wav"
+
+    audio = Audio()
+    waveform, sample_rate = audio(sample_wav)
+
+    sample_rttm = Path(__file__).parent / f"{uri}.rttm"
+    diarization: Annotation = load_rttm(sample_rttm)[uri]
+    duration = audio.get_duration(sample_wav)
+
+    annotated: Timeline = Timeline([Segment(0.0, duration)], uri=uri)
+
+    sample_stm = Path(__file__).parent / f"{uri}.stm"
+    transcription = load_stm(sample_stm)[uri]
+
+    return {
+        "audio": sample_wav,
+        "uri": uri,
+        "waveform": waveform,
+        "sample_rate": sample_rate,
+        "annotation": diarization,
+        "annotated": annotated,
+        "diarization": diarization,
+        "transcription": transcription,
+    }
+
+
+SAMPLE_FILE = _sample(uri="sample")

@@ -1,7 +1,7 @@
 # Requirements for VODER
 
 # GUI Framework
-PyQt5>=5.15.0
+pyqt5>=5.15.0
 
 # Core Audio Processing
 numpy>=1.21.0
@@ -12,9 +12,10 @@ pydub>=0.25.0
 diffusers
 
 # PyTorch (conservative version for compatibility)
-torch>=2.0.0
-torchaudio>=2.0.0
-torchvision>=0.15.0
+torch==2.8.0
+torchaudio==2.8.0
+torch-audiomentations>=0.12.0
+torchvision==0.23.0
 torchcodec
 vector_quantize_pytorch
 
@@ -29,9 +30,14 @@ einops>=0.6.0
 omegaconf>=2.3.0
 hydra-core>=1.3.0
 PyYAML>=6.0
+hydra-core==1.3.2
+opentelemetry-proto==1.0.0
+opentelemetry-exporter-otlp-proto-grpc==1.0.0
 
 # TTS and more ofc
-qwen-tts==0.1.1
+# source contains "qwen-tts==0.1.1"
+sox
+onnxruntime
 
 # Voice Conversion & Music Generation
 munch>=4.0.0
@@ -42,6 +48,19 @@ librosa>=0.10.0
 loguru
 dac
 descript-audio-codec==1.0.0
+
+# Speaker Diarization
+pyannote.database>=5.0.0
+pyannote.metrics>=3.0.0
+pyannote.pipeline>=3.0.0
+lightning==2.4
+asteroid-filterbanks>=0.4.0
+
+# YouTube/Audio Download
+yt-dlp>=2026.3.17
+
+# OCR for image text extraction
+easyocr>=1.7.0
 #IMPORTANT:
 #AFTER DOWNLOADING REQUIREMENTS
 #pip install --upgrade protobuf==5.29.6

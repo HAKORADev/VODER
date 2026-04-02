@@ -90,11 +90,8 @@ class AceStepHandler:
         self._base_decoder = None  # Backup of original decoder
     
     def get_available_checkpoints(self) -> str:
-        """Return project root directory path"""
-        # Get project root (handler.py is in acestep/, so go up two levels to project root)
-        project_root = self._get_project_root()
-        # default checkpoints
-        checkpoint_dir = os.path.join(project_root, "checkpoints")
+        """Return ACE-Step checkpoints directory path"""
+        checkpoint_dir = self._get_checkpoints_dir()
         if os.path.exists(checkpoint_dir):
             return [checkpoint_dir]
         else:
@@ -102,9 +99,8 @@ class AceStepHandler:
     
     def get_available_acestep_v15_models(self) -> List[str]:
         """Scan and return all model directory names starting with 'acestep-v15-'"""
-        # Get project root
-        project_root = self._get_project_root()
-        checkpoint_dir = os.path.join(project_root, "checkpoints")
+        # Get ACE-Step checkpoints directory
+        checkpoint_dir = self._get_checkpoints_dir()
         
         models = []
         if os.path.exists(checkpoint_dir):
@@ -358,9 +354,8 @@ class AceStepHandler:
                     raise ImportError("torchao is required for quantization but is not installed. Please install torchao to use quantization features.")
                 
 
-            # Auto-detect project root (independent of passed project_root parameter)
-            actual_project_root = self._get_project_root()
-            checkpoint_dir = os.path.join(actual_project_root, "checkpoints")
+            # Use centralized checkpoints directory
+            checkpoint_dir = self._get_checkpoints_dir()
 
             # Auto-download models if not present
             from pathlib import Path
@@ -989,9 +984,13 @@ class AceStepHandler:
         return torch.all(audio.abs() < 1e-6)
     
     def _get_project_root(self) -> str:
-        """Get project root directory path."""
-        current_file = os.path.abspath(__file__)
-        return os.path.dirname(os.path.dirname(current_file))
+        """Get project root directory path (src/models/ for checkpoints)."""
+        # Use the centralized path from model_downloader
+        return str(get_checkpoints_dir().parent)
+    
+    def _get_checkpoints_dir(self) -> str:
+        """Get ACE-Step checkpoints directory."""
+        return str(get_checkpoints_dir())
     
     def _get_vae_dtype(self, device: Optional[str] = None) -> torch.dtype:
         """Get VAE dtype based on device."""

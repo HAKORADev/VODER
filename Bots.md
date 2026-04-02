@@ -8,13 +8,15 @@ This document provides comprehensive instructions for AI agents, bots, and autom
 2. [Quick Start for AI Agents](#quick-start-for-ai-agents)
 3. [Installation](#installation)
 4. [FFmpeg Setup](#ffmpeg-setup)
-5. [One‑Liner Command Patterns](#one-liner-command-patterns)
-6. [Command Reference](#command-reference)
-7. [CLI vs GUI Feature Comparison](#cli-vs-gui-feature-comparison)
-8. [GPU Requirements](#gpu-requirements)
-9. [Limitations](#limitations)
-10. [Troubleshooting](#troubleshooting)
-11. [Example Workflows](#example-workflows)
+5. [HF_TOKEN Setup for AI Agents](#hf_token-setup-for-ai-agents)
+6. [One‑Liner Command Patterns](#one-liner-command-patterns)
+7. [Command Reference](#command-reference)
+8. [New CLI Features](#new-cli-features)
+9. [CLI vs GUI Feature Comparison](#cli-vs-gui-feature-comparison)
+10. [GPU Requirements](#gpu-requirements)
+11. [Limitations](#limitations)
+12. [Troubleshooting](#troubleshooting)
+13. [Example Workflows](#example-workflows)
 
 ---
 
@@ -22,13 +24,19 @@ This document provides comprehensive instructions for AI agents, bots, and autom
 
 VODER is a professional‑grade voice processing tool that enables seamless conversion between speech, text, and music. For AI agents operating in automated pipelines, VODER offers:
 
-- **Unified Audio Pipeline**: Six processing modes in a single interface
+- **Unified Audio Pipeline**: Seven processing modes in a single interface
 - **CLI‑First Design**: All core features accessible via command line
 - **No GUI Required**: Runs entirely in headless terminals
 - **Full Dialogue Support**: Multi‑speaker script generation **now available in CLI** (both interactive and one‑liner)
 - **Optional Background Music for Dialogue**: Automatically generated, duration‑fitted ambient music with 35% volume – available in both interactive and one‑liner CLI
 - **Music Generation**: Lyrics‑to‑music synthesis with voice conversion
 - **Voice Cloning**: Extract and replicate voice characteristics from reference audio
+- **Standalone STT**: Transcribe audio, video, images, and YouTube URLs to text
+- **Speaker Diarization**: Identify and label individual speakers in multi‑speaker audio
+- **Image OCR**: Extract text from images as dialogue input for TTS processing
+- **YouTube/Video Download**: Process audio from YouTube, Bilibili, and TikTok URLs directly
+- **Automatic Voice Extraction**: Extract individual voice clips from multi‑speaker sources for cloning
+- **Result Routing**: Copy results to any filesystem path using the `result` parameter
 
 ---
 
@@ -48,6 +56,9 @@ pip install --upgrade protobuf==5.29.6
 
 # Process files immediately (one‑liner)
 python src/voder.py tts script "Hello world" voice "male voice"
+
+# Transcribe audio to text (STT)
+python src/voder.py stt "audio.wav" timestamp dialogue result "/output/transcript.txt"
 
 # Chain multiple operations
 python src/voder.py tts script "Hello" voice "female" && python src/voder.py tts script "World" voice "male"
@@ -89,6 +100,12 @@ pip install --upgrade protobuf==5.29.6
 | `hydra-core` | Configuration framework |
 | `huggingface_hub` | Model download and caching |
 | `soundfile` | Audio file I/O operations |
+| `yt-dlp` | YouTube, Bilibili, and TikTok video/audio download |
+| `easyocr` | Image text extraction (OCR) for processing images as dialogue input |
+| `lightning` | PyTorch Lightning backend required by pyannote for speaker diarization |
+| `sox` | Audio processing utilities (resampling, format conversion, channel manipulation) |
+
+**Note:** `pyannote.audio` is bundled locally in `src/libs/pyannote` and does not require a separate pip install. However, a HuggingFace token is required for speaker diarization (see [HF_TOKEN Setup for AI Agents](#hf_token-setup-for-ai-agents)).
 
 ### Verify Installation
 
@@ -147,6 +164,48 @@ if ! command -v ffmpeg &> /dev/null; then
     sudo cp ffmpeg-*/*/bin/ffprobe /usr/local/bin/
     rm -rf ffmpeg-*
 fi
+```
+
+---
+
+## HF_TOKEN Setup for AI Agents
+
+**⚠️ REQUIRED for speaker diarization in STT mode.**
+
+The pyannote speaker diarization model is gated on HuggingFace and requires authentication. Without a valid token, the `dialogue` flag in STT mode will fail.
+
+### Step 1: Accept Model Conditions
+
+Visit the following HuggingFace model pages and accept the user agreement for each:
+
+1. **Speaker Diarization**: https://huggingface.co/pyannote/speaker-diarization-community-1
+2. **Segmentation**: https://huggingface.co/pyannote/segmentation-3.0
+
+You must be logged into a HuggingFace account and click "Accept" on each model's page.
+
+### Step 2: Create the Token File
+
+```bash
+# Create HF_TOKEN.txt in the VODER root directory
+echo "hf_your_token_here" > HF_TOKEN.txt
+```
+
+The token is read automatically from `HF_TOKEN.txt` when diarization is requested.
+
+### Environment Variable Fallback
+
+If `HF_TOKEN.txt` does not exist, VODER checks for the `HF_TOKEN` environment variable:
+
+```bash
+export HF_TOKEN="hf_your_token_here"
+python src/voder.py stt "meeting.wav" dialogue
+```
+
+### Verify Token
+
+```bash
+# Test that the token is valid
+python -c "from huggingface_hub import HfFolder; print('Token set:', bool(HfFolder.get_token()))"
 ```
 
 ---
@@ -234,6 +293,7 @@ python src/voder.py <mode> [parameters]
 | `sts` | Speech‑to‑Speech (Voice Conversion) | Yes | ✅ Yes (single only) |
 | `ttm` | Text‑to‑Music Generation | No | ✅ Yes (single only) |
 | `ttm+vc` | Text‑to‑Music + Voice Conversion | Yes | ✅ Yes (single only) |
+| `stt` | Speech‑to‑Text Transcription | No | ✅ Yes (single, batch, timestamps, diarization, URLs) |
 | `stt+tts` | Speech‑to‑Text + TTS | No | ❌ Interactive Only |
 
 ### Text‑to‑Speech (tts)
@@ -397,6 +457,165 @@ python src/voder.py ttm+vc lyrics "song lyrics" styling "style" duration 30 targ
 python src/voder.py ttm+vc lyrics "Chorus:\nThis is our moment" styling "rock ballad" duration 30 target "singer_reference.wav"
 ```
 
+### Speech‑to‑Text (stt)
+
+Transcribe audio, video, images, or YouTube URLs to text using Whisper. Supports timestamps, speaker diarization, batch processing, and automatic result routing.
+
+**Basic transcription:**
+```bash
+python src/voder.py stt "audio.wav"
+```
+
+**Transcription with timestamps:**
+```bash
+python src/voder.py stt "audio.wav" timestamp
+```
+
+**Transcription with speaker diarization (dialogue format):**
+```bash
+python src/voder.py stt "audio.wav" dialogue
+```
+
+**Full transcription with timestamps, diarization, and result routing:**
+```bash
+python src/voder.py stt "audio.wav" timestamp dialogue result "/output/transcript.txt"
+```
+
+**Transcribe a YouTube video:**
+```bash
+python src/voder.py stt "https://www.youtube.com/watch?v=VIDEO_ID" timestamp dialogue
+```
+
+**Transcribe an image (OCR):**
+```bash
+python src/voder.py stt "screenshot.png"
+```
+
+**Batch transcription (multiple files):**
+```bash
+python src/voder.py stt "file1.wav" "file2.mp3" "file3.mp4" timestamp result "/output/batch/"
+```
+
+**Parameters:**
+
+| Parameter | Description | Required |
+|-----------|-------------|----------|
+| `files` | One or more input file paths or URLs (positional arguments after `stt`) | Yes |
+| `timestamp` | Include word‑level timestamps in the output | No |
+| `dialogue` | Enable speaker diarization (requires HF_TOKEN) | No |
+| `result` | Copy result file(s) to the specified path (file or directory) | No |
+
+**Supported Input Formats:**
+- **Audio**: WAV, MP3, FLAC, OGG, AAC, M4A, WMA
+- **Video**: MP4, AVI, MOV, MKV, WebM (audio auto‑extracted via FFmpeg)
+- **Images**: PNG, JPG, JPEG, BMP, TIFF (text extracted via EasyOCR)
+- **YouTube**: Direct YouTube URL (audio downloaded via yt-dlp)
+- **Bilibili**: Direct Bilibili URL (audio downloaded via yt-dlp)
+- **TikTok**: Direct TikTok URL (audio downloaded via yt-dlp)
+
+**Output Format:**
+
+The transcription result is saved as a `.txt` file in the `results/` directory. The content varies by flags used:
+
+| Flags Used | Output Format |
+|------------|---------------|
+| (none) | Plain text transcript |
+| `timestamp` | Timestamped transcript with `[MM:SS.mmm → MM:SS.mmm]` segments |
+| `dialogue` | Speaker‑labelled dialogue format (`Speaker 1: ...`, `Speaker 2: ...`) |
+| `timestamp dialogue` | Both timestamps and speaker labels combined |
+
+**Diarization Output Example:**
+```
+[00:00.000 → 00:03.500] Speaker 1: Welcome everyone to today's meeting.
+[00:03.500 → 00:07.200] Speaker 2: Thank you, let's get started with the agenda.
+[00:07.200 → 00:12.100] Speaker 1: First item, we need to review the quarterly results.
+```
+
+**Batch Processing Notes:**
+- When multiple input files are provided, each is transcribed independently.
+- If `result` points to a directory, all output files are copied there.
+- If `result` points to a file path, only the last result is copied (use directory for batch).
+
+---
+
+## New CLI Features
+
+The following features were added in the 04/02/2026 major update and are available to AI agents via CLI.
+
+### Universal: `result` Parameter
+
+Copy the generated result file to any filesystem path. Works with **all modes** (tts, tts+vc, sts, ttm, ttm+vc, stt).
+
+```bash
+# Copy TTS result to a specific directory
+python src/voder.py tts script "Hello world" voice "male voice" result "/mnt/shared/output/"
+
+# Copy STT transcript to a specific file
+python src/voder.py stt "meeting.wav" timestamp result "/data/transcripts/meeting.txt"
+
+# Copy music result
+python src/voder.py ttm lyrics "Hello world" styling "pop" 30 result "/mnt/shared/music/"
+```
+
+- If the path ends with `/`, it is treated as a directory (created if needed).
+- If the path does not end with `/`, it is treated as a file path (parent directories created if needed).
+- The original result is always saved in `results/`; `result` creates an additional copy.
+
+### STT‑Only: `timestamp` Flag
+
+Include word‑level timestamps in STT transcription output.
+
+```bash
+python src/voder.py stt "interview.wav" timestamp
+```
+
+### STT‑Only: `dialogue` Flag
+
+Enable speaker diarization to identify and label individual speakers. Requires HF_TOKEN (see [HF_TOKEN Setup for AI Agents](#hf_token-setup-for-ai-agents)).
+
+```bash
+python src/voder.py stt "meeting.wav" dialogue
+```
+
+### YouTube URL Input
+
+Pass a YouTube, Bilibili, or TikTok URL directly as input for STT transcription or dialogue analysis. Audio is downloaded automatically via yt-dlp.
+
+```bash
+# Transcribe a YouTube video
+python src/voder.py stt "https://www.youtube.com/watch?v=dQw4w9WgXcQ" timestamp
+
+# Transcribe with diarization
+python src/voder.py stt "https://www.youtube.com/watch?v=dQw4w9WgXcQ" dialogue
+
+# Also works with Bilibili and TikTok
+python src/voder.py stt "https://www.bilibili.com/video/BV1xx411c7mD" timestamp
+```
+
+### Image File Input
+
+Pass an image file (PNG, JPG, etc.) to STT mode. Text is extracted via EasyOCR and returned as a plain text transcript. This enables using images of scripts, subtitles, or screenshots as dialogue input.
+
+```bash
+# Extract text from an image
+python src/voder.py stt "script_screenshot.png"
+
+# Extract text and save to a specific path
+python src/voder.py stt "subtitle_image.jpg" result "/output/extracted_text.txt"
+```
+
+### Batch File Processing (STT)
+
+Provide multiple input files to STT mode for batch transcription. All files are processed sequentially.
+
+```bash
+# Transcribe multiple audio files
+python src/voder.py stt "episode1.wav" "episode2.wav" "episode3.wav" timestamp
+
+# Batch with result routing to a directory
+python src/voder.py stt "meeting1.wav" "meeting2.wav" dialogue result "/data/transcripts/"
+```
+
 ---
 
 ## CLI vs GUI Feature Comparison
@@ -410,8 +629,12 @@ VODER offers different experiences depending on the interface. Understanding the
 | **One‑Liner Execution** | Single command processing |
 | **Batch Processing** | Chain multiple commands with `&&` |
 | **Headless Operation** | No GUI required, fully automated |
-| **Direct Mode Access** | All five modes available directly |
+| **Direct Mode Access** | All seven modes available directly |
 | **Music Parameter** | One‑liner background music addition (dialogue only) |
+| **STT Transcription** | Speech-to-text with timestamps, diarization, and batch processing |
+| **YouTube/URL Input** | Direct transcription from YouTube, Bilibili, TikTok URLs |
+| **Image OCR Input** | Text extraction from images via EasyOCR |
+| **Result Routing** | Copy output to arbitrary filesystem paths with `result` parameter |
 
 ### GUI‑Only Features
 
@@ -435,6 +658,7 @@ Available in **both** CLI and GUI:
 | **Dialogue Mode** | ✅ Repeated parameters or interactive input + optional `music` | ✅ Visual script editor with character tracking + music prompt |
 | **Background Music** | ✅ `music` parameter (one‑liner) or interactive yes/no | ✅ Modal dialog before generation |
 | **STS / TTM / TTM+VC** | ✅ One‑liner commands | ✅ Dedicated panels |
+| **STT (Speech-to-Text)** | ✅ One‑liner with optional `timestamp`, `dialogue`, `result` | ✅ Dedicated panel |
 | **Output File Generation** | ✅ Saved to `results/` | ✅ Saved to `results/` |
 | **Parameter Customisation** | ✅ Duration, prompts, etc. | ✅ Duration, prompts, etc. |
 
@@ -454,6 +678,8 @@ VODER operates entirely on CPU. No GPU is required for any mode. This makes VODE
 |------|--------------|-------------|------|-------|
 | TTS, TTS+VC (no music) | 12GB | Optional | 4GB (minimum, GTX 1060) | 8GB base + 4GB (Qwen) |
 | TTS, TTS+VC (with music) | 23GB | Optional | 15GB (recommended, RTX 3080 or 16GB GPU) | 8GB base + 15GB (ACE) |
+| STT | 12GB | Optional | 4GB (minimum) | 8GB base + 4GB (Whisper) |
+| STT + Diarization | 15GB | Optional | 4GB (minimum) | +3GB (Pyannote) |
 | STT+TTS | 12GB | Optional | 4GB (minimum, GTX 1060) | 8GB base + 4GB (Qwen) |
 | STS | 13GB | Optional | 14GB | 8GB base + 5GB (Seed-VC) |
 | TTM | 23GB | Optional | 15GB (recommended, RTX 3080 or 16GB GPU) | 8GB base + 15GB (ACE) |
@@ -464,8 +690,8 @@ VODER operates entirely on CPU. No GPU is required for any mode. This makes VODE
 | VRAM | Performance | Suitable Modes |
 |------|-------------|----------------|
 | No GPU (CPU only) | Slow | All modes work on CPU |
-| 4GB | Usable | TTS, TTS+VC (no music), STT+TTS |
-| 6GB | Minimum | TTS, TTS+VC (no music), STT+TTS |
+| 4GB | Usable | TTS, TTS+VC (no music), STT, STT+TTS |
+| 6GB | Minimum | TTS, TTS+VC (no music), STT, STT+TTS |
 | 14GB | Mid-range | STS, all TTS modes |
 | 15-16GB | Recommended | TTS+VC with music, TTM, TTM+VC |
 | 24GB | Maximum (RTX 4090) | All modes at full speed |
@@ -488,6 +714,7 @@ The following modes work with approximately 12-13GB RAM:
 
 - **TTS** (Text-to-Speech) - 12GB
 - **TTS+VC** (TTS + Voice Cloning) - 12GB
+- **STT** (Speech-to-Text) - 12GB
 - **STT+TTS** (Speech-to-Text + TTS) - 12GB
 - **STS** (Speech-to-Speech) - 13GB
 
@@ -509,6 +736,14 @@ free -h
 3. **STT+TTS Unavailable in One‑Liner**: Speech‑to‑text + TTS requires interactive text editing (available in `python src/voder.py cli` interactive mode, but not one‑liner)
 4. **Single Mode for STS/TTM/TTM+VC**: These modes do not support multi‑speaker dialogue in CLI
 5. **Music only for Dialogue**: `music` parameter is ignored in single mode
+
+### STT Mode Limitations
+
+1. **STT+TTS is Interactive Only**: Combining transcription with re‑synthesis requires interactive CLI or GUI
+2. **Diarization Requires HF_TOKEN**: Speaker diarization needs a valid HuggingFace token with accepted model conditions
+3. **YouTube Download Requires Internet**: URL-based transcription needs network access and yt-dlp installed
+4. **Image OCR Accuracy Varies**: Text extraction quality depends on image resolution, font clarity, and language support
+5. **Speaker Diarization Accuracy Varies**: Best results with clear audio, minimal background noise, and ≤4 speakers; overlapping speech and noisy environments reduce accuracy
 
 ### GUI Mode Limitations
 
@@ -555,6 +790,7 @@ For STS mode, ensure at least 13GB RAM is available. For TTM/TTM+VC or TTS/TTS+V
 - For TTS/TTS+VC without music: Ensure at least 12GB RAM available
 - For TTS/TTS+VC with music, TTM, or TTM+VC: Ensure at least 23GB RAM available
 - For STS: Ensure at least 13GB RAM available
+- For STT with diarization: Ensure at least 15GB RAM available
 - Reduce TTM duration (shorter audio = less memory)
 - Process shorter audio segments for STS
 - Use TTS modes instead of voice conversion modes
@@ -627,6 +863,52 @@ python src/voder.py tts script "James: Hello" "Sarah: Hi" voice "James: deep voi
 - Single speaker, no music
 - Consistent volume levels
 
+### Issue: Pyannote speaker diarization fails
+
+**Cause**: Missing or invalid HF_TOKEN, model conditions not accepted, or torchaudio compatibility issues
+
+**Solution**:
+1. Ensure `HF_TOKEN.txt` exists in the VODER root directory with a valid token
+2. Visit https://huggingface.co/pyannote/speaker-diarization-community-1 and accept the model conditions
+3. Visit https://huggingface.co/pyannote/segmentation-3.0 and accept the model conditions
+4. Verify the token has read access: `python -c "from huggingface_hub import HfFolder; print(HfFolder.get_token())"`
+5. Ensure `torchaudio` is compatible: `pip install torchaudio --upgrade`
+6. If using CUDA, verify torchaudio CUDA version matches PyTorch: `python -c "import torchaudio; print(torchaudio.__version__)"`
+
+### Issue: YouTube download fails
+
+**Cause**: Network connectivity issues, video unavailable or region‑locked, or yt-dlp not installed
+
+**Solution**:
+1. Verify internet connectivity: `curl -I https://www.youtube.com`
+2. Ensure yt-dlp is installed: `pip install yt-dlp` and upgrade: `pip install --upgrade yt-dlp`
+3. Verify the URL is correct and the video is publicly accessible
+4. Try downloading manually first: `yt-dlp "https://www.youtube.com/watch?v=VIDEO_ID"`
+5. If the video is age‑restricted or private, it cannot be processed
+
+### Issue: EasyOCR not extracting text from images
+
+**Cause**: Poor image quality, unsupported format, or text too small/blurry
+
+**Solution**:
+1. Ensure the image is a supported format (PNG, JPG, JPEG, BMP, TIFF)
+2. Use higher resolution images (at least 300 DPI for scanned documents)
+3. Ensure text is clearly visible with good contrast
+4. Crop the image to the text region if possible
+5. Pre-process: increase contrast and convert to grayscale for better results
+
+### Issue: STT diarization producing poor results
+
+**Cause**: Overlapping speech, excessive background noise, too many speakers, or poor audio quality
+
+**Solution**:
+1. Use audio with minimal background noise
+2. For best results, limit to 2‑4 speakers
+3. Avoid audio with frequent overlapping speech
+4. Pre-process audio with noise reduction if possible
+5. Ensure audio sample rate is at least 16kHz
+6. For YouTube URLs, download quality may vary — consider downloading manually with yt-dlp first
+
 ### Justification: VODER Has No Known Systemic Issues
 
 VODER is a mature tool with all modes fully operational. When issues occur, they are almost always due to:
@@ -637,6 +919,9 @@ VODER is a mature tool with all modes fully operational. When issues occur, they
 4. **Poor reference audio quality**: Use clear, single‑speaker audio samples
 5. **Model download failures**: Check network or add HuggingFace token
 6. **Misuse of music parameter**: Only valid in dialogue mode
+7. **Missing HF_TOKEN for diarization**: Create `HF_TOKEN.txt` with valid token
+8. **yt-dlp not installed**: Install via `pip install yt-dlp`
+9. **Poor OCR input quality**: Use high‑resolution, high‑contrast images
 
 VODER handles all internal error cases gracefully with clear error messages.
 
@@ -717,6 +1002,80 @@ python src/voder.py cli
 # Answer y and enter a description, or just press Enter to skip
 ```
 
+### Workflow 7: Batch Transcription with Timestamps and Diarization
+
+```bash
+# Setup HF_TOKEN for diarization
+echo "hf_your_token_here" > HF_TOKEN.txt
+
+# Transcribe multiple meeting recordings with timestamps and speaker labels
+python src/voder.py stt "meeting_2026-01.wav" "meeting_2026-02.wav" "meeting_2026-03.wav" timestamp dialogue result "/data/transcripts/"
+
+# Results copied to /data/transcripts/
+ls /data/transcripts/
+```
+
+### Workflow 8: YouTube Video Transcription
+
+```bash
+# Transcribe a YouTube video with timestamps
+python src/voder.py stt "https://www.youtube.com/watch?v=dQw4w9WgXcQ" timestamp result "/output/youtube_transcript.txt"
+
+# Transcribe with speaker diarization (interview/podcast)
+echo "hf_your_token_here" > HF_TOKEN.txt
+python src/voder.py stt "https://www.youtube.com/watch?v=EXAMPLE_ID" dialogue result "/output/interview.txt"
+```
+
+### Workflow 9: Image Text Extraction to Dialogue
+
+```bash
+# Extract text from a script screenshot
+python src/voder.py stt "script_page.png" result "/output/extracted_script.txt"
+
+# Extract text from a subtitle image and use as TTS input
+python src/voder.py stt "subtitles.jpg" result "/output/subtitle_text.txt"
+
+# Chain: extract from image, then use extracted text for TTS
+python src/voder.py stt "notes.png" result "/tmp/notes.txt" && \
+SCRIPT=$(cat /tmp/notes.txt) && \
+python src/voder.py tts script "$SCRIPT" voice "calm narrator voice"
+```
+
+### Workflow 10: Multi‑Speaker Voice Clip Extraction + Dialogue Generation
+
+```bash
+# Step 1: Transcribe multi-speaker audio with diarization
+echo "hf_your_token_here" > HF_TOKEN.txt
+python src/voder.py stt "panel_discussion.wav" dialogue timestamp result "/output/transcript.txt"
+
+# Step 2: Review the transcript to identify speakers and segments
+# Step 3: Generate dialogue with voice cloning for each speaker
+python src/voder.py tts+vc script \
+  "Moderator: Welcome to today's panel discussion." \
+  "Guest1: Thank you, it's great to be here." \
+  "Guest2: I'm excited to share our findings." \
+  target \
+  "Moderator: /voices/moderator_ref.wav" \
+  "Guest1: /voices/guest1_ref.wav" \
+  "Guest2: /voices/guest2_ref.wav"
+```
+
+### Workflow 11: Transcribe and Route Result to Specific Path
+
+```bash
+# Transcribe audio and save result to a mounted network share
+python src/voder.py stt "recording.wav" timestamp result "/mnt/nas/transcripts/recording.txt"
+
+# Transcribe and route to a project directory
+python src/voder.py stt "interview.mp3" dialogue result "/projects/podcast/ep12/transcript.txt"
+
+# Batch transcribe and route entire batch to a directory
+mkdir -p /archive/2026/q1/transcripts
+python src/voder.py stt \
+  "call_jan05.wav" "call_jan12.wav" "call_jan19.wav" "call_jan26.wav" \
+  timestamp dialogue result "/archive/2026/q1/transcripts/"
+```
+
 ---
 
 ## Summary for AI Agents
@@ -728,16 +1087,23 @@ python src/voder.py cli
 3. **Install dependencies first**: `pip install -r requirements.txt`
 4. **Upgrade protobuf**: `pip install --upgrade protobuf==5.29.6` (avoids compatibility issues)
 5. **Install FFmpeg**: Required for audio processing, video input, and music mixing
-6. **RAM required**: 12GB minimum (23GB for TTM, TTM+VC, or TTS/TTS+VC with music)
+6. **RAM required**: 12GB minimum (23GB for TTM, TTM+VC, or TTS/TTS+VC with music; 15GB for STT with diarization)
 7. **GPU/VRAM**: Optional - 4GB minimum (6GB recommended, 16GB for best performance)
 8. **CPU-only operation**: All modes run on CPU, no GPU required
 9. **STT+TTS is CLI‑interactive only**: Use `python src/voder.py cli`
-10. **Output location**: Results saved to `results/` directory
-11. **Available modes**: tts, tts+vc, sts, ttm, ttm+vc
+10. **Output location**: Results saved to `results/` directory; use `result <path>` to copy elsewhere
+11. **Available modes**: `tts`, `tts+vc`, `sts`, `ttm`, `ttm+vc`, `stt`, `stt+tts` (7 modes total)
 12. **TTM duration**: 10‑300 seconds (use `duration n` or just `n` at the end)
 13. **Video support**: VODER supports video input (auto audio extraction via FFmpeg)
-14. **HuggingFace token**: Add to `HF_TOKEN.txt` for gated models
+14. **HuggingFace token**: Add to `HF_TOKEN.txt` for gated models; **required for speaker diarization**
 15. **Music parameter behaviour**: Only effective for dialogue scripts; ignored otherwise; empty string treated as skip
+16. **STT transcription**: Use `stt` mode with audio, video, image, or YouTube URLs
+17. **STT flags**: `timestamp` for word-level timestamps, `dialogue` for speaker diarization
+18. **STT batch**: Provide multiple files/URLs to process in sequence
+19. **Result routing**: `result <path>` copies output to any path (works with all modes)
+20. **Image OCR**: Pass image files to `stt` mode to extract text via EasyOCR
+21. **YouTube/Bilibili/TikTok**: Pass URLs directly to `stt` mode (requires yt-dlp)
+22. **HF_TOKEN for diarization**: Create `HF_TOKEN.txt` and accept model conditions at https://huggingface.co/pyannote/speaker-diarization-community-1
 
 ---
 

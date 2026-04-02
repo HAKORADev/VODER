@@ -4,6 +4,9 @@ ACE-Step Model Downloader
 This module provides functionality to download models from HuggingFace Hub.
 It supports automatic downloading when models are not found locally,
 as well as a CLI for manual downloads.
+
+NOTE: This module now uses the centralized model management from voder.py.
+All ACE-Step models are stored in: src/models/checkpoints/acestep/
 """
 
 import os
@@ -46,16 +49,22 @@ DEFAULT_LM_MODEL = "acestep-5Hz-lm-1.7B"
 
 
 def get_project_root() -> Path:
-    """Get the project root directory."""
+    """Get the project root directory (src/models/)."""
+    # ACE-Step is in src/acestep/, so project root is src/
     current_file = Path(__file__).resolve()
-    return current_file.parent.parent
+    src_dir = current_file.parent.parent  # Go up from acestep/ to src/
+    return src_dir / "models"
 
 
 def get_checkpoints_dir(custom_dir: Optional[str] = None) -> Path:
-    """Get the checkpoints directory path."""
+    """Get the ACE-Step checkpoints directory path.
+    
+    Uses the centralized path: src/models/checkpoints/acestep/
+    """
     if custom_dir:
         return Path(custom_dir)
-    return get_project_root() / "checkpoints"
+    # ACE-Step models go in src/models/checkpoints/acestep/
+    return get_project_root() / "checkpoints" / "acestep"
 
 
 def check_main_model_exists(checkpoints_dir: Optional[Path] = None) -> bool:

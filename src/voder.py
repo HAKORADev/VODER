@@ -1,5 +1,39 @@
 import sys
 import os
+
+_src_dir = os.path.dirname(os.path.abspath(__file__))
+if _src_dir not in sys.path:
+    sys.path.insert(0, _src_dir)
+
+MODELS_DIR = os.path.join(_src_dir, "models")
+
+MODELS_TMP_DIR = os.path.join(MODELS_DIR, "tmp")
+MODELS_CHECKPOINTS_DIR = os.path.join(MODELS_DIR, "checkpoints")
+
+QWEN_TTS_VOICEDESIGN_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "qwen_tts_voicedesign")
+QWEN_TTS_BASE_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "qwen_tts_base")
+ACESTEP_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "acestep")
+SEED_VC_V1_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "seed_vc_v1")
+SEED_VC_V2_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "seed_vc_v2")
+WHISPER_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "whisper")
+
+os.environ["HF_HOME"] = MODELS_DIR
+os.environ["HF_HUB_CACHE"] = MODELS_TMP_DIR
+os.environ["TRANSFORMERS_CACHE"] = MODELS_TMP_DIR
+os.environ["HUGGINGFACE_HUB_CACHE"] = MODELS_TMP_DIR
+
+os.environ["XDG_CACHE_HOME"] = MODELS_TMP_DIR
+
+os.makedirs(MODELS_DIR, exist_ok=True)
+os.makedirs(MODELS_TMP_DIR, exist_ok=True)
+os.makedirs(MODELS_CHECKPOINTS_DIR, exist_ok=True)
+os.makedirs(QWEN_TTS_VOICEDESIGN_DIR, exist_ok=True)
+os.makedirs(QWEN_TTS_BASE_DIR, exist_ok=True)
+os.makedirs(ACESTEP_DIR, exist_ok=True)
+os.makedirs(SEED_VC_V1_DIR, exist_ok=True)
+os.makedirs(SEED_VC_V2_DIR, exist_ok=True)
+os.makedirs(WHISPER_DIR, exist_ok=True)
+
 import time
 import tempfile
 import shutil
@@ -44,17 +78,40 @@ def setup_hf_token():
 hf_token = setup_hf_token()
 if hf_token:
     os.environ["HF_TOKEN"] = hf_token
+else:
+    possible_paths = [
+        "HF_TOKEN.txt",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "HF_TOKEN.txt"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "1", "HF_TOKEN.txt"),
+    ]
+    for path in possible_paths:
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                content = f.read().strip()
+                lines = [line for line in content.split('\n') if line and not line.startswith('#')]
+                if lines:
+                    hf_token = lines[0]
+                    os.environ["HF_TOKEN"] = hf_token
+                    break
+    if not hf_token:
+        print("\n" + "="*60)
+        print("WARNING: HuggingFace token not found!")
+        print("="*60)
+        print("To use pyannote speaker diarization, you need to:")
+        print("1. Get a token from: https://huggingface.co/settings/tokens")
+        print("2. Create a file called 'HF_TOKEN.txt' with your token")
+        print("3. Make sure the token has access to pyannote models")
+        print("   (Accept conditions at: https://huggingface.co/pyannote/speaker-diarization-community-1)")
+        print("="*60 + "\n")
 
-SEEDVC_CHECKPOINTS_DIR = "./models/seed_vc_v2/checkpoints"
-QWEN_TTS_MODEL_DIR = "./models/qwen_tts_voice_design"
-ACE_STEP_MODEL_DIR = "./models/ace_step_1_5"
-
-def load_custom_model_from_hf(repo_id, model_filename="pytorch_model.bin", config_filename=None):
-    os.makedirs(SEEDVC_CHECKPOINTS_DIR, exist_ok=True)
-    model_path = hf_hub_download(repo_id=repo_id, filename=model_filename, cache_dir=SEEDVC_CHECKPOINTS_DIR)
+def load_custom_model_from_hf(repo_id, model_filename="pytorch_model.bin", config_filename=None, target_dir=None):
+    if target_dir is None:
+        target_dir = SEED_VC_V2_DIR
+    os.makedirs(target_dir, exist_ok=True)
+    model_path = hf_hub_download(repo_id=repo_id, filename=model_filename, cache_dir=target_dir)
     if config_filename is None:
         return model_path
-    config_path = hf_hub_download(repo_id=repo_id, filename=config_filename, cache_dir=SEEDVC_CHECKPOINTS_DIR)
+    config_path = hf_hub_download(repo_id=repo_id, filename=config_filename, cache_dir=target_dir)
     return model_path, config_path
 
 THEME = {
@@ -632,8 +689,8 @@ class AudioWaveformWidget(QFrame):
                 painter.drawLine(x, y_center - y_offset, x, y_center + y_offset)
 
 class WhisperSTT:
-    def __init__(self, model_dir="./models"):
-        self.model_dir = model_dir
+    def __init__(self, model_dir=None):
+        self.model_dir = WHISPER_DIR if model_dir is None else model_dir
         self.model = None
         self.checkpoint_path = os.path.join(self.model_dir, "whisper-turbo.pt")
         self.ensure_model()
@@ -681,10 +738,285 @@ class WhisperSTT:
             print(f"Transcription error: {e}")
             return None
 
+class EasyOCRReader:
+    def __init__(self, model_dir=None):
+        self.model_dir = MODELS_CHECKPOINTS_DIR if model_dir is None else model_dir
+        self.easyocr_dir = os.path.join(self.model_dir, "easyocr")
+        self.model = None
+        self.reader = None
+        os.makedirs(self.easyocr_dir, exist_ok=True)
+        self.ensure_model()
+
+    def ensure_model(self):
+        os.makedirs(self.easyocr_dir, exist_ok=True)
+        if self.reader is None:
+            try:
+                import easyocr
+                print("Loading EasyOCR model...")
+                self.reader = easyocr.Reader(
+                    ['en'],
+                    model_storage_directory=self.easyocr_dir,
+                    download_enabled=True,
+                    gpu=False
+                )
+                print("EasyOCR model loaded successfully")
+            except Exception as e:
+                print(f"Error loading EasyOCR: {e}")
+                print("Note: EasyOCR will use CPU for text recognition.")
+
+    def read_text(self, image_path):
+        if self.reader is None:
+            return None
+        try:
+            result = self.reader.readtext(image_path)
+            return result
+        except Exception as e:
+            print(f"EasyOCR error: {e}")
+            return None
+
+    def extract_text_from_image(self, image_path):
+        if self.reader is None:
+            return False, None, "EasyOCR model not loaded"
+
+        try:
+            result = self.read_text(image_path)
+            if not result:
+                return False, None, "No text found in image"
+
+            texts = []
+            for detection in result:
+                text = detection[1].strip()
+                if text:
+                    texts.append(text)
+
+            if not texts:
+                return False, None, "No text found in image"
+
+            full_text = ' '.join(texts)
+            return True, full_text, None
+
+        except Exception as e:
+            return False, None, f"Error extracting text: {str(e)}"
+
+    def cleanup(self):
+        self.reader = None
+        gc.collect()
+
+class SpeakerDiarization:
+    def __init__(self, model_dir=None):
+        self.model_dir = MODELS_CHECKPOINTS_DIR if model_dir is None else model_dir
+        self.diarization_dir = os.path.join(self.model_dir, "pyannote")
+        self.model = None
+        self.pipeline = None
+        os.makedirs(self.diarization_dir, exist_ok=True)
+        self.ensure_model()
+
+    def ensure_model(self):
+        os.makedirs(self.diarization_dir, exist_ok=True)
+        if self.model is None:
+            try:
+                import sys
+                libs_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'libs')
+                if libs_path not in sys.path:
+                    sys.path.insert(0, libs_path)
+
+                os.environ["PYANNOTE_SKIP_DEPENDENCY_CHECK"] = "1"
+
+                from pyannote.audio import Pipeline
+                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                print("Loading pyannote speaker diarization model...")
+
+                token = os.environ.get("HF_TOKEN")
+                if not token:
+                    print("Error: HuggingFace token is required for pyannote")
+                    return
+
+                self.pipeline = Pipeline.from_pretrained(
+                    "pyannote/speaker-diarization-community-1",
+                    cache_dir=self.diarization_dir,
+                    token=token
+                )
+                self.pipeline = self.pipeline.to(device)
+                print("Speaker diarization model loaded successfully")
+            except ImportError as e:
+                print(f"Error: pyannote.audio not available in local libs")
+                print(f"Import error: {e}")
+            except Exception as e:
+                error_str = str(e).lower()
+                if 'audio_metadata' in error_str or 'torchaudio' in error_str:
+                    print(f"Error loading speaker diarization model: torchaudio compatibility issue")
+                    print("Note: Your torchaudio version may be incompatible with pyannote.audio")
+                    print("Try upgrading: pip install --upgrade torchaudio")
+                elif 'token' in error_str or 'auth' in error_str:
+                    print(f"Error loading speaker diarization model: Authentication failed")
+                    print("Make sure your HF_TOKEN is valid and has accepted the model conditions")
+                    print("Visit: https://huggingface.co/pyannote/speaker-diarization-community-1")
+                else:
+                    print(f"Error loading speaker diarization model: {e}")
+                print("Note: pyannote requires authentication token.")
+                print("Set HF_TOKEN in HF_TOKEN.txt file with your HuggingFace token.")
+
+    def diarize(self, audio_path):
+        if self.pipeline is None:
+            return None
+        try:
+            result = self.pipeline(audio_path, min_speakers=1)
+            if hasattr(result, 'speaker_diarization'):
+                return result.speaker_diarization
+            return result
+        except Exception as e:
+            print(f"Diarization error: {e}")
+            return None
+
+    def format_diarization(self, diarization, transcription_result):
+        if diarization is None or transcription_result is None:
+            return []
+
+        try:
+            segments = transcription_result.get("segments", [])
+            if not segments:
+                return []
+
+            transcription_segments = []
+            for seg in segments:
+                words = seg.get("words", [])
+                if words:
+                    for word in words:
+                        transcription_segments.append({
+                            "start": word.get("start", seg.get("start", 0)),
+                            "end": word.get("end", seg.get("end", 0)),
+                            "text": word.get("word", "").strip()
+                        })
+                else:
+                    transcription_segments.append({
+                        "start": seg.get("start", 0),
+                        "end": seg.get("end", 0),
+                        "text": seg.get("text", "").strip()
+                    })
+
+            if not transcription_segments:
+                return []
+
+            diarization_turns = []
+            for turn in diarization.itertracks(yield_label=True):
+                segment, track, speaker = turn
+
+                start_time = float(segment.start)
+                end_time = float(segment.end)
+
+                diarization_turns.append({
+                    "start": start_time,
+                    "end": end_time,
+                    "speaker": speaker
+                })
+
+            diarization_turns.sort(key=lambda x: x["start"])
+
+            result = []
+            for t_seg in transcription_segments:
+                best_speaker = None
+                best_overlap = 0
+
+                for turn in diarization_turns:
+                    overlap_start = max(t_seg["start"], turn["start"])
+                    overlap_end = min(t_seg["end"], turn["end"])
+                    overlap_duration = max(0, overlap_end - overlap_start)
+
+                    if overlap_duration > 0:
+                        if t_seg["start"] >= turn["start"] and t_seg["end"] <= turn["end"]:
+                            if best_overlap < 2:
+                                best_speaker = turn["speaker"]
+                                best_overlap = 2
+                        elif overlap_duration > best_overlap:
+                            best_speaker = turn["speaker"]
+                            best_overlap = overlap_duration
+
+                if best_speaker is not None:
+                    result.append({
+                        "speaker": best_speaker,
+                        "start": t_seg["start"],
+                        "end": t_seg["end"],
+                        "text": t_seg["text"]
+                    })
+
+            if result:
+                for i, seg in enumerate(result):
+                    if seg["speaker"] is None:
+                        prev_speaker = None
+                        next_speaker = None
+
+                        for j in range(i - 1, -1, -1):
+                            if result[j]["speaker"] is not None:
+                                prev_speaker = result[j]["speaker"]
+                                break
+
+                        for j in range(i + 1, len(result)):
+                            if result[j]["speaker"] is not None:
+                                next_speaker = result[j]["speaker"]
+                                break
+
+                        if prev_speaker and next_speaker:
+                            prev_dist = i - next((idx for idx in range(i - 1, -1, -1) if result[idx]["speaker"] is not None), i)
+                            next_dist = next((idx for idx in range(i + 1, len(result)) if result[idx]["speaker"] is not None), i) - i
+                            seg["speaker"] = prev_speaker if prev_dist <= next_dist else next_speaker
+                        elif prev_speaker:
+                            seg["speaker"] = prev_speaker
+                        elif next_speaker:
+                            seg["speaker"] = next_speaker
+
+                min_utterance_duration = 0.5
+                i = 0
+                while i < len(result):
+                    duration = result[i]["end"] - result[i]["start"]
+                    if duration < min_utterance_duration:
+                        prev_idx = i - 1
+                        while prev_idx >= 0 and result[prev_idx]["speaker"] == result[i]["speaker"]:
+                            prev_idx -= 1
+
+                        next_idx = i + 1
+                        while next_idx < len(result) and result[next_idx]["speaker"] == result[i]["speaker"]:
+                            next_idx += 1
+
+                        should_merge_with_prev = False
+                        should_merge_with_next = False
+
+                        if prev_idx >= 0:
+                            prev_duration = result[prev_idx]["end"] - result[prev_idx]["start"]
+                            should_merge_with_prev = (prev_idx >= 0 and
+                                (next_idx >= len(result) or
+                                 result[prev_idx]["speaker"] != result[i]["speaker"] and
+                                 prev_duration > duration))
+
+                        if next_idx < len(result):
+                            next_duration = result[next_idx]["end"] - result[next_idx]["start"]
+                            should_merge_with_next = (next_idx < len(result) and
+                                result[next_idx]["speaker"] != result[i]["speaker"] and
+                                (next_idx >= len(result) or
+                                 not should_merge_with_prev or
+                                 next_duration > prev_duration))
+
+                        if should_merge_with_prev:
+                            result[prev_idx]["text"] += " " + result[i]["text"]
+                            result[prev_idx]["end"] = result[i]["end"]
+                            result.pop(i)
+                        elif should_merge_with_next:
+                            result[next_idx]["text"] = result[i]["text"] + " " + result[next_idx]["text"]
+                            result[next_idx]["start"] = result[i]["start"]
+                            result.pop(i)
+                        else:
+                            i += 1
+                    else:
+                        i += 1
+
+            return result
+        except Exception as e:
+            print(f"Error formatting diarization: {e}")
+            return []
+
 class QwenTTSVoiceDesign:
-    def __init__(self, model_dir="./models"):
-        self.model_dir = model_dir
-        self.model_dir_full = os.path.join(model_dir, "qwen_tts_voice_design")
+    def __init__(self, model_dir=None):
+        self.model_dir = MODELS_CHECKPOINTS_DIR if model_dir is None else model_dir
+        self.model_dir_full = QWEN_TTS_VOICEDESIGN_DIR if model_dir is None else os.path.join(model_dir, "qwen_tts_voice_design")
         self.model = None
         os.makedirs(self.model_dir_full, exist_ok=True)
         self.ensure_model()
@@ -764,9 +1096,9 @@ class QwenTTSVoiceDesign:
                 pass
 
 class QwenTTS:
-    def __init__(self, model_dir="./models"):
-        self.model_dir = model_dir
-        self.model_dir_base = os.path.join(model_dir, "qwen_tts_base")
+    def __init__(self, model_dir=None):
+        self.model_dir = MODELS_CHECKPOINTS_DIR if model_dir is None else model_dir
+        self.model_dir_base = QWEN_TTS_BASE_DIR if model_dir is None else os.path.join(model_dir, "qwen_tts_base")
         self.model = None
         self.voice_prompt = None
         os.makedirs(self.model_dir_base, exist_ok=True)
@@ -834,7 +1166,7 @@ class SeedVCV2:
         self.model = None
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-        self.checkpoints_dir = "checkpoints"
+        self.checkpoints_dir = SEED_VC_V2_DIR
         self.ensure_model()
 
     def ensure_model(self):
@@ -947,8 +1279,6 @@ class SeedVCV2:
             print(f"Seed-VC conversion error: {e}")
             return False
 
-SEEDVC_V1_CHECKPOINTS_DIR = "./models/seed_vc_v1/checkpoints"
-
 class SeedVCV1:
     def __init__(self):
         self.model = None
@@ -959,7 +1289,7 @@ class SeedVCV1:
         else:
             self.device = torch.device("cpu")
         self.dtype = torch.float16
-        self.checkpoints_dir = SEEDVC_V1_CHECKPOINTS_DIR
+        self.checkpoints_dir = SEED_VC_V1_DIR
         self.whisper_model = None
         self.whisper_feature_extractor = None
         self.campplus_model = None
@@ -987,7 +1317,8 @@ class SeedVCV1:
                 dit_checkpoint_path, dit_config_path = load_custom_model_from_hf(
                     "Plachta/Seed-VC",
                     "DiT_seed_v2_uvit_whisper_base_f0_44k_bigvgan_pruned_ft_ema.pth",
-                    "config_dit_mel_seed_uvit_whisper_base_f0_44k.yml"
+                    "config_dit_mel_seed_uvit_whisper_base_f0_44k.yml",
+                    target_dir=SEED_VC_V1_DIR
                 )
                 config = yaml.safe_load(open(dit_config_path, 'r'))
                 model_params = recursive_munch(config['model_params'])
@@ -1021,7 +1352,7 @@ class SeedVCV1:
                 del self.whisper_model.decoder
                 self.whisper_feature_extractor = AutoFeatureExtractor.from_pretrained(whisper_name)
 
-                campplus_ckpt_path = load_custom_model_from_hf("funasr/campplus", "campplus_cn_common.bin")
+                campplus_ckpt_path = load_custom_model_from_hf("funasr/campplus", "campplus_cn_common.bin", target_dir=SEED_VC_V1_DIR)
                 self.campplus_model = CAMPPlus(feat_dim=80, embedding_size=192)
                 self.campplus_model.load_state_dict(torch.load(campplus_ckpt_path, map_location="cpu"))
                 self.campplus_model.eval()
@@ -1031,7 +1362,7 @@ class SeedVCV1:
                 self.bigvgan_model.remove_weight_norm()
                 self.bigvgan_model = self.bigvgan_model.eval().to(self.device)
 
-                rmvpe_path = load_custom_model_from_hf("lj1995/VoiceConversionWebUI", "rmvpe.pt")
+                rmvpe_path = load_custom_model_from_hf("lj1995/VoiceConversionWebUI", "rmvpe.pt", target_dir=SEED_VC_V1_DIR)
                 self.rmvpe = RMVPE(rmvpe_path, is_half=False, device=self.device)
 
                 print("Seed-VC v1 (seed-uvit-whisper-base-f0-44k) loaded successfully")
@@ -3025,6 +3356,111 @@ def validate_audio_file(path):
     except Exception as e:
         return False, f"Unsupported or corrupt audio/video format: {str(e)}"
 
+def is_youtube_url(url):
+    youtube_patterns = [
+        'youtube.com',
+        'youtu.be',
+        'youtube.com/watch',
+        'youtube.com/shorts',
+        'bilibili.com',
+        'tiktok.com',
+    ]
+    url_lower = url.lower()
+    return any(pattern in url_lower for pattern in youtube_patterns)
+
+def download_youtube_audio(url, temp_dir=None):
+    if temp_dir is None:
+        temp_dir = tempfile.gettempdir()
+
+    try:
+        import yt_dlp
+
+        output_path = os.path.join(temp_dir, f"voder_yt_{int(time.time())}")
+
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': output_path,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'quiet': False,
+            'no_warnings': False,
+            'extract_flat': False,
+        }
+
+        print(f"Downloading audio from: {url}")
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            try:
+                info = ydl.extract_info(url, download=False)
+                if info is None:
+                    return False, "Failed to fetch video information", None
+
+                title = info.get('title', 'Unknown')
+                duration = info.get('duration', 0)
+                print(f"Video: {title} ({duration}s)")
+
+                if not info:
+                    return False, "Network error: Could not access video", None
+
+            except yt_dlp.utils.DownloadError as e:
+                error_msg = str(e)
+                if 'is not a valid URL' in error_msg:
+                    return False, "Invalid YouTube URL", None
+                elif 'Video unavailable' in error_msg:
+                    return False, "Video is unavailable", None
+                elif 'HTTP Error' in error_msg:
+                    return False, f"Network error: {error_msg}", None
+                elif 'Connection' in error_msg:
+                    return False, "Connection error: Check your internet connection", None
+                else:
+                    return False, f"Download error: {error_msg}", None
+            except Exception as e:
+                return False, f"Error checking video: {str(e)}", None
+
+            try:
+                print("Extracting audio...")
+                ydl.download([url])
+            except yt_dlp.utils.DownloadError as e:
+                error_msg = str(e)
+                if 'HTTP Error' in error_msg:
+                    return False, f"Network error during download: {error_msg}", None
+                elif 'Connection' in error_msg:
+                    return False, "Connection lost during download", None
+                else:
+                    return False, f"Download failed: {error_msg}", None
+            except Exception as e:
+                return False, f"Download error: {str(e)}", None
+
+        mp3_path = output_path + '.mp3'
+        if os.path.exists(mp3_path):
+            print(f"Audio downloaded successfully: {mp3_path}")
+            return True, None, mp3_path
+
+        for ext in ['.m4a', '.wav', '.webm']:
+            alt_path = output_path + ext
+            if os.path.exists(alt_path):
+                if ext != '.mp3':
+                    try:
+                        import torchaudio
+                        waveform, sr = torchaudio.load(alt_path)
+                        torchaudio.save(mp3_path, waveform, sr)
+                        os.unlink(alt_path)
+                        print(f"Audio downloaded and converted: {mp3_path}")
+                        return True, None, mp3_path
+                    except:
+                        return True, None, alt_path
+                return True, None, alt_path
+
+        return False, "Downloaded file not found", None
+
+    except ImportError:
+        return False, "yt-dlp not installed. Run: pip install yt-dlp", None
+    except Exception as e:
+        return False, f"Unexpected error: {str(e)}", None
+
 def extract_audio_from_video_cli(video_path):
     try:
         temp_dir = tempfile.gettempdir()
@@ -3038,72 +3474,534 @@ def extract_audio_from_video_cli(video_path):
         print(f"FFmpeg error: {e}")
         return None
 
+def validate_dialogue_source_file(file_path):
+    if is_youtube_url(file_path):
+        return True, "youtube", None
+
+    if not os.path.exists(file_path):
+        return False, f"File not found: {file_path}", None
+
+    ext = file_path.lower()
+    if ext.endswith(('.mp4', '.avi', '.mov', '.mkv', '.wav', '.mp3', '.flac', '.m4a')):
+        return True, "audio", None
+    elif ext.endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp')):
+        return True, "image", None
+    elif ext.endswith('.txt'):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+
+            if not content:
+                return False, "Empty text file", None
+
+            lines = content.split('\n')
+            dialogue_items = []
+            mode_detected = None
+            auto_formatted = False
+
+            for i, line in enumerate(lines, 1):
+                line = line.strip()
+                if not line:
+                    continue
+
+                has_colon = ':' in line
+                if mode_detected is None:
+                    mode_detected = 'dialogue' if has_colon else 'single'
+
+                if mode_detected == 'single':
+                    if len(lines) == 1:
+                        dialogue_items.append((1, 'text', line))
+                    else:
+                        dialogue_items.append((len(dialogue_items) + 1, 'text', line))
+                        auto_formatted = True
+                else:
+                    if ':' not in line:
+                        dialogue_items.append((len(dialogue_items) + 1, 'text', line))
+                        auto_formatted = True
+                    else:
+                        parts = line.split(':', 1)
+                        speaker = parts[0].strip()
+                        text = parts[1].strip()
+                        if not speaker or not text:
+                            dialogue_items.append((len(dialogue_items) + 1, 'text', line.split(':', 1)[1].strip() if ':' in line else line))
+                            auto_formatted = True
+                        else:
+                            dialogue_items.append((len(dialogue_items) + 1, speaker, text))
+
+            if not dialogue_items:
+                return False, "No valid dialogue found in file", None
+
+            if auto_formatted:
+                print(f"\n[Auto-format] TXT file has been reformatted for compatibility:")
+                print("  - Lines without speaker name are prefixed with 'text:'")
+                print("  - Empty lines have been removed")
+                print(f"  - Total lines after formatting: {len(dialogue_items)}")
+
+            return True, "txt", dialogue_items
+
+        except Exception as e:
+            return False, f"Error reading file: {str(e)}", None
+    else:
+        return False, f"Unsupported file format: {file_path}", None
+
+def analyze_dialogue_source(file_path, source_type="audio"):
+    if source_type == "txt":
+        return True, None, None
+
+    if source_type == "image":
+        print("Loading EasyOCR model...")
+        ocr = EasyOCRReader()
+        if ocr.reader is None:
+            return False, "Failed to load EasyOCR model", None
+
+        print(f"Extracting text from image: {os.path.basename(file_path)}")
+        success, text, error_msg = ocr.extract_text_from_image(file_path)
+
+        ocr.cleanup()
+        del ocr
+        gc.collect()
+
+        if not success:
+            return False, error_msg or "Failed to extract text from image", None
+
+        if not text:
+            return False, "No text found in image", None
+
+        dialogue_items = [(1, 'text', text)]
+        return True, None, dialogue_items
+
+    if source_type == "youtube":
+        print(f"Downloading audio from YouTube...")
+        success, error_msg, audio_path = download_youtube_audio(file_path)
+        if not success:
+            return False, error_msg, None
+
+        file_path = audio_path
+
+    audio_path = file_path
+    needs_cleanup = False
+    if file_path.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+        print("Extracting audio from video...")
+        audio_path = extract_audio_from_video_cli(file_path)
+        if not audio_path:
+            return False, "Failed to extract audio from video", None
+        needs_cleanup = True
+    elif not file_path.lower().endswith(('.wav', '.mp3', '.flac', '.m4a')):
+        return False, f"Unsupported audio format: {file_path}", None
+
+    try:
+        print("Loading Whisper model...")
+        stt = WhisperSTT()
+        if stt.model is None:
+            return False, "Failed to load Whisper model", None
+
+        print("Transcribing audio...")
+        result = stt.transcribe(audio_path)
+
+        del stt
+        stt = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        if not result:
+            return False, "Transcription failed", None
+
+        print("Performing speaker diarization...")
+        diarization = SpeakerDiarization()
+
+        if diarization.pipeline is None:
+            text = result.get("text", "").strip()
+            if not text:
+                return False, "No text transcribed", None
+            dialogue_items = [(1, 'text', text)]
+            return True, None, dialogue_items
+
+        diar_result = diarization.diarize(audio_path)
+
+        formatted_segments = diarization.format_diarization(diar_result, result)
+
+        del diarization
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        if not formatted_segments:
+            text = result.get("text", "").strip()
+            dialogue_items = [(1, 'text', text)]
+            return True, None, dialogue_items
+
+        original_speakers = []
+        for seg in formatted_segments:
+            speaker = seg["speaker"]
+            if speaker not in original_speakers:
+                original_speakers.append(speaker)
+
+        speaker_mapping = {spk: idx for idx, spk in enumerate(sorted(original_speakers), 1)}
+
+        if len(original_speakers) == 1:
+            content = " ".join(seg["text"] for seg in formatted_segments)
+            dialogue_items = [(1, 'text', content)]
+        else:
+            dialogue_items = []
+            current_speaker_num = None
+            current_text_parts = []
+            current_start_time = None
+            last_end_time = None
+            min_words_before_switch = 3
+            min_gap_before_switch = 0.3
+
+            for seg in formatted_segments:
+                speaker_num = speaker_mapping[seg["speaker"]]
+                text = seg["text"]
+
+                if speaker_num == current_speaker_num:
+                    current_text_parts.append(text)
+                    last_end_time = seg["end"]
+                else:
+                    time_gap = seg["start"] - last_end_time if last_end_time else 0
+                    words_accumulated = len(current_text_parts)
+
+                    should_switch = (words_accumulated >= min_words_before_switch) or (time_gap >= min_gap_before_switch)
+
+                    if should_switch and current_text_parts:
+                        content = " ".join(current_text_parts)
+                        dialogue_items.append((current_speaker_num, str(current_speaker_num), content))
+                        current_speaker_num = speaker_num
+                        current_text_parts = [text]
+                        current_start_time = seg["start"]
+                        last_end_time = seg["end"]
+                    else:
+                        current_text_parts.append(text)
+                        last_end_time = seg["end"]
+
+            if current_text_parts:
+                content = " ".join(current_text_parts)
+                dialogue_items.append((current_speaker_num, str(current_speaker_num), content))
+
+        return True, None, dialogue_items
+
+    except Exception as e:
+        return False, f"Error analyzing audio: {str(e)}", None
+    finally:
+        if needs_cleanup and os.path.exists(audio_path):
+            try:
+                os.unlink(audio_path)
+            except:
+                pass
+        if source_type == "youtube" and os.path.exists(audio_path):
+            try:
+                os.unlink(audio_path)
+            except:
+                pass
+
+def extract_voice_clips_from_multispeaker(file_path, num_speakers, source_type="audio"):
+    audio_path = file_path
+    needs_cleanup = False
+    youtube_temp = None
+
+    if source_type == "youtube":
+        print(f"Downloading audio from YouTube...")
+        success, error_msg, downloaded_path = download_youtube_audio(file_path)
+        if not success:
+            return False, error_msg, None
+        audio_path = downloaded_path
+        youtube_temp = downloaded_path
+    elif file_path.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+        print("Extracting audio from video...")
+        audio_path = extract_audio_from_video_cli(file_path)
+        if not audio_path:
+            return False, "Failed to extract audio from video", None
+        needs_cleanup = True
+
+    try:
+        print("Loading Whisper model...")
+        stt = WhisperSTT()
+        if stt.model is None:
+            return False, "Failed to load Whisper model", None
+
+        print("Transcribing audio with word timestamps...")
+        result = stt.transcribe(audio_path)
+
+        del stt
+        stt = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        if not result:
+            return False, "Transcription failed", None
+
+        print("Performing speaker diarization...")
+        diarization = SpeakerDiarization()
+
+        if diarization.pipeline is None:
+            return False, "Speaker diarization model not available", None
+
+        diar_result = diarization.diarize(audio_path)
+
+        del diarization
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        if diar_result is None:
+            return False, "Speaker diarization failed", None
+
+        speaker_segments = {}
+
+        segments = result.get("segments", [])
+        if not segments:
+            return False, "No transcription segments found", None
+
+        transcription_segments = []
+        for seg in segments:
+            words = seg.get("words", [])
+            if words:
+                for word in words:
+                    transcription_segments.append({
+                        "start": word.get("start", seg.get("start", 0)),
+                        "end": word.get("end", seg.get("end", 0)),
+                        "text": word.get("word", "").strip()
+                    })
+            else:
+                transcription_segments.append({
+                    "start": seg.get("start", 0),
+                    "end": seg.get("end", 0),
+                    "text": seg.get("text", "").strip()
+                })
+
+        for t_seg in transcription_segments:
+            assigned_speaker = None
+            for turn in diar_result.itertracks(yield_label=True):
+                start, end, speaker = turn
+                if t_seg["start"] >= start and t_seg["end"] <= end:
+                    assigned_speaker = speaker
+                    break
+                elif t_seg["start"] >= start and t_seg["start"] < end:
+                    assigned_speaker = speaker
+                    break
+
+            if assigned_speaker is not None:
+                if assigned_speaker not in speaker_segments:
+                    speaker_segments[assigned_speaker] = []
+                speaker_segments[assigned_speaker].append({
+                    "start": t_seg["start"],
+                    "end": t_seg["end"],
+                    "text": t_seg["text"]
+                })
+
+        if not speaker_segments:
+            return False, "No speaker segments found", None
+
+        sorted_speakers = sorted(speaker_segments.keys())
+
+        speaker_to_num = {}
+        for idx, speaker in enumerate(sorted_speakers, 1):
+            speaker_to_num[speaker] = str(idx)
+
+        clips_dict = {}
+        temp_dir = tempfile.mkdtemp()
+
+        for speaker in sorted_speakers:
+            if len(clips_dict) >= num_speakers:
+                break
+
+            segments_list = speaker_segments[speaker]
+            if not segments_list:
+                continue
+
+            longest_seg = max(segments_list, key=lambda x: x["end"] - x["start"])
+
+            speaker_num = speaker_to_num[speaker]
+            clip_path = os.path.join(temp_dir, f"{speaker_num}.wav")
+
+            cmd = [
+                'ffmpeg', '-i', audio_path,
+                '-ss', str(longest_seg["start"]),
+                '-t', str(longest_seg["end"] - longest_seg["start"]),
+                '-y', clip_path
+            ]
+
+            result_ffmpeg = subprocess.run(cmd, capture_output=True, text=True)
+            if result_ffmpeg.returncode != 0:
+                print(f"Warning: Failed to extract clip for speaker {speaker_num}: {result_ffmpeg.stderr}")
+                continue
+
+            clips_dict[speaker_num] = clip_path
+            print(f"Extracted voice clip for speaker {speaker_num} ({longest_seg['end'] - longest_seg['start']:.2f}s)")
+
+        if not clips_dict:
+            try:
+                shutil.rmtree(temp_dir)
+            except:
+                pass
+            return False, "Failed to extract any voice clips", None
+
+        return True, None, clips_dict
+
+    except Exception as e:
+        return False, f"Error extracting voice clips: {str(e)}", None
+    finally:
+        if needs_cleanup and os.path.exists(audio_path) and audio_path != file_path:
+            try:
+                os.unlink(audio_path)
+            except:
+                pass
+        if youtube_temp and os.path.exists(youtube_temp):
+            try:
+                os.unlink(youtube_temp)
+            except:
+                pass
+
 def cli_tts_mode():
     original_cwd = os.getcwd()
     results_dir = os.path.join(original_cwd, "results")
     os.makedirs(results_dir, exist_ok=True)
 
     print("\n--- TTS Mode ---")
-    print("Enter script lines. Use format 'Character: text' for dialogue, or plain text for single speech.")
-    print("Empty line finishes script entry.")
-    lines = []
+
+    print("\nDo you have a dialogue source file? (audio/video/txt/image)")
+    print("Press Y to provide a file, or N to enter manually")
+    has_source = input("> ").strip().lower()
+
+    dialogue_items = None
     mode_detected = None
-    while True:
-        line = input("> ").strip()
-        if not line:
-            break
-        has_colon = ':' in line
-        if mode_detected is None:
-            mode_detected = 'dialogue' if has_colon else 'single'
-        else:
-            if (mode_detected == 'dialogue' and not has_colon) or (mode_detected == 'single' and has_colon):
-                print("Error: Inconsistent format. All lines must be either plain text (single mode) or contain 'Character: text' (dialogue mode).")
-                return False
-        lines.append(line)
 
-    if not lines:
-        print("Error: No script provided")
-        return False
+    if has_source in ['y', 'yes']:
+        while True:
+            print("\nEnter the path to your dialogue source (file path or YouTube URL):")
+            file_path = input("> ").strip()
+            if not file_path:
+                print("Error: No file path provided")
+                continue
 
-    if mode_detected == 'single':
-        script = "\n".join(lines)
-        print("Enter voice prompt:")
-        voice_prompt = input("> ").strip()
-        if not voice_prompt:
-            print("Error: No voice prompt provided")
-            return False
-        print("\nLoading Qwen-TTS VoiceDesign model...")
-        tts_design = QwenTTSVoiceDesign()
-        if tts_design.model is None:
-            print("Error: Failed to load VoiceDesign model")
-            return False
-        print("Generating speech...")
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join(results_dir, f"voder_tts_{timestamp}.wav")
-        success = tts_design.synthesize(script, voice_prompt, output_path)
-        if not success:
-            print("Error: VoiceDesign synthesis failed")
-            return False
-        print(f"\n✓ Success! Output saved to: {output_path}")
-        del tts_design
-        tts_design = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        return True
+            success, msg, items = validate_dialogue_source_file(file_path)
+            if not success:
+                print(f"Error: {msg}")
+                retry = input("Try another source? (Y/N): ").strip().lower()
+                if retry not in ['y', 'yes']:
+                    return False
+                continue
+
+            if msg == "txt":
+                dialogue_items = items
+                mode_detected = 'dialogue' if len(items) > 1 or (len(items) == 1 and items[0][1] != 'text') else 'single'
+                break
+            elif msg == "image":
+                print(f"\nAnalyzing image: {os.path.basename(file_path)}...")
+                success, error_msg, items = analyze_dialogue_source(file_path, source_type="image")
+                if not success:
+                    print(f"Error: {error_msg}")
+                    retry = input("Try another source? (Y/N): ").strip().lower()
+                    if retry not in ['y', 'yes']:
+                        return False
+                    continue
+
+                dialogue_items = items
+                mode_detected = 'dialogue' if len(items) > 1 else 'single'
+
+                print(f"\nDetected {len(items)} speaker(s):")
+                for idx, speaker_num, content in dialogue_items:
+                    preview = content[:50] + "..." if len(content) > 50 else content
+                    print(f"  {speaker_num}: {preview}")
+                break
+            elif msg == "youtube":
+                print(f"\nProcessing YouTube video...")
+                success, error_msg, items = analyze_dialogue_source(file_path, source_type="youtube")
+                if not success:
+                    print(f"Error: {error_msg}")
+                    retry = input("Try another source? (Y/N): ").strip().lower()
+                    if retry not in ['y', 'yes']:
+                        return False
+                    continue
+
+                dialogue_items = items
+                mode_detected = 'dialogue' if len(items) > 1 else 'single'
+
+                print(f"\nDetected {len(items)} speaker(s):")
+                for idx, speaker_num, content in dialogue_items:
+                    preview = content[:50] + "..." if len(content) > 50 else content
+                    print(f"  {speaker_num}: {preview}")
+                break
+            else:
+                print(f"\nAnalyzing {os.path.basename(file_path)}...")
+                success, error_msg, items = analyze_dialogue_source(file_path, source_type="audio")
+                if not success:
+                    print(f"Error: {error_msg}")
+                    retry = input("Try another source? (Y/N): ").strip().lower()
+                    if retry not in ['y', 'yes']:
+                        return False
+                    continue
+
+                dialogue_items = items
+                mode_detected = 'dialogue' if len(items) > 1 else 'single'
+
+                print(f"\nDetected {len(items)} speaker(s):")
+                for idx, speaker_num, content in dialogue_items:
+                    preview = content[:50] + "..." if len(content) > 50 else content
+                    print(f"  {speaker_num}: {preview}")
+                break
     else:
-        dialogue_items = []
-        for i, line in enumerate(lines, start=1):
-            if ':' not in line:
-                print(f"Error: Invalid dialogue line (missing ':'): {line}")
+        print("\nEnter script lines. Use format 'Character: text' for dialogue, or plain text for single speech.")
+        print("Empty line finishes script entry.")
+        lines = []
+        while True:
+            line = input("> ").strip()
+            if not line:
+                break
+            has_colon = ':' in line
+            if mode_detected is None:
+                mode_detected = 'dialogue' if has_colon else 'single'
+            else:
+                if (mode_detected == 'dialogue' and not has_colon) or (mode_detected == 'single' and has_colon):
+                    print("Error: Inconsistent format. All lines must be either plain text (single mode) or contain 'Character: text' (dialogue mode).")
+                    return False
+            lines.append(line)
+
+        if not lines:
+            print("Error: No script provided")
+            return False
+
+        if mode_detected == 'single':
+            script = "\n".join(lines)
+            print("Enter voice prompt:")
+            voice_prompt = input("> ").strip()
+            if not voice_prompt:
+                print("Error: No voice prompt provided")
                 return False
-            char, text = line.split(':', 1)
-            char = char.strip()
-            text = text.strip()
-            if not char or not text:
-                print(f"Error: Empty character or text in line: {line}")
+            print("\nLoading Qwen-TTS VoiceDesign model...")
+            tts_design = QwenTTSVoiceDesign()
+            if tts_design.model is None:
+                print("Error: Failed to load VoiceDesign model")
                 return False
-            dialogue_items.append((i, char, text))
+            print("Generating speech...")
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            output_path = os.path.join(results_dir, f"voder_tts_{timestamp}.wav")
+            success = tts_design.synthesize(script, voice_prompt, output_path)
+            if not success:
+                print("Error: VoiceDesign synthesis failed")
+                return False
+            print(f"\n✓ Success! Output saved to: {output_path}")
+            del tts_design
+            tts_design = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            return True
+        else:
+            dialogue_items = []
+            for i, line in enumerate(lines, start=1):
+                if ':' not in line:
+                    print(f"Error: Invalid dialogue line (missing ':'): {line}")
+                    return False
+                char, text = line.split(':', 1)
+                char = char.strip()
+                text = text.strip()
+                if not char or not text:
+                    print(f"Error: Empty character or text in line: {line}")
+                    return False
+                dialogue_items.append((i, char, text))
 
         chars = set()
         for _, char, _ in dialogue_items:
@@ -3281,103 +4179,260 @@ def cli_tts_vc_mode():
     os.makedirs(results_dir, exist_ok=True)
 
     print("\n--- TTS+VC Mode ---")
-    print("Enter script lines. Use format 'Character: text' for dialogue, or plain text for single speech.")
-    print("Empty line finishes script entry.")
-    lines = []
+
+    print("\nDo you have a dialogue source file? (audio/video/txt/image)")
+    print("Press Y to provide a file, or N to enter manually")
+    has_source = input("> ").strip().lower()
+
+    dialogue_items = None
     mode_detected = None
-    while True:
-        line = input("> ").strip()
-        if not line:
-            break
-        has_colon = ':' in line
-        if mode_detected is None:
-            mode_detected = 'dialogue' if has_colon else 'single'
-        else:
-            if (mode_detected == 'dialogue' and not has_colon) or (mode_detected == 'single' and has_colon):
-                print("Error: Inconsistent format. All lines must be either plain text (single mode) or contain 'Character: text' (dialogue mode).")
-                return False
-        lines.append(line)
 
-    if not lines:
-        print("Error: No script provided")
-        return False
+    if has_source in ['y', 'yes']:
+        while True:
+            print("\nEnter the path to your dialogue source (file path or YouTube URL):")
+            file_path = input("> ").strip()
+            if not file_path:
+                print("Error: No file path provided")
+                continue
 
-    if mode_detected == 'single':
-        script = "\n".join(lines)
-        print("Enter target voice audio/video path:")
-        target_path = input("> ").strip()
-        valid, msg = validate_audio_file(target_path)
-        if not valid:
-            print(f"Error: {msg}")
-            return False
-        if msg == "video":
-            print("Extracting audio from video...")
-            extracted = extract_audio_from_video_cli(target_path)
-            if not extracted:
-                print("Error: Could not extract audio from video")
-                return False
-            target_path = extracted
-        print("\nLoading Qwen-TTS model...")
-        tts = QwenTTS()
-        print("Extracting voice characteristics...")
-        success = tts.extract_voice(target_path)
-        if not success:
-            print("Error: Voice extraction failed")
-            return False
-        print("Generating speech with cloned voice...")
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join(results_dir, f"voder_tts_vc_{timestamp}.wav")
-        success = tts.synthesize(script, output_path)
-        if not success:
-            print("Error: Synthesis failed")
-            return False
-        print(f"\n✓ Success! Output saved to: {output_path}")
-        del tts
-        tts = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        return True
+            success, msg, items = validate_dialogue_source_file(file_path)
+            if not success:
+                print(f"Error: {msg}")
+                retry = input("Try another source? (Y/N): ").strip().lower()
+                if retry not in ['y', 'yes']:
+                    return False
+                continue
+
+            if msg == "txt":
+                dialogue_items = items
+                mode_detected = 'dialogue' if len(items) > 1 or (len(items) == 1 and items[0][1] != 'text') else 'single'
+                break
+            elif msg == "image":
+                print(f"\nAnalyzing image: {os.path.basename(file_path)}...")
+                success, error_msg, items = analyze_dialogue_source(file_path, source_type="image")
+                if not success:
+                    print(f"Error: {error_msg}")
+                    retry = input("Try another source? (Y/N): ").strip().lower()
+                    if retry not in ['y', 'yes']:
+                        return False
+                    continue
+
+                dialogue_items = items
+                mode_detected = 'dialogue' if len(items) > 1 else 'single'
+
+                print(f"\nDetected {len(items)} speaker(s):")
+                for idx, speaker_num, content in dialogue_items:
+                    preview = content[:50] + "..." if len(content) > 50 else content
+                    print(f"  {speaker_num}: {preview}")
+                break
+            elif msg == "youtube":
+                print(f"\nProcessing YouTube video...")
+                success, error_msg, items = analyze_dialogue_source(file_path, source_type="youtube")
+                if not success:
+                    print(f"Error: {error_msg}")
+                    retry = input("Try another source? (Y/N): ").strip().lower()
+                    if retry not in ['y', 'yes']:
+                        return False
+                    continue
+
+                dialogue_items = items
+                mode_detected = 'dialogue' if len(items) > 1 else 'single'
+
+                print(f"\nDetected {len(items)} speaker(s):")
+                for idx, speaker_num, content in dialogue_items:
+                    preview = content[:50] + "..." if len(content) > 50 else content
+                    print(f"  {speaker_num}: {preview}")
+                break
+            else:
+                print(f"\nAnalyzing {os.path.basename(file_path)}...")
+                success, error_msg, items = analyze_dialogue_source(file_path, source_type="audio")
+                if not success:
+                    print(f"Error: {error_msg}")
+                    retry = input("Try another source? (Y/N): ").strip().lower()
+                    if retry not in ['y', 'yes']:
+                        return False
+                    continue
+
+                dialogue_items = items
+                mode_detected = 'dialogue' if len(items) > 1 else 'single'
+
+                print(f"\nDetected {len(items)} speaker(s):")
+                for idx, speaker_num, content in dialogue_items:
+                    preview = content[:50] + "..." if len(content) > 50 else content
+                    print(f"  {speaker_num}: {preview}")
+                break
     else:
-        dialogue_items = []
-        for i, line in enumerate(lines, start=1):
-            if ':' not in line:
-                print(f"Error: Invalid dialogue line (missing ':'): {line}")
+        print("\nEnter script lines. Use format 'Character: text' for dialogue, or plain text for single speech.")
+        print("Empty line finishes script entry.")
+        lines = []
+        while True:
+            line = input("> ").strip()
+            if not line:
+                break
+            has_colon = ':' in line
+            if mode_detected is None:
+                mode_detected = 'dialogue' if has_colon else 'single'
+            else:
+                if (mode_detected == 'dialogue' and not has_colon) or (mode_detected == 'single' and has_colon):
+                    print("Error: Inconsistent format. All lines must be either plain text (single mode) or contain 'Character: text' (dialogue mode).")
+                    return False
+            lines.append(line)
+
+        if not lines:
+            print("Error: No script provided")
+            return False
+
+        if mode_detected == 'single':
+            script = "\n".join(lines)
+            print("Enter target voice audio/video path:")
+            target_path = input("> ").strip()
+            valid, msg = validate_audio_file(target_path)
+            if not valid:
+                print(f"Error: {msg}")
                 return False
-            char, text = line.split(':', 1)
-            char = char.strip()
-            text = text.strip()
-            if not char or not text:
-                print(f"Error: Empty character or text in line: {line}")
+            if msg == "video":
+                print("Extracting audio from video...")
+                extracted = extract_audio_from_video_cli(target_path)
+                if not extracted:
+                    print("Error: Could not extract audio from video")
+                    return False
+                target_path = extracted
+            print("\nLoading Qwen-TTS model...")
+            tts = QwenTTS()
+            print("Extracting voice characteristics...")
+            success = tts.extract_voice(target_path)
+            if not success:
+                print("Error: Voice extraction failed")
                 return False
-            dialogue_items.append((i, char, text))
+            print("Generating speech with cloned voice...")
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            output_path = os.path.join(results_dir, f"voder_tts_vc_{timestamp}.wav")
+            success = tts.synthesize(script, output_path)
+            if not success:
+                print("Error: Synthesis failed")
+                return False
+            print(f"\n✓ Success! Output saved to: {output_path}")
+            del tts
+            tts = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            return True
+        else:
+            dialogue_items = []
+            for i, line in enumerate(lines, start=1):
+                if ':' not in line:
+                    print(f"Error: Invalid dialogue line (missing ':'): {line}")
+                    return False
+                char, text = line.split(':', 1)
+                char = char.strip()
+                text = text.strip()
+                if not char or not text:
+                    print(f"Error: Empty character or text in line: {line}")
+                    return False
+                dialogue_items.append((i, char, text))
 
         chars = set()
         for _, char, _ in dialogue_items:
             chars.add(char.lower())
 
-        print(f"\nAudio file paths for {len(chars)} character(s):")
+        print(f"\nDo you have a multi-speaker audio source? (for auto voice cloning)")
+        print("Press Y to provide a file, or N to enter manually for each character")
+        has_multispeaker = input("> ").strip().lower()
+
         assignments = {}
         sorted_chars = sorted(chars)
-        for i, char_lower in enumerate(sorted_chars):
-            orig_char = next((c for _, c, _ in dialogue_items if c.lower() == char_lower), char_lower)
-            path = input(f"{orig_char}: ").strip()
-            if not path:
-                print(f"Error: No audio path provided for {orig_char}")
-                return False
-            valid, msg = validate_audio_file(path)
-            if not valid:
-                print(f"Error: {msg}")
-                return False
-            if msg == "video":
-                print(f"Extracting audio from video for {orig_char}...")
-                extracted = extract_audio_from_video_cli(path)
-                if not extracted:
-                    print(f"Error: Could not extract audio from video for {orig_char}")
+        temp_clip_dir = None
+
+        if has_multispeaker in ['y', 'yes']:
+            while True:
+                print("\nEnter the path to your multi-speaker audio source (file path or YouTube URL):")
+                file_path = input("> ").strip()
+                if not file_path:
+                    print("Error: No file path provided")
+                    continue
+
+                source_type = "audio"
+                if "youtube.com" in file_path.lower() or "youtu.be" in file_path.lower():
+                    source_type = "youtube"
+                    success, msg, _ = validate_dialogue_source_file(file_path)
+                    if not success:
+                        print(f"Error: {msg}")
+                        retry = input("Try another source? (Y/N): ").strip().lower()
+                        if retry not in ['y', 'yes']:
+                            return False
+                        continue
+                elif not os.path.exists(file_path):
+                    print(f"Error: File not found: {file_path}")
+                    retry = input("Try another source? (Y/N): ").strip().lower()
+                    if retry not in ['y', 'yes']:
+                        return False
+                    continue
+
+                print(f"\nExtracting voice clips from multi-speaker source...")
+                success, error_msg, clips_dict = extract_voice_clips_from_multispeaker(
+                    file_path, len(sorted_chars), source_type=source_type
+                )
+
+                if not success:
+                    print(f"Error: {error_msg}")
+                    retry = input("Try another source? (Y/N): ").strip().lower()
+                    if retry not in ['y', 'yes']:
+                        return False
+                    continue
+
+                print(f"\nExtracted {len(clips_dict)} voice clip(s). Assigning to characters...")
+
+                clip_keys = sorted(clips_dict.keys(), key=lambda x: int(x))
+
+                for i, char_lower in enumerate(sorted_chars):
+                    orig_char = next((c for _, c, _ in dialogue_items if c.lower() == char_lower), char_lower)
+                    if i < len(clip_keys):
+                        clip_path = clips_dict[clip_keys[i]]
+                        assignments[char_lower] = clip_path
+                        print(f"  {orig_char} -> speaker {clip_keys[i]} (auto)")
+                    else:
+                        path = input(f"{orig_char} (need more): ").strip()
+                        if not path:
+                            print(f"Error: No audio path provided for {orig_char}")
+                            return False
+                        valid, msg = validate_audio_file(path)
+                        if not valid:
+                            print(f"Error: {msg}")
+                            return False
+                        if msg == "video":
+                            print(f"Extracting audio from video for {orig_char}...")
+                            extracted = extract_audio_from_video_cli(path)
+                            if not extracted:
+                                print(f"Error: Could not extract audio from video for {orig_char}")
+                                return False
+                            path = extracted
+                        assignments[char_lower] = path
+                        print(f"  {orig_char} -> manual")
+
+                temp_clip_dir = os.path.dirname(list(clips_dict.values())[0]) if clips_dict else None
+                break
+        else:
+            print(f"\nAudio file paths for {len(chars)} character(s):")
+            for i, char_lower in enumerate(sorted_chars):
+                orig_char = next((c for _, c, _ in dialogue_items if c.lower() == char_lower), char_lower)
+                path = input(f"{orig_char}: ").strip()
+                if not path:
+                    print(f"Error: No audio path provided for {orig_char}")
                     return False
-                path = extracted
-            assignments[char_lower] = path
-            print(f"Progress: {i+1}/{len(chars)} completed")
+                valid, msg = validate_audio_file(path)
+                if not valid:
+                    print(f"Error: {msg}")
+                    return False
+                if msg == "video":
+                    print(f"Extracting audio from video for {orig_char}...")
+                    extracted = extract_audio_from_video_cli(path)
+                    if not extracted:
+                        print(f"Error: Could not extract audio from video for {orig_char}")
+                        return False
+                    path = extracted
+                assignments[char_lower] = path
+                print(f"Progress: {i+1}/{len(chars)} completed")
 
         music_description = None
         add_music = input("\nAdd background music? (y/N): ").strip().lower()
@@ -3570,6 +4625,11 @@ def cli_tts_vc_mode():
                     shutil.rmtree(temp_dir)
                 except:
                     pass
+                if temp_clip_dir and os.path.exists(temp_clip_dir):
+                    try:
+                        shutil.rmtree(temp_clip_dir)
+                    except:
+                        pass
 
 def cli_stt_tts_mode():
     original_cwd = os.getcwd()
@@ -3601,6 +4661,14 @@ def cli_stt_tts_mode():
     display_text = text.replace('\n', '\\n').replace('\r', '\\r')
     print(display_text)
     print()
+
+    print("Offloading Whisper model...")
+    del stt
+    stt = None
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     edited_text = input("Edit text (or press Enter to keep as is): ").strip()
     if edited_text:
         text = edited_text.replace('\\n', '\n')
@@ -3626,8 +4694,6 @@ def cli_stt_tts_mode():
         print("Error: Synthesis failed")
         return False
     print(f"\n✓ Success! Output saved to: {output_path}")
-    del stt
-    stt = None
     del tts
     tts = None
     gc.collect()
@@ -3932,13 +4998,52 @@ def parse_oneline_args(args):
         return {'error': 'No arguments provided'}
     mode = args[0].lower()
     result = {'mode': mode, 'params': {}, 'error': None, 'is_music': False}
-    valid_keywords = ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'music', 'duration']
+    valid_keywords = ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'music', 'duration', 'timestamp', 'dialogue']
     i = 1
     current_keyword = None
+    result_path = None
+
+    if mode == 'stt':
+        file_paths = []
+        while i < len(args):
+            arg = args[i]
+            arg_lower = arg.lower()
+            if arg_lower in ['timestamp', 'dialogue']:
+                result['params'][arg_lower] = True
+                i += 1
+            elif arg_lower == 'result':
+                if i + 1 < len(args):
+                    result_path = args[i + 1]
+                    i += 2
+                else:
+                    result['error'] = 'result keyword requires a path argument'
+                    return result
+            elif os.path.exists(arg) or is_youtube_url(arg):
+                file_paths.append(arg)
+                i += 1
+            else:
+                result['error'] = f'File not found: {arg}'
+                return result
+
+        if not file_paths:
+            result['error'] = 'STT mode requires at least one audio/video file path'
+            return result
+
+        result['params']['files'] = file_paths
+        result['params']['result_path'] = result_path
+        return result
+
     while i < len(args):
         arg = args[i]
         arg_lower = arg.lower()
-        if arg_lower in valid_keywords:
+        if arg_lower == 'result':
+            if i + 1 < len(args):
+                result_path = args[i + 1]
+                i += 2
+            else:
+                result['error'] = 'result keyword requires a path argument'
+                return result
+        elif arg_lower in valid_keywords:
             current_keyword = arg_lower
             result['params'].setdefault(current_keyword, [])
             i += 1
@@ -3972,6 +5077,8 @@ def parse_oneline_args(args):
                     else:
                         result['error'] = f'Unknown parameter: {arg}'
                     return result
+
+    result['params']['result_path'] = result_path
     return result
 
 def is_num(s):
@@ -3982,7 +5089,7 @@ def is_num(s):
         return False
 
 def validate_oneline_mode(mode_name):
-    valid_modes = ['tts', 'tts+vc', 'sts', 'ttm', 'ttm+vc']
+    valid_modes = ['tts', 'tts+vc', 'sts', 'ttm', 'ttm+vc', 'stt']
     if mode_name.lower() in ['stt+tts', 'stt_tts', 'stttts']:
         return 'stt+tts_rejected'
     if mode_name.lower() in valid_modes:
@@ -3999,6 +5106,7 @@ def show_oneline_usage():
     print("  sts      - Speech-to-Speech (Voice Conversion)")
     print("  ttm      - Text-to-Music")
     print("  ttm+vc   - Text-to-Music + Voice Conversion")
+    print("  stt      - Speech-to-Text (Transcription with optional diarization)")
     print()
     print("Note: STT+TTS mode is not available in one-line mode.")
     print("      Use 'tts' mode with your text, or use interactive CLI.")
@@ -4010,6 +5118,14 @@ def show_oneline_usage():
     print('  python voder.py sts base "input.wav" target "voice.wav" music')
     print('  python voder.py ttm lyrics "song" styling "pop" 30')
     print('  python voder.py ttm+vc lyrics "song" styling "pop" 30 target "voice.wav"')
+    print()
+    print("STT examples (Speech-to-Text transcription):")
+    print('  python voder.py stt "path/to/audio.wav"')
+    print('  python voder.py stt "audio1.wav" "audio2.wav"')
+    print('  python voder.py stt "audio.wav" timestamp')
+    print('  python voder.py stt "audio.wav" dialogue')
+    print('  python voder.py stt "audio.wav" timestamp dialogue')
+    print('  python voder.py stt "https://youtube.com/watch?v=..."')
     print()
     print("Dialogue mode examples:")
     print('  python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female"')
@@ -4024,6 +5140,8 @@ def show_oneline_usage():
     print("  styling  - Style prompt for TTM (single)")
     print("  base     - Base audio/video path")
     print("  music    - Music flag for STS mode (uses 44.1kHz v1 model)")
+    print("  timestamp - Keep Whisper timestamps in output (STT mode)")
+    print("  dialogue - Enable speaker diarization (STT mode)")
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
 
 def execute_oneline_command(parsed):
@@ -4031,20 +5149,56 @@ def execute_oneline_command(parsed):
     params = parsed['params']
     if 'is_music' in parsed:
         params['is_music'] = parsed['is_music']
+
+    success = False
     if mode == 'tts':
-        return oneline_tts(params)
+        success = oneline_tts(params)
     elif mode == 'tts+vc':
-        return oneline_tts_vc(params)
+        success = oneline_tts_vc(params)
     elif mode == 'sts':
-        return oneline_sts(params)
+        success = oneline_sts(params)
     elif mode == 'ttm':
-        return oneline_ttm(params)
+        success = oneline_ttm(params)
     elif mode == 'ttm+vc':
-        return oneline_ttm_vc(params)
+        success = oneline_ttm_vc(params)
+    elif mode == 'stt':
+        success = oneline_stt(params)
     else:
         print(f"Error: Unknown mode '{mode}'")
         show_oneline_usage()
         return False
+
+    if success and params.get('result_path'):
+        copy_result_to_path(params['result_path'])
+
+    return success
+
+def copy_result_to_path(result_path):
+    if result_path is None:
+        return
+    try:
+        results_dir = os.path.join(os.getcwd(), "results")
+        if not os.path.exists(results_dir):
+            return
+        files = [os.path.join(results_dir, f) for f in os.listdir(results_dir) if os.path.isfile(os.path.join(results_dir, f))]
+        if not files:
+            return
+        latest_file = max(files, key=os.path.getmtime)
+
+        result_dir = os.path.dirname(result_path)
+        result_filename = os.path.basename(result_path)
+
+        if not result_dir:
+            destination = os.path.join(".", result_filename)
+            os.makedirs(".", exist_ok=True)
+        else:
+            os.makedirs(result_dir, exist_ok=True)
+            destination = result_path
+
+        shutil.copy2(latest_file, destination)
+        print(f"Result copied to: {destination}")
+    except Exception as e:
+        print(f"Note: Could not copy to result path: {e}")
 
 def oneline_tts(params):
     original_cwd = os.getcwd()
@@ -4797,6 +5951,299 @@ def oneline_ttm_vc(params):
         for temp_file in [temp_ttm_output.name, temp_ttm_22k.name, temp_target_22k.name, temp_vc_output.name]:
             if os.path.exists(temp_file):
                 os.remove(temp_file)
+
+def oneline_stt(params):
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    files = params.get('files', [])
+    keep_timestamp = params.get('timestamp', False)
+    enable_dialogue = params.get('dialogue', False)
+
+    if not files:
+        print("Error: STT mode requires at least one audio/video/image file path or YouTube URL")
+        return False
+
+    for file_path in files:
+        if not os.path.exists(file_path) and not is_youtube_url(file_path):
+            print(f"Error: File not found or invalid YouTube URL: {file_path}")
+            return False
+
+    success_count = 0
+    for file_path in files:
+        print(f"\nProcessing: {file_path}")
+        print("=" * 60)
+
+        is_image = file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp'))
+
+        if is_image:
+            try:
+                print("Loading EasyOCR model...")
+                ocr = EasyOCRReader()
+                if ocr.reader is None:
+                    print("Error: Failed to load EasyOCR model")
+                    continue
+
+                print(f"Extracting text from image...")
+                success, text, error_msg = ocr.extract_text_from_image(file_path)
+
+                ocr.cleanup()
+                del ocr
+                gc.collect()
+
+                if not success:
+                    print(f"Error: {error_msg or 'Failed to extract text from image'}")
+                    continue
+
+                if not text:
+                    print(f"Error: No text found in image")
+                    continue
+
+                formatted_text = f"image: {text}"
+
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                base_name = os.path.splitext(os.path.basename(file_path))[0]
+
+                suffix = "stt_ocr"
+
+                output_filename = f"voder_{suffix}_{timestamp}_{base_name}.txt"
+                output_path = os.path.join(results_dir, output_filename)
+
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(formatted_text)
+
+                print(f"✓ Success! Output saved to: {output_path}")
+                success_count += 1
+
+            except Exception as e:
+                print(f"Error processing {file_path}: {e}")
+            continue
+
+        audio_path = file_path
+        needs_youtube_download = is_youtube_url(file_path)
+        needs_extraction = False
+
+        if needs_youtube_download:
+            print("Downloading audio from YouTube...")
+            success, error_msg, audio_path = download_youtube_audio(file_path)
+            if not success:
+                print(f"Error: {error_msg}")
+                continue
+        elif file_path.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+            print("Extracting audio from video...")
+            extracted = extract_audio_from_video_cli(file_path)
+            if not extracted:
+                print(f"Error: Could not extract audio from {file_path}")
+                continue
+            audio_path = extracted
+            needs_extraction = True
+
+        try:
+            print("Loading Whisper model...")
+            stt = WhisperSTT()
+            if stt.model is None:
+                print("Error: Failed to load Whisper model")
+                continue
+
+            print("Transcribing audio...")
+            result = stt.transcribe(audio_path)
+            if not result:
+                print(f"Error: Transcription failed for {file_path}")
+                del stt
+                stt = None
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                continue
+
+            del stt
+            stt = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            def format_time_range(start, end):
+                def format_single(seconds):
+                    if seconds is None:
+                        seconds = 0
+                    minutes = int(seconds // 60)
+                    secs = int(seconds % 60)
+                    millis = int((seconds % 1) * 100)
+                    return f"{minutes:02d}:{secs:02d}:{millis:02d}"
+                return f"[{format_single(start)}-{format_single(end)}]"
+
+            def format_time(seconds):
+                if seconds is None:
+                    seconds = 0
+                minutes = int(seconds // 60)
+                secs = int(seconds % 60)
+                millis = int((seconds % 1) * 100)
+                return f"[{minutes:02d}:{secs:02d}:{millis:02d}]"
+
+            if enable_dialogue:
+                print("Performing speaker diarization...")
+                diarization = SpeakerDiarization()
+                if diarization.pipeline is None:
+                    print("Warning: Speaker diarization model not available, proceeding without it")
+                    if keep_timestamp and result.get("segments"):
+                        lines = []
+                        for seg in result.get("segments", []):
+                            start = seg.get("start", 0)
+                            end = seg.get("end", 0)
+                            text = seg.get("text", "").strip()
+                            if text:
+                                lines.append(f"{format_time_range(start, end)} text: {text}")
+                        if lines:
+                            formatted_text = "\n".join(lines)
+                        else:
+                            formatted_text = result.get("text", "").strip()
+                    else:
+                        formatted_text = result.get("text", "").strip()
+                else:
+                    diar_result = diarization.diarize(audio_path)
+                    formatted_segments = diarization.format_diarization(diar_result, result)
+
+                    if formatted_segments:
+                        original_speakers = []
+                        for seg in formatted_segments:
+                            speaker = seg["speaker"]
+                            if speaker not in original_speakers:
+                                original_speakers.append(speaker)
+
+                        speaker_mapping = {spk: idx for idx, spk in enumerate(sorted(original_speakers), 1)}
+
+                        if len(original_speakers) == 1:
+                            content = " ".join(seg["text"] for seg in formatted_segments)
+                            if keep_timestamp:
+                                first_time = formatted_segments[0]["start"]
+                                last_time = formatted_segments[-1]["end"]
+                                formatted_text = f"{format_time_range(first_time, last_time)} text: {content}"
+                            else:
+                                formatted_text = f"text: {content}"
+                        else:
+                            lines = []
+                            current_speaker_num = None
+                            current_text_parts = []
+                            current_first_time = None
+                            current_last_time = None
+                            min_words_before_switch = 3
+                            min_gap_before_switch = 0.3
+
+                            for seg in formatted_segments:
+                                speaker_num = speaker_mapping[seg["speaker"]]
+                                text = seg["text"]
+                                seg_start = seg.get("start", 0) or 0
+                                seg_end = seg.get("end", 0) or 0
+
+                                if current_speaker_num is None:
+                                    current_speaker_num = speaker_num
+                                    current_text_parts = [text]
+                                    current_first_time = seg_start
+                                    current_last_time = seg_end
+                                elif speaker_num == current_speaker_num:
+                                    current_text_parts.append(text)
+                                    current_last_time = seg_end
+                                else:
+                                    time_gap = seg_start - current_last_time if current_last_time else 0
+                                    words_accumulated = len(current_text_parts)
+
+                                    should_switch = (words_accumulated >= min_words_before_switch) or (time_gap >= min_gap_before_switch)
+
+                                    if should_switch and current_text_parts:
+                                        content = " ".join(current_text_parts)
+                                        if keep_timestamp:
+                                            lines.append(f"{format_time_range(current_first_time, current_last_time)} {current_speaker_num}: {content}")
+                                        else:
+                                            lines.append(f"{current_speaker_num}: {content}")
+                                        current_speaker_num = speaker_num
+                                        current_text_parts = [text]
+                                        current_first_time = seg_start
+                                        current_last_time = seg_end
+                                    else:
+                                        current_text_parts.append(text)
+                                        current_last_time = seg_end
+
+                            if current_text_parts:
+                                content = " ".join(current_text_parts)
+                                if keep_timestamp:
+                                    lines.append(f"{format_time_range(current_first_time, current_last_time)} {current_speaker_num}: {content}")
+                                else:
+                                    lines.append(f"{current_speaker_num}: {content}")
+
+                            formatted_text = "\n".join(lines)
+
+                        del diarization
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    else:
+                        if keep_timestamp and result.get("segments"):
+                            lines = []
+                            for seg in result.get("segments", []):
+                                start = seg.get("start", 0)
+                                end = seg.get("end", 0)
+                                text = seg.get("text", "").strip()
+                                if text:
+                                    lines.append(f"{format_time_range(start, end)} text: {text}")
+                            if lines:
+                                formatted_text = "\n".join(lines)
+                            else:
+                                formatted_text = result.get("text", "").strip()
+                        else:
+                            formatted_text = result.get("text", "").strip()
+            else:
+                formatted_text = result.get("text", "").strip()
+
+                if keep_timestamp and result.get("segments"):
+                    lines = []
+                    for seg in result.get("segments", []):
+                        start = seg.get("start", 0)
+                        end = seg.get("end", 0)
+                        text = seg.get("text", "").strip()
+                        if text:
+                            lines.append(f"{format_time_range(start, end)} text: {text}")
+                    if lines:
+                        formatted_text = "\n".join(lines)
+                    else:
+                        formatted_text = result.get("text", "").strip()
+
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+            if is_youtube_url(file_path):
+                base_name = f"youtube_{len(files)}_{success_count + 1}"
+            else:
+                base_name = os.path.splitext(os.path.basename(file_path))[0]
+
+            suffix_parts = ["stt"]
+            if keep_timestamp:
+                suffix_parts.append("timestamp")
+            if enable_dialogue:
+                suffix_parts.append("dialogue")
+            suffix = "_".join(suffix_parts)
+
+            output_filename = f"voder_{suffix}_{timestamp}_{base_name}.txt"
+            output_path = os.path.join(results_dir, output_filename)
+
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(formatted_text)
+
+            print(f"✓ Success! Output saved to: {output_path}")
+            success_count += 1
+
+        except Exception as e:
+            print(f"Error processing {file_path}: {e}")
+
+        finally:
+            if file_path != audio_path and os.path.exists(audio_path):
+                try:
+                    os.unlink(audio_path)
+                except:
+                    pass
+
+    print(f"\n{'=' * 60}")
+    print(f"Processing complete: {success_count}/{len(files)} files successful")
+    return success_count > 0
 
 def interactive_cli_mode():
     while True:
