@@ -3,6 +3,22 @@
 - All notable changes to VODER - Voice Blender will be documented in this file.
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 
+## 04/03/2026
+- Status: Stable, all features work, still developing
+
+### Added
+- **Background Music Chunking for Long Dialogues** — Enhanced background music generation to handle dialogues longer than 250 seconds by generating multiple music chunks and concatenating them.
+  - When background music is enabled and required duration exceeds 250 seconds, the system now generates multiple consecutive music chunks (250s each) using the same music description
+  - All chunks are concatenated into a single music file using FFmpeg concat demuxer before mixing with dialogue
+  - This ensures uninterrupted background music throughout the entire dialogue instead of silence after the first chunk
+  - Maximum chunk size set to 250 seconds for optimal performance and compatibility with ACE-Step model limits
+
+### Fixed
+- **Music Generation Minimum Duration** — Fixed VODER's minimum music duration to match ACE-Step model requirements.
+  - ACE-Step model requires a minimum of 10 seconds for generation, but VODER previously allowed inputs as low as 5 seconds
+  - VODER now enforces 10-second minimum for music generation to prevent generation failures
+  - This applies to both GUI and CLI modes
+
 ## 04/02/2026
 - Status: Stable, all features work, still developing
 
