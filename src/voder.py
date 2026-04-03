@@ -1598,61 +1598,76 @@ class AceStepWrapper:
             return False
 
 def generate_background_music(ace_wrapper, music_description, total_duration, progress_callback=None):
+    min_duration = 10
+    
+    if total_duration < min_duration:
+        total_duration = min_duration
+    
+    if total_duration <= 250:
+        music_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        music_temp.close()
+        success = ace_wrapper.generate(
+            lyrics="...",
+            style_prompt=music_description,
+            output_path=music_temp.name,
+            duration=int(total_duration)
+        )
+        if not success:
+            os.unlink(music_temp.name)
+            return None
+        return music_temp.name, None
+    
     temp_dir = tempfile.mkdtemp()
     chunk_files = []
     chunk_size = 250
-    min_duration = 10
-
-    if total_duration < min_duration:
-        total_duration = min_duration
-
+    
     num_chunks = math.ceil(total_duration / chunk_size)
-
+    
     for i in range(num_chunks):
         if progress_callback:
             progress_callback(i, num_chunks)
-
+        
         chunk_file = os.path.join(temp_dir, f"chunk_{i:03d}.wav")
         chunk_files.append(chunk_file)
-
+        
         if i == num_chunks - 1:
             current_duration = total_duration - (i * chunk_size)
             if current_duration < min_duration:
                 current_duration = min_duration
         else:
             current_duration = chunk_size
-
+        
         success = ace_wrapper.generate(
             lyrics="...",
             style_prompt=music_description,
             output_path=chunk_file,
             duration=int(current_duration)
         )
-
+        
         if not success:
             shutil.rmtree(temp_dir, ignore_errors=True)
             return None
-
+    
     if progress_callback:
         progress_callback(num_chunks, num_chunks)
-
+    
     concat_file = os.path.join(temp_dir, "concat_list.txt")
     with open(concat_file, 'w') as f:
         for chunk in chunk_files:
             f.write(f"file '{chunk}'\n")
-
+    
     output_file = os.path.join(temp_dir, "music.wav")
     cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_file, '-y', output_file]
     result = subprocess.run(cmd, capture_output=True, text=True)
-
+    
     for chunk_file in chunk_files:
         if os.path.exists(chunk_file):
             os.unlink(chunk_file)
-
+    
     if result.returncode != 0:
         shutil.rmtree(temp_dir, ignore_errors=True)
         return None
-
+    
     return output_file, temp_dir
 
 class ProcessingThread(QThread):
@@ -2730,7 +2745,7 @@ class VODERGUI(QMainWindow):
         duration_layout.addWidget(self.ttm_minutes_spin)
         self.ttm_seconds_spin = QSpinBox()
         self.ttm_seconds_spin.setStyleSheet(get_text_edit_style())
-        self.ttm_seconds_spin.setRange(0, 59)
+        self.ttm_seconds_spin.setRange(10, 59)
         self.ttm_seconds_spin.setValue(0)
         self.ttm_seconds_spin.setSuffix(" s")
         duration_layout.addWidget(self.ttm_seconds_spin)
