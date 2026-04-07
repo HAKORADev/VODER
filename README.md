@@ -70,7 +70,7 @@ VODER offers nine distinct voice processing modes, each designed for specific au
 | **TTM** | Text-to-Music Generation | Text | Audio |
 | **TTM+VC** | Text-to-Music + Voice Conversion | Text + Reference | Audio |
 | **STT** | Speech-to-Text (Transcription) | Audio / Video / Image / URL | Text |
-| **SE** | Speech Enhancement (Denoise/Dereverb) | Audio / Video | Audio |
+| **SE** | Speech Enhancement (Denoise/Dereverb) | Audio / Video | Audio / Video|
 | **SFX** | Sound Effects Generation | Text | Audio |
 
 **MSTS (Music-STS):** STS mode now supports musical inputs. When processing songs or musical audio, select "musical inputs?" to use the Seed-VC v1 model (44.1kHz) instead of the standard v2 model (22.05kHz), providing better voice conversion quality for music content.
