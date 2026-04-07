@@ -3,6 +3,153 @@
 - All notable changes to VODER - Voice Blender will be documented in this file.
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 
+## 04/08/2026
+- Status: Stable, all features work, still developing
+- **Major Update — Two New Modes, Script Directives, SFX Integration, and Speech Enhancement**
+
+### Added
+
+#### New Processing Modes
+
+- **SE (Speech Enhancement) Mode** — A new standalone mode for audio quality improvement.
+  - Uses UniSE model from [alibaba/unified-audio](https://github.com/alibaba/unified-audio) for professional speech enhancement
+  - Denoising — removes background noise, hiss, and artifacts
+  - Dereverberation — reduces room echo and reverb effects for cleaner speech
+  - Speech restoration — enhances clarity and intelligibility of degraded recordings
+  - Supports audio files (WAV, MP3, FLAC, OGG, etc.) and video files (MP4, MKV, AVI, etc.)
+  - Video input: audio is automatically extracted for processing
+  - Outputs at 16kHz sample rate (optimized for speech content)
+  - **Not designed for musical enhancement** — use for speech-only content
+  - One-liner CLI: `python voder.py se "noisy_audio.wav" result "/output/enhanced.wav"`
+  - Interactive CLI: select option 7 (SE) from the menu
+  - Model cached under `src/models/checkpoints/unise/`
+
+- **SFX (Sound Effects Generation) Mode** — A new standalone mode for generating custom sound effects from text.
+  - Uses TangoFlux model from [declare-lab/TangoFlux](https://github.com/declare-lab/TangoFlux) for text-to-audio synthesis
+  - Generates any sound effect from text descriptions (nature sounds, impacts, ambient, synthesized, etc.)
+  - Configurable duration: 1-30 seconds per sound effect
+  - Adjustable inference steps: 1-100 (default: 30) — higher values = better quality, slower generation
+  - Adjustable guidance scale: 1.0-10.0 (default: 4.5) — controls adherence to the prompt
+  - 44.1kHz output quality for professional use
+  - One-liner CLI format: `python voder.py sfx sound "thunder rumbling" duration 10 steps 50 guide 3.5`
+  - Parameters:
+    - `sound` — Text description of the sound effect (required)
+    - `duration` — Duration in seconds, 1-30 (required)
+    - `steps` — Inference steps for quality control (optional, default 30)
+    - `guide` — Guidance scale for prompt adherence (optional, default 4.5)
+    - `result` — Output file path (optional)
+  - Model cached under `src/models/checkpoints/tangoflux/`
+
+#### Dialogue System Enhancements
+
+- **Script Directives** — Per-line control over timing, volume, and duration within dialogue scripts.
+  - `/time:nn` — Position this line at `nn` seconds from the start of the output
+  - `/time:nn-nn` — Position at `nn` seconds, cut `-nn` seconds from the end of the clip
+  - `/time:nn+nn` — Position at `nn` seconds, cut `+nn` seconds from the start of the clip
+  - `/time:nn-nn+nn` — Position at `nn` seconds, cut from both end and start
+  - `/level:0-100` — Set volume level for this specific line (default: 100)
+  - `/duration:1-30` — Duration for SFX lines (required when using `sfx:` character)
+  - Directives are appended at the end of dialogue text, separated by spaces
+  - Example: `James: Hello everyone! /time:5 /level:80`
+  - Enables precise control over audio production without manual post-processing
+
+- **SFX Character in Dialogue** — Embed sound effects directly in dialogue scripts.
+  - Special character `sfx:` (case-insensitive) generates sound effects within dialogue
+  - Requires `/duration:nn` directive (1-30 seconds) — mandatory for all SFX lines
+  - Optional `/level:0-100` directive to control SFX volume relative to dialogue
+  - SFX generation uses TangoFlux model (same as standalone SFX mode)
+  - SFX clips are positioned in the timeline using `/time:` directive if specified
+  - Example dialogue:
+    ```
+    James: Welcome to our show!
+    sfx: audience applause /duration:5 /level:60
+    Sarah: Thanks for having us!
+    sfx: gentle ambient music /duration:15 /level:30 /time:0
+    James: Let's get started with today's topic.
+    ```
+  - Available in both TTS and TTS+VC dialogue modes
+  - Works in GUI, interactive CLI, and one-liner CLI
+
+- **Enhanced Dialogue Assembly** — Complete rewrite of the dialogue generation pipeline.
+  - New `_assemble_enhanced_dialogue()` function handles all dialogue assembly
+  - Per-clip audio effects using FFmpeg (time positioning, volume control)
+  - SFX generation integrated into the dialogue pipeline
+  - Support for overlapping audio via time positioning
+  - Automatic calculation of total duration based on positioned clips
+  - Efficient temp file management with automatic cleanup
+
+- **Cross-use Feature** — Mix generated and cloned voices in the same dialogue.
+  - Both TTS and TTS+VC one-line modes now support combining `voice` and `target` parameters
+  - Use `voice "Character: prompt"` for generated voices (Voice Design)
+  - Use `target "Character: path"` for cloned voices (Voice Cloning)
+  - Example: `python voder.py tts script "James: Hello" "Sarah: Hi" voice "James: male" target "Sarah: /path/to/sarah.wav"`
+  - Enables hybrid dialogues where some characters use generated voices and others use cloned references
+  - A character cannot have both `voice` and `target` — each character must use one or the other
+
+- **Music Volume Level Control** — Fine-grained control over background music volume.
+  - New `level` parameter for one-liner dialogue commands
+  - Supports constant volume, time-based segments, and fade transitions
+  - Format options:
+    - `"volume"` — Constant volume percentage (e.g., `"35"` for 35%)
+    - `"start:vol-end:vol"` — Different volumes at start and end times
+    - `"start:from-to+fade"` — Fade from one volume to another over specified duration
+  - Default remains 35% if `level` parameter is not specified
+  - Example: `python voder.py tts script "James: Hello" voice "James: male" music "piano" level "0:30-60:50"`
+  - Time-based segments allow dynamic music volume throughout the dialogue
+  - FFmpeg volume filter with evaluate-per-frame for smooth transitions
+
+#### TTM Mode Enhancement
+
+- **Instrumental Music Generation** — TTM mode now produces music-only (no vocals) output.
+  - Use empty lyrics `"..."` to generate instrumental music without any vocal content
+  - The model produces music matching the style prompt without singing
+  - Ideal for background music, ambient tracks, and instrumental compositions
+  - Example: `python voder.py ttm lyrics "..." styling "cinematic orchestral" duration 60`
+  - Works with TTM+VC mode as well — voice conversion will have no effect on instrumental output
+  - Lyrics in `()` or `[]` brackets provide context without being sung (for music-with-vocals generation)
+
+#### Auto-Clone Feature Enhancement
+
+- **TTS+VC Dialogue + Auto-Clone Trick** — Useful behavior when using the same file for both dialogue source and auto-clone.
+  - Dialogue source analysis generates character names as `1`, `2`, `3`... based on speaker detection order
+  - Auto-clone voice extraction produces voice references labeled `speaker 1`, `speaker 2`, etc.
+  - The system matches character names to voice references **alphabetically**
+  - **Result:** Using the same input file for both dialogue source and auto-clone produces an exact replica of the original audio
+  - This is useful for:
+    - Testing the TTS+VC pipeline accuracy
+    - Verifying speaker detection quality
+    - Creating backup/restoration of audio content
+    - Demonstrating the voice cloning system's capabilities
+
+### Changed
+
+- **Expanded Processing Modes** — VODER now has 9 processing modes (up from 7).
+  - Modes: STT+TTS, TTS, TTS+VC, STS, TTM, TTM+VC, STT, SE, SFX
+  - GUI dropdown updated with new mode options
+  - Interactive CLI menu updated with options 7 (SE) and 8 (SFX)
+
+- **Centralized Model Storage** — New model directories added for UniSE and TangoFlux.
+  - `src/models/checkpoints/unise/` — UniSE speech enhancement model
+  - `src/models/checkpoints/tangoflux/` — TangoFlux sound effects model
+  - Directories auto-created at startup
+
+- **Updated Dependencies**:
+  - `transformers==4.57.3` (pinned version, was `>=4.30.0`)
+  - New: `einx`, `x-transformers==2.3.1`, `safetensors`, `soxr`, `tqdm`, `packaging` — required for UniSE model
+  - These enable speech enhancement model loading and inference
+
+### Technical Notes
+
+- Code size increased from ~6650 lines (voder.py bleed v1) to ~7100+ lines — approximately 7% increase
+- New imports: `traceback` for enhanced error handling in new modes
+- UniSE model loaded from `src/unise/` module with `UniSEEnhancer` class
+- TangoFlux model loaded from `src/tangoflux/` module with `TangoFluxGenerator` class
+- All new models (UniSE, TangoFlux) are immediately offloaded after use to prevent memory accumulation
+- Background music generation now supports volume level specifications with time-based control
+- FFmpeg filter expressions built dynamically for complex volume automation
+
+---
+
 ## 04/03/2026
 - Status: Stable, all features work, still developing
 

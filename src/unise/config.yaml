@@ -1,0 +1,34 @@
+codec_ckpt_dir: ./checkpoints/codec
+ckpt_path: ./checkpoints/unise.ckpt
+stft_config:
+  hop_length: 320
+  win_length: 640
+  n_fft: 640
+  n_mels: 80
+llm_config:
+  num_tasks: 3
+  task_map:
+    se: 0
+    tse: 1
+    rtse: 2
+  feats_dim: 768
+  llm_base_config:
+    cond_dim: 80
+    global_size: 4096
+    semantic_size: 8192
+    hidden_size: 512
+    num_layers: 12
+    num_attention_heads: 8
+    dropout_p: 0.1
+    max_position_embeddings: 4096
+    label_smoothing: 0.1
+    conformer_params:
+      num_layers: 6
+      dim: 512
+      heads: 8
+      dim_head: 64
+      depthwise_conv_kernel_size: 31
+      ff_mult: 4
+      dropout: 0.1
+      qk_norm: null
+      pe_attn_head: 1

@@ -24,12 +24,16 @@ This document provides comprehensive instructions for AI agents, bots, and autom
 
 VODER is a professional‑grade voice processing tool that enables seamless conversion between speech, text, and music. For AI agents operating in automated pipelines, VODER offers:
 
-- **Unified Audio Pipeline**: Seven processing modes in a single interface
+- **Unified Audio Pipeline**: Nine processing modes in a single interface
 - **CLI‑First Design**: All core features accessible via command line
 - **No GUI Required**: Runs entirely in headless terminals
 - **Full Dialogue Support**: Multi‑speaker script generation **now available in CLI** (both interactive and one‑liner)
-- **Optional Background Music for Dialogue**: Automatically generated, duration‑fitted ambient music with 35% volume – available in both interactive and one‑liner CLI
+- **Script Directives**: Per-line control over timing, volume, and duration
+- **SFX Integration**: Embed sound effects directly in dialogue scripts
+- **Optional Background Music for Dialogue**: Automatically generated, duration‑fitted ambient music with configurable volume levels
 - **Music Generation**: Lyrics‑to‑music synthesis with voice conversion
+- **Sound Effects Generation**: Text-to-audio synthesis for custom sound design
+- **Speech Enhancement**: Denoise, dereverberate, and restore speech audio
 - **Voice Cloning**: Extract and replicate voice characteristics from reference audio
 - **Standalone STT**: Transcribe audio, video, images, and YouTube URLs to text
 - **Speaker Diarization**: Identify and label individual speakers in multi‑speaker audio
@@ -60,6 +64,12 @@ python src/voder.py tts script "Hello world" voice "male voice"
 # Transcribe audio to text (STT)
 python src/voder.py stt "audio.wav" timestamp dialogue result "/output/transcript.txt"
 
+# Enhance speech audio (SE)
+python src/voder.py se "noisy_audio.wav" result "/output/enhanced.wav"
+
+# Generate sound effects (SFX)
+python src/voder.py sfx sound "thunder rumbling" duration 10 result "/output/thunder.wav"
+
 # Chain multiple operations
 python src/voder.py tts script "Hello" voice "female" && python src/voder.py tts script "World" voice "male"
 ```
@@ -68,6 +78,11 @@ python src/voder.py tts script "Hello" voice "female" && python src/voder.py tts
 
 ```bash
 python src/voder.py tts script "James: Welcome to the show!" "Sarah: Glad to be here." voice "James: deep male voice, authoritative" "Sarah: bright female voice, energetic" music "soft piano, cinematic"
+```
+
+**With SFX lines embedded:**
+```bash
+python src/voder.py tts script "James: Hello" "sfx: door bell /duration:3" "Sarah: Hi there!" voice "James: male" "Sarah: female" music "ambient" level "0:30-60:50"
 ```
 
 ---
@@ -104,6 +119,12 @@ pip install --upgrade protobuf==5.29.6
 | `easyocr` | Image text extraction (OCR) for processing images as dialogue input |
 | `lightning` | PyTorch Lightning backend required by pyannote for speaker diarization |
 | `sox` | Audio processing utilities (resampling, format conversion, channel manipulation) |
+| `einx` | Required for UniSE speech enhancement model |
+| `x-transformers` | Required for UniSE speech enhancement model |
+| `safetensors` | Required for TangoFlux and UniSE model loading |
+| `soxr` | High-quality audio resampling |
+| `tqdm` | Progress bars |
+| `packaging` | Version handling |
 
 **Note:** `pyannote.audio` is bundled locally in `src/libs/pyannote` and does not require a separate pip install. However, a HuggingFace token is required for speaker diarization (see [HF_TOKEN Setup for AI Agents](#hf_token-setup-for-ai-agents)).
 
@@ -224,13 +245,18 @@ python src/voder.py <mode> param "value" param "value"
 
 Dialogue is supported in **TTS** and **TTS+VC** modes using multiple values per parameter. **Background music is optional** and only available in dialogue mode (not single mode).
 
-- For **TTS**: supply one or more `script` lines, one or more `voice` lines (in the same character order), and optionally one `music` parameter.
-- For **TTS+VC**: supply one or more `script` lines, one or more `target` file paths (in the same character order), and optionally one `music` parameter.
+- For **TTS**: supply one or more `script` lines, one or more `voice` lines (in the same character order), and optionally one `music` parameter and one `level` parameter.
+- For **TTS+VC**: supply one or more `script` lines, one or more `target` file paths (in the same character order), and optionally one `music` parameter and one `level` parameter.
 
 ```bash
 python src/voder.py tts script "James: Hello, I'm James." "Sarah: Hi James, I'm Sarah." voice "James: deep male voice, calm" "Sarah: young female voice, cheerful" music "ambient electronic, chill"
 
-python src/voder.py tts+vc script "James: Let's start the meeting." "Sarah: I've prepared the slides." target "James: /path/to/james.wav" "Sarah: /path/to/sarah.wav" music "soft piano, strings"
+python src/voder.py tts+vc script "James: Let's start the meeting." "Sarah: I've prepared the slides." target "James: /path/to/james.wav" "Sarah: /path/to/sarah.wav" music "soft piano, strings" level "40"
+```
+
+**With SFX lines embedded:**
+```bash
+python src/voder.py tts script "Narrator: Once upon a time" "sfx: magical chime /duration:5 /level:50" "Narrator: In a faraway land..." voice "Narrator: deep storytelling voice" music "fantasy orchestral"
 ```
 
 **What happens when `music` is supplied:**
@@ -240,7 +266,7 @@ python src/voder.py tts+vc script "James: Let's start the meeting." "Sarah: I've
   - Lyrics: `"..."` (empty placeholder)
   - Style: the value of the `music` parameter
   - Duration: exactly the dialogue length
-- The music is mixed at **35% volume** relative to the dialogue.
+- The music is mixed at **configurable volume** (default 35%, adjustable via `level` parameter).
 - The final file is saved with an `_m` suffix (e.g., `voder_tts_dialogue_..._m.wav`).
 - If `music` is omitted or set to an empty string (`music ""`), no background music is added.
 
@@ -261,7 +287,19 @@ python src/voder.py sts base "input.wav" target "voice1.wav" && python src/voder
 **Music generation with batch processing:**
 
 ```bash
-python src/voder.py ttm lyrics "Verse 1:..." styling "pop" 30 && python src/voder.py ttm lyrics "Chorus:..." styling "rock" 30
+python src/voder.py ttm lyrics "Verse 1:..." styling "pop" duration 30 && python src/voder.py ttm lyrics "Chorus:..." styling "rock" duration 30
+```
+
+**Speech enhancement pipeline:**
+
+```bash
+python src/voder.py se "noisy_recording.wav" result "/clean/recording.wav"
+```
+
+**Sound effects generation:**
+
+```bash
+python src/voder.py sfx sound "rain on tin roof" duration 15 result "/sfx/rain.wav"
 ```
 
 ### Interactive Mode (Also Supports Dialogue & Background Music)
@@ -288,18 +326,20 @@ python src/voder.py <mode> [parameters]
 
 | Mode | Description | GPU Required | One‑Liner |
 |------|-------------|--------------|-----------|
-| `tts` | Text‑to‑Speech with Voice Design | No | ✅ Yes (single & dialogue + optional music) |
-| `tts+vc` | Text‑to‑Speech + Voice Cloning | No | ✅ Yes (single & dialogue + optional music) |
-| `sts` | Speech‑to‑Speech (Voice Conversion) | Yes | ✅ Yes (single only) |
+| `tts` | Text‑to‑Speech with Voice Design | No | ✅ Yes (single & dialogue + optional music + SFX support) |
+| `tts+vc` | Text‑to‑Speech + Voice Cloning | No | ✅ Yes (single & dialogue + optional music + SFX support) |
+| `sts` | Speech‑to‑Speech (Voice Conversion) | No | ✅ Yes (single only) |
 | `ttm` | Text‑to‑Music Generation | No | ✅ Yes (single only) |
-| `ttm+vc` | Text‑to‑Music + Voice Conversion | Yes | ✅ Yes (single only) |
+| `ttm+vc` | Text‑to‑Music + Voice Conversion | No | ✅ Yes (single only) |
 | `stt` | Speech‑to‑Text Transcription | No | ✅ Yes (single, batch, timestamps, diarization, URLs) |
 | `stt+tts` | Speech‑to‑Text + TTS | No | ❌ Interactive Only |
+| `se` | Speech Enhancement (Denoise/Dereverb) | No | ✅ Yes |
+| `sfx` | Sound Effects Generation | No | ✅ Yes |
 
 ### Text‑to‑Speech (tts)
 
 Generate speech from text using Qwen3‑TTS VoiceDesign model.  
-**Supports both single and dialogue modes. Dialogue mode supports optional background music.**
+**Supports both single and dialogue modes. Dialogue mode supports optional background music and SFX lines.**
 
 **Single mode:**
 ```bash
@@ -316,13 +356,25 @@ python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Ch
 python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Character1: voice prompt for char1" "Character2: voice prompt for char2" music "description of background music"
 ```
 
+**Dialogue mode with music volume control:**
+```bash
+python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Character1: voice prompt" "Character2: voice prompt" music "soft piano" level "0:30-60:50"
+```
+
+**Dialogue with SFX lines:**
+```bash
+python src/voder.py tts script "James: Hello" "sfx: door bell /duration:3 /level:60" "Sarah: Hi!" voice "James: male" "Sarah: female" music "ambient"
+```
+
 **Parameters:**
 
 | Parameter | Description | Required |
 |-----------|-------------|----------|
-| `script` | Text to synthesize (single mode) OR `Character: text` (dialogue mode) | Yes |
-| `voice` | Voice prompt (single mode) OR `Character: prompt` (dialogue mode) | Yes |
+| `script` | Text to synthesize (single mode) OR `Character: text` (dialogue mode) OR `sfx: description /duration:nn` (SFX lines) | Yes |
+| `voice` | Voice prompt (single mode) OR `Character: prompt` (dialogue mode) for generated voices | Yes (unless all scripts are SFX lines or using target) |
+| `target` | Path to voice reference (single) OR `Character: path` (dialogue) for cloned voices — can mix with `voice` | No (but required if no `voice` for non-SFX lines) |
 | `music` | Description for automatically generated background music (dialogue only) | No |
+| `level` | Music volume levels e.g. `"10:20-50 30:60-80"` (dialogue modes, default: 35%) | No |
 
 **Voice Prompt Examples:**
 
@@ -342,10 +394,33 @@ python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Ch
 | Corporate | "corporate background, professional, subtle" |
 | Fantasy | "orchestral fantasy, magical, adventurous" |
 
+**Level Specification Examples:**
+
+| Format | Meaning |
+|--------|---------|
+| `"35"` | Constant 35% volume throughout |
+| `"50"` | Constant 50% volume throughout |
+| `"0:20-60:50"` | 20% at 0 seconds, 50% at 60 seconds |
+| `"0:30-30:50+10"` | Fade from 30% to 50% over 10 seconds starting at 0s |
+
+**Cross-use Feature (Mixing Generated and Cloned Voices):**
+
+Both TTS and TTS+VC one-line modes support mixing generated and cloned voices in the same dialogue. Use `voice "Character: prompt"` for generated voices and `target "Character: path"` for cloned voices:
+
+```bash
+# TTS mode with mixed voices: James uses generated, Sarah uses cloned
+python src/voder.py tts script "James: Hello!" "Sarah: Hi there!" voice "James: deep male voice" target "Sarah: /path/to/sarah_voice.wav"
+
+# TTS+VC mode with mixed voices: James uses cloned, Sarah uses generated
+python src/voder.py tts+vc script "James: Welcome!" "Sarah: Thanks!" target "James: /path/to/james_voice.wav" voice "Sarah: bright female voice"
+```
+
+**Important:** A character cannot have both `voice` and `target` assignments — each character must use either generated or cloned voice, not both.
+
 ### Text‑to‑Speech + Voice Clone (tts+vc)
 
 Generate speech from text then clone it to target voice using Qwen3‑TTS Base model.  
-**Supports both single and dialogue modes. Dialogue mode supports optional background music.**
+**Supports both single and dialogue modes. Dialogue mode supports optional background music and SFX lines.**
 
 **Single mode:**
 ```bash
@@ -366,9 +441,11 @@ python src/voder.py tts+vc script "Character1: line1" "Character2: line2" target
 
 | Parameter | Description | Required |
 |-----------|-------------|----------|
-| `script` | Text to synthesize (single) OR `Character: text` (dialogue) | Yes |
-| `target` | Path to voice reference audio (single) OR `Character: path` (dialogue) | Yes |
+| `script` | Text to synthesize (single) OR `Character: text` (dialogue) OR `sfx: description /duration:nn` (SFX lines) | Yes |
+| `target` | Path to voice reference audio (single) OR `Character: path` (dialogue) for cloned voices | Yes (unless all scripts are SFX lines or using voice) |
+| `voice` | Voice prompt (single) OR `Character: prompt` (dialogue) for generated voices — can mix with `target` | No (but required if no `target` for non-SFX lines) |
 | `music` | Description for automatically generated background music (dialogue only) | No |
+| `level` | Music volume levels (dialogue modes, default: 35%) | No |
 
 **Voice Reference Requirements:**
 - Format: WAV (recommended), MP3 supported
@@ -405,23 +482,31 @@ python src/voder.py sts base "presentation.mp4" target "voice_actor.wav" music
 
 ### Text‑to‑Music (ttm)
 
-Generate music from lyrics and style prompt using ACE‑Step.
+Generate music from lyrics and style prompt using ACE‑Step. Supports instrumental-only generation with empty lyrics.
 
 ```bash
-python src/voder.py ttm lyrics "song lyrics" styling "style description" duration_seconds
+python src/voder.py ttm lyrics "song lyrics" styling "style description" duration 30
+```
+
+**Instrumental music (no vocals):**
+```bash
+python src/voder.py ttm lyrics "..." styling "ambient electronic, chill" duration 60
 ```
 
 **Parameters:**
 
 | Parameter | Description | Required |
 |-----------|-------------|----------|
-| `lyrics` | Song lyrics (use `\n` for newlines) | Yes |
+| `lyrics` | Song lyrics (use `"..."` for instrumental only) | Yes |
 | `styling` | Style prompt describing the music | Yes |
 | `duration` | Duration in seconds (10‑300) | Yes |
 
 **Example:**
 ```bash
-python src/voder.py ttm lyrics "Verse 1:\nWalking down the street" styling "upbeat pop with female vocals" 30
+python src/voder.py ttm lyrics "Verse 1:\nWalking down the street" styling "upbeat pop with female vocals" duration 30
+
+# Instrumental
+python src/voder.py ttm lyrics "..." styling "cinematic orchestral, dramatic" duration 90
 ```
 
 **Style Prompt Examples:**
@@ -432,6 +517,7 @@ python src/voder.py ttm lyrics "Verse 1:\nWalking down the street" styling "upbe
 | Rock | "electric guitar, driving drums, powerful vocals" |
 | Ballad | "piano accompaniment, emotional, slow tempo" |
 | Electronic | "synthesizer, dance beat, energetic" |
+| Instrumental | "ambient electronic, atmospheric, no vocals" |
 
 ### Text‑to‑Music + Voice Clone (ttm+vc)
 
@@ -445,7 +531,7 @@ python src/voder.py ttm+vc lyrics "song lyrics" styling "style" duration 30 targ
 
 | Parameter | Description | Required |
 |-----------|-------------|----------|
-| `lyrics` | Song lyrics | Yes |
+| `lyrics` | Song lyrics (use `"..."` for instrumental) | Yes |
 | `styling` | Style prompt | Yes |
 | `duration` | Duration in seconds (10-300) | Yes |
 | `target` | Voice reference audio path | Yes |
@@ -536,15 +622,144 @@ The transcription result is saved as a `.txt` file in the `results/` directory. 
 - If `result` points to a directory, all output files are copied there.
 - If `result` points to a file path, only the last result is copied (use directory for batch).
 
+### Speech Enhancement (se)
+
+Enhance speech audio by denoising, dereverberating, and restoring clarity. Uses UniSE model from Alibaba's unified-audio project.
+
+**Basic enhancement:**
+```bash
+python src/voder.py se "noisy_audio.wav"
+```
+
+**Enhance audio from video:**
+```bash
+python src/voder.py se "recording.mp4"
+```
+
+**Save to specific location:**
+```bash
+python src/voder.py se "audio.wav" result "/output/enhanced.wav"
+```
+
+**Parameters:**
+
+| Parameter | Description | Required |
+|-----------|-------------|----------|
+| `file` | Input audio or video file path (positional) | Yes |
+| `result` | Copy result to the specified path | No |
+
+**Supported Input Formats:**
+- **Audio**: WAV, MP3, FLAC, OGG, AAC, M4A
+- **Video**: MP4, AVI, MOV, MKV (audio auto‑extracted)
+
+**Important Notes:**
+- **Not for music**: SE is optimized for speech only; music may be degraded
+- **16kHz output**: Enhanced audio is output at 16kHz sample rate
+- **Best for**: Noisy recordings, distant microphones, room echo removal
+
+**Output Example:**
+```
+Loading UniSE Speech Enhancement model...
+Enhancing audio...
+✓ Success! Output saved to: results/voder_se_20260408_120000.wav
+```
+
+### Sound Effects Generation (sfx)
+
+Generate custom sound effects from text descriptions using TangoFlux model.
+
+**Basic sound effect:**
+```bash
+python src/voder.py sfx sound "thunder rumbling in the distance" duration 10
+```
+
+**With quality parameters:**
+```bash
+python src/voder.py sfx sound "rain on a tin roof" duration 15 steps 50 guide 3.5
+```
+
+**Save to specific location:**
+```bash
+python src/voder.py sfx sound "footsteps on gravel" duration 8 result "/output/footsteps.wav"
+```
+
+**Parameters:**
+
+| Parameter | Description | Range | Default | Required |
+|-----------|-------------|-------|---------|----------|
+| `sound` | Text description of the sound effect | Any text | — | Yes |
+| `duration` | Duration in seconds | 1-30 | — | Yes |
+| `steps` | Inference steps (quality vs speed) | 1-100 | 30 | No |
+| `guide` | Guidance scale (prompt adherence) | 1.0-10.0 | 4.5 | No |
+| `result` | Output file path | Any path | — | No |
+
+**Sound Prompt Tips:**
+
+| Sound Type | Example Prompts |
+|------------|-----------------|
+| Nature | "heavy rain on a tin roof with distant thunder" |
+| Impacts | "deep punchy kick drum impact with reverb tail" |
+| Ambient | "busy coffee shop atmosphere with clinking cups" |
+| Transitions | "swoosh whoosh transition with rising pitch" |
+| Mechanical | "old car engine starting and idling roughly" |
+| Sci-fi | "futuristic laser blast with digital distortion" |
+
+**Step/Guide Guidelines:**
+
+| Parameter | Low Value | Default | High Value |
+|-----------|-----------|---------|------------|
+| `steps` | 10-20 (fast, basic) | 30 (good) | 50-100 (slow, best quality) |
+| `guide` | 1.0-2.0 (creative) | 4.5 (balanced) | 7.0-10.0 (strict adherence) |
+
 ---
 
 ## New CLI Features
 
-The following features were added in the 04/02/2026 major update and are available to AI agents via CLI.
+The following features were added in the 04/08/2026 major update and are available to AI agents via CLI.
+
+### Script Directives (Per-Line Control)
+
+Append directives to dialogue lines for fine-grained control:
+
+| Directive | Format | Description |
+|-----------|--------|-------------|
+| `/time:nn` | `/time:5` | Position at 5 seconds from start |
+| `/time:nn-nn` | `/time:10-3` | Position at 10s, cut 3s from end |
+| `/time:nn+nn` | `/time:5+2` | Position at 5s, cut 2s from start |
+| `/time:nn-nn+nn` | `/time:10-3+2` | Position at 10s, cut 3s from end, cut 2s from start |
+| `/level:0-100` | `/level:75` | Volume level for this line (default: 100) |
+| `/duration:1-30` | `/duration:10` | Duration for SFX lines (required for `sfx:`) |
+
+**Example:**
+```bash
+python src/voder.py tts script "James: Welcome! /time:0 /level:100" "sfx: intro music /duration:5 /level:40 /time:0" "Sarah: Hello everyone! /time:6" voice "James: male" "Sarah: female"
+```
+
+### SFX Lines in Dialogue
+
+Use `sfx:` as the character name to embed sound effects:
+
+```bash
+python src/voder.py tts script "James: Hello" "sfx: door bell /duration:3 /level:60" "Sarah: Who's there?" voice "James: male" "Sarah: female"
+```
+
+### Cross-use Feature (Mix Generated and Cloned Voices)
+
+Both TTS and TTS+VC one-line modes support mixing `voice` and `target` parameters in the same dialogue:
+
+```bash
+# TTS mode: James generated, Sarah cloned
+python src/voder.py tts script "James: Hello!" "Sarah: Hi!" voice "James: male" target "Sarah: /path/to/sarah.wav"
+
+# TTS+VC mode: James cloned, Sarah generated
+python src/voder.py tts+vc script "James: Welcome!" "Sarah: Thanks!" target "James: /path/to/james.wav" voice "Sarah: female"
+```
+
+**Note:** A character cannot have both `voice` and `target` — each character must use one or the other.
 
 ### Universal: `result` Parameter
 
-Copy the generated result file to any filesystem path. Works with **all modes** (tts, tts+vc, sts, ttm, ttm+vc, stt).
+Copy the generated result file to any filesystem path. Works with **all modes** (tts, tts+vc, sts, ttm, ttm+vc, stt, se, sfx).
 
 ```bash
 # Copy TTS result to a specific directory
@@ -554,7 +769,13 @@ python src/voder.py tts script "Hello world" voice "male voice" result "/mnt/sha
 python src/voder.py stt "meeting.wav" timestamp result "/data/transcripts/meeting.txt"
 
 # Copy music result
-python src/voder.py ttm lyrics "Hello world" styling "pop" 30 result "/mnt/shared/music/"
+python src/voder.py ttm lyrics "Hello world" styling "pop" duration 30 result "/mnt/shared/music/"
+
+# Copy speech enhancement result
+python src/voder.py se "noisy.wav" result "/clean/audio.wav"
+
+# Copy sound effect result
+python src/voder.py sfx sound "thunder" duration 10 result "/sfx/thunder.wav"
 ```
 
 - If the path ends with `/`, it is treated as a directory (created if needed).
@@ -629,12 +850,18 @@ VODER offers different experiences depending on the interface. Understanding the
 | **One‑Liner Execution** | Single command processing |
 | **Batch Processing** | Chain multiple commands with `&&` |
 | **Headless Operation** | No GUI required, fully automated |
-| **Direct Mode Access** | All seven modes available directly |
+| **Direct Mode Access** | All nine modes available directly |
 | **Music Parameter** | One‑liner background music addition (dialogue only) |
+| **Level Parameter** | Configurable music volume with time-based segments |
+| **Script Directives** | Per-line timing, volume, and duration control |
+| **SFX in Dialogue** | Embed sound effects via `sfx:` character |
+| **Cross-use Feature** | Mix generated (`voice`) and cloned (`target`) voices in same dialogue |
 | **STT Transcription** | Speech-to-text with timestamps, diarization, and batch processing |
 | **YouTube/URL Input** | Direct transcription from YouTube, Bilibili, TikTok URLs |
 | **Image OCR Input** | Text extraction from images via EasyOCR |
 | **Result Routing** | Copy output to arbitrary filesystem paths with `result` parameter |
+| **Speech Enhancement** | Denoise, dereverberate, restore speech audio |
+| **Sound Effects Generation** | Text-to-audio synthesis with configurable parameters |
 
 ### GUI‑Only Features
 
@@ -653,16 +880,20 @@ Available in **both** CLI and GUI:
 
 | Feature | CLI Implementation | GUI Implementation |
 |---------|-------------------|-------------------|
-| **Text‑to‑Speech (TTS)** | One‑liner with `script`/`voice` + optional `music` | Row‑based script + voice prompt fields + optional music dialog |
-| **TTS+VC (Voice Cloning)** | One‑liner with `script`/`target` + optional `music` | Row‑based script + audio number dropdowns + optional music dialog |
-| **Dialogue Mode** | ✅ Repeated parameters or interactive input + optional `music` | ✅ Visual script editor with character tracking + music prompt |
+| **Text‑to‑Speech (TTS)** | One‑liner with `script`/`voice` + optional `music`/`level` | Row‑based script + voice prompt fields + optional music dialog |
+| **TTS+VC (Voice Cloning)** | One‑liner with `script`/`target` + optional `music`/`level` | Row‑based script + audio number dropdowns + optional music dialog |
+| **Dialogue Mode** | ✅ Repeated parameters or interactive input + optional `music`/`level` | ✅ Visual script editor with character tracking + music prompt |
+| **SFX Lines** | ✅ `sfx: description /duration:nn` in script | ✅ `sfx` character in dialogue rows |
+| **Script Directives** | ✅ `/time:`, `/level:`, `/duration:` in dialogue lines | ✅ Same directive syntax in dialogue rows |
 | **Background Music** | ✅ `music` parameter (one‑liner) or interactive yes/no | ✅ Modal dialog before generation |
 | **STS / TTM / TTM+VC** | ✅ One‑liner commands | ✅ Dedicated panels |
 | **STT (Speech-to-Text)** | ✅ One‑liner with optional `timestamp`, `dialogue`, `result` | ✅ Dedicated panel |
+| **SE (Speech Enhancement)** | ✅ One‑liner command | ✅ Dedicated panel |
+| **SFX (Sound Effects)** | ✅ One‑liner with `sound`, `duration`, `steps`, `guide` | ✅ Dedicated panel |
 | **Output File Generation** | ✅ Saved to `results/` | ✅ Saved to `results/` |
 | **Parameter Customisation** | ✅ Duration, prompts, etc. | ✅ Duration, prompts, etc. |
 
-**Important:** Dialogue mode and optional background music are **fully supported in CLI** for both TTS and TTS+VC, using either one‑liner repeated parameters or interactive multi‑line input.
+**Important:** Dialogue mode, script directives, SFX lines, and optional background music are **fully supported in CLI** for both TTS and TTS+VC, using either one‑liner repeated parameters or interactive multi‑line input.
 
 ---
 
@@ -684,16 +915,18 @@ VODER operates entirely on CPU. No GPU is required for any mode. This makes VODE
 | STS | 13GB | Optional | 14GB | 8GB base + 5GB (Seed-VC) |
 | TTM | 23GB | Optional | 15GB (recommended, RTX 3080 or 16GB GPU) | 8GB base + 15GB (ACE) |
 | TTM+VC | 23GB | Optional | 16GB | 8GB base + 15GB (ACE) |
+| SE | 11GB | Optional | 4GB | 8GB base + 2-3GB (UniSE) |
+| SFX | 12GB | Optional | 4GB | 8GB base + 3-4GB (TangoFlux) |
 
 ### VRAM Guidelines
 
 | VRAM | Performance | Suitable Modes |
 |------|-------------|----------------|
 | No GPU (CPU only) | Slow | All modes work on CPU |
-| 4GB | Usable | TTS, TTS+VC (no music), STT, STT+TTS |
-| 6GB | Minimum | TTS, TTS+VC (no music), STT, STT+TTS |
-| 14GB | Mid-range | STS, all TTS modes |
-| 15-16GB | Recommended | TTS+VC with music, TTM, TTM+VC |
+| 4GB | Usable | TTS, TTS+VC (no music), STT, STT+TTS, SE, SFX |
+| 6GB | Minimum | TTS, TTS+VC (no music), STT, STT+TTS, SE, SFX |
+| 14GB | Mid-range | STS, all TTS modes, SE, SFX |
+| 15-16GB | Recommended | TTS+VC with music, TTM, TTM+VC, all modes |
 | 24GB | Maximum (RTX 4090) | All modes at full speed |
 | T4 (16GB) | Server-grade | All modes (not consumer GPU) |
 
@@ -710,13 +943,15 @@ The following modes require approximately 23GB RAM due to the ACE-Step model:
 
 ### Modes Working With Less Memory
 
-The following modes work with approximately 12-13GB RAM:
+The following modes work with approximately 11-13GB RAM:
 
 - **TTS** (Text-to-Speech) - 12GB
 - **TTS+VC** (TTS + Voice Cloning) - 12GB
 - **STT** (Speech-to-Text) - 12GB
 - **STT+TTS** (Speech-to-Text + TTS) - 12GB
 - **STS** (Speech-to-Speech) - 13GB
+- **SE** (Speech Enhancement) - 11GB
+- **SFX** (Sound Effects) - 12GB
 
 ### Verify System Memory
 
@@ -744,6 +979,18 @@ free -h
 3. **YouTube Download Requires Internet**: URL-based transcription needs network access and yt-dlp installed
 4. **Image OCR Accuracy Varies**: Text extraction quality depends on image resolution, font clarity, and language support
 5. **Speaker Diarization Accuracy Varies**: Best results with clear audio, minimal background noise, and ≤4 speakers; overlapping speech and noisy environments reduce accuracy
+
+### SE Mode Limitations
+
+1. **Speech Only**: Not designed for music enhancement
+2. **16kHz Output**: Output sample rate is fixed at 16kHz
+3. **Cannot Recover Missing Data**: Severely corrupted audio has restoration limits
+
+### SFX Mode Limitations
+
+1. **Duration Limit**: Maximum 30 seconds per sound effect
+2. **Prompt Sensitivity**: Results vary based on prompt quality
+3. **No Multi-file Batch**: Each SFX command generates one sound effect
 
 ### GUI Mode Limitations
 
@@ -828,6 +1075,30 @@ python src/voder.py tts script "James: Hello" "Sarah: Hi" voice "James: deep voi
 **Cause**: The command is not in dialogue mode (i.e., all `script` parameters are plain text without colon). Background music is only available for dialogue scripts.
 
 **Solution**: Use `Character: text` format for at least one script parameter, or use multiple script lines with colon format.
+
+### Issue: SFX line missing duration error
+
+**Cause**: SFX lines require `/duration:nn` directive
+
+**Solution**: Add duration to SFX lines:
+```bash
+python src/voder.py tts script "James: Hello" "sfx: thunder /duration:5" voice "James: male"
+```
+
+### Issue: Speech enhancement degrades music
+
+**Cause**: SE mode is designed for speech only
+
+**Solution**: Don't use SE mode on music content
+
+### Issue: Sound effect doesn't match prompt
+
+**Cause**: Insufficient guidance or prompt quality
+
+**Solution**: 
+- Increase `guide` parameter (try 7-10)
+- Make prompts more descriptive
+- Increase `steps` for better quality
 
 ### Issue: Music generation is slow or fails
 
@@ -922,6 +1193,8 @@ VODER is a mature tool with all modes fully operational. When issues occur, they
 7. **Missing HF_TOKEN for diarization**: Create `HF_TOKEN.txt` with valid token
 8. **yt-dlp not installed**: Install via `pip install yt-dlp`
 9. **Poor OCR input quality**: Use high‑resolution, high‑contrast images
+10. **SE used on music**: SE is speech-only
+11. **SFX missing duration**: Add `/duration:nn` to SFX lines
 
 VODER handles all internal error cases gracefully with clear error messages.
 
@@ -957,13 +1230,32 @@ ls results/
 python src/voder.py tts script "Narrator: Once upon a time, in a digital realm," "Alice: I wonder what secrets this code holds." "Bob: Let's find out together!" voice "Narrator: calm male voice, slow and measured" "Alice: bright female voice, curious" "Bob: enthusiastic male voice, friendly" music "orchestral fantasy, magical, adventurous"
 ```
 
-### Workflow 3: Dialogue Generation with Voice Cloning + Background Music (CLI One‑Liner)
+### Workflow 3: Dialogue Generation with Voice Cloning + Background Music + SFX (CLI One‑Liner)
 
 ```bash
-python src/voder.py tts+vc script "James: Welcome to our podcast!" "Sarah: Thanks for having me, James." "James: So, Sarah, tell us about your work." target "James: /voices/james_reference.wav" "Sarah: /voices/sarah_reference.wav" "James: /voices/james_reference.wav" music "soft piano, cinematic strings"
+python src/voder.py tts+vc script "James: Welcome to our podcast!" "sfx: intro jingle /duration:5 /level:60" "Sarah: Thanks for having me, James." "James: So, Sarah, tell us about your work." target "James: /voices/james_reference.wav" "Sarah: /voices/sarah_reference.wav" music "soft piano, cinematic strings" level "0:30-60:50"
 ```
 
-### Workflow 4: Voice Conversion with Video Input
+### Workflow 4: Speech Enhancement Pipeline
+
+```bash
+# Enhance a noisy recording
+python src/voder.py se "noisy_podcast.wav" result "/output/clean_podcast.wav"
+
+# Enhance audio from video
+python src/voder.py se "interview_recording.mp4" result "/output/enhanced_interview.wav"
+```
+
+### Workflow 5: Sound Effects Generation
+
+```bash
+# Generate individual sound effects
+python src/voder.py sfx sound "rain on a tin roof with distant thunder" duration 15 result "/sfx/rain_thunder.wav"
+python src/voder.py sfx sound "footsteps on gravel approaching then receding" duration 10 steps 50 result "/sfx/footsteps.wav"
+python src/voder.py sfx sound "magical chime with reverb tail" duration 5 guide 3.0 result "/sfx/chime.wav"
+```
+
+### Workflow 6: Voice Conversion with Video Input
 
 ```bash
 # Install FFmpeg if needed
@@ -976,20 +1268,20 @@ python src/voder.py sts base "presentation.mp4" target "narrator_voice.wav"
 ls results/voder_sts_*.wav
 ```
 
-### Workflow 5: Music Generation with Voice Conversion
+### Workflow 7: Music Generation with Voice Conversion
 
 ```bash
-# Generate music with synthesized vocals
-python src/voder.py ttm lyrics "Verse 1:\nWalking down the street\nFeeling the rhythm in my feet" styling "upbeat pop with female vocals" 30
+# Generate instrumental music
+python src/voder.py ttm lyrics "..." styling "ambient electronic, chill, atmospheric" duration 60 result "/music/ambient.wav"
 
 # Generate music with cloned vocals
-python src/voder.py ttm+vc lyrics "Chorus:\nThis is our moment\nEverything feels right" styling "rock ballad" 30 target "singer_reference.wav"
+python src/voder.py ttm+vc lyrics "Chorus:\nThis is our moment\nEverything feels right" styling "rock ballad" duration 30 target "singer_reference.wav"
 
 # Move results
 mv results/*.wav /path/to/final/output/
 ```
 
-### Workflow 6: Interactive Dialogue Creation with Background Music (Semi‑Automated)
+### Workflow 8: Interactive Dialogue Creation with Background Music (Semi‑Automated)
 
 For complex scripts where you want to decide about music interactively:
 
@@ -997,12 +1289,13 @@ For complex scripts where you want to decide about music interactively:
 python src/voder.py cli
 # Select option 2 (TTS) or 3 (TTS+VC)
 # Enter multiple lines of dialogue (empty line to finish)
+# Include SFX lines with: sfx: description /duration:nn
 # VODER will automatically prompt you for voice prompts / audio paths per character
 # Then it will ask: "Add background music? (y/N):"
 # Answer y and enter a description, or just press Enter to skip
 ```
 
-### Workflow 7: Batch Transcription with Timestamps and Diarization
+### Workflow 9: Batch Transcription with Timestamps and Diarization
 
 ```bash
 # Setup HF_TOKEN for diarization
@@ -1015,7 +1308,7 @@ python src/voder.py stt "meeting_2026-01.wav" "meeting_2026-02.wav" "meeting_202
 ls /data/transcripts/
 ```
 
-### Workflow 8: YouTube Video Transcription
+### Workflow 10: YouTube Video Transcription
 
 ```bash
 # Transcribe a YouTube video with timestamps
@@ -1026,7 +1319,7 @@ echo "hf_your_token_here" > HF_TOKEN.txt
 python src/voder.py stt "https://www.youtube.com/watch?v=EXAMPLE_ID" dialogue result "/output/interview.txt"
 ```
 
-### Workflow 9: Image Text Extraction to Dialogue
+### Workflow 11: Image Text Extraction to Dialogue
 
 ```bash
 # Extract text from a script screenshot
@@ -1038,73 +1331,26 @@ python src/voder.py stt "subtitles.jpg" result "/output/subtitle_text.txt"
 # Chain: extract from image, then use extracted text for TTS
 python src/voder.py stt "notes.png" result "/tmp/notes.txt" && \
 SCRIPT=$(cat /tmp/notes.txt) && \
-python src/voder.py tts script "$SCRIPT" voice "calm narrator voice"
+python src/voder.py tts script "$SCRIPT" voice "professional narrator"
 ```
 
-### Workflow 10: Multi‑Speaker Voice Clip Extraction + Dialogue Generation
+### Workflow 12: Complete Audio Production Pipeline
 
 ```bash
-# Step 1: Transcribe multi-speaker audio with diarization
-echo "hf_your_token_here" > HF_TOKEN.txt
-python src/voder.py stt "panel_discussion.wav" dialogue timestamp result "/output/transcript.txt"
+# 1. Enhance source audio
+python src/voder.py se "raw_recording.wav" result "/clean/audio.wav"
 
-# Step 2: Review the transcript to identify speakers and segments
-# Step 3: Generate dialogue with voice cloning for each speaker
-python src/voder.py tts+vc script \
-  "Moderator: Welcome to today's panel discussion." \
-  "Guest1: Thank you, it's great to be here." \
-  "Guest2: I'm excited to share our findings." \
-  target \
-  "Moderator: /voices/moderator_ref.wav" \
-  "Guest1: /voices/guest1_ref.wav" \
-  "Guest2: /voices/guest2_ref.wav"
+# 2. Transcribe with diarization
+python src/voder.py stt "/clean/audio.wav" timestamp dialogue result "/script/dialogue.txt"
+
+# 3. Generate dialogue with music and SFX (using extracted script as reference)
+python src/voder.py tts+vc \
+  script "Host: Welcome to the show!" \
+  script "sfx: applause /duration:5 /level:50" \
+  script "Guest: Thanks for having me!" \
+  target "Host: /voices/host.wav" \
+  target "Guest: /voices/guest.wav" \
+  music "upbeat podcast intro" \
+  level "0:30-60:40" \
+  result "/final/episode.wav"
 ```
-
-### Workflow 11: Transcribe and Route Result to Specific Path
-
-```bash
-# Transcribe audio and save result to a mounted network share
-python src/voder.py stt "recording.wav" timestamp result "/mnt/nas/transcripts/recording.txt"
-
-# Transcribe and route to a project directory
-python src/voder.py stt "interview.mp3" dialogue result "/projects/podcast/ep12/transcript.txt"
-
-# Batch transcribe and route entire batch to a directory
-mkdir -p /archive/2026/q1/transcripts
-python src/voder.py stt \
-  "call_jan05.wav" "call_jan12.wav" "call_jan19.wav" "call_jan26.wav" \
-  timestamp dialogue result "/archive/2026/q1/transcripts/"
-```
-
----
-
-## Summary for AI Agents
-
-1. **Always use one‑liner commands**: `python src/voder.py <mode> [params]`
-2. **Dialogue + optional background music** is now available in CLI for TTS and TTS+VC:
-   - Use multiple values per parameter (e.g., `script "line1" "line2"`)
-   - Add `music "description"` to automatically generate background music.
-3. **Install dependencies first**: `pip install -r requirements.txt`
-4. **Upgrade protobuf**: `pip install --upgrade protobuf==5.29.6` (avoids compatibility issues)
-5. **Install FFmpeg**: Required for audio processing, video input, and music mixing
-6. **RAM required**: 12GB minimum (23GB for TTM, TTM+VC, or TTS/TTS+VC with music; 15GB for STT with diarization)
-7. **GPU/VRAM**: Optional - 4GB minimum (6GB recommended, 16GB for best performance)
-8. **CPU-only operation**: All modes run on CPU, no GPU required
-9. **STT+TTS is CLI‑interactive only**: Use `python src/voder.py cli`
-10. **Output location**: Results saved to `results/` directory; use `result <path>` to copy elsewhere
-11. **Available modes**: `tts`, `tts+vc`, `sts`, `ttm`, `ttm+vc`, `stt`, `stt+tts` (7 modes total)
-12. **TTM duration**: 10‑300 seconds (use `duration n` or just `n` at the end)
-13. **Video support**: VODER supports video input (auto audio extraction via FFmpeg)
-14. **HuggingFace token**: Add to `HF_TOKEN.txt` for gated models; **required for speaker diarization**
-15. **Music parameter behaviour**: Only effective for dialogue scripts; ignored otherwise; empty string treated as skip
-16. **STT transcription**: Use `stt` mode with audio, video, image, or YouTube URLs
-17. **STT flags**: `timestamp` for word-level timestamps, `dialogue` for speaker diarization
-18. **STT batch**: Provide multiple files/URLs to process in sequence
-19. **Result routing**: `result <path>` copies output to any path (works with all modes)
-20. **Image OCR**: Pass image files to `stt` mode to extract text via EasyOCR
-21. **YouTube/Bilibili/TikTok**: Pass URLs directly to `stt` mode (requires yt-dlp)
-22. **HF_TOKEN for diarization**: Create `HF_TOKEN.txt` and accept model conditions at https://huggingface.co/pyannote/speaker-diarization-community-1
-
----
-
-**For questions or issues, visit: https://github.com/HAKORADev/VODER**

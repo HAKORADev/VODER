@@ -16,6 +16,8 @@ ACESTEP_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "acestep")
 SEED_VC_V1_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "seed_vc_v1")
 SEED_VC_V2_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "seed_vc_v2")
 WHISPER_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "whisper")
+UNISE_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "unise")
+TANGOFLUX_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "tangoflux")
 
 os.environ["HF_HOME"] = MODELS_DIR
 os.environ["HF_HUB_CACHE"] = MODELS_TMP_DIR
@@ -33,12 +35,15 @@ os.makedirs(ACESTEP_DIR, exist_ok=True)
 os.makedirs(SEED_VC_V1_DIR, exist_ok=True)
 os.makedirs(SEED_VC_V2_DIR, exist_ok=True)
 os.makedirs(WHISPER_DIR, exist_ok=True)
+os.makedirs(UNISE_DIR, exist_ok=True)
+os.makedirs(TANGOFLUX_DIR, exist_ok=True)
 
 import time
 import math
 import tempfile
 import shutil
 import gc
+import traceback
 import numpy as np
 import torch
 import torchaudio
@@ -1013,6 +1018,356 @@ class SpeakerDiarization:
         except Exception as e:
             print(f"Error formatting diarization: {e}")
             return []
+
+import re
+
+def _get_audio_duration(path):
+    try:
+        info = sf.info(path)
+        return info.duration
+    except Exception:
+        try:
+            info = torchaudio.info(path)
+            return info.num_frames / info.sample_rate
+        except Exception:
+            return 30
+
+def _parse_script_directives(text):
+    tokens = text.split()
+    directives = {}
+    content_end = len(tokens)
+    for i in range(len(tokens) - 1, -1, -1):
+        token = tokens[i]
+        if token.startswith('/time:'):
+            directives['time_raw'] = token[6:]
+            content_end = i
+        elif token.startswith('/level:'):
+            directives['level_raw'] = token[7:]
+            content_end = i
+        elif token.startswith('/duration:'):
+            directives['duration_raw'] = token[10:]
+            content_end = i
+        else:
+            break
+    clean_text = ' '.join(tokens[:content_end])
+    return clean_text.strip(), directives
+
+def _validate_time_directive(time_str):
+    time_str = time_str.strip()
+    if not time_str:
+        return 0, 0, 0, None
+    if not re.match(r'^[+-]?\d+([+-]\d+)*$', time_str):
+        return 0, 0, 0, "Invalid time format"
+    tokens = re.findall(r'[+-]?\d+', time_str)
+    start_pad = 0
+    cut_start = 0
+    cut_end = 0
+    position_set = False
+    for token in tokens:
+        if token.startswith('+'):
+            cut_start += int(token[1:])
+        elif token.startswith('-'):
+            cut_end += int(token[1:])
+        else:
+            if not position_set:
+                start_pad = int(token)
+                position_set = True
+            else:
+                cut_end += int(token)
+    return start_pad, cut_start, cut_end, None
+
+def _validate_level_directive(level_str):
+    level_str = level_str.strip()
+    if not re.match(r'^\d+$', level_str):
+        return None, "Invalid level: must be a number"
+    val = int(level_str)
+    if val < 0 or val > 100:
+        return None, "Invalid level: must be 0-100"
+    return val, None
+
+def _validate_duration_directive(dur_str):
+    dur_str = dur_str.strip()
+    if not re.match(r'^\d+$', dur_str):
+        return None, "Invalid duration: must be a number"
+    val = int(dur_str)
+    if val < 1 or val > 30:
+        return None, "Invalid duration: must be 1-30"
+    return val, None
+
+def _parse_directives_for_line(directives):
+    result = {'time_end': 0, 'time_start': 0, 'time_pad': 0, 'level': 100, 'duration': None, 'has_time': False}
+    errors = []
+    if 'time_raw' in directives:
+        start_pad, cut_start, cut_end, err = _validate_time_directive(directives['time_raw'])
+        if err:
+            errors.append(f"/time: {err}")
+        else:
+            result['time_pad'] = start_pad
+            result['time_end'] = cut_end
+            result['time_start'] = cut_start
+            result['has_time'] = True
+    if 'level_raw' in directives:
+        val, err = _validate_level_directive(directives['level_raw'])
+        if err:
+            errors.append(f"/level: {err}")
+        else:
+            result['level'] = val
+    if 'duration_raw' in directives:
+        val, err = _validate_duration_directive(directives['duration_raw'])
+        if err:
+            errors.append(f"/duration: {err}")
+        else:
+            result['duration'] = val
+    return result, errors
+
+def _apply_clip_effects(input_path, output_path, cut_start=0, cut_end=0, level=100):
+    clip_duration = _get_audio_duration(input_path)
+    effective_duration = clip_duration - cut_start - cut_end
+    if effective_duration <= 0.01:
+        cmd = [
+            'ffmpeg', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono',
+            '-t', '0.01', '-y', output_path
+        ]
+        subprocess.run(cmd, capture_output=True, text=True)
+        return
+    filters = []
+    if level != 100:
+        filters.append(f"volume={level / 100.0}")
+    filter_str = ",".join(filters)
+    cmd = ['ffmpeg', '-ss', str(cut_start), '-i', input_path, '-t', str(effective_duration)]
+    if filter_str:
+        cmd.extend(['-af', filter_str])
+    cmd.extend(['-y', output_path])
+    subprocess.run(cmd, capture_output=True, text=True)
+
+def _parse_music_level_spec(spec_str):
+    if not spec_str or not spec_str.strip():
+        return []
+    spec_str = spec_str.strip()
+    segments = []
+    parts = spec_str.split()
+    for part in parts:
+        m = re.match(r'^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)-(\d+)$', part)
+        if m:
+            from_sec = float(m.group(1))
+            to_sec = float(m.group(2))
+            level_pct = int(m.group(3))
+        else:
+            m = re.match(r'^(\d+(?:\.\d+)?)-(\d+)$', part)
+            if m:
+                from_sec = float(m.group(1))
+                to_sec = None
+                level_pct = int(m.group(2))
+            else:
+                m = re.match(r'^(\d+)$', part)
+                if m:
+                    from_sec = 0.0
+                    to_sec = None
+                    level_pct = int(m.group(1))
+                else:
+                    return None
+        if to_sec is not None and from_sec >= to_sec:
+            return None
+        if level_pct < 0:
+            level_pct = 0
+        if level_pct > 100:
+            level_pct = 100
+        segments.append((from_sec, to_sec, level_pct))
+    return segments
+
+def _build_music_volume_expression(segments, total_duration, default_vol=0.35, fade_dur=1.0):
+    if not segments:
+        return f"volume={default_vol}"
+    default_v = f"{default_vol:.6f}"
+    expr = default_v
+    for from_sec, to_sec, level_pct in reversed(segments):
+        if to_sec is None:
+            to_sec = total_duration
+        if to_sec > total_duration:
+            to_sec = total_duration
+        if from_sec >= to_sec:
+            continue
+        vol = level_pct / 100.0
+        v = f"{vol:.6f}"
+        seg_dur = to_sec - from_sec
+        actual_fade = min(fade_dur, seg_dur / 2.0) if seg_dur > 0.01 else 0.01
+        af = f"{actual_fade:.2f}"
+        fi = max(0, from_sec - actual_fade)
+        fo = max(fi, to_sec - actual_fade)
+        expr = (
+            f"if(between(t,{fi:.3f},{from_sec:.3f}),"
+            f"{default_v}+({v}-{default_v})*(t-{fi:.3f})/{af},"
+            f"if(between(t,{from_sec:.3f},{fo:.3f}),"
+            f"{v},"
+            f"if(between(t,{fo:.3f},{to_sec:.3f}),"
+            f"{v}+({default_v}-{v})*(t-{fo:.3f})/{af},"
+            f"{expr}"
+            f")))"
+        )
+    return f"volume='{expr}':eval=frame"
+
+def _mix_dialogue_with_music(dialogue_path, music_path, output_path, music_level_spec=None):
+    duration = _get_audio_duration(dialogue_path)
+    segments = _parse_music_level_spec(music_level_spec)
+    if segments is None:
+        print("Warning: Invalid music level spec, using default 35%")
+        segments = []
+    vol_filter = _build_music_volume_expression(segments, duration)
+    mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    mixed_temp.close()
+    cmd = [
+        'ffmpeg', '-i', dialogue_path, '-i', music_path,
+        '-filter_complex', f'[1:a]{vol_filter}[music];[0:a][music]amix=inputs=2:duration=longest',
+        '-y', mixed_temp.name
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"FFmpeg mixing failed: {result.stderr}")
+        return False
+    shutil.move(mixed_temp.name, output_path)
+    return True
+
+def _generate_music_and_mix(ace, music_description, dialogue_path, output_path, music_level_spec=None):
+    duration = _get_audio_duration(dialogue_path)
+    print(f"Dialogue duration: {duration:.2f}s")
+    print("Generating background music...")
+    music_result = generate_background_music(ace, music_description, duration)
+    if music_result is None:
+        print("Error: Background music generation failed")
+        return False
+    music_temp_path, music_temp_dir = music_result
+    print("Mixing dialogue with music...")
+    success = _mix_dialogue_with_music(dialogue_path, music_temp_path, output_path, music_level_spec)
+    if music_temp_dir is not None:
+        shutil.rmtree(music_temp_dir, ignore_errors=True)
+    return success
+
+def _assemble_enhanced_dialogue(dialogue_items, voice_data, tts_design_obj=None, tts_vc_obj=None, vc_voice_data=None, output_path=None, mode='tts'):
+    temp_dir = tempfile.mkdtemp()
+    try:
+        clips = []
+        sfx_generator = None
+        for i, item in enumerate(dialogue_items):
+            num = item[0]
+            char = item[1]
+            text = item[2]
+            directives = item[3] if len(item) > 3 else {}
+            cut_start = directives.get('time_start', 0)
+            cut_end = directives.get('time_end', 0)
+            start_pad = directives.get('time_pad', 0)
+            level = directives.get('level', 100)
+            raw_file = os.path.join(temp_dir, f"raw_{i:03d}.wav")
+            processed_file = os.path.join(temp_dir, f"processed_{i:03d}.wav")
+            if char.lower() == 'sfx':
+                duration = directives.get('duration')
+                if duration is None:
+                    print(f"Error: SFX line {num} requires /duration:nn (1-30)")
+                    return False, "Missing duration for SFX line"
+                if sfx_generator is None:
+                    from tangoflux import TangoFluxGenerator
+                    sfx_generator = TangoFluxGenerator(TANGOFLUX_DIR)
+                    sfx_generator.ensure_model()
+                    if sfx_generator.model is None:
+                        return False, "Failed to load TangoFlux model"
+                print(f"  Generating SFX line {num}: \"{text[:50]}\" ({duration}s)")
+                audio = sfx_generator.generate(text, duration)
+                if audio is None:
+                    return False, f"SFX generation failed for line {num}"
+                sfx_generator.save(audio, raw_file)
+            else:
+                char_lower = char.lower()
+                is_vc = vc_voice_data is not None and char_lower in vc_voice_data
+                is_tts = char_lower in voice_data
+                if not is_vc and not is_tts:
+                    print(f"Error: No voice data for '{char}'")
+                    return False, f"Missing voice data for '{char}'"
+                if is_vc:
+                    if tts_vc_obj is None:
+                        return False, "TTS+VC object not provided for cloned voice character"
+                    tts_vc_obj.voice_prompt = vc_voice_data[char_lower]
+                    success = tts_vc_obj.synthesize(text, raw_file)
+                    if not success:
+                        return False, f"Failed to synthesize line {num}"
+                else:
+                    if tts_design_obj is None:
+                        return False, "TTS design object not provided"
+                    voice_instruct = voice_data[char_lower]
+                    success = tts_design_obj.synthesize(text, voice_instruct, raw_file)
+                    if not success:
+                        return False, f"Failed to synthesize line {num}"
+            if not os.path.exists(raw_file):
+                return False, f"Audio file not generated for line {num}"
+            if cut_start > 0 or cut_end > 0 or level != 100:
+                _apply_clip_effects(raw_file, processed_file, cut_start, cut_end, level)
+                try:
+                    os.unlink(raw_file)
+                except:
+                    pass
+            else:
+                shutil.move(raw_file, processed_file)
+            has_time = directives.get('has_time', False)
+            clips.append((has_time, start_pad, processed_file))
+        if len(clips) < 1:
+            return False, "No audio segments generated"
+        tracks = []
+        cursor = 0
+        for has_time, orig_pad, fpath in clips:
+            if has_time:
+                pos = orig_pad
+            else:
+                pos = cursor
+            tracks.append((pos, fpath))
+            dur = _get_audio_duration(fpath)
+            end = pos + dur
+            if end > cursor:
+                cursor = end
+        if len(tracks) == 1:
+            pad_ms, fpath = tracks[0]
+            if pad_ms > 0:
+                cmd = [
+                    'ffmpeg', '-i', fpath,
+                    '-af', f'adelay={int(pad_ms * 1000)}|{int(pad_ms * 1000)}',
+                    '-y', output_path
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    return False, f"FFmpeg delay failed: {result.stderr}"
+            else:
+                shutil.copy(fpath, output_path)
+            return True, "Dialogue assembled successfully"
+        total_duration = 0
+        for pad_sec, fpath in tracks:
+            d = _get_audio_duration(fpath)
+            end = pad_sec + d
+            if end > total_duration:
+                total_duration = end
+        if total_duration <= 0:
+            return False, "Total duration is zero"
+        cmd = ['ffmpeg']
+        for _, fpath in tracks:
+            cmd.extend(['-i', fpath])
+        filter_parts = []
+        for idx, (pad_sec, _) in enumerate(tracks):
+            if pad_sec > 0:
+                delay_ms = int(pad_sec * 1000)
+                filter_parts.append(f"[{idx}:a]adelay={delay_ms}|{delay_ms}[d{idx}]")
+            else:
+                filter_parts.append(f"[{idx}:a]acopy[d{idx}]")
+        input_labels = "".join(f"[d{i}]" for i in range(len(tracks)))
+        filter_parts.append(f"{input_labels}amix=inputs={len(tracks)}:duration=longest:dropout_transition=0[out]")
+        filter_str = ";".join(filter_parts)
+        cmd.extend(['-filter_complex', filter_str, '-map', '[out]', '-y', output_path])
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            return False, f"FFmpeg mix failed: {result.stderr}"
+        return True, "Dialogue assembled successfully"
+    finally:
+        if sfx_generator:
+            sfx_generator.cleanup()
+        try:
+            shutil.rmtree(temp_dir)
+        except:
+            pass
 
 class QwenTTSVoiceDesign:
     def __init__(self, model_dir=None):
@@ -4067,20 +4422,78 @@ def cli_tts_mode():
                 char, text = line.split(':', 1)
                 char = char.strip()
                 text = text.strip()
-                if not char or not text:
-                    print(f"Error: Empty character or text in line: {line}")
+                if not char:
+                    print(f"Error: Empty character in line: {line}")
                     return False
-                dialogue_items.append((i, char, text))
+                if char.lower() == 'sfx' and not text:
+                    print(f"Error: Empty SFX prompt in line: {line}")
+                    return False
+                clean_text, directives_raw = _parse_script_directives(text)
+                parsed_directives, errors = _parse_directives_for_line(directives_raw)
+                if errors:
+                    print(f"Error in line {i}: {'; '.join(errors)}")
+                    print("  Please re-enter this line.")
+                    while True:
+                        retry_line = input("> ").strip()
+                        if not retry_line:
+                            print("Error: Line cannot be empty. Please try again.")
+                            continue
+                        if ':' not in retry_line:
+                            print("Error: Line must contain ':'. Please try again.")
+                            continue
+                        rchar, rtext = retry_line.split(':', 1)
+                        rchar = rchar.strip()
+                        rtext = rtext.strip()
+                        if rchar.lower() != char.lower():
+                            print(f"Error: Character must be '{char}'. Please try again.")
+                            continue
+                        if rchar.lower() == 'sfx' and not rtext:
+                            print("Error: SFX prompt cannot be empty. Please try again.")
+                            continue
+                        rclean_text, rdirectives_raw = _parse_script_directives(rtext)
+                        rparsed_directives, rerrors = _parse_directives_for_line(rdirectives_raw)
+                        if rerrors:
+                            print(f"Error: {'; '.join(rerrors)}. Please try again.")
+                            continue
+                        if rchar.lower() == 'sfx' and rparsed_directives.get('duration') is None:
+                            print("Error: SFX line requires /duration:nn (1-30). Please try again.")
+                            continue
+                        if not rclean_text and rchar.lower() != 'sfx':
+                            print("Error: Empty text. Please try again.")
+                            continue
+                        clean_text = rclean_text
+                        parsed_directives = rparsed_directives
+                        break
+                if char.lower() == 'sfx' and parsed_directives.get('duration') is None:
+                    while True:
+                        dur_input = input(f"  SFX duration for line {i} (1-30): ").strip()
+                        if not dur_input:
+                            print("Error: Duration is required for SFX lines.")
+                            continue
+                        val, err = _validate_duration_directive(dur_input)
+                        if err:
+                            print(f"Error: {err}. Please enter a number between 1 and 30.")
+                            continue
+                        parsed_directives['duration'] = val
+                        break
+                if not clean_text and char.lower() != 'sfx':
+                    print(f"Error: Empty text in line: {line}")
+                    return False
+                dialogue_items.append((i, char, clean_text, parsed_directives))
 
         chars = set()
-        for _, char, _ in dialogue_items:
-            chars.add(char.lower())
+        for _, char, _, _ in dialogue_items:
+            if char.lower() != 'sfx':
+                chars.add(char.lower())
 
-        print(f"\nVoice prompts for {len(chars)} character(s):")
+        _is_all_sfx_interactive = len(chars) == 0
+
+        if not _is_all_sfx_interactive:
+            print(f"\nVoice prompts for {len(chars)} character(s):")
         voice_prompts = {}
         sorted_chars = sorted(chars)
         for i, char_lower in enumerate(sorted_chars):
-            orig_char = next((c for _, c, _ in dialogue_items if c.lower() == char_lower), char_lower)
+            orig_char = next((c for _, c, _, _ in dialogue_items if c.lower() == char_lower), char_lower)
             prompt = input(f"{orig_char}: ").strip()
             if not prompt:
                 print(f"Error: No voice prompt for {orig_char}")
@@ -4089,17 +4502,28 @@ def cli_tts_mode():
             print(f"Progress: {i+1}/{len(chars)} completed")
 
         music_description = None
+        music_level_spec = None
         add_music = input("\nAdd background music? (y/N): ").strip().lower()
         if add_music in ('y', 'yes'):
             music_desc = input("Music description: ").strip()
             if music_desc:
                 music_description = music_desc
+        if music_description:
+            level_input = input("Sound level (optional, press Enter for default 35%): ").strip()
+            if level_input:
+                parsed_level = _parse_music_level_spec(level_input)
+                if parsed_level is None:
+                    print("Warning: Invalid level format, using default 35%")
+                else:
+                    music_level_spec = level_input
 
-        print("\nLoading Qwen-TTS VoiceDesign model...")
-        tts_design = QwenTTSVoiceDesign()
-        if tts_design.model is None:
-            print("Error: Failed to load VoiceDesign model")
-            return False
+        tts_design = None
+        if not _is_all_sfx_interactive:
+            print("\nLoading Qwen-TTS VoiceDesign model...")
+            tts_design = QwenTTSVoiceDesign()
+            if tts_design.model is None:
+                print("Error: Failed to load VoiceDesign model")
+                return False
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         base_name = f"voder_tts_dialogue_{timestamp}"
@@ -4107,127 +4531,63 @@ def cli_tts_mode():
             base_name += "_m"
         output_path = os.path.join(results_dir, f"{base_name}.wav")
 
-        if len(dialogue_items) == 1:
+        has_sfx = any(item[1].lower() == 'sfx' for item in dialogue_items)
+        has_effects = any(
+            item[3].get('time_end', 0) > 0 or item[3].get('time_start', 0) > 0 or item[3].get('time_pad', 0) > 0 or item[3].get('level', 100) != 100
+            for item in dialogue_items
+        ) if len(dialogue_items) > 0 else False
+
+        dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        dialogue_temp.close()
+
+        if has_sfx or has_effects:
+            success, msg = _assemble_enhanced_dialogue(
+                dialogue_items, voice_prompts, tts_design_obj=tts_design,
+                output_path=dialogue_temp.name, mode='tts'
+            )
+            if not success:
+                print(f"Error: {msg}")
+                return False
+        elif len(dialogue_items) == 1:
             _, char, text = dialogue_items[0]
             voice_instruct = voice_prompts[char.lower()]
-            dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-            dialogue_temp.close()
             success = tts_design.synthesize(text, voice_instruct, dialogue_temp.name)
             if not success:
                 print("Error: VoiceDesign synthesis failed")
                 return False
-            if music_description:
-                try:
-                    info = sf.info(dialogue_temp.name)
-                    duration = info.duration
-                    print(f"Dialogue duration: {duration:.2f}s")
-                except Exception as e:
-                    print(f"Could not get audio duration with soundfile: {e}")
-                    try:
-                        info = torchaudio.info(dialogue_temp.name)
-                        duration = info.num_frames / info.sample_rate
-                    except Exception as e2:
-                        print(f"Torchaudio also failed: {e2}")
-                        duration = 30
-                print("Generating background music...")
-                del tts_design
-                tts_design = None
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                ace = AceStepWrapper()
-                if ace.handler is None:
-                    print("Error: Failed to load ACE-Step model")
-                    return False
-                music_result = generate_background_music(ace, music_description, duration)
-                del ace
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                if music_result is None:
-                    print("Error: Background music generation failed")
-                    return False
-                music_temp_path, music_temp_dir = music_result
-                print("Mixing dialogue with music...")
-                mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                mixed_temp.close()
-                cmd = [
-                    'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp_path,
-                    '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
-                    '-y', mixed_temp.name
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                shutil.rmtree(music_temp_dir, ignore_errors=True)
-                if result.returncode != 0:
-                    print(f"FFmpeg mixing failed: {result.stderr}")
-                    return False
-                shutil.move(mixed_temp.name, output_path)
-                os.unlink(dialogue_temp.name)
-            else:
-                shutil.move(dialogue_temp.name, output_path)
-            print(f"\n✓ Success! Output saved to: {output_path}")
-            del tts_design
-            tts_design = None
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            return True
         else:
-            success, msg = tts_design.synthesize_dialogue(dialogue_items, voice_prompts, output_path)
+            simple_items = [(item[0], item[1], item[2]) for item in dialogue_items]
+            success, msg = tts_design.synthesize_dialogue(simple_items, voice_prompts, dialogue_temp.name)
             if not success:
                 print(f"Error: {msg}")
                 return False
-            if music_description:
-                print("Generating background music...")
-                try:
-                    info = sf.info(output_path)
-                    duration = info.duration
-                    print(f"Dialogue duration: {duration:.2f}s")
-                except Exception as e:
-                    print(f"Could not get audio duration with soundfile: {e}")
-                    try:
-                        info = torchaudio.info(output_path)
-                        duration = info.num_frames / info.sample_rate
-                    except Exception as e2:
-                        print(f"Torchaudio also failed: {e2}")
-                        duration = 30
+
+        if music_description:
+            if tts_design is not None:
                 del tts_design
                 tts_design = None
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                ace = AceStepWrapper()
-                if ace.handler is None:
-                    print("Error: Failed to load ACE-Step model")
-                    return False
-                music_result = generate_background_music(ace, music_description, duration)
-                del ace
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                if music_result is None:
-                    print("Error: Background music generation failed")
-                    return False
-                music_temp_path, music_temp_dir = music_result
-                print("Mixing dialogue with music...")
-                mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                mixed_temp.close()
-                cmd = [
-                    'ffmpeg', '-i', output_path, '-i', music_temp_path,
-                    '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
-                    '-y', mixed_temp.name
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                shutil.rmtree(music_temp_dir, ignore_errors=True)
-                if result.returncode != 0:
-                    print(f"FFmpeg mixing failed: {result.stderr}")
-                    return False
-                final_path = os.path.join(results_dir, f"voder_tts_dialogue_{timestamp}_m.wav")
-                shutil.move(mixed_temp.name, final_path)
-                os.unlink(output_path)
-                output_path = final_path
-            print(f"\n✓ Success! Output saved to: {output_path}")
-            del tts_design
-            tts_design = None
-            gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+            ace = AceStepWrapper()
+            if ace.handler is None:
+                print("Error: Failed to load ACE-Step model")
+                return False
+            success = _generate_music_and_mix(ace, music_description, dialogue_temp.name, output_path, music_level_spec)
+            del ace
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            if not success:
+                return False
+            os.unlink(dialogue_temp.name)
+        else:
+            shutil.move(dialogue_temp.name, output_path)
+        print(f"\n✓ Success! Output saved to: {output_path}")
+        if tts_design is not None:
+            del tts_design
+            tts_design = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
             return True
 
 def cli_tts_vc_mode():
@@ -4384,201 +4744,211 @@ def cli_tts_vc_mode():
                 char, text = line.split(':', 1)
                 char = char.strip()
                 text = text.strip()
-                if not char or not text:
-                    print(f"Error: Empty character or text in line: {line}")
+                if not char:
+                    print(f"Error: Empty character in line: {line}")
                     return False
-                dialogue_items.append((i, char, text))
+                if char.lower() == 'sfx' and not text:
+                    print(f"Error: Empty SFX prompt in line: {line}")
+                    return False
+                clean_text, directives_raw = _parse_script_directives(text)
+                parsed_directives, errors = _parse_directives_for_line(directives_raw)
+                if errors:
+                    print(f"Error in line {i}: {'; '.join(errors)}")
+                    print("  Please re-enter this line.")
+                    while True:
+                        retry_line = input("> ").strip()
+                        if not retry_line:
+                            print("Error: Line cannot be empty. Please try again.")
+                            continue
+                        if ':' not in retry_line:
+                            print("Error: Line must contain ':'. Please try again.")
+                            continue
+                        rchar, rtext = retry_line.split(':', 1)
+                        rchar = rchar.strip()
+                        rtext = rtext.strip()
+                        if rchar.lower() != char.lower():
+                            print(f"Error: Character must be '{char}'. Please try again.")
+                            continue
+                        if rchar.lower() == 'sfx' and not rtext:
+                            print("Error: SFX prompt cannot be empty. Please try again.")
+                            continue
+                        rclean_text, rdirectives_raw = _parse_script_directives(rtext)
+                        rparsed_directives, rerrors = _parse_directives_for_line(rdirectives_raw)
+                        if rerrors:
+                            print(f"Error: {'; '.join(rerrors)}. Please try again.")
+                            continue
+                        if rchar.lower() == 'sfx' and rparsed_directives.get('duration') is None:
+                            print("Error: SFX line requires /duration:nn (1-30). Please try again.")
+                            continue
+                        if not rclean_text and rchar.lower() != 'sfx':
+                            print("Error: Empty text. Please try again.")
+                            continue
+                        clean_text = rclean_text
+                        parsed_directives = rparsed_directives
+                        break
+                if char.lower() == 'sfx' and parsed_directives.get('duration') is None:
+                    while True:
+                        dur_input = input(f"  SFX duration for line {i} (1-30): ").strip()
+                        if not dur_input:
+                            print("Error: Duration is required for SFX lines.")
+                            continue
+                        val, err = _validate_duration_directive(dur_input)
+                        if err:
+                            print(f"Error: {err}. Please enter a number between 1 and 30.")
+                            continue
+                        parsed_directives['duration'] = val
+                        break
+                if not clean_text and char.lower() != 'sfx':
+                    print(f"Error: Empty text in line: {line}")
+                    return False
+                dialogue_items.append((i, char, clean_text, parsed_directives))
 
         chars = set()
-        for _, char, _ in dialogue_items:
-            chars.add(char.lower())
+        for _, char, _, _ in dialogue_items:
+            if char.lower() != 'sfx':
+                chars.add(char.lower())
 
-        print(f"\nDo you have a multi-speaker audio source? (for auto voice cloning)")
-        print("Press Y to provide a file, or N to enter manually for each character")
-        has_multispeaker = input("> ").strip().lower()
+        _is_all_sfx_vc_interactive = len(chars) == 0
 
         assignments = {}
-        sorted_chars = sorted(chars)
         temp_clip_dir = None
 
-        if has_multispeaker in ['y', 'yes']:
-            while True:
-                print("\nEnter the path to your multi-speaker audio source (file path or YouTube URL):")
-                file_path = input("> ").strip()
-                if not file_path:
-                    print("Error: No file path provided")
-                    continue
+        if not _is_all_sfx_vc_interactive:
+            sorted_chars = sorted(chars)
+            print(f"\nDo you have a multi-speaker audio source? (for auto voice cloning)")
+            print("Press Y to provide a file, or N to enter manually for each character")
+            has_multispeaker = input("> ").strip().lower()
 
-                source_type = "audio"
-                if "youtube.com" in file_path.lower() or "youtu.be" in file_path.lower():
-                    source_type = "youtube"
-                    success, msg, _ = validate_dialogue_source_file(file_path)
-                    if not success:
-                        print(f"Error: {msg}")
+            if has_multispeaker in ['y', 'yes']:
+                while True:
+                    print("\nEnter the path to your multi-speaker audio source (file path or YouTube URL):")
+                    file_path = input("> ").strip()
+                    if not file_path:
+                        print("Error: No file path provided")
+                        continue
+
+                    source_type = "audio"
+                    if "youtube.com" in file_path.lower() or "youtu.be" in file_path.lower():
+                        source_type = "youtube"
+                        success, msg, _ = validate_dialogue_source_file(file_path)
+                        if not success:
+                            print(f"Error: {msg}")
+                            retry = input("Try another source? (Y/N): ").strip().lower()
+                            if retry not in ['y', 'yes']:
+                                return False
+                            continue
+                    elif not os.path.exists(file_path):
+                        print(f"Error: File not found: {file_path}")
                         retry = input("Try another source? (Y/N): ").strip().lower()
                         if retry not in ['y', 'yes']:
                             return False
                         continue
-                elif not os.path.exists(file_path):
-                    print(f"Error: File not found: {file_path}")
-                    retry = input("Try another source? (Y/N): ").strip().lower()
-                    if retry not in ['y', 'yes']:
-                        return False
-                    continue
 
-                print(f"\nExtracting voice clips from multi-speaker source...")
-                success, error_msg, clips_dict = extract_voice_clips_from_multispeaker(
-                    file_path, len(sorted_chars), source_type=source_type
-                )
+                    print(f"\nExtracting voice clips from multi-speaker source...")
+                    success, error_msg, clips_dict = extract_voice_clips_from_multispeaker(
+                        file_path, len(sorted_chars), source_type=source_type
+                    )
 
-                if not success:
-                    print(f"Error: {error_msg}")
-                    retry = input("Try another source? (Y/N): ").strip().lower()
-                    if retry not in ['y', 'yes']:
-                        return False
-                    continue
-
-                print(f"\nExtracted {len(clips_dict)} voice clip(s). Assigning to characters...")
-
-                clip_keys = sorted(clips_dict.keys(), key=lambda x: int(x))
-
-                for i, char_lower in enumerate(sorted_chars):
-                    orig_char = next((c for _, c, _ in dialogue_items if c.lower() == char_lower), char_lower)
-                    if i < len(clip_keys):
-                        clip_path = clips_dict[clip_keys[i]]
-                        assignments[char_lower] = clip_path
-                        print(f"  {orig_char} -> speaker {clip_keys[i]} (auto)")
-                    else:
-                        path = input(f"{orig_char} (need more): ").strip()
-                        if not path:
-                            print(f"Error: No audio path provided for {orig_char}")
+                    if not success:
+                        print(f"Error: {error_msg}")
+                        retry = input("Try another source? (Y/N): ").strip().lower()
+                        if retry not in ['y', 'yes']:
                             return False
-                        valid, msg = validate_audio_file(path)
-                        if not valid:
-                            print(f"Error: {msg}")
-                            return False
-                        if msg == "video":
-                            print(f"Extracting audio from video for {orig_char}...")
-                            extracted = extract_audio_from_video_cli(path)
-                            if not extracted:
-                                print(f"Error: Could not extract audio from video for {orig_char}")
+                        continue
+
+                    print(f"\nExtracted {len(clips_dict)} voice clip(s). Assigning to characters...")
+
+                    clip_keys = sorted(clips_dict.keys(), key=lambda x: int(x))
+
+                    for i, char_lower in enumerate(sorted_chars):
+                        orig_char = next((c for _, c, _, _ in dialogue_items if c.lower() == char_lower), char_lower)
+                        if i < len(clip_keys):
+                            clip_path = clips_dict[clip_keys[i]]
+                            assignments[char_lower] = clip_path
+                            print(f"  {orig_char} -> speaker {clip_keys[i]} (auto)")
+                        else:
+                            path = input(f"{orig_char} (need more): ").strip()
+                            if not path:
+                                print(f"Error: No audio path provided for {orig_char}")
                                 return False
-                            path = extracted
-                        assignments[char_lower] = path
-                        print(f"  {orig_char} -> manual")
+                            valid, msg = validate_audio_file(path)
+                            if not valid:
+                                print(f"Error: {msg}")
+                                return False
+                            if msg == "video":
+                                print(f"Extracting audio from video for {orig_char}...")
+                                extracted = extract_audio_from_video_cli(path)
+                                if not extracted:
+                                    print(f"Error: Could not extract audio from video for {orig_char}")
+                                    return False
+                                path = extracted
+                            assignments[char_lower] = path
+                            print(f"  {orig_char} -> manual")
 
-                temp_clip_dir = os.path.dirname(list(clips_dict.values())[0]) if clips_dict else None
-                break
-        else:
-            print(f"\nAudio file paths for {len(chars)} character(s):")
-            for i, char_lower in enumerate(sorted_chars):
-                orig_char = next((c for _, c, _ in dialogue_items if c.lower() == char_lower), char_lower)
-                path = input(f"{orig_char}: ").strip()
-                if not path:
-                    print(f"Error: No audio path provided for {orig_char}")
-                    return False
-                valid, msg = validate_audio_file(path)
-                if not valid:
-                    print(f"Error: {msg}")
-                    return False
-                if msg == "video":
-                    print(f"Extracting audio from video for {orig_char}...")
-                    extracted = extract_audio_from_video_cli(path)
-                    if not extracted:
-                        print(f"Error: Could not extract audio from video for {orig_char}")
+                    temp_clip_dir = os.path.dirname(list(clips_dict.values())[0]) if clips_dict else None
+                    break
+            else:
+                print(f"\nAudio file paths for {len(chars)} character(s):")
+                for i, char_lower in enumerate(sorted_chars):
+                    orig_char = next((c for _, c, _, _ in dialogue_items if c.lower() == char_lower), char_lower)
+                    path = input(f"{orig_char}: ").strip()
+                    if not path:
+                        print(f"Error: No audio path provided for {orig_char}")
                         return False
-                    path = extracted
-                assignments[char_lower] = path
-                print(f"Progress: {i+1}/{len(chars)} completed")
+                    valid, msg = validate_audio_file(path)
+                    if not valid:
+                        print(f"Error: {msg}")
+                        return False
+                    if msg == "video":
+                        print(f"Extracting audio from video for {orig_char}...")
+                        extracted = extract_audio_from_video_cli(path)
+                        if not extracted:
+                            print(f"Error: Could not extract audio from video for {orig_char}")
+                            return False
+                        path = extracted
+                    assignments[char_lower] = path
+                    print(f"Progress: {i+1}/{len(chars)} completed")
 
         music_description = None
+        music_level_spec = None
         add_music = input("\nAdd background music? (y/N): ").strip().lower()
         if add_music in ('y', 'yes'):
             music_desc = input("Music description: ").strip()
             if music_desc:
                 music_description = music_desc
+        if music_description:
+            level_input = input("Sound level (optional, press Enter for default 35%): ").strip()
+            if level_input:
+                parsed_level = _parse_music_level_spec(level_input)
+                if parsed_level is None:
+                    print("Warning: Invalid level format, using default 35%")
+                else:
+                    music_level_spec = level_input
 
-        print("\nLoading Qwen-TTS model...")
-        tts = QwenTTS()
+        tts = None
+        if not _is_all_sfx_vc_interactive:
+            print("\nLoading Qwen-TTS model...")
+            tts = QwenTTS()
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         base_name = f"voder_tts_vc_dialogue_{timestamp}"
         if music_description:
             base_name += "_m"
         output_path = os.path.join(results_dir, f"{base_name}.wav")
 
-        if len(dialogue_items) == 1:
-            _, char, text = dialogue_items[0]
-            audio_path = assignments[char.lower()]
-            success = tts.extract_voice(audio_path)
-            if not success:
-                print("Error: Voice extraction failed")
-                return False
-            dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-            dialogue_temp.close()
-            success = tts.synthesize(text, dialogue_temp.name)
-            if not success:
-                print("Error: Synthesis failed")
-                return False
-            if music_description:
-                try:
-                    info = sf.info(dialogue_temp.name)
-                    duration = info.duration
-                    print(f"Dialogue duration: {duration:.2f}s")
-                except Exception as e:
-                    print(f"Could not get audio duration with soundfile: {e}")
-                    try:
-                        info = torchaudio.info(dialogue_temp.name)
-                        duration = info.num_frames / info.sample_rate
-                    except Exception as e2:
-                        print(f"Torchaudio also failed: {e2}")
-                        duration = 30
-                print("Generating background music...")
-                del tts
-                tts = None
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                ace = AceStepWrapper()
-                if ace.handler is None:
-                    print("Error: Failed to load ACE-Step model")
-                    return False
-                music_result = generate_background_music(ace, music_description, duration)
-                del ace
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                if music_result is None:
-                    print("Error: Background music generation failed")
-                    return False
-                music_temp_path, music_temp_dir = music_result
-                print("Mixing dialogue with music...")
-                mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                mixed_temp.close()
-                cmd = [
-                    'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp_path,
-                    '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
-                    '-y', mixed_temp.name
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                shutil.rmtree(music_temp_dir, ignore_errors=True)
-                if result.returncode != 0:
-                    print(f"FFmpeg mixing failed: {result.stderr}")
-                    return False
-                shutil.move(mixed_temp.name, output_path)
-                os.unlink(dialogue_temp.name)
-            else:
-                shutil.move(dialogue_temp.name, output_path)
-            print(f"\n✓ Success! Output saved to: {output_path}")
-            del tts
-            tts = None
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            return True
-        else:
-            temp_dir = tempfile.mkdtemp()
-            temp_files = []
+        dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        dialogue_temp.close()
+
+        has_sfx = any(item[1].lower() == 'sfx' for item in dialogue_items)
+        has_effects = any(
+            item[3].get('time_end', 0) > 0 or item[3].get('time_start', 0) > 0 or item[3].get('time_pad', 0) > 0 or item[3].get('level', 100) != 100
+            for item in dialogue_items
+        ) if len(dialogue_items) > 0 else False
+
+        if has_sfx or has_effects:
             unique_chars = set()
-            for _, char, _ in dialogue_items:
-                unique_chars.add(char.lower())
+            for _, char, _, _ in dialogue_items:
+                if char.lower() != 'sfx':
+                    unique_chars.add(char.lower())
             voice_prompts = {}
             for char_lower in unique_chars:
                 audio_path = assignments[char_lower]
@@ -4588,8 +4958,42 @@ def cli_tts_vc_mode():
                     print(f"Error: Failed to extract voice from {audio_path}")
                     return False
                 voice_prompts[char_lower] = tts.voice_prompt
+            success, msg = _assemble_enhanced_dialogue(
+                dialogue_items, voice_prompts, tts_vc_obj=tts,
+                output_path=dialogue_temp.name, mode='tts_vc'
+            )
+            if not success:
+                print(f"Error: {msg}")
+                return False
+        elif len(dialogue_items) == 1:
+            _, char, text = dialogue_items[0]
+            audio_path = assignments[char.lower()]
+            success = tts.extract_voice(audio_path)
+            if not success:
+                print("Error: Voice extraction failed")
+                return False
+            success = tts.synthesize(text, dialogue_temp.name)
+            if not success:
+                print("Error: Synthesis failed")
+                return False
+        else:
+            temp_dir = tempfile.mkdtemp()
             try:
-                for i, (num, char, script_text) in enumerate(dialogue_items):
+                temp_files = []
+                simple_items = [(item[0], item[1], item[2]) for item in dialogue_items]
+                unique_chars = set()
+                for _, char, _ in simple_items:
+                    unique_chars.add(char.lower())
+                voice_prompts = {}
+                for char_lower in unique_chars:
+                    audio_path = assignments[char_lower]
+                    print(f"Extracting voice for '{char_lower}'...")
+                    success = tts.extract_voice(audio_path)
+                    if not success:
+                        print(f"Error: Failed to extract voice from {audio_path}")
+                        return False
+                    voice_prompts[char_lower] = tts.voice_prompt
+                for i, (num, char, script_text) in enumerate(simple_items):
                     char_lower = char.lower()
                     print(f"Processing line {num} for '{char}'...")
                     tts.voice_prompt = voice_prompts[char_lower]
@@ -4600,8 +5004,6 @@ def cli_tts_vc_mode():
                         print(f"Error: Failed to generate speech for line {num}")
                         return False
                 temp_files.sort(key=lambda x: x[0])
-                dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                dialogue_temp.close()
                 concat_list = os.path.join(temp_dir, "concat_list.txt")
                 with open(concat_list, 'w') as f:
                     for _, tf in temp_files:
@@ -4611,60 +5013,6 @@ def cli_tts_vc_mode():
                 if result.returncode != 0:
                     print(f"Error: FFmpeg concatenation failed: {result.stderr}")
                     return False
-                if music_description:
-                    try:
-                        info = sf.info(dialogue_temp.name)
-                        duration = info.duration
-                        print(f"Dialogue duration: {duration:.2f}s")
-                    except Exception as e:
-                        print(f"Could not get audio duration with soundfile: {e}")
-                        try:
-                            info = torchaudio.info(dialogue_temp.name)
-                            duration = info.num_frames / info.sample_rate
-                        except Exception as e2:
-                            print(f"Torchaudio also failed: {e2}")
-                            duration = 30
-                    print("Generating background music...")
-                    del tts
-                    tts = None
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    ace = AceStepWrapper()
-                    if ace.handler is None:
-                        print("Error: Failed to load ACE-Step model")
-                        return False
-                    music_result = generate_background_music(ace, music_description, duration)
-                    del ace
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    if music_result is None:
-                        print("Error: Background music generation failed")
-                        return False
-                    music_temp_path, music_temp_dir = music_result
-                    print("Mixing dialogue with music...")
-                    mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                    mixed_temp.close()
-                    cmd = [
-                        'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp_path,
-                        '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
-                        '-y', mixed_temp.name
-                    ]
-                    result = subprocess.run(cmd, capture_output=True, text=True)
-                    shutil.rmtree(music_temp_dir, ignore_errors=True)
-                    if result.returncode != 0:
-                        print(f"FFmpeg mixing failed: {result.stderr}")
-                        return False
-                    shutil.move(mixed_temp.name, output_path)
-                    os.unlink(dialogue_temp.name)
-                else:
-                    shutil.move(dialogue_temp.name, output_path)
-                print(f"\n✓ Success! Output saved to: {output_path}")
-                del tts
-                tts = None
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                return True
             finally:
                 try:
                     shutil.rmtree(temp_dir)
@@ -4675,6 +5023,34 @@ def cli_tts_vc_mode():
                         shutil.rmtree(temp_clip_dir)
                     except:
                         pass
+
+        if music_description:
+            if tts is not None:
+                del tts
+                tts = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            ace = AceStepWrapper()
+            if ace.handler is None:
+                print("Error: Failed to load ACE-Step model")
+                return False
+            success = _generate_music_and_mix(ace, music_description, dialogue_temp.name, output_path, music_level_spec)
+            del ace
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            if not success:
+                return False
+            os.unlink(dialogue_temp.name)
+        else:
+            shutil.move(dialogue_temp.name, output_path)
+        print(f"\n✓ Success! Output saved to: {output_path}")
+        if tts is not None:
+            del tts
+            tts = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        return True
 
 def cli_stt_tts_mode():
     original_cwd = os.getcwd()
@@ -5043,7 +5419,7 @@ def parse_oneline_args(args):
         return {'error': 'No arguments provided'}
     mode = args[0].lower()
     result = {'mode': mode, 'params': {}, 'error': None, 'is_music': False}
-    valid_keywords = ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'music', 'duration', 'timestamp', 'dialogue']
+    valid_keywords = ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'music', 'duration', 'timestamp', 'dialogue', 'sound', 'steps', 'guide', 'level']
     i = 1
     current_keyword = None
     result_path = None
@@ -5075,6 +5451,125 @@ def parse_oneline_args(args):
             return result
 
         result['params']['files'] = file_paths
+        result['params']['result_path'] = result_path
+        return result
+
+    if mode == 'se':
+        file_paths = []
+        while i < len(args):
+            arg = args[i]
+            arg_lower = arg.lower()
+            if arg_lower == 'result':
+                if i + 1 < len(args):
+                    result_path = args[i + 1]
+                    i += 2
+                else:
+                    result['error'] = 'result keyword requires a path argument'
+                    return result
+            elif os.path.exists(arg):
+                file_paths.append(arg)
+                i += 1
+            else:
+                result['error'] = f'File not found: {arg}'
+                return result
+
+        if not file_paths:
+            result['error'] = 'SE mode requires at least one audio/video file path'
+            return result
+
+        result['params']['files'] = file_paths
+        result['params']['result_path'] = result_path
+        return result
+
+    if mode == 'sfx':
+        prompt = None
+        duration = None
+        steps = None
+        guide = None
+        while i < len(args):
+            arg = args[i]
+            arg_lower = arg.lower()
+            if arg_lower == 'sound':
+                if i + 1 < len(args):
+                    prompt = args[i + 1]
+                    i += 2
+                else:
+                    result['error'] = 'sound keyword requires a prompt argument'
+                    return result
+            elif arg_lower == 'duration':
+                if i + 1 < len(args):
+                    try:
+                        duration = int(args[i + 1])
+                        i += 2
+                    except ValueError:
+                        result['error'] = 'duration must be a number between 1 and 30'
+                        return result
+                else:
+                    result['error'] = 'duration keyword requires a number argument'
+                    return result
+            elif arg_lower == 'steps':
+                if i + 1 < len(args):
+                    try:
+                        steps = int(args[i + 1])
+                        i += 2
+                    except ValueError:
+                        print("Warning: Invalid steps value, using default (30).")
+                        steps = None
+                        i += 2
+                else:
+                    print("Warning: steps keyword requires a number, using default (30).")
+                    i += 1
+            elif arg_lower == 'guide':
+                if i + 1 < len(args):
+                    try:
+                        guide = float(args[i + 1])
+                        i += 2
+                    except ValueError:
+                        print("Warning: Invalid guide value, using default (4.5).")
+                        guide = None
+                        i += 2
+                else:
+                    print("Warning: guide keyword requires a number, using default (4.5).")
+                    i += 1
+            elif arg_lower == 'result':
+                if i + 1 < len(args):
+                    result_path = args[i + 1]
+                    i += 2
+                else:
+                    result['error'] = 'result keyword requires a path argument'
+                    return result
+            else:
+                result['error'] = f'Unknown parameter: {arg}'
+                return result
+
+        if not prompt:
+            result['error'] = 'SFX mode requires a sound prompt (sound "your prompt")'
+            return result
+        if duration is None:
+            result['error'] = 'SFX mode requires a duration (duration <1-30>)'
+            return result
+        if duration < 1:
+            result['error'] = 'Duration must be at least 1 second'
+            return result
+
+        use_steps = 30
+        use_guide = 4.5
+        if steps is not None:
+            if 1 <= steps <= 100:
+                use_steps = steps
+            else:
+                print("Warning: steps must be between 1-100, using default (30).")
+        if guide is not None:
+            guide = round(guide * 2) / 2
+            if 1.0 <= guide <= 10.0:
+                use_guide = guide
+            else:
+                print("Warning: guide must be between 1.0-10.0, using default (4.5).")
+
+        result['params']['prompt'] = prompt
+        result['params']['duration'] = duration
+        result['params']['steps'] = use_steps
+        result['params']['guide'] = use_guide
         result['params']['result_path'] = result_path
         return result
 
@@ -5134,7 +5629,7 @@ def is_num(s):
         return False
 
 def validate_oneline_mode(mode_name):
-    valid_modes = ['tts', 'tts+vc', 'sts', 'ttm', 'ttm+vc', 'stt']
+    valid_modes = ['tts', 'tts+vc', 'sts', 'ttm', 'ttm+vc', 'stt', 'se', 'sfx']
     if mode_name.lower() in ['stt+tts', 'stt_tts', 'stttts']:
         return 'stt+tts_rejected'
     if mode_name.lower() in valid_modes:
@@ -5152,6 +5647,8 @@ def show_oneline_usage():
     print("  ttm      - Text-to-Music")
     print("  ttm+vc   - Text-to-Music + Voice Conversion")
     print("  stt      - Speech-to-Text (Transcription with optional diarization)")
+    print("  se       - Speech Enhancement (denoise, dereverb, restore)")
+    print("  sfx      - Sound Effects (text prompt + duration → audio)")
     print()
     print("Note: STT+TTS mode is not available in one-line mode.")
     print("      Use 'tts' mode with your text, or use interactive CLI.")
@@ -5172,10 +5669,22 @@ def show_oneline_usage():
     print('  python voder.py stt "audio.wav" timestamp dialogue')
     print('  python voder.py stt "https://youtube.com/watch?v=..."')
     print()
+    print("SE examples (Speech Enhancement):")
+    print('  python voder.py se "path/to/audio.wav"')
+    print('  python voder.py se "audio1.wav" "audio2.wav"')
+    print('  python voder.py se "path/to/video.mp4"')
+    print()
+    print("SFX examples (Sound Effects Generation):")
+    print('  python voder.py sfx sound "thunder cracking" duration 5')
+    print('  python voder.py sfx sound "rain on a tin roof" duration 10 result "output.wav"')
+    print('  python voder.py sfx sound "rain on a tin roof" duration 10 steps 50')
+    print('  python voder.py sfx sound "rain on a tin roof" duration 10 steps 50 guide 3.5 result "output.wav"')
+    print()
     print("Dialogue mode examples:")
     print('  python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female"')
     print('  python voder.py tts+vc script "James: Hello" script "Sarah: Hi" target "James: james.wav" target "Sarah: sarah.wav"')
     print('  python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "soft piano"')
+    print('  python voder.py tts script "James: Hello" script "sfx: thunder /duration:3" voice "James: deep male" music "soft piano" level "10:20-50"')
     print()
     print("Parameters (can appear multiple times):")
     print("  script   - Dialogue line in 'Character: text' format, or plain text for single mode")
@@ -5187,7 +5696,19 @@ def show_oneline_usage():
     print("  music    - Music flag for STS mode (uses 44.1kHz v1 model)")
     print("  timestamp - Keep Whisper timestamps in output (STT mode)")
     print("  dialogue - Enable speaker diarization (STT mode)")
+    print("  sound    - Sound effect prompt (SFX mode)")
+    print("  duration - Duration in seconds (10-300 for TTM, 1-30 for SFX)")
+    print("  steps    - Inference steps (1-100, SFX mode, default: 30)")
+    print("  guide    - Guidance scale (1.0-10.0, SFX mode, default: 4.5)")
+    print("  music    - Background music description (dialogue modes)")
+    print("  level    - Music volume levels e.g. \"10:20-50 30:60-80\" (dialogue modes, default: 35%)")
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
+    print()
+    print("Script directives (per line, at end of text):")
+    print("  /time:nn-nn+nn  - Cut nn seconds from end (-nn) and/or start (+nn)")
+    print("  /level:0-100     - Volume level for that line (default: 100)")
+    print("  /duration:1-30    - SFX duration (required for sfx: lines)")
+    print("  sfx: prompt      - Special character: generates SFX via TangoFlux")
 
 def execute_oneline_command(parsed):
     mode = parsed['mode']
@@ -5208,6 +5729,10 @@ def execute_oneline_command(parsed):
         success = oneline_ttm_vc(params)
     elif mode == 'stt':
         success = oneline_stt(params)
+    elif mode == 'se':
+        success = oneline_se(params)
+    elif mode == 'sfx':
+        success = oneline_sfx(params)
     else:
         print(f"Error: Unknown mode '{mode}'")
         show_oneline_usage()
@@ -5252,20 +5777,26 @@ def oneline_tts(params):
 
     scripts = params.get('script', [])
     voices = params.get('voice', [])
+    targets = params.get('target', [])
     music_params = params.get('music', [])
     music_description = music_params[0] if music_params else None
+    level_params = params.get('level', [])
+    music_level_spec = level_params[0] if level_params else None
 
     if not scripts:
         print("Error: TTS mode requires at least one 'script' parameter")
         return False
-    if not voices:
-        print("Error: TTS mode requires at least one 'voice' parameter")
+
+    _is_all_sfx = all(s.strip().lower().startswith('sfx:') for s in scripts)
+    if not voices and not targets and not _is_all_sfx:
+        print("Error: TTS mode requires at least one 'voice' or 'target' parameter")
         return False
 
     has_colon_script = any(':' in s for s in scripts)
-    has_colon_voice = any(':' in v for v in voices)
+    has_colon_voice = any(':' in v for v in voices) if voices else False
+    has_colon_target = any(':' in t for t in targets) if targets else False
 
-    if not has_colon_script and not has_colon_voice:
+    if not has_colon_script and not has_colon_voice and not has_colon_target:
         if len(scripts) != 1:
             print("Error: Single mode expects exactly one script argument")
             return False
@@ -5291,8 +5822,11 @@ def oneline_tts(params):
         print(f"✓ Success! Output saved to: {output_path}")
         return True
     else:
-        if not (has_colon_script and has_colon_voice):
-            print("Error: Dialogue mode requires both script and voice parameters to use 'Character: value' format consistently.")
+        if not has_colon_script:
+            print("Error: Dialogue script must be in format 'Character: text', got: {s}")
+            return False
+        if not _is_all_sfx and not has_colon_voice and not has_colon_target:
+            print("Error: Dialogue mode requires voice or target parameters in 'Character: value' format.")
             return False
         dialogue_items = []
         for idx, s in enumerate(scripts, start=1):
@@ -5302,10 +5836,24 @@ def oneline_tts(params):
             char, text = s.split(':', 1)
             char = char.strip()
             text = text.strip()
-            if not char or not text:
-                print(f"Error: Empty character or text in script: {s}")
+            if not char:
+                print(f"Error: Empty character in script: {s}")
                 return False
-            dialogue_items.append((idx, char, text))
+            if char.lower() == 'sfx' and not text:
+                print(f"Error: Empty SFX prompt in script: {s}")
+                return False
+            clean_text, directives_raw = _parse_script_directives(text)
+            parsed_directives, errors = _parse_directives_for_line(directives_raw)
+            if errors:
+                print(f"Error in script line {idx}: {'; '.join(errors)}")
+                return False
+            if char.lower() == 'sfx' and parsed_directives.get('duration') is None:
+                print(f"Error: SFX line {idx} requires /duration:nn (1-30)")
+                return False
+            if not clean_text and char.lower() != 'sfx':
+                print(f"Error: Empty text in script: {s}")
+                return False
+            dialogue_items.append((idx, char, clean_text, parsed_directives))
 
         voice_prompts = {}
         for v in voices:
@@ -5320,22 +5868,75 @@ def oneline_tts(params):
                 return False
             voice_prompts[char.lower()] = prompt
 
-        script_chars = set()
-        for _, char, _ in dialogue_items:
-            script_chars.add(char.lower())
-        missing = script_chars - set(voice_prompts.keys())
-        if missing:
-            print(f"Error: Missing voice prompts for characters: {', '.join(missing)}")
+        target_assignments = {}
+        for t in targets:
+            if ':' not in t:
+                print(f"Error: Target assignment must be in format 'Character: path', got: {t}")
+                return False
+            char, path = t.split(':', 1)
+            char = char.strip()
+            path = path.strip()
+            if not char or not path:
+                print(f"Error: Empty character or path in target: {t}")
+                return False
+            valid, msg = validate_audio_file(path)
+            if not valid:
+                print(f"Error: {msg}")
+                return False
+            if msg == "video":
+                print(f"Extracting audio from video for character '{char}'...")
+                extracted = extract_audio_from_video_cli(path)
+                if not extracted:
+                    print(f"Error: Could not extract audio from video for character '{char}'")
+                    return False
+                path = extracted
+            target_assignments[char.lower()] = path
+
+        overlap = set(voice_prompts.keys()) & set(target_assignments.keys())
+        if overlap:
+            print(f"Error: Character(s) specified in both voice and target: {', '.join(overlap)}")
             return False
+
+        script_chars = set()
+        for _, char, _, _ in dialogue_items:
+            if char.lower() != 'sfx':
+                script_chars.add(char.lower())
+        all_assigned = set(voice_prompts.keys()) | set(target_assignments.keys())
+        missing = script_chars - all_assigned
+        if missing:
+            print(f"Error: Missing voice/target for characters: {', '.join(missing)}")
+            return False
+
+        has_tts_chars = len(voice_prompts) > 0
+        has_vc_chars = len(target_assignments) > 0
 
         if music_description and music_description.strip() == "":
             music_description = None
 
-        print("Loading Qwen-TTS VoiceDesign model...")
-        tts_design = QwenTTSVoiceDesign()
-        if tts_design.model is None:
-            print("Error: Failed to load VoiceDesign model")
-            return False
+        if music_level_spec and not music_description:
+            print("Warning: Level spec ignored (no music description provided)")
+
+        tts_design = None
+        if has_tts_chars:
+            print("Loading Qwen-TTS VoiceDesign model...")
+            tts_design = QwenTTSVoiceDesign()
+            if tts_design.model is None:
+                print("Error: Failed to load VoiceDesign model")
+                return False
+
+        vc_voice_prompts = None
+        tts_obj = None
+        if has_vc_chars:
+            print("Loading Qwen-TTS model...")
+            tts_obj = QwenTTS()
+            vc_voice_prompts = {}
+            for char_lower, audio_path in target_assignments.items():
+                print(f"Extracting voice for '{char_lower}'...")
+                success = tts_obj.extract_voice(audio_path)
+                if not success:
+                    print(f"Error: Failed to extract voice from {audio_path}")
+                    return False
+                vc_voice_prompts[char_lower] = tts_obj.voice_prompt
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         base_name = f"voder_tts_dialogue_{timestamp}"
@@ -5343,120 +5944,59 @@ def oneline_tts(params):
             base_name += "_m"
         output_path = os.path.join(results_dir, f"{base_name}.wav")
 
-        if len(dialogue_items) == 1:
-            _, char, text = dialogue_items[0]
-            voice_instruct = voice_prompts[char.lower()]
-            dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-            dialogue_temp.close()
-            success = tts_design.synthesize(text, voice_instruct, dialogue_temp.name)
-            if not success:
-                print("Error: VoiceDesign synthesis failed")
-                return False
-            if music_description:
-                try:
-                    info = sf.info(dialogue_temp.name)
-                    duration = info.duration
-                    print(f"Dialogue duration: {duration:.2f}s")
-                except Exception as e:
-                    print(f"Could not get audio duration with soundfile: {e}")
-                    try:
-                        info = torchaudio.info(dialogue_temp.name)
-                        duration = info.num_frames / info.sample_rate
-                    except Exception as e2:
-                        print(f"Torchaudio also failed: {e2}")
-                        duration = 30
-                print("Generating background music...")
-                del tts_design
-                tts_design = None
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                ace = AceStepWrapper()
-                if ace.handler is None:
-                    print("Error: Failed to load ACE-Step model")
-                    return False
-                music_result = generate_background_music(ace, music_description, duration)
-                del ace
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                if music_result is None:
-                    print("Error: Background music generation failed")
-                    return False
-                music_temp_path, music_temp_dir = music_result
-                print("Mixing dialogue with music...")
-                mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                mixed_temp.close()
-                cmd = [
-                    'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp_path,
-                    '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
-                    '-y', mixed_temp.name
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                shutil.rmtree(music_temp_dir, ignore_errors=True)
-                if result.returncode != 0:
-                    print(f"FFmpeg mixing failed: {result.stderr}")
-                    return False
-                shutil.move(mixed_temp.name, output_path)
-                os.unlink(dialogue_temp.name)
-            else:
-                shutil.move(dialogue_temp.name, output_path)
-            print(f"✓ Success! Output saved to: {output_path}")
-            return True
-        else:
-            dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-            dialogue_temp.close()
-            success, msg = tts_design.synthesize_dialogue(dialogue_items, voice_prompts, dialogue_temp.name)
+        dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        dialogue_temp.close()
+
+        has_sfx = any(item[1].lower() == 'sfx' for item in dialogue_items)
+        has_effects = any(
+            item[3].get('time_end', 0) > 0 or item[3].get('time_start', 0) > 0 or item[3].get('time_pad', 0) > 0 or item[3].get('level', 100) != 100
+            for item in dialogue_items
+        ) if len(dialogue_items) > 0 else False
+
+        if has_sfx or has_effects or has_vc_chars:
+            success, msg = _assemble_enhanced_dialogue(
+                dialogue_items, voice_prompts, tts_design_obj=tts_design,
+                tts_vc_obj=tts_obj, vc_voice_data=vc_voice_prompts,
+                output_path=dialogue_temp.name, mode='tts'
+            )
             if not success:
                 print(f"Error: {msg}")
                 return False
-            if music_description:
-                try:
-                    info = sf.info(dialogue_temp.name)
-                    duration = info.duration
-                    print(f"Dialogue duration: {duration:.2f}s")
-                except Exception as e:
-                    print(f"Could not get audio duration with soundfile: {e}")
-                    try:
-                        info = torchaudio.info(dialogue_temp.name)
-                        duration = info.num_frames / info.sample_rate
-                    except Exception as e2:
-                        print(f"Torchaudio also failed: {e2}")
-                        duration = 30
-                print("Generating background music...")
+        else:
+            simple_items = [(item[0], item[1], item[2]) for item in dialogue_items]
+            success, msg = tts_design.synthesize_dialogue(simple_items, voice_prompts, dialogue_temp.name)
+            if not success:
+                print(f"Error: {msg}")
+                return False
+
+        if music_description:
+            if tts_design is not None:
                 del tts_design
                 tts_design = None
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                ace = AceStepWrapper()
-                if ace.handler is None:
-                    print("Error: Failed to load ACE-Step model")
-                    return False
-                music_result = generate_background_music(ace, music_description, duration)
-                del ace
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                if music_result is None:
-                    print("Error: Background music generation failed")
-                    return False
-                music_temp_path, music_temp_dir = music_result
-                print("Mixing dialogue with music...")
-                mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                mixed_temp.close()
-                cmd = [
-                    'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp_path,
-                    '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
-                    '-y', mixed_temp.name
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                shutil.rmtree(music_temp_dir, ignore_errors=True)
-                if result.returncode != 0:
-                    print(f"FFmpeg mixing failed: {result.stderr}")
-                    return False
-                shutil.move(mixed_temp.name, output_path)
-                os.unlink(dialogue_temp.name)
-            else:
-                shutil.move(dialogue_temp.name, output_path)
-            print(f"✓ Success! Output saved to: {output_path}")
-            return True
+            if tts_obj is not None:
+                del tts_obj
+                tts_obj = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            ace = AceStepWrapper()
+            if ace.handler is None:
+                print("Error: Failed to load ACE-Step model")
+                return False
+            success = _generate_music_and_mix(ace, music_description, dialogue_temp.name, output_path, music_level_spec)
+            del ace
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            if not success:
+                return False
+            os.unlink(dialogue_temp.name)
+        else:
+            shutil.move(dialogue_temp.name, output_path)
+        print(f"✓ Success! Output saved to: {output_path}")
+        if tts_design is not None:
+            del tts_design
+        if tts_obj is not None:
+            del tts_obj
+        return True
 
 def oneline_tts_vc(params):
     original_cwd = os.getcwd()
@@ -5464,19 +6004,25 @@ def oneline_tts_vc(params):
     os.makedirs(results_dir, exist_ok=True)
 
     scripts = params.get('script', [])
+    voices = params.get('voice', [])
     targets = params.get('target', [])
     music_params = params.get('music', [])
     music_description = music_params[0] if music_params else None
+    level_params = params.get('level', [])
+    music_level_spec = level_params[0] if level_params else None
 
     if not scripts:
         print("Error: TTS+VC mode requires at least one 'script' parameter")
         return False
-    if not targets:
-        print("Error: TTS+VC mode requires at least one 'target' parameter")
+
+    _is_all_sfx_vc = all(s.strip().lower().startswith('sfx:') for s in scripts)
+    if not voices and not targets and not _is_all_sfx_vc:
+        print("Error: TTS+VC mode requires at least one 'voice' or 'target' parameter")
         return False
 
     has_colon_script = any(':' in s for s in scripts)
-    has_colon_target = any(':' in t for t in targets)
+    has_colon_voice = any(':' in v for v in voices) if voices else False
+    has_colon_target = any(':' in t for t in targets) if targets else False
 
     if not has_colon_script and not has_colon_target:
         if len(scripts) != 1:
@@ -5517,8 +6063,11 @@ def oneline_tts_vc(params):
         print(f"✓ Success! Output saved to: {output_path}")
         return True
     else:
-        if not (has_colon_script and has_colon_target):
-            print("Error: Dialogue mode requires both script and target parameters to use 'Character: value' format consistently.")
+        if not has_colon_script:
+            print("Error: Dialogue script must be in format 'Character: text'")
+            return False
+        if not _is_all_sfx_vc and not has_colon_voice and not has_colon_target:
+            print("Error: Dialogue mode requires voice or target parameters in 'Character: value' format.")
             return False
         dialogue_items = []
         for idx, s in enumerate(scripts, start=1):
@@ -5528,12 +6077,39 @@ def oneline_tts_vc(params):
             char, text = s.split(':', 1)
             char = char.strip()
             text = text.strip()
-            if not char or not text:
-                print(f"Error: Empty character or text in script: {s}")
+            if not char:
+                print(f"Error: Empty character in script: {s}")
                 return False
-            dialogue_items.append((idx, char, text))
+            if char.lower() == 'sfx' and not text:
+                print(f"Error: Empty SFX prompt in script: {s}")
+                return False
+            clean_text, directives_raw = _parse_script_directives(text)
+            parsed_directives, errors = _parse_directives_for_line(directives_raw)
+            if errors:
+                print(f"Error in script line {idx}: {'; '.join(errors)}")
+                return False
+            if char.lower() == 'sfx' and parsed_directives.get('duration') is None:
+                print(f"Error: SFX line {idx} requires /duration:nn (1-30)")
+                return False
+            if not clean_text and char.lower() != 'sfx':
+                print(f"Error: Empty text in script: {s}")
+                return False
+            dialogue_items.append((idx, char, clean_text, parsed_directives))
 
-        assignments = {}
+        voice_prompts = {}
+        for v in voices:
+            if ':' not in v:
+                print(f"Error: Voice prompt must be in format 'Character: prompt', got: {v}")
+                return False
+            char, prompt = v.split(':', 1)
+            char = char.strip()
+            prompt = prompt.strip()
+            if not char or not prompt:
+                print(f"Error: Empty character or prompt in voice: {v}")
+                return False
+            voice_prompts[char.lower()] = prompt
+
+        target_assignments = {}
         for t in targets:
             if ':' not in t:
                 print(f"Error: Target assignment must be in format 'Character: path', got: {t}")
@@ -5555,109 +6131,86 @@ def oneline_tts_vc(params):
                     print(f"Error: Could not extract audio from video for character '{char}'")
                     return False
                 path = extracted
-            assignments[char.lower()] = path
+            target_assignments[char.lower()] = path
+
+        overlap = set(voice_prompts.keys()) & set(target_assignments.keys())
+        if overlap:
+            print(f"Error: Character(s) specified in both voice and target: {', '.join(overlap)}")
+            return False
 
         script_chars = set()
-        for _, char, _ in dialogue_items:
-            script_chars.add(char.lower())
-        missing = script_chars - set(assignments.keys())
+        for _, char, _, _ in dialogue_items:
+            if char.lower() != 'sfx':
+                script_chars.add(char.lower())
+        all_assigned = set(voice_prompts.keys()) | set(target_assignments.keys())
+        missing = script_chars - all_assigned
         if missing:
-            print(f"Error: Missing target assignments for characters: {', '.join(missing)}")
+            print(f"Error: Missing voice/target for characters: {', '.join(missing)}")
             return False
+
+        has_tts_chars = len(voice_prompts) > 0
+        has_vc_chars = len(target_assignments) > 0
 
         if music_description and music_description.strip() == "":
             music_description = None
 
-        print("Loading Qwen-TTS model...")
-        tts = QwenTTS()
+        if music_level_spec and not music_description:
+            print("Warning: Level spec ignored (no music description provided)")
+
+        tts_design = None
+        if has_tts_chars:
+            print("Loading Qwen-TTS VoiceDesign model...")
+            tts_design = QwenTTSVoiceDesign()
+            if tts_design.model is None:
+                print("Error: Failed to load VoiceDesign model")
+                return False
+
+        tts = None
+        vc_voice_prompts = None
+        if has_vc_chars:
+            print("Loading Qwen-TTS model...")
+            tts = QwenTTS()
+            vc_voice_prompts = {}
+            for char_lower, audio_path in target_assignments.items():
+                print(f"Extracting voice for '{char_lower}'...")
+                success = tts.extract_voice(audio_path)
+                if not success:
+                    print(f"Error: Failed to extract voice from {audio_path}")
+                    return False
+                vc_voice_prompts[char_lower] = tts.voice_prompt
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         base_name = f"voder_tts_vc_dialogue_{timestamp}"
         if music_description:
             base_name += "_m"
         output_path = os.path.join(results_dir, f"{base_name}.wav")
 
-        if len(dialogue_items) == 1:
-            _, char, text = dialogue_items[0]
-            audio_path = assignments[char.lower()]
-            success = tts.extract_voice(audio_path)
+        dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        dialogue_temp.close()
+
+        has_sfx = any(item[1].lower() == 'sfx' for item in dialogue_items)
+        has_effects = any(
+            item[3].get('time_end', 0) > 0 or item[3].get('time_start', 0) > 0 or item[3].get('time_pad', 0) > 0 or item[3].get('level', 100) != 100
+            for item in dialogue_items
+        ) if len(dialogue_items) > 0 else False
+
+        if has_sfx or has_effects or has_tts_chars or has_vc_chars:
+            success, msg = _assemble_enhanced_dialogue(
+                dialogue_items, voice_prompts, tts_design_obj=tts_design,
+                tts_vc_obj=tts, vc_voice_data=vc_voice_prompts,
+                output_path=dialogue_temp.name, mode='tts_vc'
+            )
             if not success:
-                print("Error: Voice extraction failed")
+                print(f"Error: {msg}")
                 return False
-            dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-            dialogue_temp.close()
-            success = tts.synthesize(text, dialogue_temp.name)
-            if not success:
-                print("Error: Synthesis failed")
-                return False
-            if music_description:
-                try:
-                    info = sf.info(dialogue_temp.name)
-                    duration = info.duration
-                    print(f"Dialogue duration: {duration:.2f}s")
-                except Exception as e:
-                    print(f"Could not get audio duration with soundfile: {e}")
-                    try:
-                        info = torchaudio.info(dialogue_temp.name)
-                        duration = info.num_frames / info.sample_rate
-                    except Exception as e2:
-                        print(f"Torchaudio also failed: {e2}")
-                        duration = 30
-                print("Generating background music...")
-                del tts
-                tts = None
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                ace = AceStepWrapper()
-                if ace.handler is None:
-                    print("Error: Failed to load ACE-Step model")
-                    return False
-                music_result = generate_background_music(ace, music_description, duration)
-                del ace
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                if music_result is None:
-                    print("Error: Background music generation failed")
-                    return False
-                music_temp_path, music_temp_dir = music_result
-                print("Mixing dialogue with music...")
-                mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                mixed_temp.close()
-                cmd = [
-                    'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp_path,
-                    '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
-                    '-y', mixed_temp.name
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                shutil.rmtree(music_temp_dir, ignore_errors=True)
-                if result.returncode != 0:
-                    print(f"FFmpeg mixing failed: {result.stderr}")
-                    return False
-                shutil.move(mixed_temp.name, output_path)
-                os.unlink(dialogue_temp.name)
-            else:
-                shutil.move(dialogue_temp.name, output_path)
-            print(f"✓ Success! Output saved to: {output_path}")
-            return True
         else:
             temp_dir = tempfile.mkdtemp()
-            temp_files = []
-            unique_chars = set()
-            for _, char, _ in dialogue_items:
-                unique_chars.add(char.lower())
-            voice_prompts = {}
-            for char_lower in unique_chars:
-                audio_path = assignments[char_lower]
-                print(f"Extracting voice for '{char_lower}'...")
-                success = tts.extract_voice(audio_path)
-                if not success:
-                    print(f"Error: Failed to extract voice from {audio_path}")
-                    return False
-                voice_prompts[char_lower] = tts.voice_prompt
             try:
-                for i, (num, char, script_text) in enumerate(dialogue_items):
+                temp_files = []
+                simple_items = [(item[0], item[1], item[2]) for item in dialogue_items]
+                for i, (num, char, script_text) in enumerate(simple_items):
                     char_lower = char.lower()
                     print(f"Processing line {num} for '{char}'...")
-                    tts.voice_prompt = voice_prompts[char_lower]
+                    tts.voice_prompt = vc_voice_prompts[char_lower]
                     temp_file = os.path.join(temp_dir, f"line_{num}.wav")
                     temp_files.append((num, temp_file))
                     success = tts.synthesize(script_text, temp_file)
@@ -5665,8 +6218,6 @@ def oneline_tts_vc(params):
                         print(f"Error: Failed to generate speech for line {num}")
                         return False
                 temp_files.sort(key=lambda x: x[0])
-                dialogue_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                dialogue_temp.close()
                 concat_list = os.path.join(temp_dir, "concat_list.txt")
                 with open(concat_list, 'w') as f:
                     for _, tf in temp_files:
@@ -5676,60 +6227,40 @@ def oneline_tts_vc(params):
                 if result.returncode != 0:
                     print(f"Error: FFmpeg concatenation failed: {result.stderr}")
                     return False
-                if music_description:
-                    try:
-                        info = sf.info(dialogue_temp.name)
-                        duration = info.duration
-                        print(f"Dialogue duration: {duration:.2f}s")
-                    except Exception as e:
-                        print(f"Could not get audio duration with soundfile: {e}")
-                        try:
-                            info = torchaudio.info(dialogue_temp.name)
-                            duration = info.num_frames / info.sample_rate
-                        except Exception as e2:
-                            print(f"Torchaudio also failed: {e2}")
-                            duration = 30
-                    print("Generating background music...")
-                    del tts
-                    tts = None
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    ace = AceStepWrapper()
-                    if ace.handler is None:
-                        print("Error: Failed to load ACE-Step model")
-                        return False
-                    music_result = generate_background_music(ace, music_description, duration)
-                    del ace
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    if music_result is None:
-                        print("Error: Background music generation failed")
-                        return False
-                    music_temp_path, music_temp_dir = music_result
-                    print("Mixing dialogue with music...")
-                    mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                    mixed_temp.close()
-                    cmd = [
-                        'ffmpeg', '-i', dialogue_temp.name, '-i', music_temp_path,
-                        '-filter_complex', '[1:a]volume=0.35[music];[0:a][music]amix=inputs=2:duration=longest',
-                        '-y', mixed_temp.name
-                    ]
-                    result = subprocess.run(cmd, capture_output=True, text=True)
-                    shutil.rmtree(music_temp_dir, ignore_errors=True)
-                    if result.returncode != 0:
-                        print(f"FFmpeg mixing failed: {result.stderr}")
-                        return False
-                    shutil.move(mixed_temp.name, output_path)
-                    os.unlink(dialogue_temp.name)
-                else:
-                    shutil.move(dialogue_temp.name, output_path)
-                print(f"✓ Success! Output saved to: {output_path}")
-                return True
             finally:
                 try:
                     shutil.rmtree(temp_dir)
                 except:
                     pass
+
+        if music_description:
+            if tts_design is not None:
+                del tts_design
+                tts_design = None
+            if tts is not None:
+                del tts
+                tts = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            ace = AceStepWrapper()
+            if ace.handler is None:
+                print("Error: Failed to load ACE-Step model")
+                return False
+            success = _generate_music_and_mix(ace, music_description, dialogue_temp.name, output_path, music_level_spec)
+            del ace
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            if not success:
+                return False
+            os.unlink(dialogue_temp.name)
+        else:
+            shutil.move(dialogue_temp.name, output_path)
+        print(f"✓ Success! Output saved to: {output_path}")
+        if tts_design is not None:
+            del tts_design
+        if tts is not None:
+            del tts
+        return True
 
 def oneline_sts(params):
     original_cwd = os.getcwd()
@@ -6266,6 +6797,272 @@ def oneline_stt(params):
     print(f"Processing complete: {success_count}/{len(files)} files successful")
     return success_count > 0
 
+def oneline_se(params):
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    files = params.get('files', [])
+
+    if not files:
+        print("Error: SE mode requires at least one audio/video file path")
+        return False
+
+    for file_path in files:
+        if not os.path.exists(file_path):
+            print(f"Error: File not found: {file_path}")
+            return False
+
+    print("Loading UniSE Speech Enhancement model...")
+    from unise import UniSEEnhancer
+    enhancer = UniSEEnhancer(UNISE_DIR)
+    enhancer.ensure_model()
+    if enhancer.model is None:
+        print("Error: Failed to load UniSE model")
+        return False
+
+    success_count = 0
+    for file_path in files:
+        print(f"\nProcessing: {file_path}")
+        print("=" * 60)
+
+        ext = os.path.splitext(file_path)[1].lower()
+        is_video = ext in VIDEO_EXTENSIONS
+
+        try:
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            if is_video:
+                output_filename = f"voder_se_{timestamp}.mp4"
+                output_path = os.path.join(results_dir, output_filename)
+                print("Enhancing speech in video...")
+                success = enhancer.enhance_video(file_path, output_path)
+            else:
+                output_filename = f"voder_se_{timestamp}.wav"
+                output_path = os.path.join(results_dir, output_filename)
+                print("Enhancing speech in audio...")
+                success = enhancer.enhance(file_path, output_path)
+
+            if success:
+                print(f"\n✓ Success! Output saved to: {output_path}")
+                success_count += 1
+            else:
+                print(f"Error: Enhancement failed for {file_path}")
+
+        except Exception as e:
+            traceback.print_exc()
+            print(f"Error processing {file_path}: {e}")
+
+    enhancer.cleanup()
+    del enhancer
+    enhancer = None
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    print(f"\n{'=' * 60}")
+    print(f"Processing complete: {success_count}/{len(files)} files successful")
+    return success_count > 0
+
+def cli_se_mode():
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    print("\n--- SE Mode ---")
+    print("Speech Enhancement - denoise, dereverb, restore audio")
+    print("Note: Outputs 16kHz audio. Not for musical enhancement.")
+    print()
+
+    while True:
+        file_path = input("Enter audio/video file path: ").strip()
+        if os.path.exists(file_path):
+            ext = os.path.splitext(file_path)[1].lower()
+            is_valid_audio = False
+            is_video = ext in VIDEO_EXTENSIONS
+            if is_video:
+                break
+            try:
+                torchaudio.load(file_path)
+                is_valid_audio = True
+                break
+            except Exception:
+                pass
+            if not is_valid_audio:
+                print("Error: Unsupported or corrupt file format.")
+        else:
+            print("Error: File not found. Please try again.")
+
+    print("Loading UniSE Speech Enhancement model...")
+    from unise import UniSEEnhancer
+    enhancer = UniSEEnhancer(UNISE_DIR)
+    enhancer.ensure_model()
+    if enhancer.model is None:
+        print("Error: Failed to load UniSE model")
+        return False
+
+    try:
+        ext = os.path.splitext(file_path)[1].lower()
+        is_video = ext in VIDEO_EXTENSIONS
+
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        if is_video:
+            output_filename = f"voder_se_{timestamp}.mp4"
+            output_path = os.path.join(results_dir, output_filename)
+            print("Enhancing speech in video...")
+            success = enhancer.enhance_video(file_path, output_path)
+        else:
+            output_filename = f"voder_se_{timestamp}.wav"
+            output_path = os.path.join(results_dir, output_filename)
+            print("Enhancing speech in audio...")
+            success = enhancer.enhance(file_path, output_path)
+
+        if success:
+            print(f"\n✓ Success! Output saved to: {output_path}")
+        else:
+            print("Error: Enhancement failed")
+            return False
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+    finally:
+        enhancer.cleanup()
+        del enhancer
+        enhancer = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    return True
+
+def oneline_sfx(params):
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    prompt = params.get('prompt', '')
+    duration = params.get('duration', 10)
+    steps = params.get('steps', 30)
+    guide = params.get('guide', 4.5)
+
+    if duration > 30:
+        print("Warning: Duration >30s clamped to 30s (model maximum).")
+        duration = 30
+
+    print(f"SFX Generation")
+    print(f"  Prompt: {prompt}")
+    print(f"  Duration: {duration}s")
+    print(f"  Steps: {steps}")
+    print(f"  Guidance: {guide}")
+
+    print("Loading TangoFlux SFX model...")
+    from tangoflux import TangoFluxGenerator
+    generator = TangoFluxGenerator(TANGOFLUX_DIR)
+    generator.ensure_model()
+    if generator.model is None:
+        print("Error: Failed to load TangoFlux model")
+        return False
+
+    try:
+        print(f"\nGenerating sound effect...")
+        audio = generator.generate(prompt, duration, steps=steps, guidance_scale=guide)
+        if audio is None:
+            print("Error: Generation failed")
+            return False
+
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        output_filename = f"voder_sfx_{timestamp}.wav"
+        output_path = os.path.join(results_dir, output_filename)
+
+        if generator.save(audio, output_path):
+            print(f"\n✓ Success! Output saved to: {output_path}")
+            return True
+        else:
+            print("Error: Failed to save output")
+            return False
+
+    except Exception as e:
+        traceback.print_exc()
+        print(f"Error: {e}")
+        return False
+    finally:
+        generator.cleanup()
+        del generator
+        generator = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+def cli_sfx_mode():
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    print("\n--- SFX Mode ---")
+    print("Sound Effects Generation - text prompt + duration → audio")
+    print("Steps: 30, Guidance: 4.5 (hardcoded for best results)")
+    print()
+
+    while True:
+        prompt = input("Enter sound prompt: ").strip()
+        if prompt:
+            break
+        print("Error: Prompt cannot be empty. Please try again.")
+
+    while True:
+        duration_input = input("Enter duration in seconds (1-30): ").strip()
+        if not duration_input:
+            print("Error: Duration cannot be empty. Please try again.")
+            continue
+        try:
+            duration = int(duration_input)
+            if duration < 1:
+                print("Error: Duration must be at least 1 second. Please try again.")
+                continue
+            if duration > 30:
+                print("Warning: Duration >30s clamped to 30s (model maximum).")
+                duration = 30
+            break
+        except ValueError:
+            print("Error: Invalid number. Please enter a number between 1 and 30.")
+
+    print("\nLoading TangoFlux SFX model...")
+    from tangoflux import TangoFluxGenerator
+    generator = TangoFluxGenerator(TANGOFLUX_DIR)
+    generator.ensure_model()
+    if generator.model is None:
+        print("Error: Failed to load TangoFlux model")
+        return False
+
+    try:
+        print(f"\nGenerating sound effect...")
+        audio = generator.generate(prompt, duration, steps=30, guidance_scale=4.5)
+        if audio is None:
+            print("Error: Generation failed")
+            return False
+
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        output_filename = f"voder_sfx_{timestamp}.wav"
+        output_path = os.path.join(results_dir, output_filename)
+
+        if generator.save(audio, output_path):
+            print(f"\n✓ Success! Output saved to: {output_path}")
+            return True
+        else:
+            print("Error: Failed to save output")
+            return False
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+    finally:
+        generator.cleanup()
+        del generator
+        generator = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
 def interactive_cli_mode():
     while True:
         print_banner()
@@ -6276,7 +7073,9 @@ def interactive_cli_mode():
         print("4. STS (Speech-to-Speech / Voice Conversion)")
         print("5. TTM (Text-to-Music)")
         print("6. TTM+VC (Text-to-Music + Voice Conversion)")
-        choice = input("\nEnter your choice (1-6): ").strip()
+        print("7. SE (Speech Enhancement)")
+        print("8. SFX (Sound Effects Generation)")
+        choice = input("\nEnter your choice (1-8): ").strip()
         success = False
         if choice == '1':
             success = cli_stt_tts_mode()
@@ -6290,8 +7089,12 @@ def interactive_cli_mode():
             success = cli_ttm_mode()
         elif choice == '6':
             success = cli_ttm_vc_mode()
+        elif choice == '7':
+            success = cli_se_mode()
+        elif choice == '8':
+            success = cli_sfx_mode()
         else:
-            print("Invalid choice. Please enter 1-6.")
+            print("Invalid choice. Please enter 1-8.")
             continue
         print("\n--- What's Next? ---")
         print("1. Blend Again")
