@@ -39,7 +39,7 @@ class BaseModelArgs:
     head_dim: int = 64
     rope_base: float = 10000
     norm_eps: float = 1e-5
-    max_seq_len: int = 4096
+    max_seq_len: int = 8192
     dropout: float = 0.0
     tie_word_embeddings: bool = True
     attention_qkv_bias: bool = False
