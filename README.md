@@ -1,7 +1,7 @@
 # VODER - Voice Blender
 
 <p align="center">
-  <img src="src/voder.png" alt="VODER Logo" width="128" height="128"/>
+  <img src="src/voder.png" alt="VODER Logo" width="512" height="512"/>
 </p>
 
 **VODER** is a Local, Free, Offline, professional-grade voice processing and transformation tool that enables seamless conversion between speech, text, and music. Built for creators, developers, and audio professionals, VODER delivers **high-quality synthesis, voice cloning, transcription, music generation, sound effects, and speech enhancement** capabilities through an intuitive interface.
