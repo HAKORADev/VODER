@@ -1592,7 +1592,7 @@ class SeedVCV2:
                 self.model.eval()
                 self.model.setup_ar_caches(
                     max_batch_size=1,
-                    max_seq_len=4096,
+                    max_seq_len=8192,
                     dtype=self.dtype,
                     device=self.device
                 )
