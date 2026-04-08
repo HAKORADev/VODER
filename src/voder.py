@@ -1924,7 +1924,7 @@ class AceStepWrapper:
             result = self.handler.generate_music(
                 captions=style_prompt,
                 lyrics=lyrics,
-                vocal_language="unknown",
+                vocal_language="en",
                 inference_steps=8,
                 guidance_scale=7.0,
                 use_random_seed=True,
