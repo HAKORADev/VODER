@@ -6479,6 +6479,12 @@ def oneline_ttm_vc(params):
             resampler_target = torchaudio.transforms.Resample(sr_target, 44100)
             waveform_target = resampler_target(waveform_target)
         torchaudio.save(temp_target_22k.name, waveform_target, 44100)
+        print("Clearing ACE-Step from memory...")
+        del ace_step
+        ace_step = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         print("Loading Seed-VC v1 model...")
         seed_vc = SeedVCV1()
         if seed_vc.model is None:
@@ -6498,6 +6504,12 @@ def oneline_ttm_vc(params):
         output_path = os.path.join(results_dir, f"voder_ttm_vc_{timestamp}.wav")
         shutil.copy(temp_vc_output.name, output_path)
         print(f"✓ Success! Output saved to: {output_path}")
+        print("Clearing Seed-VC from memory...")
+        del seed_vc
+        seed_vc = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return True
     finally:
         for temp_file in [temp_ttm_output.name, temp_ttm_22k.name, temp_target_22k.name, temp_vc_output.name]:
