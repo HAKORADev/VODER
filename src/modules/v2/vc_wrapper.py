@@ -621,7 +621,7 @@ class VoiceConversionWrapper(torch.nn.Module):
                         random_voice=anonymization_only,
                     )
                     vc_mel = vc_mel[:, :, target_mel_len:original_len]
-                vc_wave = self.vocoder(vc_mel).squeeze()
+                vc_wave = self.vocoder(vc_mel).squeeze(0)
                 # Ensure proper format for audio processing
                 processed_frames, previous_chunk, should_break, mp3_bytes, full_audio = self._stream_wave_chunks(
                     vc_wave, processed_frames, vc_mel, overlap_wave_len,
@@ -658,7 +658,7 @@ class VoiceConversionWrapper(torch.nn.Module):
                         random_voice=anonymization_only,
                     )
                 vc_mel = vc_mel[:, :, target_mel_len:original_len]
-                vc_wave = self.vocoder(vc_mel).squeeze()
+                vc_wave = self.vocoder(vc_mel).squeeze(0)
                 # Ensure proper format for audio processing
                 processed_frames, previous_chunk, should_break, mp3_bytes, full_audio = self._stream_wave_chunks(
                     vc_wave, processed_frames, vc_mel, overlap_wave_len,
