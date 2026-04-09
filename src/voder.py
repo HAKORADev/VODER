@@ -5419,7 +5419,7 @@ def parse_oneline_args(args):
         return {'error': 'No arguments provided'}
     mode = args[0].lower()
     result = {'mode': mode, 'params': {}, 'error': None, 'is_music': False}
-    valid_keywords = ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'music', 'duration', 'timestamp', 'dialogue', 'sound', 'steps', 'guide', 'level']
+    valid_keywords = ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'duration', 'timestamp', 'dialogue', 'sound', 'steps', 'guide', 'level']
     i = 1
     current_keyword = None
     result_path = None
@@ -5587,6 +5587,10 @@ def parse_oneline_args(args):
             current_keyword = arg_lower
             result['params'].setdefault(current_keyword, [])
             i += 1
+        elif mode == 'sts' and arg_lower == 'music':
+            result['is_music'] = True
+            current_keyword = None
+            i += 1
         elif current_keyword is not None:
             try:
                 duration_val = int(arg)
@@ -5603,10 +5607,6 @@ def parse_oneline_args(args):
                 result['params'][current_keyword].append(arg)
                 i += 1
         else:
-            if mode == 'sts' and arg_lower == 'music':
-                result['is_music'] = True
-                i += 1
-            else:
                 try:
                     duration = int(arg)
                     result['params']['duration'] = duration
