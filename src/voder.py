@@ -1621,14 +1621,28 @@ class SeedVCV2:
         if self.model is None:
             return False
         try:
-            result = self.model.convert_voice(
+            generator = self.model.convert_voice_with_streaming(
                 source_audio_path=source_path,
                 target_audio_path=reference_path,
+                diffusion_steps=30,
+                length_adjust=1.0,
+                intelligebility_cfg_rate=0.7,
+                similarity_cfg_rate=0.7,
+                top_p=0.9,
+                temperature=1.0,
+                repetition_penalty=1.0,
+                convert_style=False,
+                anonymization_only=False,
                 device=torch.device(self.device),
-                dtype=self.dtype
+                dtype=self.dtype,
+                stream_output=True
             )
-            if result is not None:
-                sf.write(output_path, result, 22050)
+            full_audio = None
+            for _, audio in generator:
+                full_audio = audio
+            if full_audio is not None:
+                save_sr, audio_data = full_audio
+                sf.write(output_path, audio_data, save_sr)
                 return True
             return False
         except Exception as e:
