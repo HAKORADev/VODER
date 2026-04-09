@@ -1875,7 +1875,18 @@ class SeedVCV1:
                     mel2, style2, None, 10,
                     inference_cfg_rate=0.7
                 )
-                vc_target = vc_target[:, :, mel2.size(-1):]
+            vc_target = vc_target[:, :, mel2.size(-1):]
+
+            del self.whisper_model, self.whisper_feature_extractor
+            del self.campplus_model, self.rmvpe, self.model
+            self.whisper_model = None
+            self.whisper_feature_extractor = None
+            self.campplus_model = None
+            self.rmvpe = None
+            self.model = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
             vc_wave = self.bigvgan_model(vc_target.clone().float())[0]
 
