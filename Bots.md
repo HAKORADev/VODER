@@ -346,6 +346,13 @@ Generate speech from text using Qwen3‑TTS VoiceDesign model.
 python src/voder.py tts script "text here" voice "voice description"
 ```
 
+**OCR input (image to narration):**
+```bash
+python src/voder.py tts ocr "path/to/image.png" voice "professional male narrator"
+
+python src/voder.py tts ocr "script_screenshot.jpg" voice "warm female voice"
+```
+
 **Dialogue mode (no music):**
 ```bash
 python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Character1: voice prompt for char1" "Character2: voice prompt for char2"
@@ -425,6 +432,13 @@ Generate speech from text then clone it to target voice using Qwen3‑TTS Base m
 **Single mode:**
 ```bash
 python src/voder.py tts+vc script "text here" target "voice_reference.wav"
+```
+
+**OCR input (image to narration with voice clone):**
+```bash
+python src/voder.py tts+vc ocr "path/to/image.png" target "voice_reference.wav"
+
+python src/voder.py tts+vc ocr "subtitle_image.jpg" target "speaker_clone.wav"
 ```
 
 **Dialogue mode (no music):**

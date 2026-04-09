@@ -365,6 +365,18 @@ When using TTS in **dialogue mode** (multiple speakers, script lines containing 
 
 TTS mode works on CPU without GPU acceleration. Processing time scales with text length, not with prompt complexity. The VoiceDesign model interprets prompts at generation time, so more detailed prompts give the model more information to work with but don't significantly affect processing time.
 
+**OCR Input (Image to Narration):**
+
+You can use the `ocr` parameter to extract text from an image and synthesize it as speech. VODER uses EasyOCR to extract text from the image, then generates narration using the extracted text:
+
+```bash
+python src/voder.py tts ocr "path/to/image.png" voice "professional male narrator"
+
+python src/voder.py tts ocr "script_screenshot.jpg" voice "warm female voice"
+```
+
+This is useful for converting screenshots of scripts, slides, or documents into spoken narration without manual text entry.
+
 **Memory Requirements:** TTS requires approximately 12GB RAM (8GB base + 4GB for Qwen model).
 
 ---
@@ -428,6 +440,18 @@ VODER extracts voice characteristics **once per character** in dialogue mode, ra
 **Technical Notes:**
 
 TTS+VC works on CPU without GPU. The voice cloning happens during synthesis, not as a post‑processing step, which ensures the cloned voice characteristics are integrated throughout the generated speech rather than applied superficially.
+
+**OCR Input (Image to Narration with Voice Clone):**
+
+You can use the `ocr` parameter to extract text from an image and synthesize it with voice cloning:
+
+```bash
+python src/voder.py tts+vc ocr "path/to/image.png" target "voice_reference.wav"
+
+python src/voder.py tts+vc ocr "subtitle_image.jpg" target "speaker_clone.wav"
+```
+
+The extracted text is synthesized and then cloned to match the target voice reference.
 
 **Memory Requirements:** TTS+VC requires approximately 12GB RAM (8GB base + 4GB for Qwen model). If using background music, it requires approximately 23GB RAM (8GB base + 15GB for ACE model).
 
@@ -523,6 +547,16 @@ Dancing under the moonlight
 Everything feels so right
 ```
 
+**Multi-line Lyrics in One‑Liner:**
+
+Use `\n` to create multi-line lyrics in a single command:
+
+```bash
+python src/voder.py ttm lyrics "Verse 1:\nWalking down the street\nFeeling the beat\n\nChorus:\nThis is our moment\nEverything feels right" styling "upbeat pop with female vocals" duration 30
+
+python src/voder.py ttm lyrics "Bridge:\nEven when the rain falls down\nWe keep dancing through the crowd\n\nFinal Chorus:\nTogether we stand strong\nNothing can go wrong" styling "emotional ballad with piano and strings" duration 60
+```
+
 **Style Prompt Examples:**
 
 | Genre/Mood | Example Prompt |
@@ -548,6 +582,26 @@ Shorter durations are more reliable and consistent. Very long durations may prod
 TTM works on CPU without GPU. Processing time scales primarily with duration rather than lyrics length. The style prompt complexity doesn't significantly affect processing time but does affect the musical output characteristics.
 
 **Memory Requirements:** TTM requires approximately 23GB RAM (8GB base + 15GB for ACE model).
+
+---
+
+### TTM+VC: Text-to-Music + Voice Conversion
+
+**What It Does:**
+
+TTM+VC generates music from lyrics and style (same as TTM) and then applies voice conversion to change the vocalist's voice. This combines music generation with voice cloning for the singing voice.
+
+**How It Works:**
+
+The pipeline is straightforward: first generate the music with ACE‑Step (TTM stage), then apply Seed‑VC voice conversion to the vocal track (VC stage). The generated music's vocals are transformed to match your reference voice while preserving the melody, timing, and musical characteristics.
+
+**Multi-line Lyrics in One‑Liner:**
+
+Use `\n` for multi-line lyrics with voice conversion:
+
+```bash
+python src/voder.py ttm+vc lyrics "Intro:\nSoft piano notes\n\nVerse:\nWalking through the shadows\nFinding my way home\n\nChorus:\nWe are unstoppable\nNothing can bring us down" styling "epic cinematic rock with powerful vocals" duration 45 target "singer_reference.wav"
+```
 
 ---
 

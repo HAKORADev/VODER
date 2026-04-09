@@ -3,6 +3,76 @@
 - All notable changes to VODER - Voice Blender will be documented in this file.
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 
+## 04/09/2026
+- Status: Stable, all features work, still developing
+- **Bug Hunt Activity** — Extensive bug fixes, memory optimizations, and new features
+
+### Added
+
+#### OCR Input Support for TTS Modes
+
+- **OCR Parameter for TTS Mode** — New `ocr` parameter for one-liner TTS commands to extract text from images.
+  - Use `ocr "path/to/image.png"` to provide an image file instead of manual text input
+  - VODER uses EasyOCR to extract text from the image, then synthesizes the extracted text as speech
+  - Supported formats: PNG, JPG, JPEG, BMP, GIF, TIFF, WebP
+  - File validation ensures only image formats are accepted
+  - Example: `python src/voder.py tts ocr "script_screenshot.png" voice "professional male narrator"`
+  - Resources are properly cleaned up after OCR extraction (model offload, gc.collect())
+
+- **OCR Parameter for TTS+VC Mode** — New `ocr` parameter for one-liner TTS+VC commands to extract text from images.
+  - Same functionality as TTS mode but with voice cloning support
+  - Extracted text is synthesized and then cloned to match the target voice reference
+  - Example: `python src/voder.py tts+vc ocr "subtitle_image.jpg" target "speaker_clone.wav"`
+  - Full resource cleanup ensures memory efficiency
+
+### Fixed
+
+- **STS Mode Music Flag Parsing** — Fixed argument parsing for the `music` flag in STS mode one-liner commands.
+  - Music flag detection moved earlier in the parsing logic to prevent conflicts
+  - Previously, the `music` keyword could be incorrectly consumed as a script parameter
+  - Now correctly handled as a standalone flag alongside other keywords
+  - The `music` keyword was also removed from `valid_keywords` list since it should be treated as a flag, not a keyword parameter
+
+- **SeedVCV1 Indentation Fix** — Corrected indentation issue in SeedVCV1 voice conversion processing.
+  - The tensor trimming operation `vc_target = vc_target[:, :, mel2.size(-1):]` was incorrectly indented inside a conditional block
+  - Fixed to execute unconditionally after voice conversion processing
+  - Ensures consistent output length across all voice conversion operations
+
+- **Vocal Language Parameter** — Corrected vocal_language parameter initialization in voice conversion.
+  - Initial change from 'en' to 'unknown' was reverted back to 'en'
+  - Ensures proper language handling for English vocal content
+
+### Optimized
+
+- **Increased Sequence Length for Voice Conversion** — Extended max_seq_len from 4096 to 8192 in SeedVC models.
+  - Updated `max_seq_len` parameter in `BaseModelArgs` class (src/modules/v2/ar.py)
+  - Updated `setup_ar_caches()` call in `SeedVCV2` class
+  - Allows processing of longer audio segments without sequence length truncation
+  - Improves voice conversion quality for extended audio content
+
+- **Memory Cleanup After TTM+VC Processing** — Implemented explicit memory cleanup in TTM+VC voice conversion pipeline.
+  - ACE-Step model is now explicitly released after music generation with `del ace_step` and `ace_step = None`
+  - Seed-VC model is now explicitly released after voice conversion with `del seed_vc` and `seed_vc = None`
+  - Both stages use `gc.collect()` and `torch.cuda.empty_cache()` for proper memory reclamation
+  - Reduces peak memory usage during TTM+VC operations
+
+- **Memory Cleanup After SeedVCV1 Processing** — Implemented explicit memory cleanup after SeedVCV1 voice conversion.
+  - All models in SeedVCV1 are now released after processing: whisper_model, whisper_feature_extractor, campplus_model, rmvpe, and main model
+  - Uses `del` statements followed by `gc.collect()` and `torch.cuda.empty_cache()`
+  - Prevents memory accumulation during batch voice conversion operations
+
+### Changed
+
+- **Updated VODER Logo** — Redesigned and increased logo display size in README for better visibility.
+  - Logo was completely redesigned with a fresh, modern look
+  - Logo size increased from 128x128 pixels to 256x256 pixels
+  - Provides better visual presence on high-DPI displays
+
+- **SE Mode Output Description** — Clarified SE mode output format in documentation.
+  - Updated table to show SE mode supports both audio and video input (was unclear before)
+
+---
+
 ## 04/08/2026
 - Status: Stable, all features work, still developing
 - **Major Update — Two New Modes, Script Directives, SFX Integration, and Speech Enhancement**

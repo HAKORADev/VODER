@@ -5430,7 +5430,7 @@ def parse_oneline_args(args):
         return {'error': 'No arguments provided'}
     mode = args[0].lower()
     result = {'mode': mode, 'params': {}, 'error': None, 'is_music': False}
-    valid_keywords = ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'duration', 'timestamp', 'dialogue', 'sound', 'steps', 'guide', 'level']
+    valid_keywords = ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'duration', 'timestamp', 'dialogue', 'sound', 'steps', 'guide', 'level', 'ocr']
     i = 1
     current_keyword = None
     result_path = None
@@ -5667,6 +5667,8 @@ def show_oneline_usage():
     print("Single mode examples:")
     print('  python voder.py tts script "hello world" voice "male voice"')
     print('  python voder.py tts+vc script "hello" target "voice.wav"')
+    print('  python voder.py tts ocr "path/to/image.png" voice "female voice"')
+    print('  python voder.py tts+vc ocr "path/to/image.png" target "voice.wav"')
     print('  python voder.py sts base "input.wav" target "voice.wav"')
     print('  python voder.py sts base "input.wav" target "voice.wav" music')
     print('  python voder.py ttm lyrics "song" styling "pop" 30')
@@ -5713,6 +5715,7 @@ def show_oneline_usage():
     print("  guide    - Guidance scale (1.0-10.0, SFX mode, default: 4.5)")
     print("  music    - Background music description (dialogue modes)")
     print("  level    - Music volume levels e.g. \"10:20-50 30:60-80\" (dialogue modes, default: 35%)")
+    print("  ocr      - Image file path for OCR text extraction (TTS/TTS+VC modes)")
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
     print()
     print("Script directives (per line, at end of text):")
@@ -5793,6 +5796,35 @@ def oneline_tts(params):
     music_description = music_params[0] if music_params else None
     level_params = params.get('level', [])
     music_level_spec = level_params[0] if level_params else None
+    ocr_param = params.get('ocr', [])
+
+    if ocr_param:
+        ocr_path = ocr_param[0]
+        if not os.path.exists(ocr_path):
+            print(f"Error: Image file not found: {ocr_path}")
+            return False
+        ext = os.path.splitext(ocr_path)[1].lower()
+        if ext not in ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp']:
+            print(f"Error: Input must be an image file. Supported formats: PNG, JPG, JPEG, BMP, GIF, TIFF, WebP")
+            return False
+        print("Loading EasyOCR model...")
+        ocr = EasyOCRReader()
+        if ocr.reader is None:
+            print("Error: Failed to load EasyOCR model")
+            return False
+        print(f"Extracting text from image...")
+        success, extracted_text, error_msg = ocr.extract_text_from_image(ocr_path)
+        ocr.cleanup()
+        del ocr
+        gc.collect()
+        if not success:
+            print(f"Error: {error_msg or 'Failed to extract text from image'}")
+            return False
+        if not extracted_text:
+            print("Error: No text found in image")
+            return False
+        scripts = [extracted_text]
+        print(f"Extracted text: {extracted_text[:100]}{'...' if len(extracted_text) > 100 else ''}")
 
     if not scripts:
         print("Error: TTS mode requires at least one 'script' parameter")
@@ -6021,6 +6053,35 @@ def oneline_tts_vc(params):
     music_description = music_params[0] if music_params else None
     level_params = params.get('level', [])
     music_level_spec = level_params[0] if level_params else None
+    ocr_param = params.get('ocr', [])
+
+    if ocr_param:
+        ocr_path = ocr_param[0]
+        if not os.path.exists(ocr_path):
+            print(f"Error: Image file not found: {ocr_path}")
+            return False
+        ext = os.path.splitext(ocr_path)[1].lower()
+        if ext not in ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp']:
+            print(f"Error: Input must be an image file. Supported formats: PNG, JPG, JPEG, BMP, GIF, TIFF, WebP")
+            return False
+        print("Loading EasyOCR model...")
+        ocr = EasyOCRReader()
+        if ocr.reader is None:
+            print("Error: Failed to load EasyOCR model")
+            return False
+        print(f"Extracting text from image...")
+        success, extracted_text, error_msg = ocr.extract_text_from_image(ocr_path)
+        ocr.cleanup()
+        del ocr
+        gc.collect()
+        if not success:
+            print(f"Error: {error_msg or 'Failed to extract text from image'}")
+            return False
+        if not extracted_text:
+            print("Error: No text found in image")
+            return False
+        scripts = [extracted_text]
+        print(f"Extracted text: {extracted_text[:100]}{'...' if len(extracted_text) > 100 else ''}")
 
     if not scripts:
         print("Error: TTS+VC mode requires at least one 'script' parameter")

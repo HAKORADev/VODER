@@ -149,6 +149,11 @@ python src/voder.py tts script "Your text here" voice "voice description" result
 
 # Full command
 python src/voder.py tts script "Your text here" voice "voice description" music "music description" level "volume" result "/output/file.wav"
+
+# OCR input (image to narration)
+python src/voder.py tts ocr "path/to/image.png" voice "professional male narrator"
+
+python src/voder.py tts ocr "script_screenshot.jpg" voice "warm female voice"
 ```
 
 #### Dialogue Mode (Multiple Speakers)
@@ -236,6 +241,11 @@ python src/voder.py tts+vc script "Your text here" target "voice_reference.wav"
 
 # With output routing
 python src/voder.py tts+vc script "Your text here" target "voice_reference.wav" result "/output/file.wav"
+
+# OCR input (image to narration with voice clone)
+python src/voder.py tts+vc ocr "path/to/image.png" target "voice_reference.wav"
+
+python src/voder.py tts+vc ocr "subtitle_image.jpg" target "speaker_clone.wav"
 ```
 
 #### Dialogue Mode
