@@ -25,7 +25,19 @@
   - Example: `python src/voder.py tts+vc ocr "subtitle_image.jpg" target "text: speaker_clone.wav"`
   - Full resource cleanup ensures memory efficiency
 
+- **Mimic Flag for STS Mode** — New `mimic` keyword for one-liner STS commands to enable accent and emotion conversion alongside voice timbre transfer.
+  - When `mimic` is present, Seed-VC v2 uses both its AR model (accent/emotion/style) and CFM model (timbre) instead of CFM only
+  - This transfers not just the voice sound but also the speaking style, tone patterns, and emotional delivery of the target voice
+  - The `mimic` and `music` keywords are mutually exclusive — using both together produces an error
+  - Example: `python src/voder.py sts base "source.wav" target "reference.wav" mimic`
+
 ### Fixed
+
+- **Seed-VC v2 Inference Path and Parameters** — Fixed STS voice conversion to use the official recommended inference pipeline and parameters.
+  - Switched from `convert_voice()` (legacy non-streaming path) to `convert_voice_with_streaming()` (official v2 inference path)
+  - Updated CFG rates from 0.5/0.5 to 0.7/0.7 (intelligibility and similarity) to match official Seed-VC defaults
+  - These rates directly control how clearly the content is preserved and how closely the output matches the reference voice
+  - The streaming path also handles long audio with proper overlapping chunk processing and reference length limiting
 
 - **STS Mode Music Flag Parsing** — Fixed argument parsing for the `music` flag in STS mode one-liner commands.
   - Music flag detection moved earlier in the parsing logic to prevent conflicts

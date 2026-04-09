@@ -472,6 +472,13 @@ STS now supports musical inputs via the **MSTS** feature. When converting voice 
 - **One-line CLI**: Add `music` keyword at the end: `voder.py sts path/base path/target music`
 - **Output**: MSTS outputs use `voder_m_sts_timestamp.wav` naming; standard STS uses `voder_sts_timestamp.wav`
 
+**Mimic (Style Transfer):**
+
+STS supports a `mimic` keyword that enables full style transfer — converting not just the voice timbre but also the accent, emotional delivery, and speaking patterns of the target voice. This uses Seed‑VC v2's AR model alongside the standard CFM model. Without `mimic`, only the voice sound is transferred; with `mimic`, the entire vocal character — how the target person talks, not just how they sound — is applied to the source content.
+
+- **One-line CLI**: Add `mimic` keyword after the target path: `voder.py sts path/base path/target mimic`
+- **Mutual exclusion**: `mimic` and `music` cannot be used together — they target different models (v2 vs v1) and serve different purposes (style transfer vs music sample rate)
+
 **How It Works:**
 
 Seed‑VC v2 analyzes both the source and target audio to extract content representations and voice characteristics. It then synthesizes new audio that combines the source content with the target voice. This isn't simple audio manipulation — it's neural voice conversion that genuinely reconstructs the speech in a different voice.

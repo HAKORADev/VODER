@@ -321,6 +321,16 @@ python src/voder.py sts base "song.wav" target "singer_voice.wav" music
 python src/voder.py sts base "original_song.wav" target "new_singer.wav" music result "/output/cover.wav"
 ```
 
+#### Mimic (Style Transfer)
+```bash
+# Transfer voice timbre AND accent/emotion/style from target
+python src/voder.py sts base "source.wav" target "character.wav" mimic
+
+# This is invalid - mimic and music cannot be combined
+python src/voder.py sts base "source.wav" target "reference.wav" mimic music
+# Error: music and mimic cannot be used together
+```
+
 ### Model Selection
 
 | Flag | Model | Sample Rate | Use Case |

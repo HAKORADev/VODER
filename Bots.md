@@ -484,6 +484,7 @@ python src/voder.py sts base "song.wav" target "voice_reference.wav" music
 | `base` | Path to source audio or video | Yes |
 | `target` | Path to target voice reference audio | Yes |
 | `music` | Use Seed-VC v1 (44.1kHz) for musical inputs | No |
+| `mimic` | Transfer accent and speaking style from target voice | No |
 
 **Supported Input Formats:**
 - Audio: WAV, MP3, FLAC, OGG
@@ -493,6 +494,12 @@ python src/voder.py sts base "song.wav" target "voice_reference.wav" music
 ```bash
 python src/voder.py sts base "presentation.mp4" target "voice_actor.wav" music
 ```
+
+**Mimic Example (Style Transfer):**
+```bash
+python src/voder.py sts base "source_audio.wav" target "character_voice.wav" mimic
+```
+**Note:** `mimic` and `music` cannot be used together.
 
 ### Text‑to‑Music (ttm)
 

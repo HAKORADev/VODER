@@ -1617,7 +1617,7 @@ class SeedVCV2:
             print(f"Error downloading {filename}: {e}")
             return None
 
-    def convert(self, source_path, reference_path, output_path):
+    def convert(self, source_path, reference_path, output_path, convert_style=False):
         if self.model is None:
             return False
         try:
@@ -1631,7 +1631,7 @@ class SeedVCV2:
                 top_p=0.9,
                 temperature=1.0,
                 repetition_penalty=1.0,
-                convert_style=False,
+                convert_style=convert_style,
                 anonymization_only=False,
                 device=torch.device(self.device),
                 dtype=self.dtype,
@@ -5443,7 +5443,7 @@ def parse_oneline_args(args):
     if not args:
         return {'error': 'No arguments provided'}
     mode = args[0].lower()
-    result = {'mode': mode, 'params': {}, 'error': None, 'is_music': False}
+    result = {'mode': mode, 'params': {}, 'error': None, 'is_music': False, 'is_mimic': False}
     valid_keywords = ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'duration', 'timestamp', 'dialogue', 'sound', 'steps', 'guide', 'level', 'ocr']
     i = 1
     current_keyword = None
@@ -5613,7 +5613,17 @@ def parse_oneline_args(args):
             result['params'].setdefault(current_keyword, [])
             i += 1
         elif mode == 'sts' and arg_lower == 'music':
+            if result['is_mimic']:
+                result['error'] = 'music and mimic cannot be used together'
+                return result
             result['is_music'] = True
+            current_keyword = None
+            i += 1
+        elif mode == 'sts' and arg_lower == 'mimic':
+            if result['is_music']:
+                result['error'] = 'music and mimic cannot be used together'
+                return result
+            result['is_mimic'] = True
             current_keyword = None
             i += 1
         elif current_keyword is not None:
@@ -5638,7 +5648,7 @@ def parse_oneline_args(args):
                     i += 1
                 except ValueError:
                     if mode == 'sts':
-                        result['error'] = f'invalid parameter "{arg}" only next parameter should be music or empty'
+                        result['error'] = f'invalid parameter "{arg}" only next parameter should be music or mimic or empty'
                     else:
                         result['error'] = f'Unknown parameter: {arg}'
                     return result
@@ -5743,6 +5753,8 @@ def execute_oneline_command(parsed):
     params = parsed['params']
     if 'is_music' in parsed:
         params['is_music'] = parsed['is_music']
+    if 'is_mimic' in parsed:
+        params['is_mimic'] = parsed['is_mimic']
 
     success = False
     if mode == 'tts':
@@ -6354,6 +6366,7 @@ def oneline_sts(params):
     os.makedirs(results_dir, exist_ok=True)
 
     is_music = params.get('is_music', False)
+    is_mimic = params.get('is_mimic', False)
 
     if 'base' not in params or len(params['base']) != 1:
         print("Error: STS mode requires exactly one 'base' parameter")
@@ -6445,7 +6458,8 @@ def oneline_sts(params):
             success = seed_vc.convert(
                 source_path=temp_base.name,
                 reference_path=temp_target.name,
-                output_path=temp_output_22k.name
+                output_path=temp_output_22k.name,
+                convert_style=is_mimic
             )
             if not success:
                 print("Error: Voice conversion failed")
