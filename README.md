@@ -491,6 +491,7 @@ VODER is designed to maximize output quality rather than speed. Meeting the mini
 - **[CHANGELOG.md](CHANGELOG.md)** — Development history and version changes
 - **[Bots.md](Bots.md)** — Guidelines for AI agents and automated systems
 - **[voder-skill.md](voder-skill.md)** — Direct Agent skill
+- **[Languages.md](Languages.md)** — Supported languages across all components, auto‑detection capabilities, and language configuration
 
 ---
 
