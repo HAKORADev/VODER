@@ -1397,7 +1397,7 @@ class QwenTTSVoiceDesign:
             except Exception as e:
                 print(f"Error loading Qwen-TTS VoiceDesign: {e}")
 
-    def synthesize(self, text, voice_instruct, output_path, language="English"):
+    def synthesize(self, text, voice_instruct, output_path, language="Auto"):
         if self.model is None:
             return False
         try:
@@ -1414,7 +1414,7 @@ class QwenTTSVoiceDesign:
             print(f"VoiceDesign synthesis error: {e}")
             return False
 
-    def synthesize_dialogue(self, dialogue_items, voice_prompts, output_path, language="English"):
+    def synthesize_dialogue(self, dialogue_items, voice_prompts, output_path, language="Auto"):
         if self.model is None:
             return False, "Model not loaded"
         temp_dir = tempfile.mkdtemp()
@@ -1508,7 +1508,7 @@ class QwenTTS:
             import torch
             wavs, sr = self.model.generate_voice_clone(
                 text=text,
-                language="English",
+                language="Auto",
                 voice_clone_prompt=self.voice_prompt
             )
             sf.write(output_path, wavs[0], sr)
