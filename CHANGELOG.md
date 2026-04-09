@@ -3,27 +3,6 @@
 - All notable changes to VODER - Voice Blender will be documented in this file.
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 
-## 04/10/2026
-- Status: Stable, all features work, still developing
-
-### Changed
-
-- **TTS Language Default Set to Auto** — Qwen3‑TTS language parameter now defaults to `"Auto"` across all three call sites in `src/voder.py`.
-  - `QwenTTSVoiceDesign.synthesize()` — default parameter changed from `"English"` to `"Auto"`
-  - `QwenTTSVoiceDesign.synthesize_dialogue()` — default parameter changed from `"English"` to `"Auto"`
-  - `QwenTTS.generate_voice_clone()` — hardcoded `"English"` changed to `"Auto"`
-  - Auto‑detection reads the input text and determines the appropriate language (supports Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian)
-  - Explicit language can still be set when needed — Auto simply removes the requirement for users to specify
-
-### Added
-
-- **Languages.md** — New documentation file providing a complete reference of all languages supported across VODER's AI model components.
-  - Covers all 8 model components: Whisper (99 languages), Qwen3‑TTS VoiceDesign (10 languages + 2 dialects), Qwen3‑TTS Base (10 languages + 2 dialects), ACE‑Step (50 languages), EasyOCR (85 languages), TangoFlux (English only), Seed‑VC v1/v2, UniSE, and Pyannote (language‑agnostic)
-  - Documents auto‑detection capabilities per component — Whisper and Qwen3‑TTS detect automatically, ACE‑Step uses `"unknown"` trigger, EasyOCR does not support auto‑detection
-  - Includes cross‑language workflow examples showing how VODER handles multilingual content across components
-  - Lists active vs available languages (e.g., EasyOCR has 85 available but only English active in VODER)
-  - Added to README documentation section
-
 ## 04/09/2026
 - Status: Stable, all features work, still developing
 - **Bug Hunt Activity** — Extensive bug fixes, memory optimizations, and new features
