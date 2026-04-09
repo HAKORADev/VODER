@@ -365,8 +365,8 @@ One‑line commands now support **dialogue mode** through multiple values per pa
 ```bash
 python src/voder.py tts script "Hello world" voice "female, cheerful"
 python src/voder.py tts+vc script "Hello" target "voice.wav"
-python src/voder.py tts ocr "path/to/image.png" voice "female voice"
-python src/voder.py tts+vc ocr "path/to/image.png" target "voice.wav"
+python src/voder.py tts ocr "path/to/image.png" voice "text: female voice"
+python src/voder.py tts+vc ocr "path/to/image.png" target "text: voice.wav"
 python src/voder.py sts base "input.wav" target "voice.wav"
 python src/voder.py ttm lyrics "Verse 1:\nWalking down the empty street\nFeeling the rhythm in my feet" styling "upbeat pop" duration 30
 python src/voder.py ttm+vc lyrics "..." styling "pop" duration 30 target "voice.wav"

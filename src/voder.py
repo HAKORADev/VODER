@@ -5667,8 +5667,8 @@ def show_oneline_usage():
     print("Single mode examples:")
     print('  python voder.py tts script "hello world" voice "male voice"')
     print('  python voder.py tts+vc script "hello" target "voice.wav"')
-    print('  python voder.py tts ocr "path/to/image.png" voice "female voice"')
-    print('  python voder.py tts+vc ocr "path/to/image.png" target "voice.wav"')
+    print('  python voder.py tts ocr "path/to/image.png" voice "text: female voice"')
+    print('  python voder.py tts+vc ocr "path/to/image.png" target "text: voice.wav"')
     print('  python voder.py sts base "input.wav" target "voice.wav"')
     print('  python voder.py sts base "input.wav" target "voice.wav" music')
     print('  python voder.py ttm lyrics "song" styling "pop" 30')
@@ -5823,7 +5823,7 @@ def oneline_tts(params):
         if not extracted_text:
             print("Error: No text found in image")
             return False
-        scripts = [extracted_text]
+        scripts = [f"text: {extracted_text}"]
         print(f"Extracted text: {extracted_text[:100]}{'...' if len(extracted_text) > 100 else ''}")
 
     if not scripts:
@@ -6080,7 +6080,7 @@ def oneline_tts_vc(params):
         if not extracted_text:
             print("Error: No text found in image")
             return False
-        scripts = [extracted_text]
+        scripts = [f"text: {extracted_text}"]
         print(f"Extracted text: {extracted_text[:100]}{'...' if len(extracted_text) > 100 else ''}")
 
     if not scripts:

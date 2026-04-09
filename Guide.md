@@ -370,9 +370,9 @@ TTS mode works on CPU without GPU acceleration. Processing time scales with text
 You can use the `ocr` parameter to extract text from an image and synthesize it as speech. VODER uses EasyOCR to extract text from the image, then generates narration using the extracted text:
 
 ```bash
-python src/voder.py tts ocr "path/to/image.png" voice "professional male narrator"
+python src/voder.py tts ocr "path/to/image.png" voice "text: professional male narrator"
 
-python src/voder.py tts ocr "script_screenshot.jpg" voice "warm female voice"
+python src/voder.py tts ocr "script_screenshot.jpg" voice "text: warm female voice"
 ```
 
 This is useful for converting screenshots of scripts, slides, or documents into spoken narration without manual text entry.
@@ -446,9 +446,9 @@ TTS+VC works on CPU without GPU. The voice cloning happens during synthesis, not
 You can use the `ocr` parameter to extract text from an image and synthesize it with voice cloning:
 
 ```bash
-python src/voder.py tts+vc ocr "path/to/image.png" target "voice_reference.wav"
+python src/voder.py tts+vc ocr "path/to/image.png" target "text: voice_reference.wav"
 
-python src/voder.py tts+vc ocr "subtitle_image.jpg" target "speaker_clone.wav"
+python src/voder.py tts+vc ocr "subtitle_image.jpg" target "text: speaker_clone.wav"
 ```
 
 The extracted text is synthesized and then cloned to match the target voice reference.

@@ -348,9 +348,9 @@ python src/voder.py tts script "text here" voice "voice description"
 
 **OCR input (image to narration):**
 ```bash
-python src/voder.py tts ocr "path/to/image.png" voice "professional male narrator"
+python src/voder.py tts ocr "path/to/image.png" voice "text: professional male narrator"
 
-python src/voder.py tts ocr "script_screenshot.jpg" voice "warm female voice"
+python src/voder.py tts ocr "script_screenshot.jpg" voice "text: warm female voice"
 ```
 
 **Dialogue mode (no music):**
@@ -436,9 +436,9 @@ python src/voder.py tts+vc script "text here" target "voice_reference.wav"
 
 **OCR input (image to narration with voice clone):**
 ```bash
-python src/voder.py tts+vc ocr "path/to/image.png" target "voice_reference.wav"
+python src/voder.py tts+vc ocr "path/to/image.png" target "text: voice_reference.wav"
 
-python src/voder.py tts+vc ocr "subtitle_image.jpg" target "speaker_clone.wav"
+python src/voder.py tts+vc ocr "subtitle_image.jpg" target "text: speaker_clone.wav"
 ```
 
 **Dialogue mode (no music):**

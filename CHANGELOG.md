@@ -16,13 +16,13 @@
   - VODER uses EasyOCR to extract text from the image, then synthesizes the extracted text as speech
   - Supported formats: PNG, JPG, JPEG, BMP, GIF, TIFF, WebP
   - File validation ensures only image formats are accepted
-  - Example: `python src/voder.py tts ocr "script_screenshot.png" voice "professional male narrator"`
+  - Example: `python src/voder.py tts ocr "script_screenshot.png" voice "text: professional male narrator"`
   - Resources are properly cleaned up after OCR extraction (model offload, gc.collect())
 
 - **OCR Parameter for TTS+VC Mode** — New `ocr` parameter for one-liner TTS+VC commands to extract text from images.
   - Same functionality as TTS mode but with voice cloning support
   - Extracted text is synthesized and then cloned to match the target voice reference
-  - Example: `python src/voder.py tts+vc ocr "subtitle_image.jpg" target "speaker_clone.wav"`
+  - Example: `python src/voder.py tts+vc ocr "subtitle_image.jpg" target "text: speaker_clone.wav"`
   - Full resource cleanup ensures memory efficiency
 
 ### Fixed
