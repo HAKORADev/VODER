@@ -504,7 +504,7 @@ VODER is designed to maximize output quality rather than speed. Meeting the mini
 
 ## Contributing
 
-VODER is open-source (MIT License) and welcomes contributions:
+VODER is open-source (AGPL License) and welcomes contributions:
 
 - New voice processing modes
 - Additional model integrations
@@ -519,7 +519,7 @@ Please submit pull requests or issues via GitHub.
 
 ## License
 
-MIT License — See [LICENSE](LICENSE) for full details.
+AGPL v3.0 License — See [LICENSE](LICENSE) for full details.
 
 ---
 
