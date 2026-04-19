@@ -3,6 +3,226 @@
 - All notable changes to VODER - Voice Blender will be documented in this file.
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 
+## 04/18/2026
+- Status: Stable, all features work, still developing
+- **Major Update — Three New Modes, Mode Mergers, Speaker Diarization, Vocal Extraction, and TTM Sub-Tasks**
+
+### Added
+
+#### Mode Mergers (Simplification)
+
+- **TTS+VC merged into TTS** — TTS mode now supports voice cloning directly via the `target` parameter. Previously a separate mode, TTS+VC is now integrated into TTS. When a `target` audio file is provided alongside `script` and `voice`, the TTS pipeline applies voice cloning. The old `tts+vc` command is no longer accepted — use `tts` with `target` instead.
+
+- **TTM+VC merged into TTM** — TTM mode now supports voice conversion directly via the `vc` flag and `clone` parameter. Previously a separate mode, TTM+VC is now integrated into TTM. When `vc` is enabled and a `clone` audio is provided, the pipeline chains ACE-Step generation with Seed-VC voice conversion. The old `ttm+vc` command is no longer accepted — use `ttm vc` with `clone` instead.
+
+- **VODER now has 10 processing modes** (down from 9 listed, but TTS+VC and TTM+VC are absorbed into TTS and TTM respectively, while 3 new modes are added: SVS, SLC, SS)
+
+#### New Processing Modes
+
+- **SVS (Song Voice Separate)** — A new standalone mode for vocal/music separation using BS-RoFormer.
+  - Uses BS-RoFormer Resurrection model from `pcunwa/BS-Roformer-Resurrection` on HuggingFace
+  - Separates vocals from music (voice isolation) and music from vocals (instrumental extraction)
+  - Two separation stems: `voice` (extract clean vocals) and `music` (extract instrumental)
+  - Supports audio and video input (video audio auto-extracted)
+  - Supports YouTube URL input — downloads and separates automatically
+  - Model checkpoint directory: `src/models/checkpoints/svs/`
+  - Used internally by STS mode for automatic vocal extraction from target reference audio
+  - Used internally by TTS mode for vocal extraction from voice cloning targets
+  - Used internally by STT mode for pre-cleanup vocal isolation (SVS Stage 1) before transcription
+
+- **SLC (Speaker Language Conversion)** — A new mode that translates speech from one language to another while preserving the speaker's voice identity.
+  - Translates audio content from any of Whisper's 99 supported languages to English (or other TTS-supported languages)
+  - Preserves the original speaker's vocal characteristics, tone, and delivery style
+  - Uses Whisper for transcription/translation and Qwen3-TTS for resynthesis
+  - When no target parameter is provided, uses the original input as voice reference — effectively translating speech to English with the same original voice
+  - When a target reference is provided, can change speaker voice while translating language
+  - For preserving original language (if it's one of the 10 TTS-supported languages), SLC with a different target reference can change the speaker's voice — sometimes matching or surpassing STS mode quality
+  - Supports audio files and YouTube URLs as input
+
+- **SS (Speakers Separator)** — A new mode for extracting individual speaker audio from multi-speaker recordings.
+  - Uses VibeVoice ASR (microsoft/VibeVoice-ASR) for speaker identification and segmentation
+  - Automatically identifies individual speakers and produces separate audio files for each
+  - Produces a mapped transcript with speaker labels and timestamps
+  - Supports audio and video input
+  - Requires 24GB+ VRAM or 48GB+ combined system memory (RAM+Swap/Pagefile)
+  - Falls back gracefully to Whisper + pyannote if VibeVoice ASR cannot load
+
+#### New AI Models
+
+- **VibeVoice ASR** — Microsoft's state-of-the-art automatic speech recognition model for speaker diarization and transcription.
+  - Model: `microsoft/VibeVoice-ASR` with `Qwen/Qwen2.5-7B` language model backbone
+  - Uses Qwen2.5-7B as language model for transcription quality
+  - Supports SDPA attention implementation for efficient inference
+  - Processes audio at 24kHz sample rate
+  - Provides native speaker diarization with speaker IDs and timestamps
+  - Offers `transcribe()` method for timestamped speaker-labeled output
+  - Offers `transcribe_plain_text()` for clean text without timestamps/speakers
+  - Requires 24GB+ VRAM for GPU mode or 48GB+ system memory for CPU mode
+  - Repository: https://github.com/microsoft/VibeVoice
+  - Model directory: `src/models/checkpoints/vibevoice_asr/`
+  - Source code directory: `src/asr/` (bundled locally)
+
+- **BS-RoFormer Resurrection** — Advanced source separation model for vocal/music isolation.
+  - Model: `pcunwa/BS-Roformer-Resurrection` on HuggingFace (no GitHub repo available)
+  - Two separation stems: `voice` (vocal isolation) and `music` (instrumental extraction)
+  - Used by SVS mode for standalone vocal/music separation
+  - Used internally by STS for automatic vocal extraction from target reference audio (improves voice conversion quality by removing background music/instruments)
+  - Used internally by TTS dialogue mode for vocal extraction from voice cloning targets
+  - Used internally by STT mode for pre-cleanup vocal isolation before transcription
+  - Source code directory: `src/bs_roformer/` (bundled locally)
+  - Model directory: `src/models/checkpoints/svs/`
+
+- **ACE-Step XL-Turbo (Overdose)** — Higher-quality music generation model for TTM mode.
+  - Model config: `acestep-v15-xl-turbo` with `acestep-5Hz-lm-4B` language model
+  - Provides `shift=3.0` for enhanced generation quality over standard turbo
+  - Available via `overdose` flag in TTM mode
+  - Requires 32GB+ VRAM or 48GB+ system memory
+  - Falls back to standard ACE-Step turbo if resources are insufficient
+
+- **ACE-Step XL-Base (Complete)** — High-quality music generation model for TTM advanced tasks.
+  - Model config: `acestep-v15-xl-base` with `acestep-5Hz-lm-1.7B` language model
+  - Used for TTM sub-tasks: complete, extract, lego (requires 50 inference steps)
+  - Requires 32GB+ VRAM or 48GB+ system memory
+  - Cannot proceed if resources are insufficient (hard requirement, no fallback)
+
+#### TTM Mode Sub-Tasks
+
+- **TTM Sub-Tasks** — TTM mode now supports five advanced music processing sub-tasks beyond basic generation:
+  - `complete` — Completes an existing audio track by generating specified missing instrument/vocal tracks. Uses ACE-Step XL-Base (50 inference steps). Accepts source audio, track classes, optional styling, duration, and reference audio.
+  - `lego` — Generates a specific instrument or vocal track based on the context of existing audio. Uses ACE-Step XL-Base. Supports styling and reference audio parameters.
+  - `extract` — Extracts a specific instrument or vocal track from mixed audio. Uses ACE-Step XL-Base. Supports specifying track name and duration.
+  - `remix` — Applies style transfer to existing audio (music cover). CLI keyword is `remix` (internal method: `cover`). Uses overdose ACE-Step model when `overdose` flag is set, otherwise standard ACE-Step turbo (8 inference steps). Accepts `bias` parameter (0-100, default 40).
+  - `repaint` — Repaints a specific time range of existing audio. Uses overdose ACE-Step model when `overdose` flag is set, otherwise standard ACE-Step turbo. Accepts `time:start-end` time range, optional lyrics and `bias` (0-100, default 40).
+  - **12 ACE-Step Instrument Tracks**: woodwinds, brass, fx, synth, strings, percussion, keyboard, guitar, bass, drums, backing_vocals, vocals
+  - **Track Groups**: `instruments` (10 instrument tracks), `voices` (vocals + backing_vocals), `everything` (all 12 tracks)
+  - **Track Resolution System**: `resolve_acestep_tracks()` function handles group expansion, deduplication, and validation
+  - **Reference Audio Parsing**: `parse_ref_raw()` function handles `track_name:path` format for per-track reference audio
+
+#### Enhanced STT Mode
+
+- **Translation in STT** — STT mode now supports translation of audio to English using Whisper large-v3.
+  - New `translate` option in CLI: "Translate to English? (Y/N)"
+  - Uses Whisper large-v3 (not turbo) for the translate task — turbo model does not support translation
+  - Downloads and caches `whisper-large-v3.pt` separately from the turbo model
+  - Translation works with or without diarization enabled
+  - When both translation and diarization are enabled, produces English translated text with speaker labels aligned using overlap matching
+  - Output follows the same format as regular transcription but in English
+
+- **Overdose Mode in STT** — STT mode now offers an optional "overdose" quality tier using VibeVoice ASR.
+  - Available when translation is NOT enabled (overdose and translate are mutually exclusive)
+  - New `overdose` option in CLI: "Enable overdose? (Y/N)"
+  - Uses VibeVoice ASR instead of Whisper for transcription
+  - Provides native speaker diarization with speaker IDs (no separate pyannote needed)
+  - Falls back to Whisper if VibeVoice ASR fails to load (insufficient resources)
+  - Requires 24GB+ VRAM or 48GB+ system memory
+
+- **Pre-Cleanup SE in STT (SVS Stage 1)** — STT mode now automatically runs vocal isolation before transcription.
+  - Uses BS-RoFormer to extract clean vocals from the input audio
+  - Removes background music, instruments, and noise before Whisper processes the audio
+  - Applied automatically to all STT operations (transcription, translation, overdose)
+  - If SVS isolation fails, proceeds with original audio with a warning
+  - Temporary files are cleaned up after processing
+
+#### Enhanced STS Mode
+
+- **Video I/O for STS** — STS mode now supports video input and video output.
+  - Video input: Load a video file (MP4, MKV, etc.) as base input — audio is auto-extracted
+  - Video output: When base input is a video, output is rendered as MP4 with the converted audio replacing the original audio track
+  - Uses FFmpeg for audio-video merging
+  - Output naming: video inputs produce `.mp4` output; audio inputs produce `.wav` output
+  - Error handling: Falls back to audio-only output if video merge fails
+
+- **Automatic Vocal Extraction for STS** — STS mode now automatically extracts clean vocals from target reference audio.
+  - When a target reference is provided, BS-RoFormer is used to extract vocals before voice conversion
+  - Removes background music, instruments, and noise from the target
+  - If vocal extraction fails, uses original target with a warning
+  - Temporary files are cleaned up after processing
+  - This improves voice conversion quality significantly for references with background content
+
+#### Enhanced TTS Mode
+
+- **Language Parameter** — TTS mode now exposes a `language` parameter that maps to `SUPPORTED_TTS_LANGUAGES`.
+  - Supports 10 languages: Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian
+  - New `SUPPORTED_TTS_LANGUAGES` constant dictionary with ISO code to full name mapping
+  - Default remains "Auto" for auto-detection
+
+- **Auto Vocal Extraction for Voice Cloning** — TTS mode now automatically extracts clean vocals from voice cloning targets.
+  - When using `target` parameter for voice cloning, BS-RoFormer extracts vocals from the reference
+  - Produces cleaner voice embeddings for more accurate cloning
+  - Applied in both single and dialogue modes
+
+- **YouTube URL Support for Voice Prompts** — TTS voice prompts now accept YouTube URLs.
+  - Enter a YouTube URL instead of a voice description to clone a voice from that URL
+  - Audio is downloaded, vocals are extracted via SVS, then used for voice cloning
+  - Cleanup is handled automatically
+
+#### Enhanced Dialogue System
+
+- **YouTube URL Support for Character Voice Assignment** — Dialogue character voice assignments now accept YouTube URLs.
+  - In dialogue mode, provide a YouTube URL as a character's voice reference
+  - VODER downloads the audio, extracts vocals via SVS, and uses it for voice cloning
+  - Multiple characters can each have different YouTube URL references
+
+### Changed
+
+- **10 Processing Modes** — VODER now has 10 distinct processing modes.
+  - Modes: STT+TTS, TTS, STS, TTM, STT, SE, SFX, SVS, SLC, SS
+  - TTS+VC is no longer a separate mode — use TTS with `target` parameter for voice cloning
+  - TTM+VC is no longer a separate mode — use TTM with `vc` flag for voice conversion
+  - The old `tts+vc` and `ttm+vc` commands are no longer accepted and will produce an error
+
+- **ACE-Step Three-Tier System** — ACE-Step now operates in three quality tiers:
+  - **Standard**: `acestep-v15-turbo` with `acestep-5Hz-lm-1.7B`, shift=1.0, 8 inference steps
+  - **Overdose**: `acestep-v15-xl-turbo` with `acestep-5Hz-lm-4B`, shift=3.0, 8 inference steps
+  - **Complete**: `acestep-v15-xl-base` with `acestep-5Hz-lm-1.7B`, shift=1.0, 50 inference steps (for sub-tasks)
+
+- **Enhanced WhisperSTT** — Whisper model now uses dual-model architecture.
+  - STT transcription: `large-v3-turbo` (fast, efficient)
+  - Translation: `large-v3` (supports translate task, which turbo does not)
+  - Custom checkpoint save/load system with `_save_checkpoint()` and `_load_model()` methods
+  - Both models cached under `src/models/checkpoints/whisper/`
+
+- **Enhanced SeedVCV1** — Seed-VC v1 now supports automatic vocal extraction.
+  - Before voice conversion, BS-RoFormer extracts clean vocals from target reference
+  - This removes background music and instruments that could interfere with voice conversion quality
+  - Falls back gracefully if SVS extraction fails
+
+- **Enhanced QwenTTS** — Qwen3-TTS now exposes language parameter.
+  - `synthesize()` method accepts `language` parameter (default: "Auto")
+  - Maps to `SUPPORTED_TTS_LANGUAGES` for validation
+  - Allows explicit language control instead of relying solely on auto-detection
+
+- **Centralized Model Storage Updates**:
+  - `src/models/checkpoints/svs/` — BS-RoFormer SVS models
+  - `src/models/checkpoints/vibevoice_asr/` — VibeVoice ASR model
+
+- **System Resource Detection** — New `get_system_resources()` function for dynamic hardware assessment.
+  - Detects single GPU VRAM, total GPU VRAM, system RAM, and swap/pagefile
+  - Uses `psutil` where available, falls back to `/proc/meminfo` on Linux
+  - Used by VibeVoice ASR, ACE-Step Overdose, and ACE-Step Complete for resource checks
+  - Returns `(single_gpu_gb, total_sys_gb)` tuple
+
+- **YouTube URL Expansion** — New `resolve_target_to_audio()` and `download_youtube_video()` functions.
+  - `resolve_target_to_audio()`: Resolves any path/URL to a downloadable audio file (supports YouTube URLs, video files, audio files)
+  - `download_youtube_video()`: Downloads full video from YouTube URL (used by SVS and TTM modes)
+  - Automatic cleanup of temporary downloaded files
+
+- **Updated Dependencies**:
+  - New: `rotary_embedding_torch==0.3.5` — Required for BS-RoFormer model
+  - New: `beartype==0.14.1` — Required for BS-RoFormer model
+  - New: `ml_collections` — Required for BS-RoFormer model
+  - Changed: `huggingface-hub>=0.16.0` → `huggingface-hub==0.34.0` (pinned version)
+
+### Technical Notes
+
+- Code size increased from ~7,263 lines (stable voder.py) to ~10,916 lines (bleed voder.py) — approximately 50% increase (+3,653 lines)
+- New source directories: `src/asr/` (VibeVoice ASR, 8 files), `src/bs_roformer/` (BS-RoFormer, 10+ files)
+- TTS+VC and TTM+VC modes have been fully absorbed into TTS and TTM; the old `tts+vc` and `ttm+vc` commands are no longer accepted
+- The 10 modes are: STT+TTS, TTS, STS, TTM, STT, SE, SFX, SVS, SLC, SS (TTS+VC absorbed into TTS, TTM+VC absorbed into TTM)
+- All new models (VibeVoice ASR, BS-RoFormer) support explicit cleanup with `cleanup()` methods
+
+---
+
 ## 04/09/2026
 - Status: Stable, all features work, still developing
 - **Bug Hunt Activity** — Extensive bug fixes, memory optimizations, and new features
@@ -22,7 +242,7 @@
 - **OCR Parameter for TTS+VC Mode** — New `ocr` parameter for one-liner TTS+VC commands to extract text from images.
   - Same functionality as TTS mode but with voice cloning support
   - Extracted text is synthesized and then cloned to match the target voice reference
-  - Example: `python src/voder.py tts+vc ocr "subtitle_image.jpg" target "text: speaker_clone.wav"`
+  - Example: `python src/voder.py tts ocr "subtitle_image.jpg" target "text: speaker_clone.wav"`
   - Full resource cleanup ensures memory efficiency
 
 - **Mimic Flag for STS Mode** — New `mimic` keyword for one-liner STS commands to enable accent and emotion conversion alongside voice timbre transfer.

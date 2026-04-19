@@ -8,7 +8,7 @@ VODER is not an English‑only tool. The AI models it orchestrates collectively 
 
 | Component | Modes | Languages | Auto‑Detect | Notes |
 |-----------|-------|-----------|-------------|-------|
-| **Whisper** (`large-v3-turbo`) | STT, STT+TTS, Dialogue Source | 99 | Yes | Detects spoken language from audio |
+| **Whisper** (`large-v3-turbo` / `large-v3`) | STT, STT+TTS, Dialogue Source | 99 | Yes | Detects spoken language from audio; dual‑model architecture |
 | **Qwen3‑TTS VoiceDesign** | TTS | 10 + 2 dialects | Yes | Detects language from input text |
 | **Qwen3‑TTS Base** | TTS+VC, STT+TTS | 10 + 2 dialects | Yes | Detects language from input text |
 | **ACE‑Step 1.5** | TTM, TTM+VC, Background Music | 50 | Yes | Detects language from lyrics/caption |
@@ -18,12 +18,16 @@ VODER is not an English‑only tool. The AI models it orchestrates collectively 
 | **Seed‑VC v1** | MSTS | Any | N/A | Language‑agnostic (audio waveforms) |
 | **UniSE** | SE | Any | N/A | Language‑agnostic (audio waveforms) |
 | **Pyannote** | Diarization | Any | N/A | Language‑agnostic (voice embeddings) |
+| **VibeVoice ASR** | STT (overdose), SS | 53 | Yes | Native speaker diarization; 24GB+ VRAM or 48GB+ RAM required; does not support translation |
 
 ---
 
 ## Whisper — Speech‑to‑Text
 
-**Model:** `openai/whisper` → `large-v3-turbo`
+**Model:** `openai/whisper` → dual‑model architecture
+- `large-v3-turbo` — used for standard transcription (fast, efficient)
+- `large-v3` — used for translation tasks (supports the `translate` task which turbo does not)
+
 **Modes:** STT, STT+TTS, Dialogue Source Analysis
 **Language handling:** Auto‑detects spoken language from the first 30 seconds of audio. No user configuration required. Language can be manually overridden via the `language` parameter in Whisper's API, but VODER uses auto‑detection by default.
 
@@ -57,10 +61,48 @@ haw Hawaiian          ln  Lingala           ha  Hausa             ba  Bashkir
 jw  Javanese          su  Sundanese         yue Cantonese
 ```
 
+**Translation capability:**
+Audio in any of the 99 supported languages can be translated to English text using the `large-v3` model. The translation task is only available on `large-v3` — `large-v3-turbo` does not support it. When translation is requested, the full `large-v3` model is loaded instead of turbo, and Whisper outputs English text regardless of the input language.
+
+**Pre‑cleanup (SVS vocal isolation):**
+Before transcription, VODER can run BS‑RoFormer SVS vocal isolation on the input audio to separate voice from background music or noise. This pre‑cleanup step ensures Whisper receives clean vocal content, which significantly improves transcription accuracy on mixed audio (songs, podcasts with music beds, field recordings). The separated vocal stem is passed directly to Whisper; the instrumental stem is discarded.
+
 **Technical notes:**
-- `large-v3-turbo` does **not** support the translation task (speech to English text). Transcription outputs in the original spoken language.
 - When the `dialogue` flag is enabled, Whisper transcription is combined with Pyannote diarization and aligned using a three‑tier overlap matching system. The language of the transcription matches the spoken language.
 - Processing is CPU‑only. Approximately 1x real‑time on a modern CPU.
+
+---
+
+## VibeVoice ASR — Advanced Speech Recognition
+
+**Model:** `microsoft/VibeVoice-ASR` with `Qwen/Qwen2.5-7B` language model backbone
+**Modes:** STT (with `overdose` flag), SS (Speakers Separator)
+**Language handling:** Auto‑detects spoken language from audio. Does **not** support translation — the `overdose` and `translate` flags are mutually exclusive.
+
+**Supported languages (53 total, ordered from highest to lowest accuracy):**
+
+```
+English           Chinese            Spanish            Portuguese
+German            Japanese           Korean             French
+Russian           Indonesian         Swedish            Italian
+Hebrew            Dutch              Polish              Norwegian
+Turkish           Thai               Arabic              Hungarian
+Catalan           Czech              Danish              Persian
+Afrikaans         Hindi              Finnish             Estonian
+Afar              Greek              Romanian            Vietnamese
+Bulgarian         Icelandic          Slovenian           Slovak
+Lithuanian        Swahili            Ukrainian           Kalaallisut
+Latvian           Croatian           Nepali              Serbian
+Filipino          Yiddish            Malay               Urdu
+Mongolian         Armenian           Javanese
+```
+
+**Technical notes:**
+- VibeVoice ASR provides **native speaker diarization** — it identifies and labels individual speakers as part of the transcription process without needing a separate diarization model like Pyannote.
+- Requires 24GB+ VRAM or 48GB+ system memory. If insufficient resources are detected, SS mode falls back to Whisper + Pyannote speaker diarization.
+- Does **not** support translation to English. For translation, use standard STT mode with Whisper (`translate` flag).
+- The `overdose` flag in STT mode switches the transcription pipeline from Whisper to VibeVoice ASR. When `overdose` is active, the `dialogue` flag is redundant and ignored since VibeVoice handles speaker identification natively.
+- In SS mode, VibeVoice ASR is the primary model used for speaker identification and segmentation. Each identified speaker's audio is extracted into a separate file, and a speaker-labeled transcript is produced.
 
 ---
 
@@ -68,22 +110,22 @@ jw  Javanese          su  Sundanese         yue Cantonese
 
 **Model:** `Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign`
 **Modes:** TTS (single and dialogue)
-**Language handling:** Auto‑detects language from the input text. Set to `"Auto"` by default in VODER. The model reads the text content and determines the appropriate language without any user configuration.
+**Language handling:** Auto‑detects language from the input text. Set to `"Auto"` by default in VODER. The model reads the text content and determines the appropriate language without any user configuration. The language parameter is now exposed via the `SUPPORTED_TTS_LANGUAGES` constant, which maps ISO 639‑1 codes to full English names.
 
 **Supported languages (10 total):**
 
-| Language | Full Name |
-|----------|-----------|
-| Chinese | Mandarin Chinese |
-| English | English |
-| Japanese | Japanese |
-| Korean | Korean |
-| German | German |
-| French | French |
-| Russian | Russian |
-| Portuguese | Portuguese |
-| Spanish | Spanish |
-| Italian | Italian |
+| ISO Code | Language |
+|----------|----------|
+| zh | Chinese |
+| en | English |
+| ja | Japanese |
+| ko | Korean |
+| de | German |
+| fr | French |
+| ru | Russian |
+| pt | Portuguese |
+| es | Spanish |
+| it | Italian |
 
 **Chinese dialects (2):**
 
@@ -95,7 +137,7 @@ jw  Javanese          su  Sundanese         yue Cantonese
 **Technical notes:**
 - Language validation is case‑insensitive. Both `"English"` and `"english"` are accepted.
 - `"Auto"` is the default and works reliably for all 10 languages. If the target language is known, setting it explicitly can improve consistency in ambiguous cases (e.g., mixed‑language text).
-- The model uses full English language names as identifiers (e.g., `"Chinese"`, `"English"`), not ISO codes.
+- The model uses full English language names as identifiers (e.g., `"Chinese"`, `"English"`), not ISO codes. The `SUPPORTED_TTS_LANGUAGES` dictionary in `src/voder.py` provides the mapping between the two.
 
 ---
 
@@ -103,7 +145,7 @@ jw  Javanese          su  Sundanese         yue Cantonese
 
 **Model:** `Qwen/Qwen3-TTS-12Hz-1.7B-Base`
 **Modes:** TTS+VC, STT+TTS
-**Language handling:** Auto‑detects language from the input text. Set to `"Auto"` by default in VODER. This is the same language detection system used by VoiceDesign — the Base model variant supports it identically.
+**Language handling:** Auto‑detects language from the input text. Set to `"Auto"` by default in VODER. This is the same language detection system used by VoiceDesign — the Base model variant supports it identically. The language parameter is now exposed via the `SUPPORTED_TTS_LANGUAGES` constant, which maps ISO 639‑1 codes to full English names.
 
 **Supported languages:** Same 10 languages + 2 dialects as VoiceDesign (see above).
 
@@ -116,9 +158,19 @@ jw  Javanese          su  Sundanese         yue Cantonese
 
 ## ACE‑Step 1.5 — Music Generation
 
-**Model:** `ACE-Step/Ace-Step1.5` → `acestep-v15-turbo`
+**Model:** `ACE-Step/Ace-Step1.5`
 **Modes:** TTM, TTM+VC, Background Music (dialogue)
 **Language handling:** Language is auto‑detected from the lyrics or caption text by the language model (Qwen3‑based). The `vocal_language` parameter defaults to `"unknown"`, which triggers automatic detection. Language can be set explicitly if needed.
+
+**Three‑tier quality system:**
+
+| Tier | Music Model | Language Model | Inference Steps | Use Case |
+|------|-------------|----------------|-----------------|----------|
+| **Standard** | `acestep-v15-turbo` | `acestep-5Hz-lm-1.7B` | 8 | Default generation; fast results |
+| **Overdose** | `acestep-v15-xl-turbo` | `acestep-5Hz-lm-4B` | 8 (shift=3.0) | High‑quality output; increased detail |
+| **Complete** | `acestep-v15-xl-base` | `acestep-5Hz-lm-1.7B` | 50 | Sub‑tasks requiring maximum fidelity |
+
+**Sub‑tasks (Complete tier only):** `complete`, `lego`, `extract`, `remix`, `repaint`
 
 **Supported languages for lyrics (50 total):**
 
@@ -284,6 +336,12 @@ Processes raw audio to remove noise, reduce reverberation, and restore speech cl
 
 Identifies and labels individual speakers based on voice embeddings, not linguistic content. Evaluated on multilingual datasets including English (AMI), Mandarin (AISHELL‑4), French (REPERE), Romanian (RAMC), and multi‑language corpora (CALLHOME, DIHARD, VoxConverse). Requires HF_TOKEN for model access.
 
+### BS‑RoFormer Resurrection — Voice/Music Separation (SVS)
+
+**Modes:** SVS (standalone), STS (automatic vocal extraction), STT (pre‑cleanup), TTS (voice cloning cleanup)
+
+Operates on raw audio waveforms to separate vocal content from instrumental content. The model does not process text or use language codes — it works purely on audio signal characteristics. Separation quality is consistent across all languages because it relies on spectral and temporal features rather than linguistic content. Two stems are supported: `voice` (vocal isolation) and `music` (instrumental extraction).
+
 ---
 
 ## Cross‑Language Workflows
@@ -310,4 +368,30 @@ Audio (mixed English/Japanese) → Whisper + Pyannote → Dialogue text → Qwen
 Lyrics (Spanish) + style prompt (English) → ACE‑Step TTM → Spanish vocal music
 ```
 
+**Translate speech to English with original voice (SLC mode):**
+```
+Audio (any language) → Whisper translate → English text → Qwen3‑TTS TTS with original voice reference → English speech with original voice
+```
+
+**Change speaker voice across languages (SLC mode):**
+```
+Audio (Spanish) + target reference (English speaker) → SLC → English speech with English speaker voice
+```
+
 These workflows work because each component handles language independently. Whisper auto‑detects the input language, Qwen3‑TTS auto‑detects the output language, and voice cloning operates on speaker identity rather than language. The components don't need to agree on a language — each one handles its own detection.
+
+---
+
+## SUPPORTED_TTS_LANGUAGES Constant
+
+The `SUPPORTED_TTS_LANGUAGES` dictionary is defined in `src/voder.py` and provides the mapping between ISO 639‑1 codes and full English language names used by the TTS pipeline:
+
+```python
+SUPPORTED_TTS_LANGUAGES = {
+    "zh": "Chinese", "en": "English", "ja": "Japanese", "ko": "Korean",
+    "de": "German", "fr": "French", "ru": "Russian", "pt": "Portuguese",
+    "es": "Spanish", "it": "Italian"
+}
+```
+
+This constant is used by both Qwen3‑TTS VoiceDesign and Qwen3‑TTS Base to validate and map language parameters. When a user specifies an ISO code, it is resolved to the full English name expected by the model. When `"Auto"` is specified, the model performs its own language detection from the input text and the mapping is bypassed.

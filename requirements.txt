@@ -23,8 +23,13 @@ vector_quantize_pytorch
 openai-whisper>=20231117
 transformers==4.57.3
 accelerate>=0.20.0
-huggingface-hub>=0.16.0
+huggingface-hub==0.34.0
 einops>=0.6.0
+
+# BS-RoFormer (SVS - Song Voice Separate)
+rotary_embedding_torch==0.3.5
+beartype==0.14.1
+ml_collections
 
 # Configuration
 omegaconf>=2.3.0
