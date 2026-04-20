@@ -6618,7 +6618,7 @@ def parse_oneline_args(args):
                 else:
                     result['error'] = 'result keyword requires a path argument'
                     return result
-            elif os.path.exists(arg):
+            elif os.path.exists(arg) or is_youtube_url(arg):
                 file_paths.append(arg)
                 i += 1
             else:
@@ -9789,9 +9789,29 @@ def oneline_se(params):
         print("Error: SE mode requires at least one audio/video file path")
         return False
 
+    resolved_files = []
+    _se_cleanup = []
     for file_path in files:
-        if not os.path.exists(file_path):
+        if is_youtube_url(file_path):
+            print(f"Downloading video from URL: {file_path}")
+            dl_path, dl_err = download_youtube_video(file_path)
+            if not dl_path:
+                print(f"Error: {dl_err}")
+                for f in _se_cleanup:
+                    if f and os.path.exists(f):
+                        try: os.unlink(f)
+                        except: pass
+                return False
+            _se_cleanup.append(dl_path)
+            resolved_files.append(dl_path)
+        elif os.path.exists(file_path):
+            resolved_files.append(file_path)
+        else:
             print(f"Error: File not found: {file_path}")
+            for f in _se_cleanup:
+                if f and os.path.exists(f):
+                    try: os.unlink(f)
+                    except: pass
             return False
 
     print("Loading UniSE Speech Enhancement model...")
@@ -9800,10 +9820,14 @@ def oneline_se(params):
     enhancer.ensure_model()
     if enhancer.model is None:
         print("Error: Failed to load UniSE model")
+        for f in _se_cleanup:
+            if f and os.path.exists(f):
+                try: os.unlink(f)
+                except: pass
         return False
 
     success_count = 0
-    for file_path in files:
+    for file_path in resolved_files:
         print(f"\nProcessing: {file_path}")
         print("=" * 60)
 
@@ -9840,8 +9864,13 @@ def oneline_se(params):
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
+    for f in _se_cleanup:
+        if f and os.path.exists(f):
+            try: os.unlink(f)
+            except: pass
+
     print(f"\n{'=' * 60}")
-    print(f"Processing complete: {success_count}/{len(files)} files successful")
+    print(f"Processing complete: {success_count}/{len(resolved_files)} files successful")
     return success_count > 0
 
 def _ss_resolve_input(file_path, results_dir, timestamp):
