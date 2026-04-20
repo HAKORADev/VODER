@@ -699,13 +699,14 @@ class AudioWaveformWidget(QFrame):
                 painter.drawLine(x, y_center - y_offset, x, y_center + y_offset)
 
 class WhisperSTT:
-    def __init__(self, model_dir=None):
+    def __init__(self, model_dir=None, skip_turbo=False):
         self.model_dir = WHISPER_DIR if model_dir is None else model_dir
         self.model = None
         self.checkpoint_path = os.path.join(self.model_dir, "whisper-turbo.pt")
         self.translate_model = None
         self.translate_checkpoint_path = os.path.join(self.model_dir, "whisper-large-v3.pt")
-        self.ensure_model()
+        if not skip_turbo:
+            self.ensure_model()
 
     def _save_checkpoint(self, model, path):
         import torch
@@ -6801,6 +6802,42 @@ def parse_oneline_args(args):
         result['params']['result_path'] = result_path
         return result
 
+    if mode == 'slc':
+        file_path = None
+        enable_translate = False
+        target_path = None
+        while i < len(args):
+            arg = args[i]
+            arg_lower = arg.lower()
+            if arg_lower == 'translate':
+                enable_translate = True
+                i += 1
+            elif arg_lower == 'target':
+                if i + 1 < len(args):
+                    target_path = args[i + 1]
+                    i += 2
+                else:
+                    result['error'] = 'target keyword requires a path argument'
+                    return result
+            elif arg_lower == 'result':
+                if i + 1 < len(args):
+                    result_path = args[i + 1]
+                    i += 2
+                else:
+                    result['error'] = 'result keyword requires a path argument'
+                    return result
+            elif file_path is None:
+                file_path = arg
+                i += 1
+            else:
+                result['error'] = f'Unknown parameter: {arg}'
+                return result
+        result['params']['file_path'] = file_path or ''
+        result['params']['translate'] = enable_translate
+        result['params']['target_path'] = target_path
+        result['params']['result_path'] = result_path
+        return result
+
     while i < len(args):
         arg = args[i]
         arg_lower = arg.lower()
@@ -9580,7 +9617,6 @@ def oneline_slc(params):
 
     audio_path = file_path
     needs_youtube_download = is_youtube_url(file_path)
-    needs_cleanup = False
 
     if needs_youtube_download:
         print("Downloading audio from YouTube...")
@@ -9644,7 +9680,7 @@ def oneline_slc(params):
                 tts_lang = "English"
             else:
                 print("Translating to English...")
-                stt2 = WhisperSTT()
+                stt2 = WhisperSTT(skip_turbo=True)
                 trans_result = stt2.translate(audio_path)
                 if trans_result and trans_result.get("text", "").strip():
                     final_text = trans_result["text"].strip()
@@ -9663,7 +9699,7 @@ def oneline_slc(params):
                 tts_lang = SUPPORTED_TTS_LANGUAGES[detected_lang]
             else:
                 print(f"Unsupported language ({detected_lang}), auto-translating to English...")
-                stt2 = WhisperSTT()
+                stt2 = WhisperSTT(skip_turbo=True)
                 trans_result = stt2.translate(audio_path)
                 if trans_result and trans_result.get("text", "").strip():
                     final_text = trans_result["text"].strip()
@@ -9688,6 +9724,11 @@ def oneline_slc(params):
         success = tts.extract_voice(clean_voice_ref)
         if not success:
             print("Error: Voice extraction failed")
+            del tts
+            tts = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             return False
 
         print("Generating speech...")
@@ -9696,6 +9737,11 @@ def oneline_slc(params):
         success = tts.synthesize(final_text, output_path, language=tts_lang)
         if not success:
             print("Error: Synthesis failed")
+            del tts
+            tts = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             return False
 
         print(f"\n\u2713 Success! Output saved to: {output_path}")
@@ -9709,6 +9755,14 @@ def oneline_slc(params):
 
     except Exception as e:
         print(f"Error: {e}")
+        try:
+            del tts
+        except NameError:
+            pass
+        tts = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return False
 
     finally:
@@ -10809,10 +10863,12 @@ def cli_slc_mode():
     print()
 
     while True:
-        file_path = input("Enter audio file path: ").strip()
+        file_path = input("Enter audio file path or URL: ").strip()
         if not file_path:
             print("Error: No path provided")
             continue
+        if is_youtube_url(file_path):
+            break
         valid, msg = validate_audio_file(file_path)
         if not valid:
             print(f"Error: {msg}")
@@ -10821,6 +10877,16 @@ def cli_slc_mode():
             print("Error: SLC mode requires audio input only (not video)")
             continue
         break
+
+    audio_path = file_path
+    needs_youtube_download = is_youtube_url(file_path)
+
+    if needs_youtube_download:
+        print("Downloading audio from URL...")
+        success_dl, error_msg, audio_path = download_youtube_audio(file_path)
+        if not success_dl:
+            print(f"Error: {error_msg}")
+            return False
 
     while True:
         translate_input = input("Translate to English? (Y/N): ").strip().lower()
@@ -10837,7 +10903,7 @@ def cli_slc_mode():
     use_base_as_target = not target_input
     _slc_cli_cleanup = []
     if use_base_as_target:
-        actual_target = file_path
+        actual_target = audio_path
     else:
         resolved_target, _slc_cli_cleanup = resolve_target_to_audio(target_input)
         if not resolved_target:
@@ -10852,7 +10918,7 @@ def cli_slc_mode():
             return False
 
         print("Transcribing audio...")
-        result = stt.transcribe(file_path)
+        result = stt.transcribe(audio_path)
         if not result:
             print("Error: Transcription failed")
             return False
@@ -10881,8 +10947,8 @@ def cli_slc_mode():
                 tts_lang = "English"
             else:
                 print("Translating to English...")
-                stt2 = WhisperSTT()
-                trans_result = stt2.translate(file_path)
+                stt2 = WhisperSTT(skip_turbo=True)
+                trans_result = stt2.translate(audio_path)
                 if trans_result and trans_result.get("text", "").strip():
                     final_text = trans_result["text"].strip()
                     tts_lang = "English"
@@ -10900,8 +10966,8 @@ def cli_slc_mode():
                 tts_lang = SUPPORTED_TTS_LANGUAGES[detected_lang]
             else:
                 print(f"Unsupported language ({detected_lang}), auto-translating to English...")
-                stt2 = WhisperSTT()
-                trans_result = stt2.translate(file_path)
+                stt2 = WhisperSTT(skip_turbo=True)
+                trans_result = stt2.translate(audio_path)
                 if trans_result and trans_result.get("text", "").strip():
                     final_text = trans_result["text"].strip()
                     tts_lang = "English"
@@ -10925,6 +10991,11 @@ def cli_slc_mode():
         success = tts.extract_voice(clean_voice_ref)
         if not success:
             print("Error: Voice extraction failed")
+            del tts
+            tts = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             return False
 
         print("Generating speech...")
@@ -10933,6 +11004,11 @@ def cli_slc_mode():
         success = tts.synthesize(final_text, output_path, language=tts_lang)
         if not success:
             print("Error: Synthesis failed")
+            del tts
+            tts = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             return False
 
         print(f"\n✓ Success! Output saved to: {output_path}")
@@ -10946,8 +11022,21 @@ def cli_slc_mode():
 
     except Exception as e:
         print(f"Error: {e}")
+        try:
+            del tts
+        except NameError:
+            pass
+        tts = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return False
     finally:
+        if needs_youtube_download and os.path.exists(audio_path):
+            try:
+                os.unlink(audio_path)
+            except:
+                pass
         for f in _slc_cli_cleanup:
             if f and os.path.exists(f):
                 try:
