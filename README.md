@@ -80,6 +80,23 @@ VODER offers ten distinct voice processing modes, each designed for specific aud
 
 ---
 
+## AI Model Integration
+
+VODER leverages state-of-the-art open-source models for professional-grade audio processing:
+
+- **Speech Recognition:** [openai/whisper](https://github.com/openai/whisper) — Whisper for accurate audio transcription and translation
+- **Voice Synthesis:** [QwenLM/Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) — Qwen3-TTS for natural text-to-speech
+- **Voice Conversion:** [Plachtaa/seed-vc](https://github.com/Plachtaa/seed-vc) — Seed-VC for speech-to-speech transformation
+- **Music Generation:** [ace-step/ACE-Step-1.5](https://github.com/ace-step/ACE-Step-1.5) — ACE-Step for lyrics-to-music synthesis
+- **Sound Effects:** [declare-lab/TangoFlux](https://github.com/declare-lab/TangoFlux) — TangoFlux for text-to-audio generation
+- **Speech Enhancement:** [alibaba/unified-audio](https://github.com/alibaba/unified-audio) — UniSE for denoising, dereverberation, and speech restoration
+- **Voice Separation:** [BS-RoFormer Resurrection](https://huggingface.co/pcunwa/BS-Roformer-Resurrection) — BS-RoFormer for vocal/music isolation
+- **Advanced ASR:** [Microsoft VibeVoice](https://github.com/microsoft/VibeVoice) — VibeVoice ASR for speaker diarization, transcription, and overdose mode
+- **Speaker Diarization:** [pyannote/speaker-diarization-community-1](https://github.com/pyannote/pyannote-audio) — pyannote for identifying and labeling individual speakers in multi-speaker audio
+- **Image Text Extraction:** [EasyOCR](https://github.com/JaidedAI/EasyOCR) — EasyOCR for extracting text from images, enabling image-to-speech workflows
+
+---
+
 ## System Requirements
 
 ### Minimum Requirements
