@@ -1,191 +1,186 @@
-# VODER - Voice Blender
-
 <p align="center">
   <img src="src/voder.png" alt="VODER Logo" width="256" height="256"/>
 </p>
 
-**VODER** is a Local, Free, Offline, professional-grade voice processing and transformation tool that enables seamless conversion between speech, text, and music. Built for creators, developers, and audio professionals, VODER delivers **high-quality synthesis, voice cloning, transcription, music generation, sound effects, and speech enhancement** capabilities through an intuitive interface.
+<h1 align="center">VODER — Voice Blender</h1>
 
-🚀 **Ready in Colab:** [Open VODER in Google Colab](https://colab.research.google.com/drive/1hditIfW9JzusNcFhlHFoclCIIsNiRFNk?usp=sharing)
+<p align="center">
+  <strong>Local &bull; Free &bull; Offline</strong><br/>
+  Professional-grade voice processing in a single tool.
+</p>
 
-🤖 **For AI agents and automated tools:** See [Bots.md](Bots.md)
+<p align="center">
+  <a href="https://colab.research.google.com/drive/1hditIfW9JzusNcFhlHFoclCIIsNiRFNk?usp=sharing">
+    <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"/>
+  </a>
+</p>
+
+---
+
+VODER brings together **10 processing modes** under one interface — speech-to-text, text-to-speech, voice conversion, music generation, speech enhancement, sound effects, vocal separation, language dubbing, speaker diarization, and multi-speaker separation. It runs entirely on your machine, needs no subscription, and works with or without a GPU.
+
+---
+
+## Features
+
+- **Multi-Speaker Dialogue System** — Write scripts with multiple characters, each with a distinct voice. Control per-line timing, volume, and duration with script directives. Embed sound effects directly into dialogue lines and generate automatic background music that matches the spoken duration.
+- **Voice Design & Cloning** — Describe a voice in plain English and VODER generates it, or provide a reference clip to clone a speaker's voice. Mix designed and cloned voices within the same dialogue.
+- **Speaker Separation** — Extract individual speakers from multi-speaker recordings into separate audio files, each with a speaker-labeled transcript.
+- **Voice Conversion with Video I/O** — Transform one voice into another while preserving words, emotion, and timing. Drop in an MP4 and get back a video with the converted voice.
+- **Music Generation & Manipulation** — Generate full songs from lyrics and style descriptions. Remix, repaint, complete, extract stems, or build individual instrument tracks. Output up to 12 separate instrument tracks.
+- **Speech-to-Text with Intelligence** — Transcribe audio, video, images, or direct URLs. Translate to English from 99 languages. Identify who spoke when with speaker diarization. Batch process multiple files.
+- **Language Dubbing** — Translate speech from one language to another while preserving the original speaker's voice identity.
+- **Smart Input Pipeline** — Paste a YouTube, Bilibili, or TikTok URL directly as input. Feed an image and VODER extracts text via OCR. Automatically extract voice clips from multi-speaker audio for one-click voice cloning.
+
+---
+
+## What Can VODER Do?
+
+### Text-to-Speech with Voice Design & Cloning
+
+Describe a voice in plain English — *"deep male voice, authoritative"* — and VODER generates speech that matches. Or provide a reference audio clip and VODER **clones the speaker's voice** from it. Both approaches can be **mixed in the same dialogue**: some characters designed, others cloned.
+
+### Multi-Speaker Dialogue System
+
+Write scripts with multiple characters, each with a distinct voice. VODER assembles the full dialogue into a single audio file with per-line control over timing, volume, and duration via **script directives** (`/time`, `/level`, `/duration`). Embed **sound effects** directly into dialogue lines using the special `sfx:` character — door creaks, applause, rain — generated on the fly from text descriptions.
+
+### Automatic Background Music
+
+When generating dialogue, VODER can produce a background music track that **exactly matches the spoken duration**, mixed at a configurable volume with fade transitions. No manual editing or external tools needed.
+
+### Voice Conversion (Speech & Music)
+
+Transform one voice into another while preserving the original words, emotion, and timing. Supports **video input/output** — drop in an MP4 and get back a video with the converted voice. For music, VODER switches to a high-fidelity 44.1kHz model. A **mimic** mode transfers not just the voice timbre but the accent and speaking style as well.
+
+### Music Generation & Manipulation
+
+Generate full songs from lyrics and style descriptions. Beyond basic generation, VODER supports **5 sub-tasks**: remix (style transfer with bias control), repaint (restyle a specific time range), complete (add missing instruments), lego (build individual tracks), and extract (isolate specific stems). Output up to **12 individual instrument tracks** for post-production. A three-tier quality system lets you trade speed for output quality.
+
+### Vocal & Music Separation
+
+Isolate clean vocals from any song, or extract the instrumental. Works with audio files, videos, and direct YouTube URLs. This separation engine also runs automatically behind the scenes in TTS (to clean voice cloning references), STS (to improve conversion quality), and STT (to pre-clean audio before transcription).
+
+### Speech-to-Text with Speaker Intelligence
+
+Transcribe audio, video, images, or direct URLs to text. Supports **translation to English** from 99 languages, **speaker diarization** (who spoke when), and **batch processing** of multiple files. An **overdose mode** using Microsoft VibeVoice ASR delivers higher-quality transcription with built-in speaker identification.
+
+### Speech Enhancement
+
+Remove noise, reduce room echo, and restore clarity from degraded recordings. Works on audio and video files alike.
+
+### Speaker Separation
+
+Extract individual speakers from multi-speaker recordings into separate audio files, each with a speaker-labeled transcript.
+
+### Language Conversion (Dubbing)
+
+Translate speech from one language to another while **preserving the original speaker's voice identity**. Accepts audio files and YouTube URLs.
+
+### Smart Input Pipeline
+
+Paste a **YouTube, Bilibili, or TikTok URL** directly as input — VODER downloads and processes it automatically. Feed an **image** containing text and VODER extracts it via OCR for TTS processing. Automatic voice clip extraction from multi-speaker audio enables one-click voice cloning for dialogue characters.
 
 ---
 
 ## Quick Start
 
-### Run from Source
 ```bash
-# Clone the repository
-git clone https://github.com/HAKORADev/VODER.git
-cd VODER
+git clone https://github.com/HAKORADev/VODER.git && cd VODER
+pip install -r requirements.txt && pip install --upgrade protobuf==5.29.6
 
-# Install dependencies
-pip install -r requirements.txt
-
-# IMPORTANT: After installing requirements, upgrade protobuf to avoid compatibility issues
-pip install --upgrade protobuf==5.29.6
-
-# Launch GUI
+# GUI
 python src/voder.py
 
-# Or use CLI mode
+# CLI (interactive)
 python src/voder.py cli
+
+# One-liner examples
+python src/voder.py tts script "Hello world" voice "female, cheerful"
+python src/voder.py stt "audio.wav" timestamp dialogue
+python src/voder.py sts base "input.wav" target "voice.wav"
+python src/voder.py ttm lyrics "Walking down the street" styling "upbeat pop" 30
+python src/voder.py svs "song.mp3" voice
+python src/voder.py ss "meeting.wav"
+python src/voder.py slc "spanish_speech.wav"
+python src/voder.py se "noisy_recording.wav"
+python src/voder.py sfx sound "thunder rumbling" duration 10
 ```
 
-### Run in Google Colab
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1hditIfW9JzusNcFhlHFoclCIIsNiRFNk?usp=sharing)
+> **Run in Colab** — no installation needed: [Open in Google Colab](https://colab.research.google.com/drive/1hditIfW9JzusNcFhlHFoclCIIsNiRFNk?usp=sharing)
 
-Open the link, connect to a runtime, and press **Run All** (or run cells one by one until the last one). Once execution completes, VODER is ready to use directly in your browser — no installation required.
-
-### Installation Requirements
-```bash
-# Install FFmpeg (required for audio processing)
-# Windows: winget install FFmpeg
-# macOS: brew install ffmpeg
-# Linux: sudo apt install ffmpeg
-
-# Additional system dependencies (required for new features)
-# Linux: sudo apt install sox
-# macOS: brew install sox
-# yt-dlp: pip install yt-dlp
-```
-
-> **New Dependencies (v04/08/2026 update):** VODER now requires `yt-dlp` (for YouTube/Bilibili/TikTok URL support), `easyocr` and `onnxruntime` (for image text extraction), `lightning` (for pyannote model loading), `sox` (for audio manipulation), `einx`, `x-transformers`, `safetensors`, `soxr` (for UniSE speech enhancement), `tqdm`/`packaging`, `rotary_embedding_torch`, `beartype`, and `ml_collections` (for BS-RoFormer vocal/music separation), and `huggingface-hub==0.34.0` (pinned for model download compatibility). These are included in `requirements.txt` — simply run `pip install -r requirements.txt` after pulling the latest version.
-
-> **New Model Directories:** VODER now downloads additional models for BS-RoFormer (vocal/music separation) and VibeVoice ASR (advanced transcription). Ensure sufficient disk space is available — model files are cached in the standard Hugging Face cache directory.
+> **FFmpeg is required** for audio processing. Install via your system package manager. See [READ.md](READ.md) for all setup details.
 
 ---
 
-## Core Capabilities
+## Modes at a Glance
 
-### 🎤 **10 Processing Modes**
-
-VODER offers ten distinct voice processing modes, each designed for specific audio transformation needs:
-
-| Mode | Description | Input | Output |
+| Mode | What It Does | Input | Output |
 |------|-------------|-------|--------|
-| **STT+TTS** | Speech-to-Text then Text-to-Speech | Audio | Audio |
-| **TTS** | Text-to-Speech with Voice Design & Cloning | Text + Optional Reference | Audio |
-| **STS** | Speech-to-Speech (Voice Conversion) | Audio/Video + Reference | Audio/Video |
-| **TTM** | Text-to-Music Generation & Manipulation | Text + Audio | Audio |
-| **STT** | Speech-to-Text (Transcription & Translation) | Audio / Video / Image / URL | Text |
-| **SE** | Speech Enhancement (Denoise/Dereverb) | Audio / Video | Audio / Video |
-| **SFX** | Sound Effects Generation | Text | Audio |
-| **SVS** | Song Voice Separate (Vocal/Music Isolation) | Audio / Video / URL | Audio |
-| **SLC** | Speaker Language Conversion | Audio / URL | Audio |
-| **SS** | Speakers Separator | Audio / Video | Audio per speaker |
-
-> **Note:** `tts+vc` and `ttm+vc` are no longer available as standalone modes. Voice cloning in TTS is handled via the `target` parameter, and voice conversion in TTM is handled via the `vc` flag. Use `tts` and `ttm` respectively.
+| **TTS** | Generate speech from text, design or clone voices | Text / Image / URL | Audio |
+| **STS** | Convert one voice to another | Audio / Video | Audio / Video |
+| **TTM** | Generate, remix, repaint, and manipulate music | Text + Audio | Audio / Stems |
+| **STT** | Transcribe audio, translate, identify speakers | Audio / Video / Image / URL | Text |
+| **SE** | Denoise, dereverb, restore speech | Audio / Video | Audio / Video |
+| **SFX** | Generate sound effects from text | Text | Audio |
+| **SVS** | Isolate vocals from music | Audio / Video / URL | Audio |
+| **SLC** | Dub speech to another language, keep voice | Audio / URL | Audio |
+| **SS** | Extract individual speakers | Audio / Video | Audio per speaker |
+| **STT+TTS** | Transcribe, edit, resynthesize (interactive) | Audio | Audio |
 
 ---
 
-## AI Model Integration
+## Models Behind VODER
 
-VODER leverages state-of-the-art open-source models for professional-grade audio processing:
+VODER orchestrates state-of-the-art open-source models — each selected for quality:
 
-- **Speech Recognition:** [openai/whisper](https://github.com/openai/whisper) — Whisper for accurate audio transcription and translation
-- **Voice Synthesis:** [QwenLM/Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) — Qwen3-TTS for natural text-to-speech
-- **Voice Conversion:** [Plachtaa/seed-vc](https://github.com/Plachtaa/seed-vc) — Seed-VC for speech-to-speech transformation
-- **Music Generation:** [ace-step/ACE-Step-1.5](https://github.com/ace-step/ACE-Step-1.5) — ACE-Step for lyrics-to-music synthesis
-- **Sound Effects:** [declare-lab/TangoFlux](https://github.com/declare-lab/TangoFlux) — TangoFlux for text-to-audio generation
-- **Speech Enhancement:** [alibaba/unified-audio](https://github.com/alibaba/unified-audio) — UniSE for denoising, dereverberation, and speech restoration
-- **Voice Separation:** [BS-RoFormer Resurrection](https://huggingface.co/pcunwa/BS-Roformer-Resurrection) — BS-RoFormer for vocal/music isolation
-- **Advanced ASR:** [Microsoft VibeVoice](https://github.com/microsoft/VibeVoice) — VibeVoice ASR for speaker diarization, transcription, and overdose mode
-- **Speaker Diarization:** [pyannote/speaker-diarization-community-1](https://github.com/pyannote/pyannote-audio) — pyannote for identifying and labeling individual speakers in multi-speaker audio
-- **Image Text Extraction:** [EasyOCR](https://github.com/JaidedAI/EasyOCR) — EasyOCR for extracting text from images, enabling image-to-speech workflows
+| Capability | Model |
+|-----------|-------|
+| Speech Recognition | [Whisper](https://github.com/openai/whisper) |
+| Voice Synthesis & Cloning | [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) |
+| Voice Conversion | [Seed-VC](https://github.com/Plachtaa/seed-vc) |
+| Music Generation | [ACE-Step](https://github.com/ace-step/ACE-Step-1.5) |
+| Sound Effects | [TangoFlux](https://github.com/declare-lab/TangoFlux) |
+| Speech Enhancement | [UniSE](https://github.com/alibaba/unified-audio) |
+| Vocal / Music Separation | [BS-RoFormer](https://huggingface.co/pcunwa/BS-Roformer-Resurrection) |
+| Advanced ASR & Diarization | [VibeVoice](https://github.com/microsoft/VibeVoice) |
+| Speaker Diarization | [pyannote](https://github.com/pyannote/pyannote-audio) |
+| Image Text Extraction | [EasyOCR](https://github.com/JaidedAI/EasyOCR) |
 
 ---
 
 ## System Requirements
 
-### Minimum Requirements
-
-| Component | Specification |
-|-----------|---------------|
+| Component | Minimum |
+|-----------|---------|
 | CPU | 4-6 cores |
-| RAM | 12GB+ system memory |
-| GPU (CUDA) | Optional (CPU-only operation supported) |
-| VRAM | 4GB minimum (6GB recommended, 16GB for best performance) |
+| RAM | 12 GB |
+| GPU | Optional — all modes run on CPU |
+| VRAM | 4 GB (6 GB recommended, 16 GB for music modes) |
 | Storage | SSD recommended |
 
-**Note:** VODER runs entirely on CPU. No GPU is required for any mode. However, having a GPU with sufficient VRAM can significantly improve processing speed for certain modes.
+Some modes (SS, TTM overdose, ACE-Step complete) benefit from 24-32 GB VRAM or 48 GB+ system memory. See [Guide.md](Guide.md) for the full per-mode breakdown.
 
-### SVS Mode Requirements
-
-SVS mode requires the BS-RoFormer Resurrection model, which is downloaded automatically on first use. The model adds approximately **1.5GB** to disk storage in the Hugging Face model cache.
-
-### SS / VibeVoice ASR Requirements
-
-The SS mode (Speakers Separator) and STT overdose mode use Microsoft VibeVoice ASR, which has significant memory requirements:
-
-- **VRAM:** 24GB+ GPU VRAM recommended, or
-- **RAM:** 48GB+ system memory for CPU/offload operation
-- If VibeVoice ASR cannot load due to insufficient resources, SS falls back to Whisper + pyannote speaker diarization
-
-### ACE-Step Overdose / Complete Requirements
-
-TTM mode with overdose or complete quality tiers uses larger ACE-Step models:
-
-- **VRAM:** 32GB+ GPU VRAM recommended, or
-- **RAM:** 48GB+ system memory for CPU/offload operation
-
-### Speaker Diarization Requirements
-
-Speaker diarization (STT with diarization or multi-speaker analysis) adds additional memory requirements:
-
-- **RAM:** Expect approximately **2–3GB more** system memory when using speaker diarization, as the pyannote model loads alongside the transcription pipeline
-- **HF_TOKEN:** The pyannote speaker-diarization-community-1 model requires a **Hugging Face access token** with accepted terms of use. Set the `HF_TOKEN` environment variable before running:
-  ```bash
-  export HF_TOKEN="hf_your_token_here"
-  ```
-  You can obtain a token from [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) after accepting the model's license on its Hugging Face page.
-
-### Recommended Requirements
-
-VODER is designed to maximize output quality rather than speed. Meeting the minimum requirements ensures reliable operation — the focus is on achieving professional-grade audio results, not processing benchmarks. More RAM allows for longer audio generation and more complex workflows. For the best experience with all features (including speaker diarization, speech enhancement, VibeVoice ASR, and BS-RoFormer separation), **32GB+ RAM** is recommended.
+> Speaker diarization requires a free [Hugging Face token](https://huggingface.co/settings/tokens) — set `HF_TOKEN` env var or `HF_TOKEN.txt`. See [READ.md](READ.md) for details.
 
 ---
 
 ## Documentation
 
-- **[READ.md](READ.md)** — Detailed mode descriptions, CLI examples, notes, and technical deep-dives
-- **[Guide.md](Guide.md)** — Comprehensive usage guide, technical implementation, and creative techniques
-- **[COMMAND_CATALOG.md](COMMAND_CATALOG.md)** — Complete oneline command reference — every mode, flag, keyword, and syntax with examples and a Quick Jump table
-- **[CHANGELOG.md](CHANGELOG.md)** — Development history and version changes
-- **[Bots.md](Bots.md)** — Guidelines for AI agents and automated systems
-- **[voder-skill.md](voder-skill.md)** — Direct Agent skill
-- **[Languages.md](Languages.md)** — Supported languages across all components, auto‑detection capabilities, and language configuration
-
----
-
-## Version Information
-
-**Note:** VODER does not maintain PyPI packages or pre-built binaries. Running from source ensures access to the most recent features and improvements.
+| Document | What's Inside |
+|----------|--------------|
+| [READ.md](READ.md) | Mode descriptions, CLI examples, setup details, technical notes |
+| [Guide.md](Guide.md) | Architecture deep-dives, creative techniques, tips & tricks |
+| [COMMAND_CATALOG.md](COMMAND_CATALOG.md) | Complete one-liner reference for every mode, flag, and keyword |
+| [Languages.md](Languages.md) | Language support across all components (99+ languages) |
+| [Bots.md](Bots.md) | AI agent & automation usage guide |
+| [CHANGELOG.md](CHANGELOG.md) | Development history |
 
 ---
 
 ## Contributing
 
-VODER is open-source (AGPL-3.0 License) and welcomes contributions:
-
-- New voice processing modes
-- Additional model integrations
-- UI/UX improvements
-- Performance optimizations
-- Documentation and translations
-- Bug reports and feature requests
-
-Please submit pull requests or issues via GitHub.
+VODER is open-source under [AGPL-3.0](LICENSE). Contributions are welcome — new modes, model integrations, UI improvements, bug fixes, or documentation.
 
 ---
 
-## License
-
-AGPL v3.0 License — See [LICENSE](LICENSE) for full details.
-
----
-
-## Acknowledgments
-
-Built with appreciation for the open-source AI voice synthesis community and the amazing models that power VODER.
+Built for the open-source AI voice community.
