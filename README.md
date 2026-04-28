@@ -27,7 +27,7 @@ VODER brings together **10 processing modes** under one interface — speech-to-
 - **Voice Design & Cloning** — Describe a voice in plain English and VODER generates it, or provide a reference clip to clone a speaker's voice. Mix designed and cloned voices within the same dialogue.
 - **Speaker Separation** — Extract individual speakers from multi-speaker recordings into separate audio files, each with a speaker-labeled transcript.
 - **Voice Conversion with Video I/O** — Transform one voice into another while preserving words, emotion, and timing. Drop in an MP4 and get back a video with the converted voice.
-- **Music Generation & Manipulation** — Generate full songs from lyrics and style descriptions. Remix, repaint, complete, extract stems, or build individual instrument tracks. Output up to 12 separate instrument tracks.
+- **Music Generation & Manipulation** — Generate full songs from lyrics and style descriptions. Remix, repaint, complete, extract stems, build individual instrument tracks, or replace background music in existing audio/video. Output up to 12 separate instrument tracks.
 - **Speech-to-Text with Intelligence** — Transcribe audio, video, images, or direct URLs. Translate to English from 99 languages. Identify who spoke when with speaker diarization. Batch process multiple files.
 - **Language Dubbing** — Translate speech from one language to another while preserving the original speaker's voice identity.
 - **Smart Input Pipeline** — Paste a YouTube, Bilibili, or TikTok URL directly as input. Feed an image and VODER extracts text via OCR. Automatically extract voice clips from multi-speaker audio for one-click voice cloning.
@@ -46,7 +46,7 @@ Write scripts with multiple characters, each with a distinct voice. VODER assemb
 
 ### Automatic Background Music
 
-When generating dialogue, VODER can produce a background music track that **exactly matches the spoken duration**, mixed at a configurable volume with fade transitions. No manual editing or external tools needed.
+When generating dialogue, VODER can produce a background music track that **exactly matches the spoken duration**, mixed at a configurable volume with fade transitions. An optional **reference audio** can be provided for stylistic guidance — the reference is processed through SVS to extract clean instrumental before use. No manual editing or external tools needed.
 
 ### Voice Conversion (Speech & Music)
 
@@ -54,7 +54,7 @@ Transform one voice into another while preserving the original words, emotion, a
 
 ### Music Generation & Manipulation
 
-Generate full songs from lyrics and style descriptions. Beyond basic generation, VODER supports **5 sub-tasks**: remix (style transfer with bias control), repaint (restyle a specific time range), complete (add missing instruments), lego (build individual tracks), and extract (isolate specific stems). Output up to **12 individual instrument tracks** for post-production. A three-tier quality system lets you trade speed for output quality.
+Generate full songs from lyrics and style descriptions. Beyond basic generation, VODER supports **6 sub-tasks**: remix (style transfer with bias control), repaint (restyle a specific time range), complete (add missing instruments), lego (build individual tracks), extract (isolate specific stems), and bgm (replace background music in existing audio/video with generated music at a configurable volume). Output up to **12 individual instrument tracks** for post-production. A three-tier quality system lets you trade speed for output quality.
 
 ### Vocal & Music Separation
 
@@ -118,7 +118,7 @@ python src/voder.py sfx sound "thunder rumbling" duration 10
 |------|-------------|-------|--------|
 | **TTS** | Generate speech from text, design or clone voices | Text / Image / URL | Audio |
 | **STS** | Convert one voice to another | Audio / Video | Audio / Video |
-| **TTM** | Generate, remix, repaint, and manipulate music | Text + Audio | Audio / Stems |
+| **TTM** | Generate, remix, repaint, bgm, and manipulate music | Text + Audio | Audio / Stems |
 | **STT** | Transcribe audio, translate, identify speakers | Audio / Video / Image / URL | Text |
 | **SE** | Denoise, dereverb, restore speech | Audio / Video | Audio / Video |
 | **SFX** | Generate sound effects from text | Text | Audio |

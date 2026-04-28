@@ -21,7 +21,7 @@ python voder.py                  # launch GUI (no commands)
 |------|------|
 | `tts` | Text-to-Speech |
 | `sts` | Speech-to-Speech (Voice Conversion) |
-| `ttm` | Text-to-Music (generate / remix / repaint / complete / lego / extract) |
+| `ttm` | Text-to-Music (generate / remix / repaint / complete / lego / extract / bgm) |
 | `stt` | Speech-to-Text (Transcription) |
 | `se` | Speech Enhancement |
 | `sfx` | Sound Effects Generation |
@@ -74,8 +74,9 @@ Generate speech from text using voice descriptions (VoiceDesign) or voice clone 
 | `script` | `"<text>"` or `"CharName: text"` | Dialogue line (plain text for single mode, `Character: text` for dialogue mode). Can appear multiple times. |
 | `voice` | `"<description>"` or `"CharName: description"` | Voice prompt for VoiceDesign TTS. Single mode: one prompt. Dialogue mode: `"CharName: description"` per character. Can appear multiple times. |
 | `target` | `"<path>"` or `"CharName: path"` | Audio path for voice cloning. Single mode: one path. Dialogue mode: `"CharName: path"` per character. Can appear multiple times. |
-| `music` | `"<description>"` | Background music description (dialogue mode only). Generated via ACE-Step and mixed under speech. **Note:** Not currently in the oneline parser's `valid_keywords` — this keyword works in interactive/GUI mode but may fail via oneline. |
+| `music` | `"<description>"` | Background music description (dialogue mode only). Generated via ACE-Step and mixed under speech. |
 | `level` | `"<spec>"` | Music volume levels per dialogue segment, e.g. `"10:20-50 30:60-80"`. Format: `<volume%>:<start_sec>-<end_sec>`. Default: 35%. Dialogue mode only. |
+| `reference` | `"<path>"` | Optional reference audio for dialogue background music style guidance. Processed through SVS music pipe to extract clean instrumental before use. Dialogue mode only. |
 | `ocr` | `"<image_path>"` | Extract text from an image via EasyOCR, then use that text as the script. Supported formats: PNG, JPG, JPEG, BMP, GIF, TIFF, WebP. |
 | `<number>` | `10-300` | Duration in seconds (TTM only, ignored in pure TTS). |
 
@@ -111,6 +112,9 @@ python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep 
 
 # Dialogue with music volume levels
 python voder.py tts script "James: Hello" script "sfx: thunder /duration:3" voice "James: deep male" music "soft piano" level "10:20-50"
+
+# Dialogue with music and reference for style guidance
+python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "soft piano" reference "path/to/ref.wav"
 ```
 
 ### Script Directives (per line, at end of text)
@@ -572,6 +576,47 @@ add "drums bass guitar"     # specific instruments
 make "everything"           # all 12 tracks
 stems "instruments"         # all 10 non-vocal stems
 stems "voices"              # vocals + backing_vocals
+```
+
+---
+
+### 3h. BGM Sub-Task
+
+Replace background music in an existing audio or video file. Strips existing music via SVS voice pipe, generates new background music via ACE-Step, and mixes at a configurable volume.
+
+| Keyword | Value | Description |
+|---------|-------|-------------|
+| `bgm` | `"<path>"` | Source audio/video file or YouTube/TikTok/Bilibili URL whose background music will be replaced. |
+| `music` | `"<description>"` | Description for the new background music to generate. Required. |
+| `level` | `<0-100>` | Music volume level (0 = silent, 100 = full volume). Default: 35. |
+| `reference` | `"<path>"` | Optional reference audio for style guidance. Processed through SVS music pipe to extract clean instrumental. |
+| `overdose` | (flag) | Use Overdose tier (ACE-Step XL-Turbo + 4B LM + shift 3.0) instead of Standard tier (ACE-Step 1.5 Turbo). |
+
+#### Rules
+
+- `bgm` requires `music`.
+- `bgm` cannot be combined with `vc`, `remix`, `repaint`, `complete`, `lego`, or `extract`.
+- Source is resolved through `resolve_target_to_audio()` — supports audio files, video files, and URLs.
+- Video inputs produce `.mp4` output with the new audio re-muxed; audio inputs produce `.wav`.
+- Output naming: `voder_ttm_bgm_{original-name}_{timestamp}.wav` (audio) or `.mp4` (video).
+- Normal (non-overdose) uses ACE-Step turbo 1.5 model.
+- Overdose uses ACE-Step XL 1.5 turbo model.
+
+```
+# Replace background music (standard quality)
+python voder.py ttm bgm "podcast.wav" music "soft ambient piano" level 30
+
+# Replace background music with higher volume
+python voder.py ttm bgm "video.mp4" music "cinematic orchestral" level 50
+
+# Replace background music with overdose quality
+python voder.py ttm overdose bgm "podcast.mp4" music "jazz lounge" level 40
+
+# Replace background music with reference for style guidance
+python voder.py ttm bgm "podcast.wav" music "upbeat electronic" level 35 reference "path/to/style_ref.wav"
+
+# From YouTube URL with reference and result path
+python voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chill" level 25 reference "ref.wav" result "/output/new_bgm.wav"
 ```
 
 ---

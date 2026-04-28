@@ -3,6 +3,45 @@
 - All notable changes to VODER - Voice Blender will be documented in this file.
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 
+## 04/28/2026
+- Status: Stable, all features work, still developing
+- **Enhancement — Dialogue Background Music Reference Support & TTM BGM Subtask**
+
+### Added
+
+#### Dialogue Background Music Reference Support
+
+- **Reference Audio for Dialogue Background Music** — Dialogue background music generation now accepts an optional `reference` parameter that provides stylistic guidance to ACE-Step during music generation.
+  - When `reference "path"` is provided alongside the `music` parameter, the reference audio is first processed through the SVS music pipe (BS-RoFormer) to extract clean instrumental music
+  - This ensures that only the musical content from the reference is used for style guidance, not any vocals or noise
+  - Works in both one-liner CLI and GUI modes
+  - CLI syntax: `python src/voder.py tts script "..." voice "..." music "description" reference "path/to/ref.wav"`
+  - The reference is passed as a secondary style input to ACE-Step, improving stylistic consistency when the user wants the generated music to match a specific existing track
+
+#### TTM BGM Subtask
+
+- **TTM BGM — Replace Background Music** — A new TTM subtask that takes an existing audio/video source, strips the current music, generates new background music, and mixes it at a configurable volume level.
+  - CLI keyword: `bgm` — routes to the new background music replacement pipeline
+  - Command format: `ttm [overdose] bgm "source_path" music "description" level 0-100 [reference "path"] [result "path"]`
+  - Source can be a local audio file, video file, or a direct URL (YouTube, Bilibili, TikTok)
+  - The pipeline first uses SVS voice pipe (BS-RoFormer) to strip existing music from the source, isolating clean speech/vocals
+  - Duration is automatically detected from the stripped audio
+  - New background music is generated via ACE-Step using the provided music description, split into 250-300s chunks if the duration exceeds the model limit, and concatenated
+  - Optional `reference` audio is processed through SVS music pipe to extract clean instrumental before being passed to ACE-Step for style guidance
+  - The new music is mixed with the clean vocals at the specified `level` (0-100, default 35)
+  - If the source was a video, the final audio is re-muxed back into the video container
+  - Output naming: `voder_ttm_bgm_{original-name}_{timestamp}.wav` for audio, `.mp4` for video
+  - Normal (non-overdose) uses ACE-Step turbo 1.5 model for standard quality
+  - Overdose uses ACE-Step XL 1.5 turbo model for enhanced quality
+  - GUI: Added "BGM" as a new sub-mode in the TTM tab with fields for source file, music description, volume level, and optional reference file
+
+### Changed
+
+- **TTS Music Keyword** — `music` keyword added to the one-liner parser's `valid_keywords` list, enabling it alongside other TTS dialogue parameters
+- **TTM Sub-Tasks Expanded** — TTM now supports six sub-tasks: `complete`, `lego`, `extract`, `remix`, `repaint`, and the new `bgm`
+
+---
+
 ## 04/18/2026
 - Status: Stable, all features work, still developing
 - **Major Update — Three New Modes, Mode Mergers, Speaker Diarization, Vocal Extraction, and TTM Sub-Tasks**

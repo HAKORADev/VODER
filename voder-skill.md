@@ -29,7 +29,7 @@ VODER is not a single AI model — it is an **orchestration layer** that coordin
 | **ACE-Step XL-Turbo** | Enhanced music generation (highest quality) | TTM with `overdose` flag |
 | **ACE-Step XL-Base** | Music generation (complete-mode sub-tasks) | TTM (`complete`, `extract`, `lego`) |
 | **ACE-Step 1.5** | Music generation (legacy / background music) | TTM (default), Background Music (dialogue `music` param) |
-| **BS-RoFormer Resurrection** | Vocal/music separation (stem extraction) | SVS, STS (auto vocal extraction), STT (pre-cleanup), TTS (voice clone cleanup) |
+| **BS-RoFormer Resurrection** | Vocal/music separation (stem extraction) | SVS, STS (auto vocal extraction), STT (pre-cleanup), TTS (voice clone cleanup), TTM `bgm` (strip music + reference cleanup) |
 | **VibeVoice ASR** | Advanced ASR with native speaker diarization | STT with `overdose` flag, SS |
 | **Pyannote** | Speaker diarization (who spoke when) | STT with `dialogue` flag |
 | **EasyOCR** | Text extraction from images | STT with image input |
@@ -101,6 +101,9 @@ Source Audio → Whisper Translate → English Text → Qwen3-TTS (with voice re
 
 SPEAKER SEPARATION PATH (SS):
 Multi-Speaker Audio → VibeVoice ASR → Speaker Segments → Individual Audio Files
+
+BGM REPLACEMENT PATH (TTM BGM):
+Source Audio/Video → SVS Voice Pipe (strip music) → Detect Duration → ACE-Step (generate new bgm) → Mix at level → [Re-mux if video]
 ```
 
 ---
@@ -128,6 +131,7 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 | `target` | `"voice.wav"` | `"James: james.wav" "Sarah: sarah.wav"` | TTS, STS, SLC |
 | `music` | `"ambient"` | (single only) | TTS (dialogue) |
 | `level` | `"35"` | (single only) | TTS (dialogue) |
+| `reference` | `"ref.wav"` | (single only) | TTS (dialogue bgm) |
 | `lyrics` | `"..."` | (single only) | TTM |
 | `styling` | `"pop"` | (single only) | TTM |
 | `stem` | `"voice"` | (single only) | SVS |
@@ -259,6 +263,9 @@ python src/voder.py tts script "A: Hello" "sfx: door bell /duration:3" "B: Who's
 
 # Full dialogue command with all features
 python src/voder.py tts script "A: Welcome /time:0" "sfx: intro /duration:5 /level:40 /time:0" "B: Hello! /time:6" voice "A: deep male" "B: bright female" music "soft ambient" level "0:30-60:20" result "/output/podcast.wav"
+
+# Dialogue with background music and reference for style guidance
+python src/voder.py tts script "A: line1" "B: line2" voice "A: prompt" "B: prompt" music "ambient" reference "style_ref.wav"
 ```
 
 #### Dialogue Mode (Multiple Speakers) — Voice Cloning
@@ -304,6 +311,7 @@ python src/voder.py tts script \
 | `target` | No* | Voice reference file | Single path | `"Char: /path/to/file.wav"` |
 | `music` | No | Background music style | Ignored | Single description |
 | `level` | No | Music volume | Ignored | Volume specification |
+| `reference` | No | Reference audio for bgm style guidance | Ignored | Single path (processed via SVS music pipe) |
 | `result` | No | Output destination | Path | Path |
 
 *Either `voice` or `target` required for non-SFX lines. Can mix both using cross-use feature. If `target` is provided without `voice`, voice cloning path is used automatically.
@@ -474,6 +482,7 @@ TTM supports multiple sub-tasks via the `task` parameter:
 | **Extract** | `extract` | Extract individual tracks from audio | XL-Base |
 | **Remix** | `remix` | Style transfer (cover) with bias control; supports `reference` for additional guidance | XL-Turbo (overdose) or Legacy |
 | **Repaint** | `repaint` | Restyle a specific time range of a song; supports `reference` for additional guidance | XL-Turbo (overdose) or Legacy |
+| **BGM** | `bgm` | Replace background music in existing audio/video; strips music, generates new bgm, mixes at level | 1.5 Turbo (standard) or XL-Turbo (overdose) |
 | **Overdose** | (flag) | Maximum quality full generation | XL-Turbo |
 
 ### 12 Instrument Tracks
@@ -588,6 +597,31 @@ python src/voder.py ttm vc lyrics "Chorus:\nThis is our moment" styling "pop" du
 python src/voder.py ttm overdose vc lyrics "content" styling "prompt" duration 20 clone "path/link" target music "path/link" result "path"
 ```
 
+#### BGM Sub-Task (Replace Background Music)
+```bash
+# Replace background music (standard quality, ACE-Step 1.5 Turbo)
+python src/voder.py ttm bgm "podcast.wav" music "soft ambient piano" level 30
+
+# Replace background music (overdose quality, ACE-Step XL-Turbo)
+python src/voder.py ttm overdose bgm "video.mp4" music "cinematic orchestral" level 50
+
+# Replace background music with reference for style guidance
+python src/voder.py ttm bgm "podcast.wav" music "upbeat electronic" level 35 reference "style_ref.wav"
+
+# From YouTube URL with result routing
+python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chill" level 25 result "/output/new_bgm.wav"
+```
+
+**BGM Pipeline:** Source → SVS voice pipe (strip existing music) → detect duration → ACE-Step generate new bgm in 250-300s chunks → [optional SVS music pipe on reference] → mix at level → re-mux to video if needed
+
+**BGM Output Naming:** `voder_ttm_bgm_{original-name}_{timestamp}.wav` (audio) or `.mp4` (video)
+
+**BGM Key Rules:**
+- `bgm` cannot be combined with `vc`, `remix`, `repaint`, `complete`, `lego`, or `extract`
+- Source supports audio, video, and URL inputs
+- Normal uses ACE-Step turbo 1.5; overdose uses ACE-Step XL 1.5 turbo
+- Default volume level is 35
+
 ### Lyrics Format
 ```
 Verse 1:
@@ -656,7 +690,9 @@ The automatic model offloading between ACE-Step and Seed-VC stages means voice c
 | `voice` | No | Use vocals category (for complete/lego) | Off |
 | `music` | No | Use instruments category (for complete/lego) | Off |
 | `video` | No | Output video (for complete) | Off |
-| `reference` | No | Reference audio for complete/lego | — |
+| `bgm` | No | Replace background music in source (audio/video/URL) | — |
+| `level` | No | Music volume for bgm sub-task (0-100) | 35 |
+| `reference` | No | Reference audio for remix/repaint/bgm guidance | — |
 | `vc` | No | Enable voice cloning on vocalist | Off |
 | `overdose` | No | Use XL-Turbo for maximum quality | Off |
 | `result` | No | Output destination | Auto-generated |

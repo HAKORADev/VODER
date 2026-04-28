@@ -814,11 +814,11 @@ def _mix_dialogue_with_music(dialogue_path, music_path, output_path, music_level
             except:
                 pass
 
-def _generate_music_and_mix(ace, music_description, dialogue_path, output_path, music_level_spec=None):
+def _generate_music_and_mix(ace, music_description, dialogue_path, output_path, music_level_spec=None, reference_audio=None):
     duration = _get_audio_duration(dialogue_path)
     print(f"Dialogue duration: {duration:.2f}s")
     print("Generating background music...")
-    music_result = generate_background_music(ace, music_description, duration)
+    music_result = generate_background_music(ace, music_description, duration, reference_audio=reference_audio)
     if music_result is None:
         print("Error: Background music generation failed")
         return False
@@ -1914,7 +1914,7 @@ def parse_ref_raw(raw):
         return prefix, rest
     return None, raw.strip()
 
-def generate_background_music(ace_wrapper, music_description, total_duration, progress_callback=None):
+def generate_background_music(ace_wrapper, music_description, total_duration, progress_callback=None, reference_audio=None):
     min_duration = 10
 
     if total_duration < min_duration:
@@ -1927,7 +1927,8 @@ def generate_background_music(ace_wrapper, music_description, total_duration, pr
             lyrics="...",
             style_prompt=music_description,
             output_path=music_temp.name,
-            duration=int(total_duration)
+            duration=int(total_duration),
+            reference_audio=reference_audio
         )
         if not success:
             os.unlink(music_temp.name)
@@ -1958,7 +1959,8 @@ def generate_background_music(ace_wrapper, music_description, total_duration, pr
             lyrics="...",
             style_prompt=music_description,
             output_path=chunk_file,
-            duration=int(current_duration)
+            duration=int(current_duration),
+            reference_audio=reference_audio
         )
 
         if not success:
@@ -3068,6 +3070,26 @@ def cli_tts_mode():
                     print("Warning: Invalid level format, using default 35%")
                 else:
                     music_level_spec = level_input
+            ref_input = input("Music reference (path/URL, or press Enter to skip): ").strip()
+            if ref_input:
+                if not os.path.exists(ref_input) and not is_youtube_url(ref_input):
+                    print("Error: Music reference not found: " + ref_input)
+                    return False
+        else:
+            ref_input = None
+
+        music_reference_audio = None
+        music_ref_cleanup = []
+        if ref_input and music_description:
+            print("Resolving music reference source...")
+            resolved_ref, ref_cl = resolve_target_to_audio(ref_input)
+            if not resolved_ref:
+                return False
+            music_ref_cleanup.extend(ref_cl)
+            print("Extracting clean music from reference via SVS...")
+            music_reference_audio = svs_extract_music(resolved_ref)
+            if music_reference_audio and music_reference_audio != resolved_ref and music_reference_audio not in music_ref_cleanup:
+                music_ref_cleanup.append(music_reference_audio)
 
         try:
             tts_design = None
@@ -3143,7 +3165,7 @@ def cli_tts_mode():
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
                     return False
-                success = _generate_music_and_mix(ace, music_description, dialogue_temp.name, output_path, music_level_spec)
+                success = _generate_music_and_mix(ace, music_description, dialogue_temp.name, output_path, music_level_spec, reference_audio=music_reference_audio)
                 del ace
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
@@ -3164,6 +3186,12 @@ def cli_tts_mode():
                 torch.cuda.empty_cache()
             return True
         finally:
+            for f in music_ref_cleanup:
+                if f and os.path.exists(f):
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
             if temp_clip_dir and os.path.exists(temp_clip_dir):
                 try:
                     shutil.rmtree(temp_clip_dir)
@@ -4235,7 +4263,7 @@ def parse_oneline_args(args):
         return {'error': 'No arguments provided'}
     mode = args[0].lower()
     result = {'mode': mode, 'params': {}, 'error': None, 'is_music': False, 'is_mimic': False}
-    valid_keywords = ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'duration', 'timestamp', 'dialogue', 'sound', 'steps', 'guide', 'level', 'ocr']
+    valid_keywords = ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'duration', 'timestamp', 'dialogue', 'sound', 'steps', 'guide', 'level', 'ocr', 'reference', 'music']
     i = 1
     current_keyword = None
     result_path = None
@@ -4528,6 +4556,13 @@ def parse_oneline_args(args):
         elif mode == 'ttm' and arg_lower == 'extract':
             result['params']['extract'] = True
             i += 1
+        elif mode == 'ttm' and arg_lower == 'bgm':
+            if i + 1 >= len(args):
+                result['error'] = 'bgm requires a source path (audio/video file or URL)'
+                return result
+            result['params']['bgm'] = True
+            result['params']['bgm_source'] = args[i + 1]
+            i += 2
         elif mode == 'ttm' and arg_lower == 'voice':
             if 'complete' not in result['params'] and 'lego' not in result['params']:
                 result['error'] = 'voice keyword is only valid with complete/lego task'
@@ -4537,9 +4572,9 @@ def parse_oneline_args(args):
                 return result
             result['params']['use_vocals'] = True
             i += 1
-        elif mode == 'ttm' and arg_lower == 'music':
+        elif mode == 'ttm' and arg_lower == 'music' and 'bgm' not in result['params']:
             if 'complete' not in result['params'] and 'lego' not in result['params']:
-                result['error'] = 'music keyword is only valid with complete/lego task'
+                result['error'] = 'music keyword is only valid with complete/lego/bgm task'
                 return result
             if result['params'].get('use_vocals'):
                 result['error'] = 'voice and music cannot be used together, use one or the other'
@@ -4572,10 +4607,10 @@ def parse_oneline_args(args):
             else:
                 result['error'] = 'add keyword requires instruments (e.g., add "drums bass guitar" or add "everything")'
                 return result
-        elif mode == 'ttm' and arg_lower == 'reference':
+        elif mode == 'ttm' and arg_lower == 'reference' and 'bgm' not in result['params']:
             if ('complete' not in result['params'] and 'lego' not in result['params']
                 and 'is_remix' not in result and 'is_repaint' not in result):
-                result['error'] = 'reference keyword is only valid with complete/lego/remix/repaint task'
+                result['error'] = 'reference keyword is only valid with complete/lego/remix/repaint/bgm task'
                 return result
             if result['params'].get('lego'):
                 i += 1
@@ -4848,6 +4883,8 @@ def show_oneline_usage():
     print('  python voder.py tts script "James: Hello" script "Sarah: Hi" target "James: james.wav" target "Sarah: sarah.wav"')
     print('  python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "soft piano"')
     print('  python voder.py tts script "James: Hello" script "sfx: thunder /duration:3" voice "James: deep male" music "soft piano" level "10:20-50"')
+    print('  python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "soft piano" reference "ref_song.mp3"')
+    print('  python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" music "epic orchestral" reference "https://youtube.com/watch?v=..."')
     print()
     print("Parameters (can appear multiple times):")
     print("  script   - Dialogue line in 'Character: text' format, or plain text for single mode")
@@ -4864,14 +4901,22 @@ def show_oneline_usage():
     print("  duration - Duration in seconds (10-300 for TTM, 1-30 for SFX)")
     print("  steps    - Inference steps (1-100, SFX mode, default: 30)")
     print("  guide    - Guidance scale (1.0-10.0, SFX mode, default: 4.5)")
-    print("  music    - Background music description (dialogue modes)")
-    print("  level    - Music volume levels e.g. \"10:20-50 30:60-80\" (dialogue modes, default: 35%)")
+    print("  music    - Background music description (dialogue/bgm modes)")
+    print("  level    - Music volume levels e.g. \"10:20-50 30:60-80\" (dialogue modes) or 0-100 (bgm mode, default: 35)")
+    print("  reference - Music reference audio path or URL (dialogue/bgm modes, for style guidance)")
     print("  ocr      - Image file path for OCR text extraction (TTS modes)")
+    print("  bgm      - Add or replace background music on an audio/video (TTM mode)")
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
     print()
     print("SLC parameters:")
     print("  translate - Force translate to English (SLC mode)")
     print("  target   - Target voice reference audio (SLC mode, default: same as input)")
+    print()
+    print("BGM examples (add/replace background music on audio or video):")
+    print('  python voder.py ttm bgm "path/to/audio.wav" music "soft piano"')
+    print('  python voder.py ttm bgm "path/to/video.mp4" music "epic orchestral" level 50')
+    print('  python voder.py ttm overdose bgm "path/to/audio.wav" music "lo-fi chill" level 25 reference "ref_song.mp3"')
+    print('  python voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient synth" level 40')
     print()
     print("Script directives (per line, at end of text):")
     print("  /time:nn-nn+nn  - Cut nn seconds from end (-nn) and/or start (+nn)")
@@ -4907,7 +4952,9 @@ def execute_oneline_command(parsed):
     elif mode == 'sts':
         success = oneline_sts(params)
     elif mode == 'ttm':
-        if params.get('complete'):
+        if params.get('bgm'):
+            success = oneline_ttm_bgm(params)
+        elif params.get('complete'):
             success = oneline_ttm_complete(params)
         elif params.get('lego'):
             success = oneline_ttm_lego(params)
@@ -4976,6 +5023,8 @@ def oneline_tts(params):
     music_description = music_params[0] if music_params else None
     level_params = params.get('level', [])
     music_level_spec = level_params[0] if level_params else None
+    reference_params = params.get('reference', [])
+    reference_source = reference_params[0] if reference_params else None
     ocr_param = params.get('ocr', [])
 
     if ocr_param:
@@ -5028,6 +5077,8 @@ def oneline_tts(params):
             return False
         if music_description:
             print("Warning: Background music is only supported for dialogue mode. Ignoring music parameter.")
+        if reference_source:
+            print("Warning: Music reference is only supported for dialogue mode. Ignoring reference parameter.")
         script = scripts[0].replace('\\n', '\n')
         if voices:
             voice_prompt = voices[0]
@@ -5172,6 +5223,22 @@ def oneline_tts(params):
             if music_level_spec and not music_description:
                 print("Warning: Level spec ignored (no music description provided)")
 
+            if reference_source and not music_description:
+                print("Warning: Music reference ignored (no music description provided)")
+
+            reference_audio = None
+            if reference_source and music_description:
+                print("Resolving music reference source...")
+                resolved_ref_audio, ref_cleanup = resolve_target_to_audio(reference_source)
+                if not resolved_ref_audio:
+                    print("Error: Could not resolve music reference source")
+                    return False
+                print("Extracting clean music from reference via SVS...")
+                reference_audio = svs_extract_music(resolved_ref_audio)
+                all_target_cleanup.extend(ref_cleanup)
+                if reference_audio and reference_audio != resolved_ref_audio and reference_audio not in all_target_cleanup:
+                    all_target_cleanup.append(reference_audio)
+
             tts_design = None
             if has_tts_chars:
                 print("Loading Qwen-TTS VoiceDesign model...")
@@ -5238,7 +5305,7 @@ def oneline_tts(params):
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
                     return False
-                success = _generate_music_and_mix(ace, music_description, dialogue_temp.name, output_path, music_level_spec)
+                success = _generate_music_and_mix(ace, music_description, dialogue_temp.name, output_path, music_level_spec, reference_audio=reference_audio)
                 del ace
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
@@ -6715,6 +6782,171 @@ def oneline_ttm_extract(params):
         ace_step = None
         gc.collect()
         for f in _cleanup:
+            if f and os.path.exists(f):
+                try:
+                    os.unlink(f)
+                except:
+                    pass
+
+def oneline_ttm_bgm(params):
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    bgm_source = params.get('bgm_source', '')
+    if not bgm_source:
+        print("Error: bgm requires a source path (audio/video file or URL)")
+        return False
+
+    music_params_list = params.get('music', [])
+    if not music_params_list:
+        print("Error: bgm requires a music description (e.g. music \"soft piano\")")
+        return False
+    music_description = music_params_list[-1]
+    if not music_description or not music_description.strip():
+        print("Error: music description cannot be empty")
+        return False
+    music_description = music_description.strip()
+
+    level = 35
+    level_list = params.get('level', [])
+    if level_list:
+        try:
+            lv = int(level_list[-1])
+            if lv < 0 or lv > 100:
+                print("Error: level must be between 0 and 100")
+                return False
+            level = lv
+        except (ValueError, TypeError):
+            print("Error: level must be a number between 0 and 100")
+            return False
+
+    use_overdose = params.get('overdose', False)
+    reference_params_list = params.get('reference', [])
+    ref_input = reference_params_list[-1] if reference_params_list else None
+
+    cleanup_files = []
+    original_video_path = None
+
+    try:
+        is_link = is_youtube_url(bgm_source)
+        is_video_file = False
+        if not is_link and os.path.exists(bgm_source):
+            ext = os.path.splitext(bgm_source)[1].lower()
+            is_video_file = ext in VIDEO_EXTENSIONS
+            if is_video_file:
+                original_video_path = bgm_source
+
+        print(f"Resolving source: {bgm_source}")
+        source_audio, source_cleanup = resolve_target_to_audio(bgm_source)
+        if source_audio is None:
+            print("Error: Could not resolve source to audio")
+            return False
+        cleanup_files.extend(source_cleanup)
+
+        print("Cleaning source audio through SVS voice pipe...")
+        clean_voice = svs_extract_vocals(source_audio)
+        if clean_voice != source_audio:
+            cleanup_files.append(clean_voice)
+
+        voice_duration = _get_audio_duration(clean_voice)
+        print(f"Clean voice duration: {voice_duration:.2f}s")
+
+        reference_audio = None
+        if ref_input:
+            print(f"Resolving reference source: {ref_input}")
+            ref_audio, ref_cleanup = resolve_target_to_audio(ref_input)
+            if ref_audio is None:
+                print("Warning: Could not resolve reference, ignoring it")
+            else:
+                cleanup_files.extend(ref_cleanup)
+                print("Cleaning reference through SVS music pipe...")
+                reference_audio = svs_extract_music(ref_audio)
+                if reference_audio != ref_audio:
+                    cleanup_files.append(reference_audio)
+
+        print("Loading ACE-Step model...")
+        ace = AceStepWrapper(use_overdose=use_overdose)
+        if ace.handler is None:
+            print("Error: Failed to load ACE-Step model")
+            return False
+
+        print(f"Generating background music (description: \"{music_description}\")...")
+        music_result = generate_background_music(ace, music_description, voice_duration, reference_audio=reference_audio)
+        del ace
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        if music_result is None:
+            print("Error: Background music generation failed")
+            return False
+        music_temp_path, music_temp_dir = music_result
+
+        vol = level / 100.0
+        print(f"Mixing clean voice with music (volume: {level}%)...")
+        mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        mixed_temp.close()
+        cmd = [
+            'ffmpeg', '-i', clean_voice, '-i', music_temp_path,
+            '-filter_complex', f'[1:a]volume={vol:.2f}[music];[0:a][music]amix=inputs=2:duration=longest',
+            '-y', mixed_temp.name
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if music_temp_dir is not None:
+            shutil.rmtree(music_temp_dir, ignore_errors=True)
+        if result.returncode != 0:
+            print(f"Error: FFmpeg mixing failed: {result.stderr}")
+            try:
+                os.unlink(mixed_temp.name)
+            except:
+                pass
+            return False
+
+        timestamp = int(time.time())
+        if original_video_path and os.path.exists(original_video_path):
+            name = os.path.splitext(os.path.basename(original_video_path))[0]
+            out_ext = os.path.splitext(original_video_path)[1]
+            if not out_ext:
+                out_ext = '.mp4'
+            output_path = os.path.join(results_dir, f"voder_ttm_bgm_{name}_{timestamp}{out_ext}")
+            print("Muxing mixed audio into video...")
+            final_temp = tempfile.NamedTemporaryFile(suffix=out_ext, delete=False)
+            final_temp.close()
+            mux_cmd = [
+                'ffmpeg', '-i', original_video_path, '-i', mixed_temp.name,
+                '-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0',
+                '-shortest', '-y', final_temp.name
+            ]
+            mux_result = subprocess.run(mux_cmd, capture_output=True, text=True)
+            try:
+                os.unlink(mixed_temp.name)
+            except:
+                pass
+            if mux_result.returncode != 0:
+                print(f"Error: Video muxing failed: {mux_result.stderr}")
+                try:
+                    os.unlink(final_temp.name)
+                except:
+                    pass
+                return False
+            shutil.move(final_temp.name, output_path)
+        else:
+            if is_link:
+                name = "audio"
+            else:
+                name = os.path.splitext(os.path.basename(bgm_source))[0]
+                if not name:
+                    name = "audio"
+            output_path = os.path.join(results_dir, f"voder_ttm_bgm_{name}_{timestamp}.wav")
+            shutil.move(mixed_temp.name, output_path)
+
+        print(f"✓ Success! Output saved to: {output_path}")
+        return True
+    finally:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+        for f in cleanup_files:
             if f and os.path.exists(f):
                 try:
                     os.unlink(f)

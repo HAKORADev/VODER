@@ -4,6 +4,45 @@
 
 ---
 
+## Technical Setup Notes
+
+### Dependencies
+
+VODER requires several system and Python dependencies:
+
+- **FFmpeg** — Required for audio processing, concatenation, resampling, and video audio extraction.
+  ```bash
+  # Windows: winget install FFmpeg
+  # macOS:   brew install ffmpeg
+  # Linux:   sudo apt install ffmpeg
+  ```
+- **SoX** — Required for audio manipulation (`sox`).
+  ```bash
+  # macOS: brew install sox
+  # Linux: sudo apt install sox
+  ```
+- **yt-dlp** — Required for YouTube/Bilibili/TikTok URL support (`pip install yt-dlp`).
+- **protobuf** — After installing requirements, upgrade to avoid compatibility issues:
+  ```bash
+  pip install --upgrade protobuf==5.29.6
+  ```
+
+All Python dependencies are listed in `requirements.txt`. Run `pip install -r requirements.txt` after cloning.
+
+### Model Directories
+
+VODER downloads and caches models automatically on first use. Models are stored centrally under `src/models/` — see [Guide.md](Guide.md) for the full directory structure. Key additions:
+
+- **BS-RoFormer** (vocal/music separation) — downloaded on first SVS use (~1.5GB)
+- **VibeVoice ASR** (advanced transcription) — downloaded on first SS/overdose STT use
+- Ensure sufficient disk space is available for model files
+
+### Mode History
+
+> `tts+vc` and `ttm+vc` are no longer standalone modes. Voice cloning in TTS is handled via the `target` parameter, and voice conversion in TTM is handled via the `vc` flag. Use `tts` and `ttm` respectively.
+
+---
+
 ## Table of Contents
 
 - [1. STT+TTS Mode](#1-stttts-mode)
@@ -158,6 +197,13 @@ If a description is provided (e.g., `"soft piano, cinematic strings"`), VODER:
 - Mixes the music at **35% volume** relative to the dialogue (configurable via `level` parameter).
 - Cleans up temporary files and saves the final result with an `_m` suffix (e.g., `voder_tts_dialogue_..._m.wav`).
 
+**Optional `reference` parameter:** When `reference "path"` is provided alongside `music`, the reference audio is first processed through the SVS music pipe (BS-RoFormer) to extract clean instrumental music, which is then passed to ACE-Step as stylistic guidance. This ensures the generated background music matches the style of a specific existing track.
+
+```bash
+# With reference for style guidance
+python src/voder.py tts script "James: Hello" voice "James: male" music "soft piano" reference "path/to/ref.wav"
+```
+
 If the user skips, processing proceeds normally without music.
 
 **Music Volume Level Control (`level` parameter):**
@@ -264,11 +310,16 @@ python src/voder.py ttm repaint "source.wav" time:20-80 styling "more energetic"
 
 # Overdose repaint with reference
 python src/voder.py ttm overdose repaint "source.wav" time:20-80 styling "more energetic" reference music "ref.wav" result "/output/repainted.wav"
+
+# BGM: Replace background music in existing audio/video
+python src/voder.py ttm bgm "podcast.wav" music "soft ambient piano" level 30
+python src/voder.py ttm overdose bgm "video.mp4" music "cinematic orchestral" level 50
+python src/voder.py ttm bgm "recording.wav" music "jazz lounge" level 35 reference "style_ref.wav"
 ```
 
 ### 4.1 Sub-Tasks
 
-TTM supports five sub-tasks for different music manipulation workflows:
+TTM supports six sub-tasks for different music manipulation workflows:
 
 | Sub-Task | Description |
 |----------|-------------|
@@ -277,6 +328,7 @@ TTM supports five sub-tasks for different music manipulation workflows:
 | **extract** | Extract and isolate individual elements from existing music |
 | **remix** | Create a remix version of an existing track (supports `reference` for additional guidance) |
 | **repaint** | Re-style or regenerate elements of an existing track (supports `reference` for additional guidance) |
+| **bgm** | Replace background music in existing audio/video — strips current music, generates new bgm, mixes at configurable volume |
 
 ### 4.2 Quality Tiers
 
@@ -722,7 +774,7 @@ python src/voder.py sfx sound "footsteps on gravel" duration 8 result "/output/f
 - **SFX Integration:** Embed sound effects directly in dialogue scripts using the special `sfx:` character
 - **State-of-the-Art Models:** Production-quality models from leading AI research organizations
 - **Voice Cloning:** Extract and replicate voice characteristics from reference audio samples via the `target` parameter in TTS mode
-- **Music Generation:** Lyrics-to-music synthesis with style control, voice conversion (`vc` flag), sub-tasks (complete, lego, extract, remix, repaint), and a three-tier ACE-Step quality system (standard, overdose, complete) with up to 12 instrument tracks
+- **Music Generation:** Lyrics-to-music synthesis with style control, voice conversion (`vc` flag), sub-tasks (complete, lego, extract, remix, repaint, bgm), and a three-tier ACE-Step quality system (standard, overdose, complete) with up to 12 instrument tracks
 - **Sound Effects Generation:** Text-to-audio synthesis for custom sound design
 - **Speech Enhancement:** Denoise, dereverberate, and restore speech audio
 - **Vocal/Music Separation:** BS-RoFormer integration for automatic vocal extraction — used internally by STS (target cleanup), STT (pre-cleanup isolation), TTS (voice cloning target cleanup), and available as a standalone SVS mode

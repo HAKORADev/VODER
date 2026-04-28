@@ -30,7 +30,7 @@ VODER is a professional‑grade voice processing tool that enables seamless conv
 - **Full Dialogue Support**: Multi‑speaker script generation **now available in CLI** (both interactive and one‑liner)
 - **Script Directives**: Per-line control over timing, volume, and duration
 - **SFX Integration**: Embed sound effects directly in dialogue scripts
-- **Optional Background Music for Dialogue**: Automatically generated, duration‑fitted ambient music with configurable volume levels
+- **Optional Background Music for Dialogue**: Automatically generated, duration‑fitted ambient music with configurable volume levels and optional reference audio for style guidance
 - **Music Generation**: Lyrics‑to‑music synthesis with voice conversion
 - **Sound Effects Generation**: Text-to-audio synthesis for custom sound design
 - **Speech Enhancement**: Denoise, dereverberate, and restore speech audio
@@ -350,7 +350,7 @@ python src/voder.py <mode> [parameters]
 | `tts` | Text‑to‑Speech with Voice Design & Voice Cloning (via `target`) | No | ✅ Yes (single & dialogue + optional music + SFX support) |
 | `tts+vc` | Text‑to‑Speech + Voice Cloning — **REMOVED** (use `tts` with `target`) | No | ❌ No longer accepted |
 | `sts` | Speech‑to‑Speech (Voice Conversion) with video I/O & auto vocal extraction | No | ✅ Yes (single only) |
-| `ttm` | Text‑to‑Music Generation with sub‑tasks (`complete`, `lego`, `extract`, `remix`, `repaint`), `vc` flag, three‑tier ACE‑Step | No | ✅ Yes (single only) |
+| `ttm` | Text‑to‑Music Generation with sub‑tasks (`complete`, `lego`, `extract`, `remix`, `repaint`, `bgm`), `vc` flag, three‑tier ACE‑Step | No | ✅ Yes (single only) |
 | `ttm+vc` | Text‑to‑Music + Voice Conversion — **REMOVED** (use `ttm vc` with `clone`) | No | ❌ No longer accepted |
 | `stt` | Speech‑to‑Text Transcription with translation, overdose, video/URL input | No | ✅ Yes (single, batch, timestamps, diarization, URLs) |
 | `stt+tts` | Speech‑to‑Text + TTS | No | ❌ Interactive Only |
@@ -396,6 +396,9 @@ python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Ch
 **Dialogue mode with background music:**
 ```bash
 python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Character1: voice prompt for char1" "Character2: voice prompt for char2" music "description of background music"
+
+# With reference audio for style guidance
+python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Character1: voice prompt for char1" "Character2: voice prompt for char2" music "description of background music" reference "path/to/style_ref.wav"
 ```
 
 **Dialogue mode with music volume control:**
@@ -417,6 +420,7 @@ python src/voder.py tts script "James: Hello" "sfx: door bell /duration:3 /level
 | `target` | Path to voice reference (single) OR `Character: path` (dialogue) for cloned voices — can mix with `voice` | No (but required if no `voice` for non-SFX lines) |
 | `music` | Description for automatically generated background music (dialogue only) | No |
 | `level` | Music volume levels e.g. `"10:20-50 30:60-80"` (dialogue modes, default: 35%) | No |
+| `reference` | Reference audio for dialogue background music style guidance (processed via SVS music pipe) | No |
 | `language` | Output language for speech synthesis (e.g., `"Spanish"`, `"English"`) | No |
 
 **Voice Prompt Examples:**
@@ -500,6 +504,7 @@ python src/voder.py tts script "Character1: line1" "Character2: line2" target "C
 | `voice` | Voice prompt (single) OR `Character: prompt` (dialogue) for generated voices — can mix with `target` | No (but required if no `target` for non-SFX lines) |
 | `music` | Description for automatically generated background music (dialogue only) | No |
 | `level` | Music volume levels (dialogue modes, default: 35%) | No |
+| `reference` | Reference audio for dialogue background music style guidance (processed via SVS music pipe) | No |
 
 **Voice Reference Requirements:**
 - Format: WAV (recommended), MP3 supported
@@ -642,6 +647,37 @@ python src/voder.py ttm repaint "source.wav" time:20-80 styling "more energetic"
 python src/voder.py ttm overdose repaint "source.wav" time:20-80 styling "more energetic" reference music "ref.wav" result "/output/repainted.wav"
 ```
 
+**BGM (Replace Background Music):**
+```bash
+# Standard quality (ACE-Step turbo 1.5)
+python src/voder.py ttm bgm "podcast.wav" music "soft ambient piano" level 30
+
+# Overdose quality (ACE-Step XL 1.5 turbo)
+python src/voder.py ttm overdose bgm "video.mp4" music "cinematic orchestral" level 50
+
+# With reference for style guidance
+python src/voder.py ttm bgm "recording.wav" music "jazz lounge" level 35 reference "style_ref.wav"
+
+# From YouTube URL
+python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chill" level 25 result "/output/new_bgm.wav"
+```
+
+**BGM Parameters:**
+
+| Parameter | Description | Required |
+|-----------|-------------|----------|
+| `bgm "source"` | Source audio/video/URL to replace music in | Yes |
+| `music "description"` | Description for new background music | Yes |
+| `level <0-100>` | Music volume level (default: 35) | No |
+| `reference "path"` | Reference audio for style guidance (SVS music pipe cleanup) | No |
+| `overdose` | Use ACE-Step XL 1.5 turbo for enhanced quality | No |
+
+**BGM Rules:**
+- Cannot be combined with `vc`, `remix`, `repaint`, `complete`, `lego`, or `extract`
+- Source supports audio files, video files, and URLs
+- Normal uses ACE-Step turbo 1.5; overdose uses ACE-Step XL 1.5 turbo
+- Output naming: `voder_ttm_bgm_{original-name}_{timestamp}.wav` (audio) or `.mp4` (video)
+
 **Instrument tracks:** The 12 available tracks are: `woodwinds`, `brass`, `fx`, `synth`, `strings`, `percussion`, `keyboard`, `guitar`, `bass`, `drums`, `backing_vocals`, `vocals`. Shortcuts: `everything` = all 12 tracks, `instruments` = 10 non‑voice tracks, `voices` = `vocals` + `backing_vocals`.
 
 **Parameters:**
@@ -668,6 +704,7 @@ python src/voder.py ttm overdose repaint "source.wav" time:20-80 styling "more e
 | extract | `extract "source.wav" stems "vocals drums"` | Extract specific tracks |
 | remix | `remix "source.wav" styling "jazz"` | Style transfer (cover) with bias control |
 | repaint | `repaint "source.wav" time:20-80 styling "..."` | Restyle a specific time range |
+| bgm | `bgm "source.wav" music "description" level 30` | Replace background music in audio/video |
 
 **Examples:**
 ```bash

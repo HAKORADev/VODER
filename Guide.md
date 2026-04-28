@@ -1775,7 +1775,7 @@ When background music is enabled for dialogue:
 
 ### One‑Liner CLI Workflow
 
-Add `music "description"` and optionally `level "spec"` parameters:
+Add `music "description"` and optionally `level "spec"` and `reference "path"` parameters:
 
 ```bash
 python src/voder.py tts \
@@ -1783,7 +1783,16 @@ python src/voder.py tts \
   voice "James: male" voice "Sarah: female" \
   music "soft piano" \
   level "0:30-60:50"
+
+# With reference audio for style guidance
+python src/voder.py tts \
+  script "James: Hello" script "Sarah: Hi" \
+  voice "James: male" voice "Sarah: female" \
+  music "soft piano" \
+  reference "path/to/style_ref.wav"
 ```
+
+The optional `reference` parameter provides a reference audio that is processed through the SVS music pipe (BS-RoFormer) to extract clean instrumental content before being passed to ACE-Step as stylistic guidance. This is useful when you want the generated background music to match the style or feel of a specific existing track.
 
 ### Music Volume Level Control
 
@@ -1823,6 +1832,67 @@ If `level` is not specified, music is mixed at 35% volume throughout the dialogu
 - Frame-level evaluation for smooth transitions
 - Automatic duration detection from dialogue file
 - Memory-efficient streaming for long audio
+
+---
+
+## TTM Mode: BGM Subtask (Replace Background Music)
+
+### What It Is
+
+The TTM BGM subtask replaces background music in an existing audio or video file. It strips the current music from the source using SVS voice separation, generates new background music via ACE-Step, and mixes it at a configurable volume level. This is useful for replacing unwanted music in podcasts, interviews, videos, or any recording where you want to change the ambient soundtrack while preserving speech content.
+
+### How It Works
+
+1. **Source Resolution**: The input (audio file, video file, or URL) is resolved to a local audio file
+2. **Music Stripping**: BS-RoFormer (SVS voice pipe) separates the source into clean vocals/speech and instrumental
+3. **Duration Detection**: The duration of the clean audio is measured
+4. **Music Generation**: ACE-Step generates new background music matching the detected duration
+   - Uses ACE-Step turbo 1.5 model (standard) or ACE-Step XL 1.5 turbo model (overdose)
+   - Long durations are handled by generating 250-300s chunks and concatenating
+   - If a `reference` is provided, it is processed through SVS music pipe to extract clean instrumental for style guidance
+5. **Mixing**: New music is mixed with clean vocals at the specified volume level (0-100, default 35)
+6. **Output**: If the source was video, the final audio is re-muxed back into the video container
+
+### CLI Usage
+
+```bash
+# Standard quality (ACE-Step turbo 1.5)
+python src/voder.py ttm bgm "podcast.wav" music "soft ambient piano" level 30
+
+# Overdose quality (ACE-Step XL 1.5 turbo)
+python src/voder.py ttm overdose bgm "video.mp4" music "cinematic orchestral" level 50
+
+# With reference for style guidance
+python src/voder.py ttm bgm "recording.wav" music "jazz lounge" level 35 reference "style_ref.wav"
+
+# From YouTube URL
+python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chill" level 25 result "/output/new_bgm.wav"
+```
+
+### Output Naming
+
+- Audio sources: `voder_ttm_bgm_{original-name}_{timestamp}.wav`
+- Video sources: `voder_ttm_bgm_{original-name}_{timestamp}.mp4`
+
+### Key Rules
+
+- `bgm` requires `music` (the description for the new background music)
+- `bgm` cannot be combined with `vc`, `remix`, `repaint`, `complete`, `lego`, or `extract`
+- Source accepts audio files, video files, and URLs (YouTube, Bilibili, TikTok)
+- Normal (non-overdose) uses ACE-Step turbo 1.5; overdose uses ACE-Step XL 1.5 turbo
+- Default volume level is 35 (range 0-100)
+
+### GUI Support
+
+In the GUI, TTM tab now includes a **BGM** sub-mode with fields for source file, music description, volume level (spinbox 0-100), and optional reference file picker.
+
+### BGM Best Practices
+
+1. **Match content genre** — Choose music descriptions that fit the content (jazz for interviews, orchestral for documentaries, electronic for tech reviews)
+2. **Start low** — Default 35% is a safe starting point; increase gradually if speech clarity allows
+3. **Use reference for style consistency** — Provide a reference track that matches the desired feel; SVS music pipe cleans it automatically
+4. **Overdose for important content** — Use `overdose` flag when music quality is critical (final exports, professional productions)
+5. **URL support** — You can directly reference YouTube, Bilibili, or TikTok URLs as the source, no manual download needed
 
 ---
 
@@ -1934,6 +2004,8 @@ If you use the **same input file** for both dialogue source and auto-clone, the 
 3. **Use level control** — Adjust volume for different sections (louder for intros, quieter for dialogue-heavy sections)
 4. **Consider timing** — Use `/time:` directives to position SFX precisely
 5. **Test mixing** — Generate without music first, then add music if needed
+6. **Use reference for consistency** — Provide a reference audio via `reference "path"` when you want the generated music to stylistically match a specific track; the reference is cleaned via SVS music pipe to extract instrumental only
+7. **Try TTM BGM for existing content** — For replacing music in an existing audio/video file, use `ttm bgm` instead of manually stripping and regenerating
 
 ### Diarization Best Practices
 

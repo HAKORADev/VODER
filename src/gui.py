@@ -1107,6 +1107,7 @@ class TTSTab(QWidget):
         HelperWidgets.make_separator(inner)
         self.music_edit = HelperWidgets.make_line_edit(inner, "Music Desc", "Background music description (dialogue mode)")
         self.level_edit = HelperWidgets.make_line_edit(inner, "Music Level", 'e.g. "10:20-50 30:60-80"')
+        self.reference_edit = HelperWidgets.make_line_edit(inner, "Music Ref", "Path or URL to reference audio for music style")
         self.ocr_edit = HelperWidgets.make_file_picker(inner, "OCR Image", "Path to image for text extraction", "Images (*.png *.jpg *.jpeg *.bmp *.gif *.tiff *.webp)")
         self.result_edit = HelperWidgets.make_save_picker(inner, "Result Path", "Optional: copy output to this path")
 
@@ -1159,6 +1160,8 @@ class TTSTab(QWidget):
             args.extend(["music", self.music_edit.text().strip()])
         if self.level_edit.text().strip():
             args.extend(["level", self.level_edit.text().strip()])
+        if self.reference_edit.text().strip():
+            args.extend(["reference", self.reference_edit.text().strip()])
 
         if self.result_edit.text().strip():
             args.extend(["result", self.result_edit.text().strip()])
@@ -1454,7 +1457,7 @@ class TTMTab(QWidget):
 
         self.sub_mode = QComboBox()
         self.sub_mode.setStyleSheet(get_combo_box_style())
-        self.sub_mode.addItems(["Generate", "Voice Clone (VC)", "Remix", "Repaint", "Complete", "Lego", "Extract"])
+        self.sub_mode.addItems(["Generate", "Voice Clone (VC)", "Remix", "Repaint", "Complete", "Lego", "Extract", "BGM"])
         self.sub_mode.currentTextChanged.connect(self.on_submode_changed)
         mode_row = QHBoxLayout()
         mode_label = QLabel("Sub-Mode")
@@ -1636,6 +1639,12 @@ class TTMTab(QWidget):
         self.extract_only_cb.toggled.connect(lambda checked: self.extract_mix_cb.setChecked(False) if checked else None)
         self.extract_mix_cb.toggled.connect(lambda checked: self.extract_only_cb.setChecked(False) if checked else None)
 
+    def build_bgm_ui(self):
+        self.bgm_source = HelperWidgets.make_file_picker(self.container_layout, "Source", "Audio/video file or URL to add background music on")
+        self.bgm_music = HelperWidgets.make_text_edit(self.container_layout, "Music Desc", "Background music style/description", 80)
+        self.bgm_level = HelperWidgets.make_spinbox(self.container_layout, "Music Level", 0, 100, 35)
+        self.bgm_reference = HelperWidgets.make_file_picker(self.container_layout, "Reference (opt)", "Reference audio/video or URL for music style")
+
     def _add_target_ref(self, args, target_type, target_path):
         if target_type == "As-is (full audio)" and target_path.strip():
             args.extend(["target", target_path.strip()])
@@ -1753,6 +1762,17 @@ class TTMTab(QWidget):
                 args.append("mix")
             args.append(source)
             args.extend(["stems", stems])
+
+        elif mode == "bgm":
+            source = self.bgm_source.text().strip()
+            music_desc = self.bgm_music.toPlainText().strip()
+            if not source or not music_desc:
+                return None
+            args.extend(["bgm", source, "music", music_desc])
+            args.extend(["level", str(self.bgm_level.value())])
+            ref = self.bgm_reference.text().strip()
+            if ref:
+                args.extend(["reference", ref])
 
         if self.result_edit.text().strip():
             args.extend(["result", self.result_edit.text().strip()])
