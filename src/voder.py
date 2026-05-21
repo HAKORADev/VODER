@@ -1544,6 +1544,7 @@ class AceStepWrapper:
     def __init__(self, use_overdose=False, complete_mode=False):
         self.checkpoints_dir = ACESTEP_DIR
         self.handler = None
+        self.llm_handler = None
         self.use_overdose = use_overdose
         self.complete_mode = complete_mode
         if complete_mode:
@@ -1594,6 +1595,28 @@ class AceStepWrapper:
             except Exception as e:
                 print(f"Error loading ACE-Step model: {e}")
                 self.handler = None
+        if self.complete_mode and self.handler is not None and self.llm_handler is None:
+            try:
+                import sys
+                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                from acestep.llm_inference import LLMHandler
+                device = "cuda:0" if torch.cuda.is_available() else "cpu"
+                print(f"Loading 5Hz LM model ({self.lm_model})...")
+                self.llm_handler = LLMHandler()
+                lm_status, lm_success = self.llm_handler.initialize(
+                    checkpoint_dir=self.checkpoints_dir,
+                    lm_model_path=self.lm_model,
+                    backend="pt",
+                    device=device
+                )
+                if not lm_success:
+                    print(f"Warning: 5Hz LM initialization failed: {lm_status}")
+                    self.llm_handler = None
+                else:
+                    print(f"5Hz LM model loaded successfully")
+            except Exception as e:
+                print(f"Warning: Could not load 5Hz LM model: {e}")
+                self.llm_handler = None
 
     def generate(self, lyrics, style_prompt, output_path, duration=10, reference_audio=None):
         if self.handler is None:
@@ -1728,21 +1751,88 @@ class AceStepWrapper:
                 except:
                     duration = 30
             instruction = "Complete the input track with " + " | ".join(t.upper() for t in track_classes) + ":"
+            dit_input_caption = styling if styling else ""
+            dit_input_lyrics = ""
+            dit_input_vocal_language = "unknown"
+            bpm = None
+            key_scale = ""
+            time_signature = ""
+            audio_duration = duration
+            audio_code_string = ""
+            if self.llm_handler is not None and self.llm_handler.llm_initialized:
+                print("Running 5Hz LM CoT pipeline (Phase 1 + Phase 2)...")
+                lm_result = self.llm_handler.generate_with_stop_condition(
+                    caption=dit_input_caption,
+                    lyrics=dit_input_lyrics,
+                    infer_type="llm_dit",
+                    temperature=0.85,
+                    cfg_scale=2.0,
+                    negative_prompt="NO USER INPUT",
+                    top_k=None,
+                    top_p=None,
+                    target_duration=audio_duration,
+                    user_metadata=None,
+                    use_cot_metas=True,
+                    use_cot_caption=True,
+                    use_cot_language=True,
+                    use_constrained_decoding=True,
+                    batch_size=1,
+                    seeds=None,
+                )
+                if lm_result.get("success", False):
+                    lm_metadata = lm_result.get("metadata", {})
+                    lm_audio_codes = lm_result.get("audio_codes", "")
+                    if lm_metadata:
+                        if bpm is None and lm_metadata.get('bpm'):
+                            try:
+                                bpm = int(lm_metadata['bpm'])
+                            except (ValueError, TypeError):
+                                pass
+                        if not key_scale and lm_metadata.get('keyscale'):
+                            ks = lm_metadata.get('keyscale', lm_metadata.get('key_scale', ''))
+                            if ks != 'N/A':
+                                key_scale = ks
+                        if not time_signature and lm_metadata.get('timesignature'):
+                            ts = lm_metadata.get('timesignature', lm_metadata.get('time_signature', ''))
+                            if ts != 'N/A':
+                                time_signature = ts
+                        if (audio_duration is None or audio_duration <= 0) and lm_metadata.get('duration'):
+                            try:
+                                audio_duration = float(lm_metadata['duration'])
+                            except (ValueError, TypeError):
+                                pass
+                        if lm_metadata.get('vocal_language'):
+                            dit_input_vocal_language = lm_metadata['vocal_language']
+                        if lm_metadata.get('caption'):
+                            dit_input_caption = lm_metadata['caption']
+                        if lm_metadata.get('lyrics') and not dit_input_lyrics:
+                            dit_input_lyrics = lm_metadata['lyrics']
+                    if lm_audio_codes:
+                        audio_code_string = lm_audio_codes
+                    print("5Hz LM CoT pipeline completed successfully")
+                else:
+                    lm_error = lm_result.get("error", "Unknown LM error")
+                    print(f"Warning: 5Hz LM pipeline failed: {lm_error}")
+                    print("Falling back to DiT-only generation...")
             _gen_kwargs = {
-                "captions": styling if styling else "",
-                "lyrics": "",
-                "vocal_language": "unknown",
+                "captions": dit_input_caption,
+                "lyrics": dit_input_lyrics,
+                "vocal_language": dit_input_vocal_language,
+                "bpm": bpm,
+                "key_scale": key_scale,
+                "time_signature": time_signature,
                 "inference_steps": 50,
                 "guidance_scale": 7.0,
                 "use_random_seed": True,
                 "seed": -1,
-                "audio_duration": duration,
+                "audio_duration": audio_duration,
                 "batch_size": 1,
                 "task_type": "complete",
                 "shift": 1.0,
                 "src_audio": src_audio,
+                "audio_code_string": audio_code_string,
                 "instruction": instruction,
-                "audio_cover_strength": 0.2,
+                "audio_cover_strength": 1.0,
                 "reference_audio": reference_audio,
             }
             result = self.handler.generate_music(**_gen_kwargs)
