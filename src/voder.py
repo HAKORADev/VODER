@@ -6268,10 +6268,14 @@ def oneline_ttm_complete(params):
 
         temp_gen_wav = os.path.join(results_dir, f'_ttm_complete_gen_{timestamp}.wav')
         print(f"Completing track (adding {len(track_classes)} instruments)...")
+        _styling = None
+        if 'styling' in params and len(params['styling']) == 1:
+            _styling = params['styling'][0].replace('\\n', '\n')
         success = ace_step.complete(
             src_audio=actual_source,
             track_classes=track_classes,
             output_path=temp_gen_wav,
+            styling=_styling,
             reference_audio=reference_audio
         )
 
@@ -6505,6 +6509,10 @@ def oneline_ttm_lego(params):
                     pass
         return False
 
+    _styling = None
+    if 'styling' in params and len(params['styling']) == 1:
+        _styling = params['styling'][0].replace('\\n', '\n')
+
     try:
         generated_files = []
         all_succeeded = True
@@ -6519,6 +6527,7 @@ def oneline_ttm_lego(params):
                 src_audio=actual_source,
                 track_name=track,
                 output_path=temp_output,
+                styling=_styling,
                 reference_audio=track_ref
             )
             if success:

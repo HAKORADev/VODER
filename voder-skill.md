@@ -477,8 +477,8 @@ TTM supports multiple sub-tasks via the `task` parameter:
 
 | Sub-Task | CLI Keyword | Description | Model |
 |----------|------------|-------------|-------|
-| **Complete** | `complete` | Add missing tracks to existing audio | XL-Base |
-| **Lego** | `lego` | Build/generate individual instrument tracks | XL-Base |
+| **Complete** | `complete` | Add missing tracks to existing audio; supports optional `styling` prompt | XL-Base |
+| **Lego** | `lego` | Build/generate individual instrument tracks; supports optional `styling` prompt | XL-Base |
 | **Extract** | `extract` | Extract individual tracks from audio | XL-Base |
 | **Remix** | `remix` | Style transfer (cover) with bias control; supports `reference` for additional guidance | XL-Turbo (overdose) or Legacy |
 | **Repaint** | `repaint` | Restyle a specific time range of a song; supports `reference` for additional guidance | XL-Turbo (overdose) or Legacy |
@@ -669,7 +669,7 @@ The automatic model offloading between ACE-Step and Seed-VC stages means voice c
 | Parameter | Required | Purpose | Default |
 |-----------|----------|---------|---------|
 | `lyrics` | Yes* | Song lyrics or `"..."` for instrumental | — |
-| `styling` | Yes** | Musical style description | — |
+| `styling` | Yes** | Musical style description (optional for `complete`/`lego` sub-tasks) | — |
 | `duration` | Yes** | Target duration in seconds | — |
 | `clone` | No* | Voice clone source path (required when `vc` is set) | — |
 | `target` | No | Music reference audio (optional, with type prefix: `target voice "path"` or `target music "path"`) | — |

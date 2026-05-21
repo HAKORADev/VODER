@@ -797,11 +797,17 @@ python src/voder.py ttm overdose repaint "song.wav" time:20-80 styling "more ene
 # Complete sub-task (add drums and bass to existing track)
 python src/voder.py ttm complete source "vocals_only.wav" add "drums bass"
 
+# Complete with styling prompt (influence mood and genre of generated instruments)
+python src/voder.py ttm complete source "vocals_only.wav" add "drums bass" styling "dramatic cinematic"
+
 # Complete with reference (add instruments matching a reference)
 python src/voder.py ttm complete source "vocals_only.wav" add "everything" target music "style_ref.wav"
 
 # Lego sub-task (build track from stems)
 python src/voder.py ttm lego source "drums_track.wav" make "bass guitar strings"
+
+# Lego with styling prompt (influence mood and genre of generated instruments)
+python src/voder.py ttm lego source "drums_track.wav" make "bass guitar strings" styling "jazz trio"
 
 # Extract sub-task (isolate vocals or music)
 python src/voder.py ttm extract "full_song.wav" extract "vocals"
@@ -839,6 +845,7 @@ For voice conversion, BS‑RoFormer automatically extracts clean vocals from the
 | `make "..."` | Instrument tracks to build (lego) | Required for lego sub-task |
 | `extract "..."` | Track to extract | Required for extract sub-task |
 | `source "path"` | Source audio (complete/lego/extract) | Required for those sub-tasks |
+| `styling "..."` | Style prompt for complete/lego sub-tasks | Optional (influences mood and genre) |
 | `overdose` | Use XL-Turbo model for max quality | Optional |
 | `result "path"` | Output file path | Optional |
 
@@ -2140,14 +2147,17 @@ python src/voder.py ttm repaint "song.wav" time:45-75 styling "more energetic vo
 ```
 
 **Add Missing Instruments:**
-Use `complete` to add instruments to an existing track. If you have a vocal recording, you can add a full band behind it.
+Use `complete` to add instruments to an existing track. If you have a vocal recording, you can add a full band behind it. Optionally use `styling` to influence the mood and genre of the generated instruments.
 
 ```bash
 python src/voder.py ttm complete source "vocal_demo.wav" add "everything"
+
+# With a styling prompt for mood control
+python src/voder.py ttm complete source "vocal_demo.wav" add "drums bass" styling "dramatic cinematic"
 ```
 
 **Build from Stems:**
-Use `lego` to construct a custom arrangement from isolated stems. Extract individual tracks first, then rebuild with your preferred combination.
+Use `lego` to construct a custom arrangement from isolated stems. Extract individual tracks first, then rebuild with your preferred combination. Optionally use `styling` to influence the mood and genre of the generated instruments.
 
 ```bash
 # First, extract what you have
@@ -2155,6 +2165,9 @@ python src/voder.py ttm extract "full_song.wav" extract "drums"
 
 # Then, build around it
 python src/voder.py ttm lego source "drums_only.wav" make "bass guitar strings"
+
+# With a styling prompt for mood control
+python src/voder.py ttm lego source "drums_only.wav" make "bass guitar" styling "jazz trio"
 ```
 
 **Note:** The `complete`, `lego`, and `extract` sub‑tasks use the XL‑Base ACE‑Step model and require 32GB+ VRAM or 48GB+ system memory.

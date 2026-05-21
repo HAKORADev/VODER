@@ -592,9 +592,19 @@ python src/voder.py ttm lyrics "..." styling "ambient electronic, chill" duratio
 python src/voder.py ttm complete "input.wav" add "drums bass" voice result "/output/completed.wav"
 ```
 
+**Complete with styling prompt:**
+```bash
+python src/voder.py ttm complete "input.wav" add "drums bass" styling "dramatic cinematic" reference "ref.wav" result "/output/completed.wav"
+```
+
 **Lego: build individual instrument tracks:**
 ```bash
 python src/voder.py ttm lego "input.wav" make "drums bass" mix result "/output/lego.wav"
+```
+
+**Lego with styling prompt:**
+```bash
+python src/voder.py ttm lego "input.wav" make "drums bass" styling "jazz trio" mix result "/output/lego.wav"
 ```
 
 **Extract: extract specific tracks from audio:**
@@ -685,7 +695,7 @@ python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chi
 | Parameter | Description | Required |
 |-----------|-------------|----------|
 | `lyrics` | Song lyrics (use `"..."` for instrumental only) | Yes (generate mode) |
-| `styling` | Style prompt describing the music | Yes (generate mode) |
+| `styling` | Style prompt describing the music | Yes (generate mode), optional (`complete`/`lego`) |
 | `duration` | Duration in seconds (10‑300) | Yes (generate mode) |
 | `vc` | Enable voice conversion (place **before** lyrics/styling/duration) | No |
 | `clone` | Voice reference audio path (required when `vc` is set) | Yes (when vc is set) |
@@ -699,8 +709,8 @@ python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chi
 
 | Sub-task | CLI Keyword | Description |
 |----------|------------|-------------|
-| complete | `complete "source.wav" add "drums bass" voice` | Add missing tracks to existing audio |
-| lego | `lego "source.wav" make "drums bass" mix` | Build individual instrument tracks |
+| complete | `complete "source.wav" add "drums bass" voice` | Add missing tracks to existing audio (optional `styling` prompt) |
+| lego | `lego "source.wav" make "drums bass" mix` | Build individual instrument tracks (optional `styling` prompt) |
 | extract | `extract "source.wav" stems "vocals drums"` | Extract specific tracks |
 | remix | `remix "source.wav" styling "jazz"` | Style transfer (cover) with bias control |
 | repaint | `repaint "source.wav" time:20-80 styling "..."` | Restyle a specific time range |

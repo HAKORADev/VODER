@@ -410,6 +410,7 @@ Add missing instruments to an existing track. Uses ACE-Step XL-Base + 1.7B LM + 
 | `complete` | (flag) | Enable complete sub-task. |
 | `"<path>"` | source | Source audio/video file or YouTube/TikTok/Bilibili URL (positional, after all keywords). |
 | `add` | `"<instruments>"` | Instruments to add. See **Instruments Reference** below. |
+| `styling` | `"<text>"` | Optional style prompt to influence the mood and genre of generated instruments (e.g., `"dramatic cinematic"`, `"upbeat pop"`). |
 | `voice` | (flag) | Pre-extract vocals from source via SVS before processing. Cannot combine with `music`. |
 | `music` | (flag) | Pre-extract music (remove vocals) from source via SVS before processing. Cannot combine with `voice`. |
 | `video` | (flag) | Preserve video if source is a video. Merges completed audio back with video. |
@@ -427,6 +428,9 @@ Add missing instruments to an existing track. Uses ACE-Step XL-Base + 1.7B LM + 
 # Add drums and bass to a track
 python voder.py ttm complete "vocals_only.wav" add "drums bass"
 
+# Add instruments with a styling prompt for mood/genre control
+python voder.py ttm complete "vocals_only.wav" add "drums bass" styling "dramatic cinematic"
+
 # Add all instruments to vocals (voice pre-extract)
 python voder.py ttm complete voice "raw_song.wav" add "everything"
 
@@ -438,6 +442,9 @@ python voder.py ttm complete video "song.mp4" add "drums bass guitar"
 
 # Complete with reference
 python voder.py ttm complete "vocals_only.wav" add "drums bass" reference voice "ref.wav"
+
+# Complete with styling and reference
+python voder.py ttm complete "vocals_only.wav" add "drums bass" styling "upbeat pop" reference "ref.wav"
 
 # Complete from YouTube with video
 python voder.py ttm complete video "https://youtube.com/watch?v=..." add "everything"
@@ -454,6 +461,7 @@ Generate individual instrument tracks from a source. Uses ACE-Step XL-Base + 1.7
 | `lego` | (flag) | Enable lego sub-task. |
 | `"<path>"` | source | Source audio/video file or YouTube/TikTok/Bilibili URL (positional). |
 | `make` | `"<instruments>"` | Instruments to generate. See **Instruments Reference** below. |
+| `styling` | `"<text>"` | Optional style prompt to influence the mood and genre of generated instruments (e.g., `"jazz trio"`, `"ambient electronic"`). |
 | `voice` | (flag) | Pre-extract vocals from source via SVS. |
 | `music` | (flag) | Pre-extract music from source via SVS. |
 | `mix` | (flag) | Mix all generated tracks together into one file. Cannot combine with `blend`. |
@@ -470,6 +478,9 @@ Generate individual instrument tracks from a source. Uses ACE-Step XL-Base + 1.7
 ```
 # Generate individual drum and bass tracks
 python voder.py ttm lego "vocals_only.wav" make "drums bass"
+
+# Generate with a styling prompt for mood/genre control
+python voder.py ttm lego "vocals_only.wav" make "drums bass" styling "jazz trio"
 
 # Generate and mix into one file
 python voder.py ttm lego mix "vocals_only.wav" make "drums bass guitar"
