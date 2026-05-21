@@ -1586,8 +1586,7 @@ class AceStepWrapper:
                 status, success = self.handler.initialize_service(
                     project_root=self.checkpoints_dir,
                     config_path=self.config_path,
-                    device=device,
-                    lm_model=self.lm_model
+                    device=device
                 )
                 if not success:
                     print(f"Error initializing ACE-Step: {status}")
