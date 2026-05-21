@@ -477,7 +477,7 @@ TTM supports multiple sub-tasks via the `task` parameter:
 
 | Sub-Task | CLI Keyword | Description | Model |
 |----------|------------|-------------|-------|
-| **Complete** | `complete` | Add missing tracks to existing audio; supports optional `styling` prompt | XL-Base |
+| **Complete** | `complete` | Add missing tracks to existing audio; supports optional `styling` prompt and `noblend` flag | XL-Base |
 | **Lego** | `lego` | Build/generate individual instrument tracks; supports optional `styling` prompt | XL-Base |
 | **Extract** | `extract` | Extract individual tracks from audio | XL-Base |
 | **Remix** | `remix` | Style transfer (cover) with bias control; supports `reference` for additional guidance | XL-Turbo (overdose) or Legacy |
@@ -542,6 +542,9 @@ python src/voder.py ttm lyrics "..." styling "cinematic orchestral, dramatic" du
 ```bash
 # Complete: add missing tracks to existing audio
 python src/voder.py ttm complete "base_track.wav" add "drums bass" styling "rock ballad" result "/output/completed.wav"
+
+# Complete with noblend (generated instruments only, no blending with original)
+python src/voder.py ttm complete noblend "base_track.wav" add "drums bass" result "/output/instruments_only.wav"
 
 # Lego: build/generate individual instrument tracks
 python src/voder.py ttm lego "..." make "drums bass strings" styling "jazz trio" duration 120 result "/output/stems.wav"
@@ -690,6 +693,7 @@ The automatic model offloading between ACE-Step and Seed-VC stages means voice c
 | `voice` | No | Use vocals category (for complete/lego) | Off |
 | `music` | No | Use instruments category (for complete/lego) | Off |
 | `video` | No | Output video (for complete) | Off |
+| `noblend` | No | Output generated instruments only without blending with original (complete only) | Off |
 | `bgm` | No | Replace background music in source (audio/video/URL) | — |
 | `level` | No | Music volume for bgm sub-task (0-100) | 35 |
 | `reference` | No | Reference audio for remix/repaint/bgm guidance | — |
@@ -1630,7 +1634,7 @@ python src/voder.py sts base "source.wav" [source2.wav ...] target "voice.wav" [
 ### TTM Mode
 ```
 python src/voder.py ttm [lyrics "lyrics text"] styling "style prompt" duration N [vc] [clone "path"] [target music "path"] [overdose] [result "path"]
-python src/voder.py ttm complete "source.wav" [add "instruments"] styling "style" [result "path"]
+python src/voder.py ttm complete "source.wav" [add "instruments"] [noblend] styling "style" [result "path"]
 python src/voder.py ttm lego "..." [make "instruments"] styling "style" duration N [result "path"]
 python src/voder.py ttm extract "source.wav" [stems "instruments"] [result "path"]
 python src/voder.py ttm remix "source.wav" styling "style" [bias N] [result "path"]

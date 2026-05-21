@@ -800,6 +800,9 @@ python src/voder.py ttm complete source "vocals_only.wav" add "drums bass"
 # Complete with styling prompt (influence mood and genre of generated instruments)
 python src/voder.py ttm complete source "vocals_only.wav" add "drums bass" styling "dramatic cinematic"
 
+# Complete with noblend (output generated instruments only, no blending with original)
+python src/voder.py ttm complete noblend source "vocals_only.wav" add "drums bass"
+
 # Complete with reference (add instruments matching a reference)
 python src/voder.py ttm complete source "vocals_only.wav" add "everything" target music "style_ref.wav"
 
@@ -846,6 +849,7 @@ For voice conversion, BS‑RoFormer automatically extracts clean vocals from the
 | `extract "..."` | Track to extract | Required for extract sub-task |
 | `source "path"` | Source audio (complete/lego/extract) | Required for those sub-tasks |
 | `styling "..."` | Style prompt for complete/lego sub-tasks | Optional (influences mood and genre) |
+| `noblend` | Output generated instruments only without blending with original (`complete` only) | Optional (default: blend with original) |
 | `overdose` | Use XL-Turbo model for max quality | Optional |
 | `result "path"` | Output file path | Optional |
 
@@ -2147,13 +2151,16 @@ python src/voder.py ttm repaint "song.wav" time:45-75 styling "more energetic vo
 ```
 
 **Add Missing Instruments:**
-Use `complete` to add instruments to an existing track. If you have a vocal recording, you can add a full band behind it. Optionally use `styling` to influence the mood and genre of the generated instruments.
+Use `complete` to add instruments to an existing track. If you have a vocal recording, you can add a full band behind it. Optionally use `styling` to influence the mood and genre of the generated instruments. Add `noblend` to output just the generated instruments without blending with the original source.
 
 ```bash
 python src/voder.py ttm complete source "vocal_demo.wav" add "everything"
 
 # With a styling prompt for mood control
 python src/voder.py ttm complete source "vocal_demo.wav" add "drums bass" styling "dramatic cinematic"
+
+# With noblend — generated instruments only (no mixing with original)
+python src/voder.py ttm complete noblend source "vocal_demo.wav" add "drums bass"
 ```
 
 **Build from Stems:**

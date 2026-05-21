@@ -597,6 +597,11 @@ python src/voder.py ttm complete "input.wav" add "drums bass" voice result "/out
 python src/voder.py ttm complete "input.wav" add "drums bass" styling "dramatic cinematic" reference "ref.wav" result "/output/completed.wav"
 ```
 
+**Complete with noblend (generated instruments only, no mixing with original):**
+```bash
+python src/voder.py ttm complete noblend "input.wav" add "drums bass" result "/output/instruments_only.wav"
+```
+
 **Lego: build individual instrument tracks:**
 ```bash
 python src/voder.py ttm lego "input.wav" make "drums bass" mix result "/output/lego.wav"
@@ -696,6 +701,7 @@ python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chi
 |-----------|-------------|----------|
 | `lyrics` | Song lyrics (use `"..."` for instrumental only) | Yes (generate mode) |
 | `styling` | Style prompt describing the music | Yes (generate mode), optional (`complete`/`lego`) |
+| `noblend` | Output generated instruments only without blending with original audio (`complete` only) | No |
 | `duration` | Duration in seconds (10‑300) | Yes (generate mode) |
 | `vc` | Enable voice conversion (place **before** lyrics/styling/duration) | No |
 | `clone` | Voice reference audio path (required when `vc` is set) | Yes (when vc is set) |
@@ -709,7 +715,7 @@ python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chi
 
 | Sub-task | CLI Keyword | Description |
 |----------|------------|-------------|
-| complete | `complete "source.wav" add "drums bass" voice` | Add missing tracks to existing audio (optional `styling` prompt) |
+| complete | `complete "source.wav" add "drums bass" voice` | Add missing tracks to existing audio (optional `styling` prompt, optional `noblend` flag to output generated instruments only without blending with original) |
 | lego | `lego "source.wav" make "drums bass" mix` | Build individual instrument tracks (optional `styling` prompt) |
 | extract | `extract "source.wav" stems "vocals drums"` | Extract specific tracks |
 | remix | `remix "source.wav" styling "jazz"` | Style transfer (cover) with bias control |

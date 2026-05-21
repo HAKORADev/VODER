@@ -4586,6 +4586,12 @@ def parse_oneline_args(args):
                 return result
             result['params']['want_video'] = True
             i += 1
+        elif mode == 'ttm' and arg_lower == 'noblend':
+            if 'complete' not in result['params']:
+                result['error'] = 'noblend keyword is only valid with complete task'
+                return result
+            result['params']['noblend'] = True
+            i += 1
         elif mode == 'ttm' and arg_lower == 'stems':
             if 'extract' not in result['params']:
                 result['error'] = 'stems keyword is only valid with extract task'
@@ -4619,7 +4625,7 @@ def parse_oneline_args(args):
                     peek_lower = peek.lower()
                     if peek_lower in ('mix', 'blend', 'result', 'make', 'add', 'overdose',
                                       'complete', 'lego', 'video', 'extract', 'stems', 'only',
-                                      'remix', 'repaint', 'bias', 'vc', 'clone'):
+                                      'remix', 'repaint', 'bias', 'vc', 'clone', 'noblend'):
                         break
                     if peek_lower in ('voice', 'music'):
                         sv_type = peek_lower
@@ -6257,13 +6263,16 @@ def oneline_ttm_complete(params):
                     pass
         return False
 
+    noblend = params.get('noblend', False)
+
     try:
         output_ext = '.wav'
         if want_video and video_path:
             output_ext = '.mp4'
         elif want_video and not video_path:
             print("Warning: 'video' specified but source is an audio file (not video). Outputting as WAV.")
-        output_filename = f'voder_ttm_complete_{original_name}_{timestamp}{output_ext}'
+        _noblend_tag = '_noblend_' if noblend else ''
+        output_filename = f'voder_ttm_complete_{original_name}{_noblend_tag}_{timestamp}{output_ext}'
         output_path = os.path.join(results_dir, output_filename)
 
         temp_gen_wav = os.path.join(results_dir, f'_ttm_complete_gen_{timestamp}.wav')
@@ -6280,37 +6289,52 @@ def oneline_ttm_complete(params):
         )
 
         if success:
-            print("Blending completed audio with source...")
-            temp_blend_wav = os.path.join(results_dir, f'_ttm_complete_blend_{timestamp}.wav')
-            ret = os.system(f'ffmpeg -y -i "{temp_gen_wav}" -i "{actual_source}" -filter_complex amix=inputs=2:duration=longest "{temp_blend_wav}" 2>/dev/null')
-            if ret == 0 and os.path.exists(temp_blend_wav):
+            if noblend:
                 if want_video and video_path:
-                    print("Merging blended audio with video...")
-                    ret = os.system(f'ffmpeg -y -i "{video_path}" -i "{temp_blend_wav}" -c:v copy -map 0:v:0 -map 1:a:0 -shortest "{output_path}" 2>/dev/null')
-                    if ret != 0 or not os.path.exists(output_path):
-                        print("Error: Failed to merge audio with video")
-                        success = False
-                else:
-                    shutil.move(temp_blend_wav, output_path)
-            else:
-                print("Warning: Blend failed, using generated audio as-is")
-                if want_video and video_path:
+                    print("Merging generated audio with video...")
                     ret = os.system(f'ffmpeg -y -i "{video_path}" -i "{temp_gen_wav}" -c:v copy -map 0:v:0 -map 1:a:0 -shortest "{output_path}" 2>/dev/null')
                     if ret != 0 or not os.path.exists(output_path):
                         print("Error: Failed to merge audio with video")
                         success = False
                 else:
                     shutil.move(temp_gen_wav, output_path)
-            if os.path.exists(temp_gen_wav):
-                try:
-                    os.unlink(temp_gen_wav)
-                except:
-                    pass
-            if os.path.exists(temp_blend_wav):
-                try:
-                    os.unlink(temp_blend_wav)
-                except:
-                    pass
+                if os.path.exists(temp_gen_wav):
+                    try:
+                        os.unlink(temp_gen_wav)
+                    except:
+                        pass
+            else:
+                print("Blending completed audio with source...")
+                temp_blend_wav = os.path.join(results_dir, f'_ttm_complete_blend_{timestamp}.wav')
+                ret = os.system(f'ffmpeg -y -i "{temp_gen_wav}" -i "{actual_source}" -filter_complex amix=inputs=2:duration=longest "{temp_blend_wav}" 2>/dev/null')
+                if ret == 0 and os.path.exists(temp_blend_wav):
+                    if want_video and video_path:
+                        print("Merging blended audio with video...")
+                        ret = os.system(f'ffmpeg -y -i "{video_path}" -i "{temp_blend_wav}" -c:v copy -map 0:v:0 -map 1:a:0 -shortest "{output_path}" 2>/dev/null')
+                        if ret != 0 or not os.path.exists(output_path):
+                            print("Error: Failed to merge audio with video")
+                            success = False
+                    else:
+                        shutil.move(temp_blend_wav, output_path)
+                else:
+                    print("Warning: Blend failed, using generated audio as-is")
+                    if want_video and video_path:
+                        ret = os.system(f'ffmpeg -y -i "{video_path}" -i "{temp_gen_wav}" -c:v copy -map 0:v:0 -map 1:a:0 -shortest "{output_path}" 2>/dev/null')
+                        if ret != 0 or not os.path.exists(output_path):
+                            print("Error: Failed to merge audio with video")
+                            success = False
+                    else:
+                        shutil.move(temp_gen_wav, output_path)
+                if os.path.exists(temp_gen_wav):
+                    try:
+                        os.unlink(temp_gen_wav)
+                    except:
+                        pass
+                if os.path.exists(temp_blend_wav):
+                    try:
+                        os.unlink(temp_blend_wav)
+                    except:
+                        pass
 
         if not success:
             if os.path.exists(temp_gen_wav):

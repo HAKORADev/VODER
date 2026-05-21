@@ -411,6 +411,7 @@ Add missing instruments to an existing track. Uses ACE-Step XL-Base + 1.7B LM + 
 | `"<path>"` | source | Source audio/video file or YouTube/TikTok/Bilibili URL (positional, after all keywords). |
 | `add` | `"<instruments>"` | Instruments to add. See **Instruments Reference** below. |
 | `styling` | `"<text>"` | Optional style prompt to influence the mood and genre of generated instruments (e.g., `"dramatic cinematic"`, `"upbeat pop"`). |
+| `noblend` | (flag) | Output the generated instruments only, without blending with the original source audio. Output filename includes `_noblend_`. |
 | `voice` | (flag) | Pre-extract vocals from source via SVS before processing. Cannot combine with `music`. |
 | `music` | (flag) | Pre-extract music (remove vocals) from source via SVS before processing. Cannot combine with `voice`. |
 | `video` | (flag) | Preserve video if source is a video. Merges completed audio back with video. |
@@ -421,6 +422,7 @@ Add missing instruments to an existing track. Uses ACE-Step XL-Base + 1.7B LM + 
 
 - Requires a source path and `add` with instruments.
 - `voice` and `music` are mutually exclusive. If neither, source is used as-is.
+- `noblend` skips the post-generation blend step — the output is the model's generated audio only (no mixing with the original source).
 - `video` is only valid with `complete` (not lego/extract).
 - YouTube URLs: with `video` downloads video file, without downloads audio only.
 
@@ -445,6 +447,9 @@ python voder.py ttm complete "vocals_only.wav" add "drums bass" reference voice 
 
 # Complete with styling and reference
 python voder.py ttm complete "vocals_only.wav" add "drums bass" styling "upbeat pop" reference "ref.wav"
+
+# Complete with noblend (generated instruments only, no blending with original)
+python voder.py ttm complete noblend "vocals_only.wav" add "drums bass"
 
 # Complete from YouTube with video
 python voder.py ttm complete video "https://youtube.com/watch?v=..." add "everything"
