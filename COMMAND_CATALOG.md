@@ -423,7 +423,7 @@ Add missing instruments to an existing track. Uses ACE-Step XL-Base + 1.7B LM + 
 - Requires a source path and `add` with instruments.
 - `voice` and `music` are mutually exclusive. If neither, source is used as-is.
 - `noblend` skips the post-generation blend step — the output is the model's generated audio only (no mixing with the original source).
-- `video` is only valid with `complete` (not lego/extract).
+- `video` is valid with `complete` and `bgm` (not lego/extract).
 - YouTube URLs: with `video` downloads video file, without downloads audio only.
 
 ```
@@ -605,7 +605,8 @@ Replace background music in an existing audio or video file. Strips existing mus
 | `bgm` | `"<path>"` | Source audio/video file or YouTube/TikTok/Bilibili URL whose background music will be replaced. |
 | `music` | `"<description>"` | Description for the new background music to generate. Required. |
 | `level` | `<0-100>` | Music volume level (0 = silent, 100 = full volume). Default: 35. |
-| `reference` | `"<path>"` | Optional reference audio for style guidance. Processed through SVS music pipe to extract clean instrumental. |
+| `video` | (flag) | Preserve video output. When source is a URL, downloads the video file and merges result back into .mp4. For local video files, video output is automatic (no flag needed). |
+| `reference` | `"<path>"` | Optional reference audio/video/URL for style guidance. Processed through SVS music pipe to extract clean instrumental. |
 | `overdose` | (flag) | Use Overdose tier (ACE-Step XL-Turbo + 4B LM + shift 3.0) instead of Standard tier (ACE-Step 1.5 Turbo). |
 
 #### Rules
@@ -613,6 +614,8 @@ Replace background music in an existing audio or video file. Strips existing mus
 - `bgm` requires `music`.
 - `bgm` cannot be combined with `vc`, `remix`, `repaint`, `complete`, `lego`, or `extract`.
 - Source is resolved through `resolve_target_to_audio()` — supports audio files, video files, and URLs.
+- `video` flag: when source is a YouTube URL, downloads the video file (not just audio) and merges the result back into .mp4. For local video files, video output is automatic. If `video` is used with an audio source, outputs .wav with a warning.
+- Reference supports audio files, video files, and URLs — always processed through SVS music pipe for clean instrumental.
 - Video inputs produce `.mp4` output with the new audio re-muxed; audio inputs produce `.wav`.
 - Output naming: `voder_ttm_bgm_{original-name}_{timestamp}.wav` (audio) or `.mp4` (video).
 - Normal (non-overdose) uses ACE-Step turbo 1.5 model.
@@ -631,8 +634,11 @@ python voder.py ttm overdose bgm "podcast.mp4" music "jazz lounge" level 40
 # Replace background music with reference for style guidance
 python voder.py ttm bgm "podcast.wav" music "upbeat electronic" level 35 reference "path/to/style_ref.wav"
 
-# From YouTube URL with reference and result path
-python voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chill" level 25 reference "ref.wav" result "/output/new_bgm.wav"
+# From YouTube URL with audio-only output
+python voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chill" level 25 reference "ref.wav"
+
+# From YouTube URL with video output (downloads video, replaces bgm, outputs .mp4)
+python voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinematic" level 30 reference "ref.mp3"
 ```
 
 ---

@@ -4581,8 +4581,8 @@ def parse_oneline_args(args):
             result['params']['use_music'] = True
             i += 1
         elif mode == 'ttm' and arg_lower == 'video':
-            if 'complete' not in result['params']:
-                result['error'] = 'video keyword is only valid with complete task'
+            if 'complete' not in result['params'] and 'bgm' not in result['params']:
+                result['error'] = 'video keyword is only valid with complete/bgm task'
                 return result
             result['params']['want_video'] = True
             i += 1
@@ -4612,7 +4612,16 @@ def parse_oneline_args(args):
             else:
                 result['error'] = 'add keyword requires instruments (e.g., add "drums bass guitar" or add "everything")'
                 return result
-        elif mode == 'ttm' and arg_lower == 'reference' and 'bgm' not in result['params']:
+        elif mode == 'ttm' and arg_lower == 'reference' and 'bgm' in result['params']:
+            i += 1
+            if i >= len(args):
+                result['error'] = 'reference requires a path or URL'
+                return result
+            if 'reference' not in result['params']:
+                result['params']['reference'] = []
+            result['params']['reference'].append(args[i])
+            i += 1
+        elif mode == 'ttm' and arg_lower == 'reference':
             if ('complete' not in result['params'] and 'lego' not in result['params']
                 and 'is_remix' not in result and 'is_repaint' not in result):
                 result['error'] = 'reference keyword is only valid with complete/lego/remix/repaint/bgm task'
@@ -4922,6 +4931,7 @@ def show_oneline_usage():
     print('  python voder.py ttm bgm "path/to/video.mp4" music "epic orchestral" level 50')
     print('  python voder.py ttm overdose bgm "path/to/audio.wav" music "lo-fi chill" level 25 reference "ref_song.mp3"')
     print('  python voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient synth" level 40')
+    print('  python voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinematic" level 30 reference "ref.mp3"')
     print()
     print("Script directives (per line, at end of text):")
     print("  /time:nn-nn+nn  - Cut nn seconds from end (-nn) and/or start (+nn)")
@@ -6872,11 +6882,15 @@ def oneline_ttm_bgm(params):
             return False
 
     use_overdose = params.get('overdose', False)
+    want_video = params.get('want_video', False)
     reference_params_list = params.get('reference', [])
     ref_input = reference_params_list[-1] if reference_params_list else None
 
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
     cleanup_files = []
     original_video_path = None
+    downloaded_video = None
+    video_title = None
 
     try:
         is_link = is_youtube_url(bgm_source)
@@ -6887,12 +6901,37 @@ def oneline_ttm_bgm(params):
             if is_video_file:
                 original_video_path = bgm_source
 
-        print(f"Resolving source: {bgm_source}")
-        source_audio, source_cleanup = resolve_target_to_audio(bgm_source)
-        if source_audio is None:
-            print("Error: Could not resolve source to audio")
-            return False
-        cleanup_files.extend(source_cleanup)
+        if is_link and want_video:
+            print(f"Downloading video from URL: {bgm_source}")
+            downloaded_video, video_title = download_youtube_video(bgm_source, results_dir)
+            if downloaded_video is None:
+                print(f"Error: {video_title}")
+                return False
+            original_video_path = downloaded_video
+            temp_audio = os.path.join(results_dir, f'_bgm_vid_{timestamp}.wav')
+            ret = os.system(f'ffmpeg -y -i "{downloaded_video}" -vn -acodec pcm_s16le -ar 48000 -ac 2 "{temp_audio}" 2>/dev/null')
+            if ret != 0 or not os.path.exists(temp_audio):
+                print("Error: Failed to extract audio from downloaded video")
+                if downloaded_video and os.path.exists(downloaded_video):
+                    os.remove(downloaded_video)
+                return False
+            source_audio = temp_audio
+            cleanup_files.append(temp_audio)
+        elif want_video and not original_video_path:
+            print("Warning: 'video' specified but source is an audio file (not video). Outputting as WAV.")
+            print(f"Resolving source: {bgm_source}")
+            source_audio, source_cleanup = resolve_target_to_audio(bgm_source)
+            if source_audio is None:
+                print("Error: Could not resolve source to audio")
+                return False
+            cleanup_files.extend(source_cleanup)
+        else:
+            print(f"Resolving source: {bgm_source}")
+            source_audio, source_cleanup = resolve_target_to_audio(bgm_source)
+            if source_audio is None:
+                print("Error: Could not resolve source to audio")
+                return False
+            cleanup_files.extend(source_cleanup)
 
         print("Cleaning source audio through SVS voice pipe...")
         clean_voice = svs_extract_vocals(source_audio)
@@ -6952,9 +6991,11 @@ def oneline_ttm_bgm(params):
                 pass
             return False
 
-        timestamp = int(time.time())
         if original_video_path and os.path.exists(original_video_path):
-            name = os.path.splitext(os.path.basename(original_video_path))[0]
+            if downloaded_video and video_title:
+                name = video_title.replace(' ', '_').replace('/', '_')[:50]
+            else:
+                name = os.path.splitext(os.path.basename(original_video_path))[0]
             out_ext = os.path.splitext(original_video_path)[1]
             if not out_ext:
                 out_ext = '.mp4'
@@ -6993,6 +7034,11 @@ def oneline_ttm_bgm(params):
         print(f"✓ Success! Output saved to: {output_path}")
         return True
     finally:
+        if downloaded_video and os.path.exists(downloaded_video):
+            try:
+                os.remove(downloaded_video)
+            except:
+                pass
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         gc.collect()

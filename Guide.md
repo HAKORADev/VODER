@@ -850,6 +850,7 @@ For voice conversion, BS‑RoFormer automatically extracts clean vocals from the
 | `source "path"` | Source audio (complete/lego/extract) | Required for those sub-tasks |
 | `styling "..."` | Style prompt for complete/lego sub-tasks | Optional (influences mood and genre) |
 | `noblend` | Output generated instruments only without blending with original (`complete` only) | Optional (default: blend with original) |
+| `video` | Preserve video output (`complete`/`bgm`) — downloads video from URL, merges back | Optional |
 | `overdose` | Use XL-Turbo model for max quality | Optional |
 | `result "path"` | Output file path | Optional |
 
@@ -1854,7 +1855,7 @@ The TTM BGM subtask replaces background music in an existing audio or video file
 
 ### How It Works
 
-1. **Source Resolution**: The input (audio file, video file, or URL) is resolved to a local audio file
+1. **Source Resolution**: The input (audio file, video file, or URL) is resolved to a local audio file. With the `video` flag and a URL source, the video file is downloaded (not just audio) for later re-muxing.
 2. **Music Stripping**: BS-RoFormer (SVS voice pipe) separates the source into clean vocals/speech and instrumental
 3. **Duration Detection**: The duration of the clean audio is measured
 4. **Music Generation**: ACE-Step generates new background music matching the detected duration
@@ -1862,7 +1863,7 @@ The TTM BGM subtask replaces background music in an existing audio or video file
    - Long durations are handled by generating 250-300s chunks and concatenating
    - If a `reference` is provided, it is processed through SVS music pipe to extract clean instrumental for style guidance
 5. **Mixing**: New music is mixed with clean vocals at the specified volume level (0-100, default 35)
-6. **Output**: If the source was video, the final audio is re-muxed back into the video container
+6. **Output**: If the source was video, the final audio is re-muxed back into the video container. With `video` flag + URL source, the video is downloaded and the result is merged back into .mp4.
 
 ### CLI Usage
 
@@ -1876,8 +1877,11 @@ python src/voder.py ttm overdose bgm "video.mp4" music "cinematic orchestral" le
 # With reference for style guidance
 python src/voder.py ttm bgm "recording.wav" music "jazz lounge" level 35 reference "style_ref.wav"
 
-# From YouTube URL
+# From YouTube URL (audio only output)
 python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chill" level 25 result "/output/new_bgm.wav"
+
+# From YouTube URL with video output (downloads video, replaces bgm, outputs .mp4)
+python src/voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinematic" level 30 reference "ref.mp3"
 ```
 
 ### Output Naming
@@ -1890,6 +1894,8 @@ python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chi
 - `bgm` requires `music` (the description for the new background music)
 - `bgm` cannot be combined with `vc`, `remix`, `repaint`, `complete`, `lego`, or `extract`
 - Source accepts audio files, video files, and URLs (YouTube, Bilibili, TikTok)
+- `video` flag: when source is a YouTube URL, downloads the video file (not just audio) and merges the result back into .mp4. For local video files, video output is automatic (no flag needed). If `video` is used with an audio source, outputs .wav with a warning.
+- Reference accepts audio files, video files, and URLs — always processed through SVS music pipe for clean instrumental
 - Normal (non-overdose) uses ACE-Step turbo 1.5; overdose uses ACE-Step XL 1.5 turbo
 - Default volume level is 35 (range 0-100)
 
@@ -1904,6 +1910,7 @@ In the GUI, TTM tab now includes a **BGM** sub-mode with fields for source file,
 3. **Use reference for style consistency** — Provide a reference track that matches the desired feel; SVS music pipe cleans it automatically
 4. **Overdose for important content** — Use `overdose` flag when music quality is critical (final exports, professional productions)
 5. **URL support** — You can directly reference YouTube, Bilibili, or TikTok URLs as the source, no manual download needed
+6. **Video URLs with `video` flag** — Add the `video` keyword before the URL to download the video file and get a .mp4 output with replaced background music
 
 ---
 

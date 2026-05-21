@@ -482,7 +482,7 @@ TTM supports multiple sub-tasks via the `task` parameter:
 | **Extract** | `extract` | Extract individual tracks from audio | XL-Base |
 | **Remix** | `remix` | Style transfer (cover) with bias control; supports `reference` for additional guidance | XL-Turbo (overdose) or Legacy |
 | **Repaint** | `repaint` | Restyle a specific time range of a song; supports `reference` for additional guidance | XL-Turbo (overdose) or Legacy |
-| **BGM** | `bgm` | Replace background music in existing audio/video; strips music, generates new bgm, mixes at level | 1.5 Turbo (standard) or XL-Turbo (overdose) |
+| **BGM** | `bgm` | Replace background music in existing audio/video; strips music, generates new bgm, mixes at level; supports `video` flag and `reference` | 1.5 Turbo (standard) or XL-Turbo (overdose) |
 | **Overdose** | (flag) | Maximum quality full generation | XL-Turbo |
 
 ### 12 Instrument Tracks
@@ -611,8 +611,11 @@ python src/voder.py ttm overdose bgm "video.mp4" music "cinematic orchestral" le
 # Replace background music with reference for style guidance
 python src/voder.py ttm bgm "podcast.wav" music "upbeat electronic" level 35 reference "style_ref.wav"
 
-# From YouTube URL with result routing
+# From YouTube URL with audio-only output
 python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chill" level 25 result "/output/new_bgm.wav"
+
+# From YouTube URL with video output (downloads video, replaces bgm, outputs .mp4)
+python src/voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinematic" level 30 reference "ref.mp3"
 ```
 
 **BGM Pipeline:** Source → SVS voice pipe (strip existing music) → detect duration → ACE-Step generate new bgm in 250-300s chunks → [optional SVS music pipe on reference] → mix at level → re-mux to video if needed
@@ -622,6 +625,8 @@ python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chi
 **BGM Key Rules:**
 - `bgm` cannot be combined with `vc`, `remix`, `repaint`, `complete`, `lego`, or `extract`
 - Source supports audio, video, and URL inputs
+- `video` flag: when source is a YouTube URL, downloads the video file (not just audio) and merges the result back into .mp4. For local video files, video output is automatic (no flag needed). If `video` is used with an audio source, outputs .wav with a warning.
+- Reference supports audio files, video files, and URLs — always processed through SVS music pipe for clean instrumental
 - Normal uses ACE-Step turbo 1.5; overdose uses ACE-Step XL 1.5 turbo
 - Default volume level is 35
 
@@ -692,11 +697,11 @@ The automatic model offloading between ACE-Step and Seed-VC stages means voice c
 | `blend` | No | Blend mode for lego | — |
 | `voice` | No | Use vocals category (for complete/lego) | Off |
 | `music` | No | Use instruments category (for complete/lego) | Off |
-| `video` | No | Output video (for complete) | Off |
+| `video` | No | Output video (for complete/bgm) | Off |
 | `noblend` | No | Output generated instruments only without blending with original (complete only) | Off |
 | `bgm` | No | Replace background music in source (audio/video/URL) | — |
 | `level` | No | Music volume for bgm sub-task (0-100) | 35 |
-| `reference` | No | Reference audio for remix/repaint/bgm guidance | — |
+| `reference` | No | Reference audio/video/URL for remix/repaint/bgm guidance | — |
 | `vc` | No | Enable voice cloning on vocalist | Off |
 | `overdose` | No | Use XL-Turbo for maximum quality | Off |
 | `result` | No | Output destination | Auto-generated |

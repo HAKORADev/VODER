@@ -673,8 +673,11 @@ python src/voder.py ttm overdose bgm "video.mp4" music "cinematic orchestral" le
 # With reference for style guidance
 python src/voder.py ttm bgm "recording.wav" music "jazz lounge" level 35 reference "style_ref.wav"
 
-# From YouTube URL
+# From YouTube URL (audio only)
 python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chill" level 25 result "/output/new_bgm.wav"
+
+# From YouTube URL with video output (downloads video, replaces bgm, outputs .mp4)
+python src/voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinematic" level 30 reference "ref.mp3"
 ```
 
 **BGM Parameters:**
@@ -684,12 +687,15 @@ python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chi
 | `bgm "source"` | Source audio/video/URL to replace music in | Yes |
 | `music "description"` | Description for new background music | Yes |
 | `level <0-100>` | Music volume level (default: 35) | No |
-| `reference "path"` | Reference audio for style guidance (SVS music pipe cleanup) | No |
+| `video` | Preserve video output (downloads video from URL, merges back to .mp4) | No |
+| `reference "path"` | Reference audio/video/URL for style guidance (SVS music pipe cleanup) | No |
 | `overdose` | Use ACE-Step XL 1.5 turbo for enhanced quality | No |
 
 **BGM Rules:**
 - Cannot be combined with `vc`, `remix`, `repaint`, `complete`, `lego`, or `extract`
 - Source supports audio files, video files, and URLs
+- `video` flag: when source is a YouTube URL, downloads the video file (not just audio) and merges the result back into .mp4. For local video files, video output is automatic (no flag needed). If `video` is used with an audio source, outputs .wav with a warning.
+- Reference supports audio files, video files, and URLs — always processed through SVS music pipe for clean instrumental
 - Normal uses ACE-Step turbo 1.5; overdose uses ACE-Step XL 1.5 turbo
 - Output naming: `voder_ttm_bgm_{original-name}_{timestamp}.wav` (audio) or `.mp4` (video)
 
@@ -707,7 +713,8 @@ python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chi
 | `clone` | Voice reference audio path (required when `vc` is set) | Yes (when vc is set) |
 | `target` | Optional music reference (`target voice "ref.wav"` or `target music "ref.wav"`) | No |
 | `bias` | Style transfer strength for `remix`/`repaint` (0‑100, default 40) | No |
-| `reference` | Reference audio for `remix`/`repaint` guidance (`reference voice "path"`, `reference music "path"`, or `reference "path"` for as-is; accepts audio, video, and URLs) | No |
+| `reference` | Reference audio for `remix`/`repaint`/`bgm` guidance (`reference voice "path"`, `reference music "path"`, or `reference "path"` for as-is; accepts audio, video, and URLs) | No |
+| `video` | Preserve video output for `complete`/`bgm` (downloads video from URL, merges back to .mp4) | No |
 | `overdose` | Use enhanced quality mode (three‑tier ACE‑Step) | No |
 | `result` | Output file path | No |
 
@@ -720,7 +727,7 @@ python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chi
 | extract | `extract "source.wav" stems "vocals drums"` | Extract specific tracks |
 | remix | `remix "source.wav" styling "jazz"` | Style transfer (cover) with bias control |
 | repaint | `repaint "source.wav" time:20-80 styling "..."` | Restyle a specific time range |
-| bgm | `bgm "source.wav" music "description" level 30` | Replace background music in audio/video |
+| bgm | `bgm "source.wav" music "description" level 30` | Replace background music in audio/video (optional `video` flag for URL→video output, optional `reference`) |
 
 **Examples:**
 ```bash
