@@ -79,6 +79,7 @@ Generate speech from text using voice descriptions (VoiceDesign) or voice clone 
 | `reference` | `"<path>"` | Optional reference audio/video/URL for dialogue background music style guidance. Processed through SVS music pipe to extract clean instrumental before use. Accepts audio files, video files, and YouTube/TikTok/Bilibili URLs. Dialogue mode only. |
 | `ocr` | `"<image_path>"` | Extract text from an image via EasyOCR, then use that text as the script. Supported formats: PNG, JPG, JPEG, BMP, GIF, TIFF, WebP. |
 | `<number>` | `10-300` | Duration in seconds (TTM only, ignored in pure TTS). |
+| `overdose` | (flag) | Use VibeVoice ASR for dialogue source analysis and voice clip extraction instead of Whisper + pyannote. When used with `music`, also uses ACE-Step XL turbo for enhanced background music quality. Requires 24GB+ VRAM or 48GB+ RAM. |
 
 ### Single Mode
 
@@ -121,7 +122,19 @@ python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep 
 
 # Dialogue with music and YouTube URL reference
 python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "soft piano" reference "https://youtube.com/watch?v=..."
+
+# TTS with overdose (VibeVoice ASR for dialogue source, enhanced music)
+python voder.py tts overdose script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female"
+
+# TTS with overdose + voice cloning + background music
+python voder.py tts overdose script "James: Hello" script "Sarah: Hi" target "James: james.wav" target "Sarah: sarah.wav" music "soft piano"
 ```
+
+### Overdose Notes
+
+- When `overdose` is used with audio as dialogue source, VibeVoice ASR replaces Whisper + pyannote for transcription and diarization.
+- Voice clip extraction with overdose automatically trims 2s from start and 3s from end of longest segment to avoid cross-speaker overlap.
+- `music` parameter with `overdose` uses ACE-Step XL turbo instead of the standard model for enhanced background music quality.
 
 ### Script Directives (per line, at end of text)
 

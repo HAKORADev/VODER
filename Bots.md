@@ -45,7 +45,7 @@ VODER is a professional‑grade voice processing tool that enables seamless conv
 - **Speaker Language Conversion (SLC)**: Translate speech to another language while preserving speaker voice
 - **Speakers Separator (SS)**: Extract individual speakers from multi‑speaker audio
 - **Translation in STT**: Translate transcribed speech to English automatically
-- **Overdose Quality Mode**: Enhanced transcription and music generation using VibeVoice ASR
+- **Overdose Quality Mode**: Enhanced transcription, dialogue source analysis, and music generation using VibeVoice ASR
 - **Video I/O**: Video input with automatic audio extraction; video output with replaced audio (STS)
 
 ---
@@ -347,7 +347,7 @@ python src/voder.py <mode> [parameters]
 
 | Mode | Description | GPU Required | One‑Liner |
 |------|-------------|--------------|-----------|
-| `tts` | Text‑to‑Speech with Voice Design & Voice Cloning (via `target`) | No | ✅ Yes (single & dialogue + optional music + SFX support) |
+| `tts` | Text‑to‑Speech with Voice Design & Voice Cloning (via `target`), optional `overdose` for VibeVoice ASR and enhanced music | No | ✅ Yes (single & dialogue + optional music + SFX + overdose support) |
 | `tts+vc` | Text‑to‑Speech + Voice Cloning — **REMOVED** (use `tts` with `target`) | No | ❌ No longer accepted |
 | `sts` | Speech‑to‑Speech (Voice Conversion) with video I/O & auto vocal extraction | No | ✅ Yes (single only) |
 | `ttm` | Text‑to‑Music Generation with sub‑tasks (`complete`, `lego`, `extract`, `remix`, `repaint`, `bgm`), `vc` flag, three‑tier ACE‑Step | No | ✅ Yes (single only) |
@@ -417,6 +417,21 @@ python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Ch
 python src/voder.py tts script "James: Hello" "sfx: door bell /duration:3 /level:60" "Sarah: Hi!" voice "James: male" "Sarah: female" music "ambient"
 ```
 
+**TTS with overdose mode:**
+```bash
+# Overdose mode: uses VibeVoice ASR for dialogue source analysis and voice clip extraction (when using audio as dialogue source)
+python src/voder.py tts overdose script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female"
+
+# Overdose mode with voice cloning and background music (music uses ACE-Step XL turbo)
+python src/voder.py tts overdose script "James: Hello" script "Sarah: Hi" target "James: james.wav" target "Sarah: sarah.wav" music "soft piano"
+```
+
+When `overdose` is used:
+- Dialogue source analysis uses **VibeVoice ASR** instead of Whisper + pyannote for higher accuracy transcription and speaker identification
+- Voice clip extraction from multi-speaker audio uses VibeVoice ASR segments with automatic overlap trimming (removes first 2s and last 3s from longest segment to avoid cross-speaker overlap)
+- Background music generation uses **ACE-Step XL turbo** for enhanced quality
+- Requires 24GB+ VRAM or 48GB+ combined system memory for VibeVoice ASR
+
 **Parameters:**
 
 | Parameter | Description | Required |
@@ -427,6 +442,7 @@ python src/voder.py tts script "James: Hello" "sfx: door bell /duration:3 /level
 | `music` | Description for automatically generated background music (dialogue only) | No |
 | `level` | Music volume levels e.g. `"10:20-50 30:60-80"` (dialogue modes, default: 35%) | No |
 | `reference` | Reference audio/video/URL for dialogue background music style guidance (processed via SVS music pipe to extract clean instrumental) | No |
+| `overdose` | Use VibeVoice ASR for dialogue source/voice clip extraction and ACE-Step XL turbo for background music (TTS mode) | No |
 | `language` | Output language for speech synthesis (e.g., `"Spanish"`, `"English"`) | No |
 
 **Voice Prompt Examples:**
@@ -511,6 +527,7 @@ python src/voder.py tts script "Character1: line1" "Character2: line2" target "C
 | `music` | Description for automatically generated background music (dialogue only) | No |
 | `level` | Music volume levels (dialogue modes, default: 35%) | No |
 | `reference` | Reference audio/video/URL for dialogue background music style guidance (processed via SVS music pipe to extract clean instrumental) | No |
+| `overdose` | Use VibeVoice ASR for dialogue source/voice clip extraction and ACE-Step XL turbo for background music (TTS mode) | No |
 
 **Voice Reference Requirements:**
 - Format: WAV (recommended), MP3 supported
@@ -1253,6 +1270,7 @@ VODER offers different experiences depending on the interface. Understanding the
 | **Cross-use Feature** | Mix generated (`voice`) and cloned (`target`) voices in same dialogue |
 | **STT Transcription** | Speech-to-text with timestamps, diarization, translation, and batch processing |
 | **STT Overdose Mode** | Enhanced transcription quality using VibeVoice ASR |
+| **TTS Overdose Mode** | VibeVoice ASR for dialogue source analysis + enhanced music generation using ACE-Step XL turbo |
 | **STT Translation** | Automatic translation of transcribed speech to English |
 | **YouTube/URL Input** | Direct transcription from YouTube, Bilibili, TikTok URLs |
 | **Image OCR Input** | Text extraction from images via EasyOCR |
@@ -1314,6 +1332,7 @@ VODER operates entirely on CPU. No GPU is required for any mode. This makes VODE
 |------|--------------|-------------|------|-------|
 | TTS (no music) | 12GB | Optional | 4GB (minimum, GTX 1060) | 8GB base + 4GB (Qwen) |
 | TTS (with music) | 23GB | Optional | 15GB (recommended, RTX 3080 or 16GB GPU) | 8GB base + 15GB (ACE) |
+| TTS + Overdose | 48GB | Optional | 24GB VRAM or 48GB RAM | 8GB base + ~40GB (VibeVoice ASR) + 15GB (ACE XL, if music) |
 | STT | 12GB | Optional | 4GB (minimum) | 8GB base + 4GB (Whisper) |
 | STT + Diarization | 15GB | Optional | 4GB (minimum) | +3GB (Pyannote) |
 | STT + Overdose | 48GB | Optional | 24GB VRAM or 48GB RAM | 8GB base + ~40GB (VibeVoice ASR) |
@@ -1338,7 +1357,7 @@ VODER operates entirely on CPU. No GPU is required for any mode. This makes VODE
 | 6GB | Minimum | TTS (no music), STT, STT+TTS, SE, SFX, SLC, SVS |
 | 14GB | Mid-range | STS, all TTS modes, SE, SFX, SVS, SLC |
 | 15-16GB | Recommended | TTS with music, TTM, TTM vc, all standard modes |
-| 24GB | High (RTX 4090) | All modes including SS, STT overdose, TTM overdose |
+| 24GB | High (RTX 4090) | All modes including SS, STT overdose, TTS overdose, TTM overdose |
 | 32GB | Professional | All modes at full speed including TTM overdose/complete |
 | 48GB | Server-grade | All modes including SS, overdose modes on GPU |
 | T4 (16GB) | Server-grade | All standard modes (not consumer GPU) |
@@ -1356,6 +1375,7 @@ The following modes require approximately 23GB RAM due to the ACE-Step model:
 The following modes require approximately 48GB RAM (or 24GB+ VRAM) for VibeVoice ASR:
 
 - **STT** with `overdose` flag
+- **TTS** with `overdose` flag
 - **TTM** with `overdose` flag
 - **TTM** `complete` sub-task
 - **SS** (Speakers Separator)

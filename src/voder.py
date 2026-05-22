@@ -2384,7 +2384,7 @@ def validate_dialogue_source_file(file_path):
     else:
         return False, f"Unsupported file format: {file_path}", None
 
-def analyze_dialogue_source(file_path, source_type="audio"):
+def analyze_dialogue_source(file_path, source_type="audio", use_overdose=False):
     if source_type == "txt":
         return True, None, None
 
@@ -2430,6 +2430,64 @@ def analyze_dialogue_source(file_path, source_type="audio"):
         return False, f"Unsupported audio format: {file_path}", None
 
     try:
+        if use_overdose:
+            asr = VibeVoiceASR()
+            asr.ensure_model()
+            if asr.model is None:
+                print("Warning: VibeVoice ASR failed to load, falling back to Whisper + pyannote")
+                asr.cleanup()
+                del asr
+                use_overdose = False
+            else:
+                print("Transcribing with VibeVoice ASR...")
+                asr_segments = asr.transcribe(audio_path)
+                asr.cleanup()
+                del asr
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+                if not asr_segments:
+                    return False, "VibeVoice ASR transcription returned no segments", None
+
+                original_speakers = []
+                for seg in asr_segments:
+                    speaker = seg["speaker"]
+                    if speaker not in original_speakers:
+                        original_speakers.append(speaker)
+
+                speaker_mapping = {spk: idx for idx, spk in enumerate(original_speakers, 1)}
+
+                if len(original_speakers) == 1:
+                    content = " ".join(seg["text"] for seg in asr_segments)
+                    dialogue_items = [(1, 'text', content)]
+                else:
+                    dialogue_items = []
+                    current_speaker_num = None
+                    current_text_parts = []
+
+                    for seg in asr_segments:
+                        speaker_num = speaker_mapping[seg["speaker"]]
+                        text = seg["text"]
+
+                        if current_speaker_num is None:
+                            current_speaker_num = speaker_num
+                            current_text_parts = [text]
+                        elif speaker_num == current_speaker_num:
+                            current_text_parts.append(text)
+                        else:
+                            if current_text_parts:
+                                content = " ".join(current_text_parts)
+                                dialogue_items.append((current_speaker_num, str(current_speaker_num), content))
+                            current_speaker_num = speaker_num
+                            current_text_parts = [text]
+
+                    if current_text_parts:
+                        content = " ".join(current_text_parts)
+                        dialogue_items.append((current_speaker_num, str(current_speaker_num), content))
+
+                return True, None, dialogue_items
+
         print("Loading Whisper model...")
         stt = WhisperSTT()
         if stt.model is None:
@@ -2529,7 +2587,7 @@ def analyze_dialogue_source(file_path, source_type="audio"):
             except:
                 pass
 
-def extract_voice_clips_from_multispeaker(file_path, num_speakers, source_type="audio"):
+def extract_voice_clips_from_multispeaker(file_path, num_speakers, source_type="audio", use_overdose=False):
     audio_path = file_path
     needs_cleanup = False
     youtube_temp = None
@@ -2549,6 +2607,105 @@ def extract_voice_clips_from_multispeaker(file_path, num_speakers, source_type="
         needs_cleanup = True
 
     try:
+        if use_overdose:
+            asr = VibeVoiceASR()
+            asr.ensure_model()
+            if asr.model is None:
+                print("Warning: VibeVoice ASR failed to load, falling back to Whisper + pyannote")
+                asr.cleanup()
+                del asr
+                use_overdose = False
+            else:
+                print("Transcribing with VibeVoice ASR for voice clip extraction...")
+                asr_segments = asr.transcribe(audio_path)
+                asr.cleanup()
+                del asr
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+                if not asr_segments:
+                    return False, "VibeVoice ASR transcription returned no segments", None
+
+                speaker_segments = {}
+                for seg in asr_segments:
+                    speaker = seg["speaker"]
+                    if speaker not in speaker_segments:
+                        speaker_segments[speaker] = []
+                    speaker_segments[speaker].append({
+                        "start": seg.get("start", 0) or 0,
+                        "end": seg.get("end", 0) or 0,
+                        "text": seg.get("text", "")
+                    })
+
+                if not speaker_segments:
+                    return False, "No speaker segments found", None
+
+                sorted_speakers = sorted(speaker_segments.keys(), key=lambda spk: speaker_segments[spk][0]["start"])
+
+                for speaker in sorted_speakers:
+                    segs = speaker_segments[speaker]
+                    segs.sort(key=lambda x: x["start"])
+                    merged = []
+                    for s in segs:
+                        if merged and s["start"] - merged[-1]["end"] < 0.3:
+                            merged[-1]["end"] = s["end"]
+                            merged[-1]["text"] += " " + s["text"]
+                        else:
+                            merged.append({"start": s["start"], "end": s["end"], "text": s["text"]})
+                    speaker_segments[speaker] = merged
+
+                speaker_to_num = {}
+                for idx, speaker in enumerate(sorted_speakers, 1):
+                    speaker_to_num[speaker] = str(idx)
+
+                clips_dict = {}
+                temp_dir = tempfile.mkdtemp()
+
+                for speaker in sorted_speakers:
+                    if len(clips_dict) >= num_speakers:
+                        break
+
+                    segments_list = speaker_segments[speaker]
+                    if not segments_list:
+                        continue
+
+                    longest_seg = max(segments_list, key=lambda x: x["end"] - x["start"])
+                    seg_duration = longest_seg["end"] - longest_seg["start"]
+
+                    trim_start = longest_seg["start"]
+                    trim_duration = seg_duration
+                    if seg_duration > 5:
+                        trim_start = longest_seg["start"] + 2.0
+                        trim_duration = seg_duration - 5.0
+
+                    speaker_num = speaker_to_num[speaker]
+                    clip_path = os.path.join(temp_dir, f"{speaker_num}.wav")
+
+                    cmd = [
+                        'ffmpeg', '-i', audio_path,
+                        '-ss', str(trim_start),
+                        '-t', str(trim_duration),
+                        '-y', clip_path
+                    ]
+
+                    result_ffmpeg = subprocess.run(cmd, capture_output=True, text=True)
+                    if result_ffmpeg.returncode != 0:
+                        print(f"Warning: Failed to extract clip for speaker {speaker_num}: {result_ffmpeg.stderr}")
+                        continue
+
+                    clips_dict[speaker_num] = clip_path
+                    print(f"Extracted voice clip for speaker {speaker_num} ({trim_duration:.2f}s)")
+
+                if not clips_dict:
+                    try:
+                        shutil.rmtree(temp_dir)
+                    except:
+                        pass
+                    return False, "Failed to extract any voice clips", None
+
+                return True, None, clips_dict
+
         print("Loading Whisper model...")
         stt = WhisperSTT()
         if stt.model is None:
@@ -2707,6 +2864,11 @@ def cli_tts_mode():
 
     print("\n--- TTS Mode ---")
 
+    use_overdose = False
+    overdose_input = input("Enable overdose? (Y/N): ").strip().lower()
+    if overdose_input in ['y', 'yes']:
+        use_overdose = True
+
     print("\nDo you have a dialogue source file? (audio/video/txt/image)")
     print("Press Y to provide a file, or N to enter manually")
     has_source = input("> ").strip().lower()
@@ -2736,7 +2898,7 @@ def cli_tts_mode():
                 break
             elif msg == "image":
                 print(f"\nAnalyzing image: {os.path.basename(file_path)}...")
-                success, error_msg, items = analyze_dialogue_source(file_path, source_type="image")
+                success, error_msg, items = analyze_dialogue_source(file_path, source_type="image", use_overdose=use_overdose)
                 if not success:
                     print(f"Error: {error_msg}")
                     retry = input("Try another source? (Y/N): ").strip().lower()
@@ -2754,7 +2916,7 @@ def cli_tts_mode():
                 break
             elif msg == "youtube":
                 print(f"\nProcessing YouTube video...")
-                success, error_msg, items = analyze_dialogue_source(file_path, source_type="youtube")
+                success, error_msg, items = analyze_dialogue_source(file_path, source_type="youtube", use_overdose=use_overdose)
                 if not success:
                     print(f"Error: {error_msg}")
                     retry = input("Try another source? (Y/N): ").strip().lower()
@@ -2772,7 +2934,7 @@ def cli_tts_mode():
                 break
             else:
                 print(f"\nAnalyzing {os.path.basename(file_path)}...")
-                success, error_msg, items = analyze_dialogue_source(file_path, source_type="audio")
+                success, error_msg, items = analyze_dialogue_source(file_path, source_type="audio", use_overdose=use_overdose)
                 if not success:
                     print(f"Error: {error_msg}")
                     retry = input("Try another source? (Y/N): ").strip().lower()
@@ -2987,7 +3149,7 @@ def cli_tts_mode():
 
                     print(f"\nExtracting voice clips from multi-speaker source...")
                     success, error_msg, clips_dict = extract_voice_clips_from_multispeaker(
-                        file_path, len(sorted_chars), source_type=source_type
+                        file_path, len(sorted_chars), source_type=source_type, use_overdose=use_overdose
                     )
 
                     if not success:
@@ -3156,7 +3318,7 @@ def cli_tts_mode():
                     tts_obj = None
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                ace = AceStepWrapper()
+                ace = AceStepWrapper(use_overdose=use_overdose)
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
                     return False
@@ -4900,6 +5062,8 @@ def show_oneline_usage():
     print('  python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "soft piano" reference "ref_song.mp3"')
     print('  python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" music "epic orchestral" reference "https://youtube.com/watch?v=..."')
     print('  python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "chill lo-fi" reference "ref_video.mp4"')
+    print('  python voder.py tts overdose script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female"')
+    print('  python voder.py tts overdose script "James: Hello" script "Sarah: Hi" target "James: james.wav" target "Sarah: sarah.wav" music "soft piano"')
     print()
     print("Parameters (can appear multiple times):")
     print("  script   - Dialogue line in 'Character: text' format, or plain text for single mode")
@@ -4920,6 +5084,7 @@ def show_oneline_usage():
     print("  level    - Music volume levels e.g. \"10:20-50 30:60-80\" (dialogue modes) or 0-100 (bgm mode, default: 35)")
     print("  reference - Music reference audio/video path or URL (dialogue/bgm modes, for style guidance)")
     print("  ocr      - Image file path for OCR text extraction (TTS modes)")
+    print("  overdose - Use VibeVoice ASR for dialogue source and enhanced music (TTS/TTM modes)")
     print("  bgm      - Add or replace background music on an audio/video (TTM mode)")
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
     print()
@@ -5042,6 +5207,7 @@ def oneline_tts(params):
     reference_params = params.get('reference', [])
     reference_source = reference_params[0] if reference_params else None
     ocr_param = params.get('ocr', [])
+    use_overdose = params.get('overdose', False)
 
     if ocr_param:
         ocr_path = ocr_param[0]
@@ -5327,7 +5493,7 @@ def oneline_tts(params):
                     tts_obj = None
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                ace = AceStepWrapper()
+                ace = AceStepWrapper(use_overdose=use_overdose)
                 if ace.handler is None:
                     print("Error: Failed to load ACE-Step model")
                     return False

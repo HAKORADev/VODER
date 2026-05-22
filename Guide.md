@@ -140,6 +140,7 @@ When we list minimum requirements, we're being honest about what actually works.
 | TTS (VoiceDesign, with music) | 8GB | +15GB (ACE) | 23GB | Optional | 15GB (RTX 3080/16GB GPU) |
 | TTS (Voice Clone, no music) | 8GB | +4GB (Qwen Base) +~3GB (SVS) | 15GB | Optional | 4GB |
 | TTS (Voice Clone, with music) | 8GB | +15GB (ACE) +~3GB (SVS) | 26GB | Optional | 15GB |
+| TTS + Overdose | 8GB | +~40GB (VibeVoice ASR) + 15GB (ACE XL, if music) | 48GB | Optional | 24GB VRAM or 48GB RAM |
 | STT+TTS | 8GB | +4GB (Whisper) +4GB (Qwen) | 16GB | Optional | 4GB (GTX 1060) |
 | STS | 8GB | +5GB (Seed-VC) +~3GB (SVS) | 16GB | Optional | 14GB |
 | TTM (standard) | 8GB | +15GB (ACE) | 23GB | Optional | 15GB (RTX 3080/16GB GPU) |
@@ -429,6 +430,34 @@ When using TTS with voice cloning in the interactive CLI, you have the option to
 4. Feed those clips directly into the TTS dialogue pipeline
 
 This eliminates the manual step of finding clean reference audio for each speaker. See [Voice Clip Extraction](#voice-clip-extraction) for full details.
+
+**TTS Overdose Mode:**
+
+When the `overdose` flag is added to a TTS command, two things change:
+
+1. **Dialogue Source Analysis**: When importing audio as a dialogue source (interactive CLI), VibeVoice ASR replaces Whisper + Pyannote for transcription and speaker identification. This provides higher accuracy speaker segmentation in a single model pass, without requiring an HF_TOKEN for Pyannote.
+
+2. **Voice Clip Extraction**: When extracting voice reference clips from a multi‑speaker audio source, VibeVoice ASR segments are used instead of the Whisper + Pyannote pipeline. Additionally, the extracted clips are automatically trimmed — the first 2 seconds and last 3 seconds of each speaker's longest segment are removed to avoid cross‑speaker overlap contamination. This ensures the voice cloning model receives the purest possible speaker audio.
+
+3. **Background Music**: When the `music` parameter is also provided, ACE‑Step XL turbo (the overdose model) is used for background music generation instead of the standard ACE‑Step 1.5 turbo, producing higher quality instrumental music.
+
+**Standard vs Overdose TTS:**
+
+| Feature | Standard (Whisper + Pyannote) | Overdose (VibeVoice ASR) |
+|---------|-------------------------------|--------------------------|
+| Dialogue source analysis | Whisper + Pyannote (two models) | VibeVoice ASR (single model) |
+| Voice clip extraction | Whisper + Pyannote | VibeVoice ASR with overlap trimming |
+| Background music model | ACE-Step 1.5 turbo | ACE-Step XL turbo |
+| HF_TOKEN required | Yes (for Pyannote) | No |
+| Resource requirements | 12-23GB RAM | 48GB RAM or 24GB+ VRAM |
+
+```bash
+# TTS with overdose (one-liner)
+python src/voder.py tts overdose script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female"
+
+# TTS with overdose + voice cloning + background music
+python src/voder.py tts overdose script "James: Hello" script "Sarah: Hi" target "James: james.wav" target "Sarah: sarah.wav" music "soft piano"
+```
 
 **Voice Cloning (via target parameter):**
 

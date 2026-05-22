@@ -26,11 +26,11 @@ VODER is not a single AI model — it is an **orchestration layer** that coordin
 | **Qwen3-TTS Base** | Text-to-speech with built-in voice cloning | TTS (voice clone path via `target`), STT+TTS, SLC (resynthesis step) |
 | **Seed-VC v2** | Voice conversion (22.05kHz speech) | STS, TTM with `vc` flag |
 | **Seed-VC v1** | Voice conversion (44.1kHz music) | MSTS (music voice conversion) |
-| **ACE-Step XL-Turbo** | Enhanced music generation (highest quality) | TTM with `overdose` flag |
+| **ACE-Step XL-Turbo** | Enhanced music generation (highest quality) | TTM with `overdose` flag, TTS with `overdose` + `music` |
 | **ACE-Step XL-Base** | Music generation (complete-mode sub-tasks) | TTM (`complete`, `extract`, `lego`) |
 | **ACE-Step 1.5** | Music generation (legacy / background music) | TTM (default), Background Music (dialogue `music` param) |
 | **BS-RoFormer Resurrection** | Vocal/music separation (stem extraction) | SVS, STS (auto vocal extraction), STT (pre-cleanup), TTS (voice clone cleanup), TTM `bgm` (strip music + reference cleanup) |
-| **VibeVoice ASR** | Advanced ASR with native speaker diarization | STT with `overdose` flag, SS |
+| **VibeVoice ASR** | Advanced ASR with native speaker diarization | STT with `overdose` flag, TTS with `overdose` flag, SS |
 | **Pyannote** | Speaker diarization (who spoke when) | STT with `dialogue` flag |
 | **EasyOCR** | Text extraction from images | STT with image input |
 | **UniSE** | Speech enhancement/denoising | SE |
@@ -144,7 +144,7 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 1. **Mode comes first**: `tts`, `stt`, `sts`, `ttm`, `svs`, `slc`, `ss`, etc.
 2. **Required parameters follow**: `script`, `voice`, `target`, `base`, `lyrics`, `styling`, etc.
 3. **Optional parameters come after**: `music`, `level`, `result`, `vc`, `stem`, `task`, etc.
-4. **Flags can appear anywhere after mode**: `timestamp`, `dialogue`, `music` (STS), `mimic` (STS), `translate` (STT), `overdose` (STT, TTM), `vc` (TTM)
+4. **Flags can appear anywhere after mode**: `timestamp`, `dialogue`, `music` (STS), `mimic` (STS), `translate` (STT), `overdose` (STT, TTM, TTS), `vc` (TTM)
 
 ---
 
@@ -201,6 +201,22 @@ Both paths can be **mixed in the same dialogue** using the cross-use feature —
 
 **Shared Path:**
 4. **Optional Music Addition**: If `music` parameter is provided, ACE-Step generates background music that matches the dialogue duration
+
+### TTS Overdose Mode
+
+When the `overdose` flag is added to TTS, it activates an enhanced processing pipeline for dialogue source analysis and voice clip extraction:
+
+- **VibeVoice ASR instead of Whisper+Pyannote**: TTS overdose uses VibeVoice ASR for dialogue source analysis and voice clip extraction, providing superior speaker diarization with native speaker identification — no separate Pyannote step needed
+- **Safer voice clip extraction**: Voice clips extracted with overdose trim the first 2 seconds and last 3 seconds from the longest segment per speaker, avoiding cross-speaker overlap at segment boundaries and producing cleaner reference audio for cloning
+- **ACE-Step XL Turbo for music**: When `music` is also specified alongside `overdose`, ACE-Step XL Turbo is used instead of the standard ACE-Step 1.5 for background music generation, producing higher quality music
+
+```bash
+# TTS overdose with voice design
+python src/voder.py tts overdose script "James: Hello" "Sarah: Hi" voice "James: deep male" "Sarah: cheerful female"
+
+# TTS overdose with voice cloning and music (XL Turbo for bgm)
+python src/voder.py tts overdose script "A: line" "B: line" target "A: ref.wav" "B: ref.wav" music "ambient"
+```
 
 ### When to Use Voice Design vs Voice Cloning
 
@@ -318,6 +334,7 @@ python src/voder.py tts script \
 | `music` | No | Background music style | Ignored | Single description |
 | `level` | No | Music volume | Ignored | Volume specification |
 | `reference` | No | Reference audio/video/URL for bgm style guidance | Ignored | Single path (processed via SVS music pipe to extract clean instrumental) |
+| `overdose` | No | Use VibeVoice ASR for source analysis + safer voice clip extraction; XL Turbo for bgm when `music` is set | Ignored | Flag only |
 | `result` | No | Output destination | Path | Path |
 
 *Either `voice` or `target` required for non-SFX lines. Can mix both using cross-use feature. If `target` is provided without `voice`, voice cloning path is used automatically.
@@ -1606,7 +1623,7 @@ Not all features work together. This section maps out exactly what combinations 
 | `timestamp` flag | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | `dialogue` flag | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `translate` flag | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| `overdose` flag | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| `overdose` flag | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | `clone` param | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `mimic` flag | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `vc` flag | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -1634,7 +1651,7 @@ Not all features work together. This section maps out exactly what combinations 
 
 ### TTS Mode
 ```
-python src/voder.py tts script "text" [script "text2" ...] [voice "prompt" [voice "prompt2" ...]] [target "path" [target "Char: path2" ...]] [music "description"] [level "spec"] [result "path"]
+python src/voder.py tts [overdose] script "text" [script "text2" ...] [voice "prompt" [voice "prompt2" ...]] [target "path" [target "Char: path2" ...]] [music "description"] [level "spec"] [result "path"]
 ```
 
 ### STS Mode
@@ -1844,6 +1861,17 @@ python src/voder.py tts script \
   result "/output/episode42.wav"
 ```
 
+### Combo 19: TTS Overdose (Enhanced Dialogue Analysis + Music)
+**Mode**: TTS
+**Features**: overdose + voice cloning + music (XL Turbo)
+```bash
+# TTS overdose with voice design and enhanced music
+python src/voder.py tts overdose script "James: Welcome to the show" "Sarah: Great to be here" voice "James: deep male" "Sarah: cheerful female" music "cinematic ambient" level "30" result "/output/podcast_hd.wav"
+
+# TTS overdose with voice cloning from reference audio
+python src/voder.py tts overdose script "Host: Let's dive in" "Guest: Absolutely" target "Host: host_ref.wav" "Guest: guest_ref.wav" music "soft jazz" result "/output/interview_hd.wav"
+```
+
 ---
 
 # SECTION 8: MEMORY REQUIREMENTS & SYSTEM PLANNING
@@ -1855,6 +1883,8 @@ python src/voder.py tts script \
 | TTS — voice design (single/dialogue) | 12GB | 4GB | Qwen VoiceDesign model |
 | TTS — voice clone (single/dialogue) | 12GB | 4GB | Qwen Base model |
 | TTS + music | 23GB | 15-16GB | Adds ACE-Step 1.5 |
+| TTS + overdose | 14GB | 4GB | Adds VibeVoice ASR for source analysis |
+| TTS + overdose + music | 30GB | 22-24GB | VibeVoice ASR + ACE-Step XL Turbo |
 | STS | 13GB | 14GB | Seed-VC (+ BS-RoFormer if auto-extract) |
 | STS + video I/O | 13GB | 14GB | Same as STS, FFmpeg for muxing |
 | TTM (legacy/1.5) | 23GB | 15-16GB | ACE-Step 1.5 |
@@ -1963,6 +1993,8 @@ Total memory needed: 14GB
 20. **Remix for style transfer**: Use `remix` with `styling` and `bias` to create cover versions with adjustable style strength
 21. **Repaint for section editing**: Use `repaint` with `time:start-end` to restyle specific sections of a song
 22. **Overdose XOR translate**: Remember these STT flags are mutually exclusive — pick based on whether you need translation or enhanced transcription
+23. **TTS overdose for cleaner cloning**: Use `overdose` flag with TTS when doing voice cloning from dialogue sources — the 2s/3s trim on extracted voice clips avoids cross-speaker contamination and produces cleaner reference audio
+24. **TTS overdose + music for premium output**: Combining `overdose` with `music` in TTS gives you both superior voice clip extraction (VibeVoice ASR) and higher quality background music (ACE-Step XL Turbo)
 
 ---
 
