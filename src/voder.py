@@ -8329,6 +8329,13 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
         start_t = longest["start"]
         dur_t = longest["end"] - longest["start"]
 
+        if dur_t > 5.0:
+            mid = start_t + dur_t / 2.0
+            start_t = mid - 2.5
+            dur_t = 5.0
+            if start_t < 0:
+                start_t = 0.0
+
         enroll_clip = os.path.join(tse_temp_dir, f"enroll_{spk_num}.wav")
         cmd = [
             'ffmpeg', '-i', clean_source,

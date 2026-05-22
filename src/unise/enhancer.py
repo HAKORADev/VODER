@@ -295,7 +295,16 @@ class UniSEEnhancer:
             enroll_wav = enroll_wav.mean(dim=0, keepdim=True)
         if enroll_sr != 16000:
             enroll_wav = torchaudio.transforms.Resample(enroll_sr, 16000)(enroll_wav)
-        enroll_wav = enroll_wav.squeeze(0).unsqueeze(0).to(self.device)
+        enroll_wav = enroll_wav.squeeze(0)
+
+        max_enroll_samples = 5 * 16000
+        if enroll_wav.shape[-1] > max_enroll_samples:
+            enroll_wav = enroll_wav[:max_enroll_samples]
+        elif enroll_wav.shape[-1] < max_enroll_samples:
+            pad = max_enroll_samples - enroll_wav.shape[-1]
+            enroll_wav = torch.nn.functional.pad(enroll_wav, (0, pad), mode='circular')
+        enroll_wav = enroll_wav / (enroll_wav.abs().max() + 1e-5) * 0.99
+        enroll_wav = enroll_wav.unsqueeze(0).to(self.device)
 
         enroll_mel = self.model.stft_logmel(enroll_wav)
         enroll_feats = self.model.extract_semantic_features(enroll_wav)
