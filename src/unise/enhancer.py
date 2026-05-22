@@ -144,7 +144,7 @@ class UniSEEnhancer:
 
             remapped = {}
             for k, v in state_dict.items():
-                if k.startswith('dnn.layers.') or k.startswith('dnn.norm.'):
+                if k.startswith('dnn.layers.') or k.startswith('dnn.norm.') or k.startswith('dnn.rotary_emb.'):
                     remapped['dnn.llm.' + k[4:]] = v
                 else:
                     remapped[k] = v
@@ -264,6 +264,64 @@ class UniSEEnhancer:
             for f in [temp_audio.name, enhanced_audio_path]:
                 if f and os.path.exists(f):
                     os.remove(f)
+
+    @torch.inference_mode()
+    def tse_extract(self, mixture_path, enroll_path, output_path):
+        if self.model is None:
+            return False
+
+        import torchaudio
+
+        mix_wav, mix_sr = torchaudio.load(mixture_path)
+        if mix_wav.shape[0] > 1:
+            mix_wav = mix_wav.mean(dim=0, keepdim=True)
+        if mix_sr != 16000:
+            mix_wav = torchaudio.transforms.Resample(mix_sr, 16000)(mix_wav)
+        mix_wav = mix_wav.squeeze(0)
+        src = mix_wav.unsqueeze(0).to(self.device)
+        length = src.size(-1)
+
+        seg_len = 5 * 16000
+        pad_len = math.ceil(length / seg_len) * seg_len - length
+        if pad_len > 0:
+            seg_src = np.pad(src.cpu().numpy(), [(0, 0), (0, pad_len)], mode='wrap')
+        else:
+            seg_src = src.cpu().numpy()
+        seg_src = torch.from_numpy(seg_src.copy()).to(self.device)
+        seg_src = seg_src.reshape(-1, seg_len)
+
+        enroll_wav, enroll_sr = torchaudio.load(enroll_path)
+        if enroll_wav.shape[0] > 1:
+            enroll_wav = enroll_wav.mean(dim=0, keepdim=True)
+        if enroll_sr != 16000:
+            enroll_wav = torchaudio.transforms.Resample(enroll_sr, 16000)(enroll_wav)
+        enroll_wav = enroll_wav.squeeze(0).unsqueeze(0).to(self.device)
+
+        enroll_mel = self.model.stft_logmel(enroll_wav)
+        enroll_feats = self.model.extract_semantic_features(enroll_wav)
+        enroll_mel = torch.cat([enroll_mel for _ in range(seg_src.size(0))], dim=0)
+        enroll_feats = torch.cat([enroll_feats for _ in range(seg_src.size(0))], dim=0)
+
+        mix_mel = self.model.stft_logmel(seg_src)
+        mix_feats = self.model.extract_semantic_features(seg_src)
+
+        global_ids, semantic_ids = self.model.dnn.generate(
+            task_name='tse',
+            enroll_mel=enroll_mel,
+            enroll_feats=enroll_feats,
+            mix_mel=mix_mel,
+            mix_feats=mix_feats,
+            do_sample=False,
+        )
+
+        est = self.model.tokenizer.detokenize(
+            global_ids.unsqueeze(1), semantic_ids
+        ).squeeze(1)
+        est = est.reshape(-1)[:length].cpu().numpy()
+
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        sf.write(output_path, est, 16000)
+        return True
 
     def cleanup(self):
         self.model = None
