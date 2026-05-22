@@ -474,11 +474,11 @@ class VibeVoiceASR:
                 **download_kwargs
             )
 
-            model_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+            model_dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16 if torch.cuda.is_available() else torch.float32
 
             self.model = VibeVoiceASRForConditionalGeneration.from_pretrained(
                 "microsoft/VibeVoice-ASR",
-                torch_dtype=model_dtype,
+                dtype=model_dtype,
                 attn_implementation="sdpa",
                 trust_remote_code=True,
                 cache_dir=self.model_dir,
@@ -500,12 +500,8 @@ class VibeVoiceASR:
         if self.model is None or self.processor is None:
             return None
         try:
-            import librosa
-            audio, sr = librosa.load(audio_path, sr=24000)
-
             inputs = self.processor(
-                audio=audio,
-                sampling_rate=24000,
+                audio=audio_path,
                 return_tensors="pt",
                 add_generation_prompt=True,
             )
@@ -548,12 +544,8 @@ class VibeVoiceASR:
         if self.model is None or self.processor is None:
             return None
         try:
-            import librosa
-            audio, sr = librosa.load(audio_path, sr=24000)
-
             inputs = self.processor(
-                audio=audio,
-                sampling_rate=24000,
+                audio=audio_path,
                 return_tensors="pt",
                 add_generation_prompt=True,
                 context_info="Please transcribe this audio without timestamps or speaker labels."
@@ -3438,7 +3430,6 @@ def cli_stt_mode():
 
     try:
         if use_overdose and not enable_translate:
-            print("Loading VibeVoice ASR model...")
             asr = VibeVoiceASR()
             asr.ensure_model()
             if asr.model is None:
@@ -3605,135 +3596,12 @@ def cli_stt_mode():
                 millis = int((seconds % 1) * 100)
                 return f"[{minutes:02d}:{secs:02d}:{millis:02d}]"
 
-        if enable_dialogue and not use_overdose:
-            print("Performing speaker diarization...")
-            diarization = SpeakerDiarization()
-            if diarization.pipeline is None:
-                print("Warning: Speaker diarization model not available, proceeding without it")
-                if keep_timestamp and result.get("segments"):
-                    lines = []
-                    for seg in result.get("segments", []):
-                        start = seg.get("start", 0)
-                        end = seg.get("end", 0)
-                        text = seg.get("text", "").strip()
-                        if text:
-                            lines.append(f"{format_time_range(start, end)} text: {text}")
-                    if lines:
-                        formatted_text = "\n".join(lines)
-                    else:
-                        formatted_text = result.get("text", "").strip()
-                else:
-                    formatted_text = result.get("text", "").strip()
-            else:
-                diar_result = diarization.diarize(audio_path)
-                if enable_translate:
-                    diarization_segments = diarization.format_diarization(diar_result, original_result)
-                else:
-                    diarization_segments = diarization.format_diarization(diar_result, result)
-
-                if diarization_segments:
-                    if enable_translate:
-                        translated_segments = result.get("segments", [])
-                        speaker_time_map = []
-                        for ds in diarization_segments:
-                            speaker_time_map.append({
-                                "speaker": ds["speaker"],
-                                "start": ds.get("start", 0),
-                                "end": ds.get("end", 0),
-                                "text": ds["text"]
-                            })
-
-                        merged_segments = []
-                        for ts in translated_segments:
-                            ts_start = ts.get("start", 0)
-                            ts_end = ts.get("end", 0)
-                            ts_text = ts.get("text", "").strip()
-                            if not ts_text:
-                                continue
-                            best_speaker = None
-                            best_overlap = 0
-                            for sm in speaker_time_map:
-                                overlap_start = max(ts_start, sm["start"])
-                                overlap_end = min(ts_end, sm["end"])
-                                overlap = max(0, overlap_end - overlap_start)
-                                if overlap > best_overlap:
-                                    best_overlap = overlap
-                                    best_speaker = sm["speaker"]
-                            if best_speaker is not None:
-                                merged_segments.append({
-                                    "speaker": best_speaker,
-                                    "start": ts_start,
-                                    "end": ts_end,
-                                    "text": ts_text
-                                })
-                        formatted_segments = merged_segments if merged_segments else None
-                    else:
-                        formatted_segments = diarization_segments
-
-                if formatted_segments:
-                    original_speakers = []
-                    for seg in formatted_segments:
-                        speaker = seg["speaker"]
-                        if speaker not in original_speakers:
-                            original_speakers.append(speaker)
-
-                    speaker_mapping = {spk: idx for idx, spk in enumerate(original_speakers, 1)}
-
-                    if len(original_speakers) == 1:
-                        content_out = " ".join(seg["text"] for seg in formatted_segments)
-                        if keep_timestamp:
-                            first_time = formatted_segments[0]["start"]
-                            last_time = formatted_segments[-1]["end"]
-                            formatted_text = f"{format_time_range(first_time, last_time)} text: {content_out}"
-                        else:
-                            formatted_text = f"text: {content_out}"
-                    else:
-                        lines = []
-                        current_speaker_num = None
-                        current_text_parts = []
-                        current_first_time = None
-                        current_last_time = None
-
-                        for seg in formatted_segments:
-                            speaker_num = speaker_mapping[seg["speaker"]]
-                            text = seg["text"]
-                            seg_start = seg.get("start", 0) or 0
-                            seg_end = seg.get("end", 0) or 0
-
-                            if current_speaker_num is None:
-                                current_speaker_num = speaker_num
-                                current_text_parts = [text]
-                                current_first_time = seg_start
-                                current_last_time = seg_end
-                            elif speaker_num == current_speaker_num:
-                                current_text_parts.append(text)
-                                current_last_time = seg_end
-                            else:
-                                if current_text_parts:
-                                    content_out = " ".join(current_text_parts)
-                                    if keep_timestamp:
-                                        lines.append(f"{format_time_range(current_first_time, current_last_time)} {current_speaker_num}: {content_out}")
-                                    else:
-                                        lines.append(f"{current_speaker_num}: {content_out}")
-                                current_speaker_num = speaker_num
-                                current_text_parts = [text]
-                                current_first_time = seg_start
-                                current_last_time = seg_end
-
-                        if current_text_parts:
-                            content_out = " ".join(current_text_parts)
-                            if keep_timestamp:
-                                lines.append(f"{format_time_range(current_first_time, current_last_time)} {current_speaker_num}: {content_out}")
-                            else:
-                                lines.append(f"{current_speaker_num}: {content_out}")
-
-                        formatted_text = "\n".join(lines)
-
-                    del diarization
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                else:
+        if not use_overdose:
+            if enable_dialogue:
+                print("Performing speaker diarization...")
+                diarization = SpeakerDiarization()
+                if diarization.pipeline is None:
+                    print("Warning: Speaker diarization model not available, proceeding without it")
                     if keep_timestamp and result.get("segments"):
                         lines = []
                         for seg in result.get("segments", []):
@@ -3748,21 +3616,146 @@ def cli_stt_mode():
                             formatted_text = result.get("text", "").strip()
                     else:
                         formatted_text = result.get("text", "").strip()
-        else:
-            if keep_timestamp and result.get("segments"):
-                lines = []
-                for seg in result.get("segments", []):
-                    start = seg.get("start", 0)
-                    end = seg.get("end", 0)
-                    text = seg.get("text", "").strip()
-                    if text:
-                        lines.append(f"{format_time_range(start, end)} text: {text}")
-                if lines:
-                    formatted_text = "\n".join(lines)
+                else:
+                    diar_result = diarization.diarize(audio_path)
+                    if enable_translate:
+                        diarization_segments = diarization.format_diarization(diar_result, original_result)
+                    else:
+                        diarization_segments = diarization.format_diarization(diar_result, result)
+
+                    formatted_segments = None
+                    if diarization_segments:
+                        if enable_translate:
+                            translated_segments = result.get("segments", [])
+                            speaker_time_map = []
+                            for ds in diarization_segments:
+                                speaker_time_map.append({
+                                    "speaker": ds["speaker"],
+                                    "start": ds.get("start", 0),
+                                    "end": ds.get("end", 0),
+                                    "text": ds["text"]
+                                })
+
+                            merged_segments = []
+                            for ts in translated_segments:
+                                ts_start = ts.get("start", 0)
+                                ts_end = ts.get("end", 0)
+                                ts_text = ts.get("text", "").strip()
+                                if not ts_text:
+                                    continue
+                                best_speaker = None
+                                best_overlap = 0
+                                for sm in speaker_time_map:
+                                    overlap_start = max(ts_start, sm["start"])
+                                    overlap_end = min(ts_end, sm["end"])
+                                    overlap = max(0, overlap_end - overlap_start)
+                                    if overlap > best_overlap:
+                                        best_overlap = overlap
+                                        best_speaker = sm["speaker"]
+                                if best_speaker is not None:
+                                    merged_segments.append({
+                                        "speaker": best_speaker,
+                                        "start": ts_start,
+                                        "end": ts_end,
+                                        "text": ts_text
+                                    })
+                            formatted_segments = merged_segments if merged_segments else None
+                        else:
+                            formatted_segments = diarization_segments
+
+                    if formatted_segments:
+                        original_speakers = []
+                        for seg in formatted_segments:
+                            speaker = seg["speaker"]
+                            if speaker not in original_speakers:
+                                original_speakers.append(speaker)
+
+                        speaker_mapping = {spk: idx for idx, spk in enumerate(original_speakers, 1)}
+
+                        if len(original_speakers) == 1:
+                            content_out = " ".join(seg["text"] for seg in formatted_segments)
+                            if keep_timestamp:
+                                first_time = formatted_segments[0]["start"]
+                                last_time = formatted_segments[-1]["end"]
+                                formatted_text = f"{format_time_range(first_time, last_time)} text: {content_out}"
+                            else:
+                                formatted_text = f"text: {content_out}"
+                        else:
+                            lines = []
+                            current_speaker_num = None
+                            current_text_parts = []
+                            current_first_time = None
+                            current_last_time = None
+
+                            for seg in formatted_segments:
+                                speaker_num = speaker_mapping[seg["speaker"]]
+                                text = seg["text"]
+                                seg_start = seg.get("start", 0) or 0
+                                seg_end = seg.get("end", 0) or 0
+
+                                if current_speaker_num is None:
+                                    current_speaker_num = speaker_num
+                                    current_text_parts = [text]
+                                    current_first_time = seg_start
+                                    current_last_time = seg_end
+                                elif speaker_num == current_speaker_num:
+                                    current_text_parts.append(text)
+                                    current_last_time = seg_end
+                                else:
+                                    if current_text_parts:
+                                        content_out = " ".join(current_text_parts)
+                                        if keep_timestamp:
+                                            lines.append(f"{format_time_range(current_first_time, current_last_time)} {current_speaker_num}: {content_out}")
+                                        else:
+                                            lines.append(f"{current_speaker_num}: {content_out}")
+                                    current_speaker_num = speaker_num
+                                    current_text_parts = [text]
+                                    current_first_time = seg_start
+                                    current_last_time = seg_end
+
+                            if current_text_parts:
+                                content_out = " ".join(current_text_parts)
+                                if keep_timestamp:
+                                    lines.append(f"{format_time_range(current_first_time, current_last_time)} {current_speaker_num}: {content_out}")
+                                else:
+                                    lines.append(f"{current_speaker_num}: {content_out}")
+
+                            formatted_text = "\n".join(lines)
+
+                        del diarization
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    else:
+                        if keep_timestamp and result.get("segments"):
+                            lines = []
+                            for seg in result.get("segments", []):
+                                start = seg.get("start", 0)
+                                end = seg.get("end", 0)
+                                text = seg.get("text", "").strip()
+                                if text:
+                                    lines.append(f"{format_time_range(start, end)} text: {text}")
+                            if lines:
+                                formatted_text = "\n".join(lines)
+                            else:
+                                formatted_text = result.get("text", "").strip()
+                        else:
+                            formatted_text = result.get("text", "").strip()
+            else:
+                if keep_timestamp and result.get("segments"):
+                    lines = []
+                    for seg in result.get("segments", []):
+                        start = seg.get("start", 0)
+                        end = seg.get("end", 0)
+                        text = seg.get("text", "").strip()
+                        if text:
+                            lines.append(f"{format_time_range(start, end)} text: {text}")
+                    if lines:
+                        formatted_text = "\n".join(lines)
+                    else:
+                        formatted_text = result.get("text", "").strip()
                 else:
                     formatted_text = result.get("text", "").strip()
-            else:
-                formatted_text = result.get("text", "").strip()
 
         print("\n" + formatted_text)
 
@@ -7222,7 +7215,6 @@ def oneline_stt(params):
 
         try:
             if use_overdose and not do_translate and not is_image:
-                print("Loading VibeVoice ASR model...")
                 asr = VibeVoiceASR()
                 asr.ensure_model()
                 if asr.model is None:
@@ -7404,135 +7396,12 @@ def oneline_stt(params):
                     millis = int((seconds % 1) * 100)
                     return f"[{minutes:02d}:{secs:02d}:{millis:02d}]"
 
-            if enable_dialogue:
-                print("Performing speaker diarization...")
-                diarization = SpeakerDiarization()
-                if diarization.pipeline is None:
-                    print("Warning: Speaker diarization model not available, proceeding without it")
-                    if keep_timestamp and result.get("segments"):
-                        lines = []
-                        for seg in result.get("segments", []):
-                            start = seg.get("start", 0)
-                            end = seg.get("end", 0)
-                            text = seg.get("text", "").strip()
-                            if text:
-                                lines.append(f"{format_time_range(start, end)} text: {text}")
-                        if lines:
-                            formatted_text = "\n".join(lines)
-                        else:
-                            formatted_text = result.get("text", "").strip()
-                    else:
-                        formatted_text = result.get("text", "").strip()
-                else:
-                    diar_result = diarization.diarize(audio_path)
-                    if do_translate:
-                        diarization_segments = diarization.format_diarization(diar_result, original_result)
-                    else:
-                        diarization_segments = diarization.format_diarization(diar_result, result)
-
-                    if diarization_segments:
-                        if do_translate:
-                            translated_segments = result.get("segments", [])
-                            speaker_time_map = []
-                            for ds in diarization_segments:
-                                speaker_time_map.append({
-                                    "speaker": ds["speaker"],
-                                    "start": ds.get("start", 0),
-                                    "end": ds.get("end", 0),
-                                    "text": ds["text"]
-                                })
-
-                            merged_segments = []
-                            for ts in translated_segments:
-                                ts_start = ts.get("start", 0)
-                                ts_end = ts.get("end", 0)
-                                ts_text = ts.get("text", "").strip()
-                                if not ts_text:
-                                    continue
-                                best_speaker = None
-                                best_overlap = 0
-                                for sm in speaker_time_map:
-                                    overlap_start = max(ts_start, sm["start"])
-                                    overlap_end = min(ts_end, sm["end"])
-                                    overlap = max(0, overlap_end - overlap_start)
-                                    if overlap > best_overlap:
-                                        best_overlap = overlap
-                                        best_speaker = sm["speaker"]
-                                if best_speaker is not None:
-                                    merged_segments.append({
-                                        "speaker": best_speaker,
-                                        "start": ts_start,
-                                        "end": ts_end,
-                                        "text": ts_text
-                                    })
-                            formatted_segments = merged_segments if merged_segments else None
-                        else:
-                            formatted_segments = diarization_segments
-
-                    if formatted_segments:
-                        original_speakers = []
-                        for seg in formatted_segments:
-                            speaker = seg["speaker"]
-                            if speaker not in original_speakers:
-                                original_speakers.append(speaker)
-
-                        speaker_mapping = {spk: idx for idx, spk in enumerate(original_speakers, 1)}
-
-                        if len(original_speakers) == 1:
-                            content = " ".join(seg["text"] for seg in formatted_segments)
-                            if keep_timestamp:
-                                first_time = formatted_segments[0]["start"]
-                                last_time = formatted_segments[-1]["end"]
-                                formatted_text = f"{format_time_range(first_time, last_time)} text: {content}"
-                            else:
-                                formatted_text = f"text: {content}"
-                        else:
-                            lines = []
-                            current_speaker_num = None
-                            current_text_parts = []
-                            current_first_time = None
-                            current_last_time = None
-
-                            for seg in formatted_segments:
-                                speaker_num = speaker_mapping[seg["speaker"]]
-                                text = seg["text"]
-                                seg_start = seg.get("start", 0) or 0
-                                seg_end = seg.get("end", 0) or 0
-
-                                if current_speaker_num is None:
-                                    current_speaker_num = speaker_num
-                                    current_text_parts = [text]
-                                    current_first_time = seg_start
-                                    current_last_time = seg_end
-                                elif speaker_num == current_speaker_num:
-                                    current_text_parts.append(text)
-                                    current_last_time = seg_end
-                                else:
-                                    if current_text_parts:
-                                        content = " ".join(current_text_parts)
-                                        if keep_timestamp:
-                                            lines.append(f"{format_time_range(current_first_time, current_last_time)} {current_speaker_num}: {content}")
-                                        else:
-                                            lines.append(f"{current_speaker_num}: {content}")
-                                    current_speaker_num = speaker_num
-                                    current_text_parts = [text]
-                                    current_first_time = seg_start
-                                    current_last_time = seg_end
-
-                            if current_text_parts:
-                                content = " ".join(current_text_parts)
-                                if keep_timestamp:
-                                    lines.append(f"{format_time_range(current_first_time, current_last_time)} {current_speaker_num}: {content}")
-                                else:
-                                    lines.append(f"{current_speaker_num}: {content}")
-
-                            formatted_text = "\n".join(lines)
-
-                        del diarization
-                        gc.collect()
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                    else:
+            if not use_overdose:
+                if enable_dialogue:
+                    print("Performing speaker diarization...")
+                    diarization = SpeakerDiarization()
+                    if diarization.pipeline is None:
+                        print("Warning: Speaker diarization model not available, proceeding without it")
                         if keep_timestamp and result.get("segments"):
                             lines = []
                             for seg in result.get("segments", []):
@@ -7547,21 +7416,146 @@ def oneline_stt(params):
                                 formatted_text = result.get("text", "").strip()
                         else:
                             formatted_text = result.get("text", "").strip()
-            else:
-                formatted_text = result.get("text", "").strip()
-
-                if keep_timestamp and result.get("segments"):
-                    lines = []
-                    for seg in result.get("segments", []):
-                        start = seg.get("start", 0)
-                        end = seg.get("end", 0)
-                        text = seg.get("text", "").strip()
-                        if text:
-                            lines.append(f"{format_time_range(start, end)} text: {text}")
-                    if lines:
-                        formatted_text = "\n".join(lines)
                     else:
-                        formatted_text = result.get("text", "").strip()
+                        diar_result = diarization.diarize(audio_path)
+                        if do_translate:
+                            diarization_segments = diarization.format_diarization(diar_result, original_result)
+                        else:
+                            diarization_segments = diarization.format_diarization(diar_result, result)
+
+                        formatted_segments = None
+                        if diarization_segments:
+                            if do_translate:
+                                translated_segments = result.get("segments", [])
+                                speaker_time_map = []
+                                for ds in diarization_segments:
+                                    speaker_time_map.append({
+                                        "speaker": ds["speaker"],
+                                        "start": ds.get("start", 0),
+                                        "end": ds.get("end", 0),
+                                        "text": ds["text"]
+                                    })
+
+                                merged_segments = []
+                                for ts in translated_segments:
+                                    ts_start = ts.get("start", 0)
+                                    ts_end = ts.get("end", 0)
+                                    ts_text = ts.get("text", "").strip()
+                                    if not ts_text:
+                                        continue
+                                    best_speaker = None
+                                    best_overlap = 0
+                                    for sm in speaker_time_map:
+                                        overlap_start = max(ts_start, sm["start"])
+                                        overlap_end = min(ts_end, sm["end"])
+                                        overlap = max(0, overlap_end - overlap_start)
+                                        if overlap > best_overlap:
+                                            best_overlap = overlap
+                                            best_speaker = sm["speaker"]
+                                    if best_speaker is not None:
+                                        merged_segments.append({
+                                            "speaker": best_speaker,
+                                            "start": ts_start,
+                                            "end": ts_end,
+                                            "text": ts_text
+                                        })
+                                formatted_segments = merged_segments if merged_segments else None
+                            else:
+                                formatted_segments = diarization_segments
+
+                        if formatted_segments:
+                            original_speakers = []
+                            for seg in formatted_segments:
+                                speaker = seg["speaker"]
+                                if speaker not in original_speakers:
+                                    original_speakers.append(speaker)
+
+                            speaker_mapping = {spk: idx for idx, spk in enumerate(original_speakers, 1)}
+
+                            if len(original_speakers) == 1:
+                                content = " ".join(seg["text"] for seg in formatted_segments)
+                                if keep_timestamp:
+                                    first_time = formatted_segments[0]["start"]
+                                    last_time = formatted_segments[-1]["end"]
+                                    formatted_text = f"{format_time_range(first_time, last_time)} text: {content}"
+                                else:
+                                    formatted_text = f"text: {content}"
+                            else:
+                                lines = []
+                                current_speaker_num = None
+                                current_text_parts = []
+                                current_first_time = None
+                                current_last_time = None
+
+                                for seg in formatted_segments:
+                                    speaker_num = speaker_mapping[seg["speaker"]]
+                                    text = seg["text"]
+                                    seg_start = seg.get("start", 0) or 0
+                                    seg_end = seg.get("end", 0) or 0
+
+                                    if current_speaker_num is None:
+                                        current_speaker_num = speaker_num
+                                        current_text_parts = [text]
+                                        current_first_time = seg_start
+                                        current_last_time = seg_end
+                                    elif speaker_num == current_speaker_num:
+                                        current_text_parts.append(text)
+                                        current_last_time = seg_end
+                                    else:
+                                        if current_text_parts:
+                                            content = " ".join(current_text_parts)
+                                            if keep_timestamp:
+                                                lines.append(f"{format_time_range(current_first_time, current_last_time)} {current_speaker_num}: {content}")
+                                            else:
+                                                lines.append(f"{current_speaker_num}: {content}")
+                                        current_speaker_num = speaker_num
+                                        current_text_parts = [text]
+                                        current_first_time = seg_start
+                                        current_last_time = seg_end
+
+                                if current_text_parts:
+                                    content = " ".join(current_text_parts)
+                                    if keep_timestamp:
+                                        lines.append(f"{format_time_range(current_first_time, current_last_time)} {current_speaker_num}: {content}")
+                                    else:
+                                        lines.append(f"{current_speaker_num}: {content}")
+
+                                formatted_text = "\n".join(lines)
+
+                            del diarization
+                            gc.collect()
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                        else:
+                            if keep_timestamp and result.get("segments"):
+                                lines = []
+                                for seg in result.get("segments", []):
+                                    start = seg.get("start", 0)
+                                    end = seg.get("end", 0)
+                                    text = seg.get("text", "").strip()
+                                    if text:
+                                        lines.append(f"{format_time_range(start, end)} text: {text}")
+                                if lines:
+                                    formatted_text = "\n".join(lines)
+                                else:
+                                    formatted_text = result.get("text", "").strip()
+                            else:
+                                formatted_text = result.get("text", "").strip()
+                else:
+                    formatted_text = result.get("text", "").strip()
+
+                    if keep_timestamp and result.get("segments"):
+                        lines = []
+                        for seg in result.get("segments", []):
+                            start = seg.get("start", 0)
+                            end = seg.get("end", 0)
+                            text = seg.get("text", "").strip()
+                            if text:
+                                lines.append(f"{format_time_range(start, end)} text: {text}")
+                        if lines:
+                            formatted_text = "\n".join(lines)
+                        else:
+                            formatted_text = result.get("text", "").strip()
 
             timestamp = time.strftime("%Y%m%d_%H%M%S")
 

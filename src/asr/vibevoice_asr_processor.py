@@ -46,7 +46,7 @@ class VibeVoiceASRProcessor:
         self,
         tokenizer=None,
         audio_processor=None,
-        speech_tok_compress_ratio=320,
+        speech_tok_compress_ratio=3200,
         target_sample_rate=24000,
         normalize_audio=True,
         **kwargs
