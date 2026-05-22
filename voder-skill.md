@@ -131,7 +131,7 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 | `target` | `"voice.wav"` | `"James: james.wav" "Sarah: sarah.wav"` | TTS, STS, SLC |
 | `music` | `"ambient"` | (single only) | TTS (dialogue) |
 | `level` | `"35"` | (single only) | TTS (dialogue) |
-| `reference` | `"ref.wav"` | (single only) | TTS (dialogue bgm) |
+| `reference` | `"ref.wav"` / `"ref.mp4"` / URL | (single only) | TTS (dialogue bgm) |
 | `lyrics` | `"..."` | (single only) | TTM |
 | `styling` | `"pop"` | (single only) | TTM |
 | `stem` | `"voice"` | (single only) | SVS |
@@ -266,6 +266,12 @@ python src/voder.py tts script "A: Welcome /time:0" "sfx: intro /duration:5 /lev
 
 # Dialogue with background music and reference for style guidance
 python src/voder.py tts script "A: line1" "B: line2" voice "A: prompt" "B: prompt" music "ambient" reference "style_ref.wav"
+
+# Dialogue with background music and video reference for style guidance
+python src/voder.py tts script "A: line1" "B: line2" voice "A: prompt" "B: prompt" music "ambient" reference "style_ref.mp4"
+
+# Dialogue with background music and YouTube URL reference for style guidance
+python src/voder.py tts script "A: line1" "B: line2" voice "A: prompt" "B: prompt" music "ambient" reference "https://youtube.com/watch?v=..."
 ```
 
 #### Dialogue Mode (Multiple Speakers) — Voice Cloning
@@ -311,7 +317,7 @@ python src/voder.py tts script \
 | `target` | No* | Voice reference file | Single path | `"Char: /path/to/file.wav"` |
 | `music` | No | Background music style | Ignored | Single description |
 | `level` | No | Music volume | Ignored | Volume specification |
-| `reference` | No | Reference audio for bgm style guidance | Ignored | Single path (processed via SVS music pipe) |
+| `reference` | No | Reference audio/video/URL for bgm style guidance | Ignored | Single path (processed via SVS music pipe to extract clean instrumental) |
 | `result` | No | Output destination | Path | Path |
 
 *Either `voice` or `target` required for non-SFX lines. Can mix both using cross-use feature. If `target` is provided without `voice`, voice cloning path is used automatically.

@@ -4899,6 +4899,7 @@ def show_oneline_usage():
     print('  python voder.py tts script "James: Hello" script "sfx: thunder /duration:3" voice "James: deep male" music "soft piano" level "10:20-50"')
     print('  python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "soft piano" reference "ref_song.mp3"')
     print('  python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" music "epic orchestral" reference "https://youtube.com/watch?v=..."')
+    print('  python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "chill lo-fi" reference "ref_video.mp4"')
     print()
     print("Parameters (can appear multiple times):")
     print("  script   - Dialogue line in 'Character: text' format, or plain text for single mode")
@@ -4917,7 +4918,7 @@ def show_oneline_usage():
     print("  guide    - Guidance scale (1.0-10.0, SFX mode, default: 4.5)")
     print("  music    - Background music description (dialogue/bgm modes)")
     print("  level    - Music volume levels e.g. \"10:20-50 30:60-80\" (dialogue modes) or 0-100 (bgm mode, default: 35)")
-    print("  reference - Music reference audio path or URL (dialogue/bgm modes, for style guidance)")
+    print("  reference - Music reference audio/video path or URL (dialogue/bgm modes, for style guidance)")
     print("  ocr      - Image file path for OCR text extraction (TTS modes)")
     print("  bgm      - Add or replace background music on an audio/video (TTM mode)")
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
@@ -5243,12 +5244,22 @@ def oneline_tts(params):
 
             reference_audio = None
             if reference_source and music_description:
-                print("Resolving music reference source...")
+                _ref_is_video = False
+                _ref_is_link = is_youtube_url(reference_source)
+                if not _ref_is_link and os.path.exists(reference_source):
+                    _ref_ext = os.path.splitext(reference_source)[1].lower()
+                    _ref_is_video = _ref_ext in VIDEO_EXTENSIONS
+                if _ref_is_video:
+                    print("Reference is a video file, extracting audio...")
+                elif _ref_is_link:
+                    print("Reference is a URL, downloading audio...")
+                else:
+                    print("Resolving music reference source...")
                 resolved_ref_audio, ref_cleanup = resolve_target_to_audio(reference_source)
                 if not resolved_ref_audio:
                     print("Error: Could not resolve music reference source")
                     return False
-                print("Extracting clean music from reference via SVS...")
+                print("Cleaning reference through SVS music pipe...")
                 reference_audio = svs_extract_music(resolved_ref_audio)
                 all_target_cleanup.extend(ref_cleanup)
                 if reference_audio and reference_audio != resolved_ref_audio and reference_audio not in all_target_cleanup:

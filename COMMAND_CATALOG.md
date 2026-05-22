@@ -76,7 +76,7 @@ Generate speech from text using voice descriptions (VoiceDesign) or voice clone 
 | `target` | `"<path>"` or `"CharName: path"` | Audio path for voice cloning. Single mode: one path. Dialogue mode: `"CharName: path"` per character. Can appear multiple times. |
 | `music` | `"<description>"` | Background music description (dialogue mode only). Generated via ACE-Step and mixed under speech. |
 | `level` | `"<spec>"` | Music volume levels per dialogue segment, e.g. `"10:20-50 30:60-80"`. Format: `<volume%>:<start_sec>-<end_sec>`. Default: 35%. Dialogue mode only. |
-| `reference` | `"<path>"` | Optional reference audio for dialogue background music style guidance. Processed through SVS music pipe to extract clean instrumental before use. Dialogue mode only. |
+| `reference` | `"<path>"` | Optional reference audio/video/URL for dialogue background music style guidance. Processed through SVS music pipe to extract clean instrumental before use. Accepts audio files, video files, and YouTube/TikTok/Bilibili URLs. Dialogue mode only. |
 | `ocr` | `"<image_path>"` | Extract text from an image via EasyOCR, then use that text as the script. Supported formats: PNG, JPG, JPEG, BMP, GIF, TIFF, WebP. |
 | `<number>` | `10-300` | Duration in seconds (TTM only, ignored in pure TTS). |
 
@@ -115,6 +115,12 @@ python voder.py tts script "James: Hello" script "sfx: thunder /duration:3" voic
 
 # Dialogue with music and reference for style guidance
 python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "soft piano" reference "path/to/ref.wav"
+
+# Dialogue with music and video file reference
+python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "soft piano" reference "path/to/ref_video.mp4"
+
+# Dialogue with music and YouTube URL reference
+python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "soft piano" reference "https://youtube.com/watch?v=..."
 ```
 
 ### Script Directives (per line, at end of text)

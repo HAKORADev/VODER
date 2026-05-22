@@ -46,7 +46,7 @@ Write scripts with multiple characters, each with a distinct voice. VODER assemb
 
 ### Automatic Background Music
 
-When generating dialogue, VODER can produce a background music track that **exactly matches the spoken duration**, mixed at a configurable volume with fade transitions. An optional **reference audio** can be provided for stylistic guidance — the reference is processed through SVS to extract clean instrumental before use. No manual editing or external tools needed.
+When generating dialogue, VODER can produce a background music track that **exactly matches the spoken duration**, mixed at a configurable volume with fade transitions. An optional **reference** (audio, video, or URL) can be provided for stylistic guidance — the reference is processed through SVS to extract clean instrumental before use. No manual editing or external tools needed.
 
 ### Voice Conversion (Speech & Music)
 

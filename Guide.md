@@ -1802,9 +1802,23 @@ python src/voder.py tts \
   voice "James: male" voice "Sarah: female" \
   music "soft piano" \
   reference "path/to/style_ref.wav"
+
+# With video file as reference for style guidance
+python src/voder.py tts \
+  script "James: Hello" script "Sarah: Hi" \
+  voice "James: male" voice "Sarah: female" \
+  music "soft piano" \
+  reference "path/to/style_ref.mp4"
+
+# With YouTube URL as reference for style guidance
+python src/voder.py tts \
+  script "James: Hello" script "Sarah: Hi" \
+  voice "James: male" voice "Sarah: female" \
+  music "soft piano" \
+  reference "https://youtube.com/watch?v=..."
 ```
 
-The optional `reference` parameter provides a reference audio that is processed through the SVS music pipe (BS-RoFormer) to extract clean instrumental content before being passed to ACE-Step as stylistic guidance. This is useful when you want the generated background music to match the style or feel of a specific existing track.
+The optional `reference` parameter provides a reference audio, video, or URL that is processed through the SVS music pipe (BS-RoFormer) to extract clean instrumental content before being passed to ACE-Step as stylistic guidance. This is useful when you want the generated background music to match the style or feel of a specific existing track. Video files have their audio extracted automatically, and YouTube/TikTok/Bilibili URLs are downloaded as audio-only before processing.
 
 ### Music Volume Level Control
 
@@ -1861,7 +1875,7 @@ The TTM BGM subtask replaces background music in an existing audio or video file
 4. **Music Generation**: ACE-Step generates new background music matching the detected duration
    - Uses ACE-Step turbo 1.5 model (standard) or ACE-Step XL 1.5 turbo model (overdose)
    - Long durations are handled by generating 250-300s chunks and concatenating
-   - If a `reference` is provided, it is processed through SVS music pipe to extract clean instrumental for style guidance
+   - If a `reference` is provided (audio, video, or URL), it is processed through SVS music pipe to extract clean instrumental for style guidance
 5. **Mixing**: New music is mixed with clean vocals at the specified volume level (0-100, default 35)
 6. **Output**: If the source was video, the final audio is re-muxed back into the video container. With `video` flag + URL source, the video is downloaded and the result is merged back into .mp4.
 

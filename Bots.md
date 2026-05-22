@@ -399,6 +399,12 @@ python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Ch
 
 # With reference audio for style guidance
 python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Character1: voice prompt for char1" "Character2: voice prompt for char2" music "description of background music" reference "path/to/style_ref.wav"
+
+# With video file as reference for style guidance
+python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Character1: voice prompt for char1" "Character2: voice prompt for char2" music "description of background music" reference "path/to/style_ref.mp4"
+
+# With YouTube URL as reference for style guidance
+python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Character1: voice prompt for char1" "Character2: voice prompt for char2" music "description of background music" reference "https://youtube.com/watch?v=..."
 ```
 
 **Dialogue mode with music volume control:**
@@ -420,7 +426,7 @@ python src/voder.py tts script "James: Hello" "sfx: door bell /duration:3 /level
 | `target` | Path to voice reference (single) OR `Character: path` (dialogue) for cloned voices — can mix with `voice` | No (but required if no `voice` for non-SFX lines) |
 | `music` | Description for automatically generated background music (dialogue only) | No |
 | `level` | Music volume levels e.g. `"10:20-50 30:60-80"` (dialogue modes, default: 35%) | No |
-| `reference` | Reference audio for dialogue background music style guidance (processed via SVS music pipe) | No |
+| `reference` | Reference audio/video/URL for dialogue background music style guidance (processed via SVS music pipe to extract clean instrumental) | No |
 | `language` | Output language for speech synthesis (e.g., `"Spanish"`, `"English"`) | No |
 
 **Voice Prompt Examples:**
@@ -504,7 +510,7 @@ python src/voder.py tts script "Character1: line1" "Character2: line2" target "C
 | `voice` | Voice prompt (single) OR `Character: prompt` (dialogue) for generated voices — can mix with `target` | No (but required if no `target` for non-SFX lines) |
 | `music` | Description for automatically generated background music (dialogue only) | No |
 | `level` | Music volume levels (dialogue modes, default: 35%) | No |
-| `reference` | Reference audio for dialogue background music style guidance (processed via SVS music pipe) | No |
+| `reference` | Reference audio/video/URL for dialogue background music style guidance (processed via SVS music pipe to extract clean instrumental) | No |
 
 **Voice Reference Requirements:**
 - Format: WAV (recommended), MP3 supported
