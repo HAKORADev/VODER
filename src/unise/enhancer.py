@@ -301,8 +301,8 @@ class UniSEEnhancer:
         if enroll_wav.shape[-1] > max_enroll_samples:
             enroll_wav = enroll_wav[:max_enroll_samples]
         elif enroll_wav.shape[-1] < max_enroll_samples:
-            pad = max_enroll_samples - enroll_wav.shape[-1]
-            enroll_wav = torch.nn.functional.pad(enroll_wav.unsqueeze(0), (0, pad), mode='circular').squeeze(0)
+            reps = math.ceil(max_enroll_samples / enroll_wav.shape[-1])
+            enroll_wav = enroll_wav.repeat(reps)[:max_enroll_samples]
         enroll_wav = enroll_wav / (enroll_wav.abs().max() + 1e-5) * 0.99
         enroll_wav = enroll_wav.unsqueeze(0).to(self.device)
 
