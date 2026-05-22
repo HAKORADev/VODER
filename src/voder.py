@@ -8150,48 +8150,47 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
             return None
 
         output_filename = f"voder_ss_{original_name}_{timestamp}_extracted.wav"
-        output_path = os.path.join(results_dir, output_filename)
+        tse_temp_dir = tempfile.mkdtemp()
+        temp_dirs.append(tse_temp_dir)
+        tse_temp_path = os.path.join(tse_temp_dir, output_filename)
 
         print(f"  Extracting target voice from source using reference...")
-        tse_ok = tse_enhancer.tse_extract(clean_source, target_path, output_path)
+        tse_ok = tse_enhancer.tse_extract(clean_source, target_path, tse_temp_path)
         tse_enhancer.cleanup()
         del tse_enhancer
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        if tse_ok and os.path.exists(output_path):
-            all_outputs.append(output_path)
-            print(f"  Target voice saved to: {output_path}")
-        else:
-            print(f"  Warning: TSE extraction failed for target voice")
-
-        if use_se and all_outputs:
+        if use_se and tse_ok and os.path.exists(tse_temp_path):
             print("Applying Speech Enhancement to extracted voice...")
             from unise import UniSEEnhancer
             se_enh = UniSEEnhancer(UNISE_DIR)
             se_enh.ensure_model()
             if se_enh.model is not None:
-                se_tmp_dir = tempfile.mkdtemp()
-                se_outputs = []
-                for out_f in all_outputs:
-                    se_tmp = os.path.join(se_tmp_dir, os.path.basename(out_f))
-                    se_ok = se_enh.enhance(out_f, se_tmp)
-                    if se_ok and os.path.exists(se_tmp):
-                        shutil.copy2(se_tmp, out_f)
-                        se_outputs.append(out_f)
-                    else:
-                        se_outputs.append(out_f)
-                all_outputs = se_outputs
-                try:
-                    shutil.rmtree(se_tmp_dir)
-                except Exception:
-                    pass
+                se_tmp = os.path.join(tse_temp_dir, f"se_{output_filename}")
+                se_ok = se_enh.enhance(tse_temp_path, se_tmp)
+                if se_ok and os.path.exists(se_tmp):
+                    shutil.copy2(se_tmp, tse_temp_path)
             se_enh.cleanup()
             del se_enh
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+
+        if tse_ok and os.path.exists(tse_temp_path):
+            final_path = os.path.join(results_dir, output_filename)
+            shutil.copy2(tse_temp_path, final_path)
+            all_outputs.append(final_path)
+            print(f"  Extracted voice saved to: {final_path}")
+        else:
+            print(f"  Warning: TSE extraction failed for target voice")
+
+        for td in temp_dirs:
+            try:
+                shutil.rmtree(td)
+            except Exception:
+                pass
 
         return all_outputs if all_outputs else None
 
@@ -8309,34 +8308,38 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
             longest = max(segs, key=lambda x: x["end"] - x["start"])
             dur = longest["end"] - longest["start"]
             print(f"  Speaker 1: {len(segs)} segments, longest: {dur:.1f}s")
-        print("Copying clean source as speaker 1 output...")
         output_filename = f"voder_ss_{original_name}_{timestamp}_speaker1.wav"
-        output_path = os.path.join(results_dir, output_filename)
-        shutil.copy2(clean_source, output_path)
-        all_outputs.append(output_path)
-        print(f"Output saved to: {output_path}")
+        single_temp_dir = tempfile.mkdtemp()
+        temp_dirs.append(single_temp_dir)
+        single_temp = os.path.join(single_temp_dir, output_filename)
+        shutil.copy2(clean_source, single_temp)
 
-        if use_se and all_outputs:
+        if use_se:
             print("Applying Speech Enhancement to extracted voice...")
             from unise import UniSEEnhancer
             se_enh = UniSEEnhancer(UNISE_DIR)
             se_enh.ensure_model()
             if se_enh.model is not None:
-                se_tmp_dir = tempfile.mkdtemp()
-                for out_f in all_outputs:
-                    se_tmp = os.path.join(se_tmp_dir, os.path.basename(out_f))
-                    se_ok = se_enh.enhance(out_f, se_tmp)
-                    if se_ok and os.path.exists(se_tmp):
-                        shutil.copy2(se_tmp, out_f)
-                try:
-                    shutil.rmtree(se_tmp_dir)
-                except Exception:
-                    pass
+                se_tmp = os.path.join(single_temp_dir, f"se_{output_filename}")
+                se_ok = se_enh.enhance(single_temp, se_tmp)
+                if se_ok and os.path.exists(se_tmp):
+                    shutil.copy2(se_tmp, single_temp)
             se_enh.cleanup()
             del se_enh
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+
+        final_path = os.path.join(results_dir, output_filename)
+        shutil.copy2(single_temp, final_path)
+        all_outputs.append(final_path)
+        print(f"Output saved to: {final_path}")
+
+        for td in temp_dirs:
+            try:
+                shutil.rmtree(td)
+            except Exception:
+                pass
 
         return all_outputs
 
@@ -8365,7 +8368,8 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
             return None
 
         tse_temp_dir = tempfile.mkdtemp()
-        final_outputs = []
+        temp_dirs.append(tse_temp_dir)
+        speaker_temp_files = {}
 
         for spk in sorted_speakers:
             spk_num = speaker_to_num[spk]
@@ -8398,7 +8402,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
             current_source = clean_source
             max_passes = 3
             output_filename = f"voder_ss_{original_name}_{timestamp}_speaker{spk_num}.wav"
-            output_path = os.path.join(results_dir, output_filename)
+            speaker_temp = os.path.join(tse_temp_dir, output_filename)
             last_good_pass = None
 
             for pass_idx in range(1, max_passes + 1):
@@ -8409,7 +8413,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
                 if not tse_ok or not os.path.exists(pass_output):
                     print(f"  Warning: TSE extraction failed for speaker {spk_num} pass {pass_idx}")
                     if last_good_pass:
-                        shutil.copy2(last_good_pass, output_path)
+                        shutil.copy2(last_good_pass, speaker_temp)
                     break
 
                 last_good_pass = pass_output
@@ -8417,7 +8421,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
                 recheck = asr.transcribe(pass_output)
                 if recheck is None:
                     print(f"  Speaker {spk_num} — VibeVoice re-check failed, using pass {pass_idx} result")
-                    shutil.copy2(pass_output, output_path)
+                    shutil.copy2(pass_output, speaker_temp)
                     break
 
                 recheck_speakers = set()
@@ -8426,7 +8430,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
 
                 if len(recheck_speakers) <= 1:
                     print(f"  Speaker {spk_num} — Clean! VibeVoice confirms single speaker after pass {pass_idx}")
-                    shutil.copy2(pass_output, output_path)
+                    shutil.copy2(pass_output, speaker_temp)
                     break
 
                 print(f"  Speaker {spk_num} — Still {len(recheck_speakers)} speakers detected, refining...")
@@ -8453,7 +8457,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
                 ret = subprocess.run(cmd, capture_output=True, text=True)
                 if ret.returncode != 0 or not os.path.exists(next_enroll):
                     print(f"  Speaker {spk_num} — Failed to cut refined enrollment, using pass {pass_idx} result")
-                    shutil.copy2(pass_output, output_path)
+                    shutil.copy2(pass_output, speaker_temp)
                     break
 
                 current_enroll = next_enroll
@@ -8461,11 +8465,10 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
 
                 if pass_idx == max_passes:
                     print(f"  Speaker {spk_num} — Max passes reached, using final result")
-                    shutil.copy2(pass_output, output_path)
+                    shutil.copy2(pass_output, speaker_temp)
 
-            if os.path.exists(output_path):
-                final_outputs.append(output_path)
-                print(f"  Speaker {spk_num} saved to: {output_path}")
+            if os.path.exists(speaker_temp):
+                speaker_temp_files[spk_num] = (speaker_temp, output_filename)
             else:
                 print(f"  Warning: No output for speaker {spk_num}")
 
@@ -8477,40 +8480,27 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        try:
-            shutil.rmtree(tse_temp_dir)
-        except Exception:
-            pass
-
-        for td in temp_dirs:
-            try:
-                shutil.rmtree(td)
-            except Exception:
-                pass
-
-        if not final_outputs:
+        if not speaker_temp_files:
             print("Error: Failed to extract any speakers")
+            for td in temp_dirs:
+                try:
+                    shutil.rmtree(td)
+                except Exception:
+                    pass
             return None
 
-        print(f"\n{'=' * 60}")
-        print(f"Separated {len(final_outputs)} speaker(s) successfully:")
-        for p in final_outputs:
-            print(f"  {os.path.basename(p)}")
-
-        all_outputs.extend(final_outputs)
-
-        if use_se and all_outputs:
+        if use_se and speaker_temp_files:
             print("Applying Speech Enhancement to extracted voices...")
             from unise import UniSEEnhancer
             se_enh = UniSEEnhancer(UNISE_DIR)
             se_enh.ensure_model()
             if se_enh.model is not None:
                 se_tmp_dir = tempfile.mkdtemp()
-                for out_f in all_outputs:
-                    se_tmp = os.path.join(se_tmp_dir, os.path.basename(out_f))
-                    se_ok = se_enh.enhance(out_f, se_tmp)
+                for spk_num, (temp_f, fname) in speaker_temp_files.items():
+                    se_tmp = os.path.join(se_tmp_dir, f"se_{fname}")
+                    se_ok = se_enh.enhance(temp_f, se_tmp)
                     if se_ok and os.path.exists(se_tmp):
-                        shutil.copy2(se_tmp, out_f)
+                        shutil.copy2(se_tmp, temp_f)
                 try:
                     shutil.rmtree(se_tmp_dir)
                 except Exception:
@@ -8520,6 +8510,22 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+
+        for spk_num, (temp_f, fname) in speaker_temp_files.items():
+            final_path = os.path.join(results_dir, fname)
+            shutil.copy2(temp_f, final_path)
+            all_outputs.append(final_path)
+
+        for td in temp_dirs:
+            try:
+                shutil.rmtree(td)
+            except Exception:
+                pass
+
+        print(f"\n{'=' * 60}")
+        print(f"Separated {len(all_outputs)} speaker(s) successfully:")
+        for p in all_outputs:
+            print(f"  {os.path.basename(p)}")
 
         return all_outputs
 
@@ -8538,7 +8544,8 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
             return None
 
         tse_temp_dir = tempfile.mkdtemp()
-        final_outputs = []
+        temp_dirs.append(tse_temp_dir)
+        speaker_temp_files = {}
 
         for spk in sorted_speakers:
             spk_num = speaker_to_num[spk]
@@ -8628,19 +8635,18 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
             current_source = clean_source
             max_passes = 3
             output_filename = f"voder_ss_{original_name}_{timestamp}_speaker{spk_num}.wav"
-            output_path = os.path.join(results_dir, output_filename)
+            speaker_temp = os.path.join(tse_temp_dir, output_filename)
             last_good_pass = None
 
             for pass_idx in range(1, max_passes + 1):
                 pass_output = os.path.join(tse_temp_dir, f"spk{spk_num}_pass{pass_idx}.wav")
-                num_parts = len(enroll_parts) if pass_idx == 1 else 1
                 print(f"  Speaker {spk_num} — Pass {pass_idx}: extracting...")
 
                 tse_ok = tse_enhancer.tse_extract(current_source, current_enroll, pass_output)
                 if not tse_ok or not os.path.exists(pass_output):
                     print(f"  Warning: TSE extraction failed for speaker {spk_num} pass {pass_idx}")
                     if last_good_pass:
-                        shutil.copy2(last_good_pass, output_path)
+                        shutil.copy2(last_good_pass, speaker_temp)
                     break
 
                 last_good_pass = pass_output
@@ -8648,7 +8654,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
                 recheck = diarization.diarize_full(pass_output)
                 if recheck is None:
                     print(f"  Speaker {spk_num} — Re-check failed, using pass {pass_idx} result")
-                    shutil.copy2(pass_output, output_path)
+                    shutil.copy2(pass_output, speaker_temp)
                     break
 
                 if hasattr(recheck, 'exclusive_speaker_diarization'):
@@ -8663,7 +8669,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
 
                 if len(recheck_speakers) <= 1:
                     print(f"  Speaker {spk_num} — Clean! Single speaker confirmed after pass {pass_idx}")
-                    shutil.copy2(pass_output, output_path)
+                    shutil.copy2(pass_output, speaker_temp)
                     break
 
                 print(f"  Speaker {spk_num} — Still {len(recheck_speakers)} speakers detected, refining...")
@@ -8698,7 +8704,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
                 ret = subprocess.run(cmd, capture_output=True, text=True)
                 if ret.returncode != 0 or not os.path.exists(next_enroll):
                     print(f"  Speaker {spk_num} — Failed to cut refined enrollment, using pass {pass_idx} result")
-                    shutil.copy2(pass_output, output_path)
+                    shutil.copy2(pass_output, speaker_temp)
                     break
 
                 current_enroll = next_enroll
@@ -8706,11 +8712,10 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
 
                 if pass_idx == max_passes:
                     print(f"  Speaker {spk_num} — Max passes reached, using final result")
-                    shutil.copy2(pass_output, output_path)
+                    shutil.copy2(pass_output, speaker_temp)
 
-            if os.path.exists(output_path):
-                final_outputs.append(output_path)
-                print(f"  Speaker {spk_num} saved to: {output_path}")
+            if os.path.exists(speaker_temp):
+                speaker_temp_files[spk_num] = (speaker_temp, output_filename)
             else:
                 print(f"  Warning: No output for speaker {spk_num}")
 
@@ -8722,40 +8727,27 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        try:
-            shutil.rmtree(tse_temp_dir)
-        except Exception:
-            pass
-
-        for td in temp_dirs:
-            try:
-                shutil.rmtree(td)
-            except Exception:
-                pass
-
-        if not final_outputs:
+        if not speaker_temp_files:
             print("Error: Failed to extract any speakers")
+            for td in temp_dirs:
+                try:
+                    shutil.rmtree(td)
+                except Exception:
+                    pass
             return None
 
-        print(f"\n{'=' * 60}")
-        print(f"Separated {len(final_outputs)} speaker(s) successfully:")
-        for p in final_outputs:
-            print(f"  {os.path.basename(p)}")
-
-        all_outputs.extend(final_outputs)
-
-        if use_se and all_outputs:
+        if use_se and speaker_temp_files:
             print("Applying Speech Enhancement to extracted voices...")
             from unise import UniSEEnhancer
             se_enh = UniSEEnhancer(UNISE_DIR)
             se_enh.ensure_model()
             if se_enh.model is not None:
                 se_tmp_dir = tempfile.mkdtemp()
-                for out_f in all_outputs:
-                    se_tmp = os.path.join(se_tmp_dir, os.path.basename(out_f))
-                    se_ok = se_enh.enhance(out_f, se_tmp)
+                for spk_num, (temp_f, fname) in speaker_temp_files.items():
+                    se_tmp = os.path.join(se_tmp_dir, f"se_{fname}")
+                    se_ok = se_enh.enhance(temp_f, se_tmp)
                     if se_ok and os.path.exists(se_tmp):
-                        shutil.copy2(se_tmp, out_f)
+                        shutil.copy2(se_tmp, temp_f)
                 try:
                     shutil.rmtree(se_tmp_dir)
                 except Exception:
@@ -8765,6 +8757,22 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+
+        for spk_num, (temp_f, fname) in speaker_temp_files.items():
+            final_path = os.path.join(results_dir, fname)
+            shutil.copy2(temp_f, final_path)
+            all_outputs.append(final_path)
+
+        for td in temp_dirs:
+            try:
+                shutil.rmtree(td)
+            except Exception:
+                pass
+
+        print(f"\n{'=' * 60}")
+        print(f"Separated {len(all_outputs)} speaker(s) successfully:")
+        for p in all_outputs:
+            print(f"  {os.path.basename(p)}")
 
         return all_outputs
 
