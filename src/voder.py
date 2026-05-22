@@ -542,6 +542,55 @@ class VibeVoiceASR:
             return None
 
     @torch.no_grad()
+    def transcribe_with_overlaps(self, audio_path):
+        if not self._loaded:
+            self.ensure_model()
+        if self.model is None or self.processor is None:
+            return None
+        try:
+            inputs = self.processor(
+                audio=audio_path,
+                return_tensors="pt",
+                add_generation_prompt=True,
+                context_info="Multiple speakers may talk simultaneously. Preserve overlapping timestamps accurately - when speakers overlap, each speaker's segment should reflect their actual start and end times even if they overlap with another speaker."
+            )
+
+            inputs = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+
+            output_ids = self.model.generate(
+                **inputs,
+                max_new_tokens=32768,
+                pad_token_id=self.processor.pad_id,
+                eos_token_id=self.processor.tokenizer.eos_token_id,
+                do_sample=False,
+            )
+
+            input_length = inputs['input_ids'].shape[1]
+            generated_ids = output_ids[0, input_length:]
+            generated_text = self.processor.decode(generated_ids, skip_special_tokens=True)
+
+            segments = self.processor.post_process_transcription(generated_text)
+
+            result = []
+            for seg in segments:
+                raw_text = seg.get("text", seg.get("Content", ""))
+                clean = re.sub(r'^\[(?:Lyric|Silence|Music|Noise|Applause|Laughter|Cough|Breath)\]\s*', '', raw_text, flags=re.IGNORECASE).strip()
+                if not clean:
+                    continue
+                result.append({
+                    "start": seg.get("start_time", seg.get("Start", seg.get("Start time", 0))),
+                    "end": seg.get("end_time", seg.get("End", seg.get("End time", 0))),
+                    "speaker": seg.get("speaker_id", seg.get("Speaker", seg.get("Speaker ID", 0))),
+                    "text": clean
+                })
+            return result
+        except Exception as e:
+            print(f"VibeVoice ASR overlap transcription error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    @torch.no_grad()
     def transcribe_plain_text(self, audio_path):
         if not self._loaded:
             self.ensure_model()
@@ -8196,7 +8245,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
             del asr
             return None
 
-        asr_segments = asr.transcribe(clean_source)
+        asr_segments = asr.transcribe_with_overlaps(clean_source)
         asr.cleanup()
         del asr
         gc.collect()
@@ -8276,6 +8325,24 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
                 merged.append({"start": s["start"], "end": s["end"], "text": s["text"]})
         speaker_segments[spk] = merged
 
+    other_segments = []
+    for spk in speaker_segments:
+        for seg in speaker_segments[spk]:
+            other_segments.append((spk, seg))
+
+    for spk in speaker_segments:
+        segs = speaker_segments[spk]
+        for seg in segs:
+            overlap_dur = 0.0
+            for other_spk, other_seg in other_segments:
+                if other_spk == spk:
+                    continue
+                ov_start = max(seg["start"], other_seg["start"])
+                ov_end = min(seg["end"], other_seg["end"])
+                if ov_end > ov_start:
+                    overlap_dur += ov_end - ov_start
+            seg["overlap"] = overlap_dur
+
     first_speaker_order = sorted(speaker_segments.keys(), key=lambda spk: speaker_segments[spk][0]["start"])
     sorted_speakers = first_speaker_order
     num_speakers = len(sorted_speakers)
@@ -8304,7 +8371,9 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
         segs = speaker_segments[spk]
         longest = max(segs, key=lambda x: x["end"] - x["start"])
         dur = longest["end"] - longest["start"]
-        print(f"  Speaker {speaker_to_num[spk]}: {len(segs)} segments, longest: {dur:.1f}s")
+        best = min(segs, key=lambda x: (x["overlap"], -(x["end"] - x["start"])))
+        ov_pct = (best["overlap"] / (best["end"] - best["start"]) * 100) if (best["end"] - best["start"]) > 0 else 0
+        print(f"  Speaker {speaker_to_num[spk]}: {len(segs)} segments, longest: {dur:.1f}s, best enrollment: {best['end']-best['start']:.1f}s (overlap: {ov_pct:.0f}%)")
 
     print("Stage 3: Target Speaker Extraction (UniSE TSE)...")
     from unise import UniSEEnhancer
@@ -8325,16 +8394,47 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
     for spk in sorted_speakers:
         spk_num = speaker_to_num[spk]
         segs = speaker_segments[spk]
-        longest = max(segs, key=lambda x: x["end"] - x["start"])
-        start_t = longest["start"]
-        dur_t = longest["end"] - longest["start"]
+        best = min(segs, key=lambda x: (x["overlap"], -(x["end"] - x["start"])))
+        start_t = best["start"]
+        dur_t = best["end"] - best["start"]
 
-        if dur_t > 5.0:
+        if best["overlap"] > 0 and dur_t > 2.0:
+            seg_end = start_t + dur_t
+            overlap_ranges = []
+            for other_spk in speaker_segments:
+                if other_spk == spk:
+                    continue
+                for other_seg in speaker_segments[other_spk]:
+                    ov_start = max(start_t, other_seg["start"])
+                    ov_end = min(seg_end, other_seg["end"])
+                    if ov_end > ov_start:
+                        overlap_ranges.append((ov_start, ov_end))
+            overlap_ranges.sort()
+            gaps = []
+            prev_end = start_t
+            for ov_s, ov_e in overlap_ranges:
+                if ov_s > prev_end:
+                    gaps.append((prev_end, ov_s))
+                prev_end = max(prev_end, ov_e)
+            if prev_end < seg_end:
+                gaps.append((prev_end, seg_end))
+            if gaps:
+                best_gap = max(gaps, key=lambda g: g[1] - g[0])
+                gap_dur = best_gap[1] - best_gap[0]
+                if gap_dur >= 2.0:
+                    mid = best_gap[0] + gap_dur / 2.0
+                    start_t = mid - min(gap_dur, 5.0) / 2.0
+                    dur_t = min(gap_dur, 5.0)
+                else:
+                    start_t = best_gap[0]
+                    dur_t = gap_dur
+        elif dur_t > 5.0:
             mid = start_t + dur_t / 2.0
             start_t = mid - 2.5
             dur_t = 5.0
-            if start_t < 0:
-                start_t = 0.0
+
+        if start_t < 0:
+            start_t = 0.0
 
         enroll_clip = os.path.join(tse_temp_dir, f"enroll_{spk_num}.wav")
         cmd = [
