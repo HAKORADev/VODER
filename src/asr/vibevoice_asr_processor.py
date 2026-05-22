@@ -201,6 +201,7 @@ class VibeVoiceASRProcessor:
         add_generation_prompt: bool = True,
         use_streaming: bool = True,
         context_info: Optional[str] = None,
+        system_prompt: Optional[str] = None,
         **kwargs
     ) -> BatchEncoding:
         """
@@ -250,6 +251,7 @@ class VibeVoiceASRProcessor:
                 add_generation_prompt=add_generation_prompt,
                 use_streaming=use_streaming,
                 context_info=context_info,
+                system_prompt=system_prompt,
             )
             all_encodings.append(encoding)
         
@@ -271,6 +273,7 @@ class VibeVoiceASRProcessor:
         add_generation_prompt: bool = True,
         use_streaming: bool = True,
         context_info: Optional[str] = None,
+        system_prompt: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Process a single audio input.
@@ -344,8 +347,9 @@ class VibeVoiceASRProcessor:
         
         # Build token sequence following training format
         # 1. System prompt - use apply_chat_template then encode like in training
+        effective_system_prompt = system_prompt if system_prompt is not None else SYSTEM_PROMPT
         system_prompt_text = self.tokenizer.apply_chat_template(
-            [{"role": "system", "content": SYSTEM_PROMPT}],
+            [{"role": "system", "content": effective_system_prompt}],
             tokenize=False
         )
         system_tokens = self.tokenizer.encode(system_prompt_text)
