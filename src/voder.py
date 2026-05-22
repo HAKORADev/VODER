@@ -524,11 +524,15 @@ class VibeVoiceASR:
 
             result = []
             for seg in segments:
+                raw_text = seg.get("text", seg.get("Content", ""))
+                clean = re.sub(r'^\[(?:Lyric|Silence|Music|Noise|Applause|Laughter|Cough|Breath)\]\s*', '', raw_text, flags=re.IGNORECASE).strip()
+                if not clean:
+                    continue
                 result.append({
                     "start": seg.get("start_time", seg.get("Start", seg.get("Start time", 0))),
                     "end": seg.get("end_time", seg.get("End", seg.get("End time", 0))),
                     "speaker": seg.get("speaker_id", seg.get("Speaker", seg.get("Speaker ID", 0))),
-                    "text": seg.get("text", seg.get("Content", ""))
+                    "text": clean
                 })
             return result
         except Exception as e:
@@ -3468,51 +3472,54 @@ def cli_stt_mode():
                     if speaker not in original_speakers:
                         original_speakers.append(speaker)
                 speaker_mapping = {spk: idx for idx, spk in enumerate(original_speakers, 1)}
-                if len(original_speakers) == 1:
-                    content_out = " ".join(seg.get("text", "") for seg in asr_segments)
-                    if keep_timestamp:
-                        first_time = asr_segments[0].get("start", 0)
-                        last_time = asr_segments[-1].get("end", 0)
-                        formatted_text = f"{format_time_range(first_time, last_time)} text: {content_out}"
+                lines = []
+                current_speaker_num = None
+                current_text_parts = []
+                current_first_time = None
+                current_last_time = None
+                for seg in asr_segments:
+                    speaker_num = speaker_mapping[seg["speaker"]]
+                    text = seg.get("text", "")
+                    seg_start = seg.get("start", 0) or 0
+                    seg_end = seg.get("end", 0) or 0
+                    if current_speaker_num is None:
+                        current_speaker_num = speaker_num
+                        current_text_parts = [text]
+                        current_first_time = seg_start
+                        current_last_time = seg_end
+                    elif speaker_num == current_speaker_num:
+                        current_text_parts.append(text)
+                        current_last_time = seg_end
                     else:
-                        formatted_text = f"text: {content_out}"
-                else:
-                    lines = []
-                    current_speaker_num = None
-                    current_text_parts = []
-                    current_first_time = None
-                    current_last_time = None
-                    for seg in asr_segments:
-                        speaker_num = speaker_mapping[seg["speaker"]]
-                        text = seg.get("text", "")
-                        seg_start = seg.get("start", 0) or 0
-                        seg_end = seg.get("end", 0) or 0
-                        if current_speaker_num is None:
-                            current_speaker_num = speaker_num
-                            current_text_parts = [text]
-                            current_first_time = seg_start
-                            current_last_time = seg_end
-                        elif speaker_num == current_speaker_num:
-                            current_text_parts.append(text)
-                            current_last_time = seg_end
-                        else:
-                            if current_text_parts:
-                                content_out = " ".join(current_text_parts)
+                        if current_text_parts:
+                            content_out = " ".join(current_text_parts)
+                            if len(original_speakers) == 1:
+                                if keep_timestamp:
+                                    lines.append(f"{format_time_range(current_first_time, current_last_time)} text: {content_out}")
+                                else:
+                                    lines.append(f"text: {content_out}")
+                            else:
                                 if keep_timestamp:
                                     lines.append(f"{format_time_range(current_first_time, current_last_time)} {current_speaker_num}: {content_out}")
                                 else:
                                     lines.append(f"{current_speaker_num}: {content_out}")
-                            current_speaker_num = speaker_num
-                            current_text_parts = [text]
-                            current_first_time = seg_start
-                            current_last_time = seg_end
-                    if current_text_parts:
-                        content_out = " ".join(current_text_parts)
+                        current_speaker_num = speaker_num
+                        current_text_parts = [text]
+                        current_first_time = seg_start
+                        current_last_time = seg_end
+                if current_text_parts:
+                    content_out = " ".join(current_text_parts)
+                    if len(original_speakers) == 1:
+                        if keep_timestamp:
+                            lines.append(f"{format_time_range(current_first_time, current_last_time)} text: {content_out}")
+                        else:
+                            lines.append(f"text: {content_out}")
+                    else:
                         if keep_timestamp:
                             lines.append(f"{format_time_range(current_first_time, current_last_time)} {current_speaker_num}: {content_out}")
                         else:
                             lines.append(f"{current_speaker_num}: {content_out}")
-                    formatted_text = "\n".join(lines)
+                formatted_text = "\n".join(lines)
             elif keep_timestamp:
                 lines = []
                 for seg in asr_segments:
@@ -7253,51 +7260,54 @@ def oneline_stt(params):
                         if speaker not in original_speakers:
                             original_speakers.append(speaker)
                     speaker_mapping = {spk: idx for idx, spk in enumerate(original_speakers, 1)}
-                    if len(original_speakers) == 1:
-                        content = " ".join(seg.get("text", "") for seg in asr_segments)
-                        if keep_timestamp:
-                            first_time = asr_segments[0].get("start", 0)
-                            last_time = asr_segments[-1].get("end", 0)
-                            formatted_text = f"{format_time_range(first_time, last_time)} text: {content}"
+                    lines = []
+                    current_speaker_num = None
+                    current_text_parts = []
+                    current_first_time = None
+                    current_last_time = None
+                    for seg in asr_segments:
+                        speaker_num = speaker_mapping[seg["speaker"]]
+                        text = seg.get("text", "")
+                        seg_start = seg.get("start", 0) or 0
+                        seg_end = seg.get("end", 0) or 0
+                        if current_speaker_num is None:
+                            current_speaker_num = speaker_num
+                            current_text_parts = [text]
+                            current_first_time = seg_start
+                            current_last_time = seg_end
+                        elif speaker_num == current_speaker_num:
+                            current_text_parts.append(text)
+                            current_last_time = seg_end
                         else:
-                            formatted_text = f"text: {content}"
-                    else:
-                        lines = []
-                        current_speaker_num = None
-                        current_text_parts = []
-                        current_first_time = None
-                        current_last_time = None
-                        for seg in asr_segments:
-                            speaker_num = speaker_mapping[seg["speaker"]]
-                            text = seg.get("text", "")
-                            seg_start = seg.get("start", 0) or 0
-                            seg_end = seg.get("end", 0) or 0
-                            if current_speaker_num is None:
-                                current_speaker_num = speaker_num
-                                current_text_parts = [text]
-                                current_first_time = seg_start
-                                current_last_time = seg_end
-                            elif speaker_num == current_speaker_num:
-                                current_text_parts.append(text)
-                                current_last_time = seg_end
-                            else:
-                                if current_text_parts:
-                                    content = " ".join(current_text_parts)
+                            if current_text_parts:
+                                content = " ".join(current_text_parts)
+                                if len(original_speakers) == 1:
+                                    if keep_timestamp:
+                                        lines.append(f"{format_time_range(current_first_time, current_last_time)} text: {content}")
+                                    else:
+                                        lines.append(f"text: {content}")
+                                else:
                                     if keep_timestamp:
                                         lines.append(f"{format_time_range(current_first_time, current_last_time)} {current_speaker_num}: {content}")
                                     else:
                                         lines.append(f"{current_speaker_num}: {content}")
-                                current_speaker_num = speaker_num
-                                current_text_parts = [text]
-                                current_first_time = seg_start
-                                current_last_time = seg_end
-                        if current_text_parts:
-                            content = " ".join(current_text_parts)
+                            current_speaker_num = speaker_num
+                            current_text_parts = [text]
+                            current_first_time = seg_start
+                            current_last_time = seg_end
+                    if current_text_parts:
+                        content = " ".join(current_text_parts)
+                        if len(original_speakers) == 1:
+                            if keep_timestamp:
+                                lines.append(f"{format_time_range(current_first_time, current_last_time)} text: {content}")
+                            else:
+                                lines.append(f"text: {content}")
+                        else:
                             if keep_timestamp:
                                 lines.append(f"{format_time_range(current_first_time, current_last_time)} {current_speaker_num}: {content}")
                             else:
                                 lines.append(f"{current_speaker_num}: {content}")
-                        formatted_text = "\n".join(lines)
+                    formatted_text = "\n".join(lines)
                 elif keep_timestamp:
                     lines = []
                     for seg in asr_segments:
