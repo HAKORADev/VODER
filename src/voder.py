@@ -321,6 +321,18 @@ class SpeakerDiarization:
             print(f"Diarization error: {e}")
             return None
 
+    def diarize_full(self, audio_path):
+        if self.pipeline is None:
+            return None
+        try:
+            result = self.pipeline(audio_path, min_speakers=1)
+            if hasattr(result, 'speaker_diarization'):
+                return result
+            return result
+        except Exception as e:
+            print(f"Diarization error: {e}")
+            return None
+
     def format_diarization(self, diarization, transcription_result):
         if diarization is None or transcription_result is None:
             return []
@@ -8209,26 +8221,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
 
         formatted = asr_segments
     else:
-        print("Stage 2: Transcription + Speaker Diarization (Whisper + pyannote)...")
-        stt = WhisperSTT()
-        if stt.model is None:
-            print("Error: Failed to load Whisper model")
-            stt.cleanup()
-            del stt
-            return None
-
-        stt_result = stt.transcribe(clean_source)
-        stt.cleanup()
-        del stt
-        stt = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        if not stt_result:
-            print("Error: Transcription failed")
-            return None
-
+        print("Stage 2: Speaker Diarization (pyannote — overlap-aware)...")
         diarization = SpeakerDiarization()
         if diarization.pipeline is None:
             print("Error: Speaker diarization model not available (HF_TOKEN required)")
@@ -8238,8 +8231,8 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
                 torch.cuda.empty_cache()
             return None
 
-        diar_result = diarization.diarize(clean_source)
-        if diar_result is None:
+        diar_full = diarization.diarize_full(clean_source)
+        if diar_full is None:
             print("Error: Speaker diarization failed")
             del diarization
             gc.collect()
@@ -8247,7 +8240,37 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
                 torch.cuda.empty_cache()
             return None
 
-        formatted = diarization.format_diarization(diar_result, stt_result)
+        if hasattr(diar_full, 'exclusive_speaker_diarization'):
+            exclusive_diar = diar_full.exclusive_speaker_diarization
+            inclusive_diar = diar_full.speaker_diarization
+        else:
+            exclusive_diar = diar_full
+            inclusive_diar = diar_full
+
+        formatted = []
+        for turn in inclusive_diar.itertracks(yield_label=True):
+            segment, track, speaker = turn
+            formatted.append({
+                "start": float(segment.start),
+                "end": float(segment.end),
+                "speaker": speaker,
+                "text": ""
+            })
+
+        exclusive_segments = {}
+        for turn in exclusive_diar.itertracks(yield_label=True):
+            segment, track, speaker = turn
+            if speaker not in exclusive_segments:
+                exclusive_segments[speaker] = []
+            exclusive_segments[speaker].append({
+                "start": float(segment.start),
+                "end": float(segment.end),
+                "duration": float(segment.end) - float(segment.start)
+            })
+
+        for spk in exclusive_segments:
+            exclusive_segments[spk].sort(key=lambda x: x["duration"], reverse=True)
+
         del diarization
         gc.collect()
         if torch.cuda.is_available():
@@ -8463,7 +8486,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
         return all_outputs
 
     else:
-        print("Stage 3: Target Speaker Extraction (UniSE TSE)...")
+        print("Stage 3: Target Speaker Extraction (UniSE TSE — overlap-aware enrollment)...")
         from unise import UniSEEnhancer
         tse_enhancer = UniSEEnhancer(UNISE_DIR)
         tse_enhancer.ensure_model()
@@ -8481,35 +8504,93 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
 
         for spk in sorted_speakers:
             spk_num = speaker_to_num[spk]
-            segs = speaker_segments[spk]
-            longest = max(segs, key=lambda x: x["end"] - x["start"])
-            start_t = longest["start"]
-            dur_t = longest["end"] - longest["start"]
+            clean_segs = exclusive_segments.get(spk, [])
 
-            if dur_t > 5.0:
-                mid = start_t + dur_t / 2.0
-                start_t = mid - 2.5
-                dur_t = 5.0
-                if start_t < 0:
-                    start_t = 0.0
+            enroll_parts = []
+            collected = 0.0
+            target_enroll = 5.0
+
+            for seg in clean_segs:
+                if collected >= target_enroll:
+                    break
+                remaining = target_enroll - collected
+                take_dur = min(seg["duration"], remaining)
+                enroll_parts.append({
+                    "start": seg["start"],
+                    "duration": take_dur
+                })
+                collected += take_dur
+
+            if not enroll_parts:
+                segs = speaker_segments[spk]
+                longest = max(segs, key=lambda x: x["end"] - x["start"])
+                start_t = longest["start"]
+                dur_t = longest["end"] - longest["start"]
+                if dur_t > 5.0:
+                    mid = start_t + dur_t / 2.0
+                    start_t = mid - 2.5
+                    dur_t = 5.0
+                    if start_t < 0:
+                        start_t = 0.0
+                enroll_parts.append({"start": start_t, "duration": dur_t})
+                collected = dur_t
 
             enroll_clip = os.path.join(tse_temp_dir, f"enroll_{spk_num}.wav")
-            cmd = [
-                'ffmpeg', '-i', clean_source,
-                '-ss', str(start_t),
-                '-t', str(dur_t),
-                '-ar', '16000', '-ac', '1',
-                '-y', enroll_clip
-            ]
-            ret = subprocess.run(cmd, capture_output=True, text=True)
-            if ret.returncode != 0 or not os.path.exists(enroll_clip):
-                print(f"  Warning: Failed to cut enrollment clip for speaker {spk_num}, skipping")
-                continue
+
+            if len(enroll_parts) == 1:
+                part = enroll_parts[0]
+                cmd = [
+                    'ffmpeg', '-i', clean_source,
+                    '-ss', str(part["start"]),
+                    '-t', str(part["duration"]),
+                    '-ar', '16000', '-ac', '1',
+                    '-y', enroll_clip
+                ]
+                ret = subprocess.run(cmd, capture_output=True, text=True)
+                if ret.returncode != 0 or not os.path.exists(enroll_clip):
+                    print(f"  Warning: Failed to cut enrollment clip for speaker {spk_num}, skipping")
+                    continue
+            else:
+                part_files = []
+                for pi, part in enumerate(enroll_parts):
+                    part_file = os.path.join(tse_temp_dir, f"enroll_{spk_num}_part{pi}.wav")
+                    cmd = [
+                        'ffmpeg', '-i', clean_source,
+                        '-ss', str(part["start"]),
+                        '-t', str(part["duration"]),
+                        '-ar', '16000', '-ac', '1',
+                        '-y', part_file
+                    ]
+                    ret = subprocess.run(cmd, capture_output=True, text=True)
+                    if ret.returncode != 0 or not os.path.exists(part_file):
+                        continue
+                    part_files.append(part_file)
+
+                if not part_files:
+                    print(f"  Warning: Failed to cut enrollment clips for speaker {spk_num}, skipping")
+                    continue
+
+                concat_list = os.path.join(tse_temp_dir, f"enroll_{spk_num}_concat.txt")
+                with open(concat_list, 'w') as f:
+                    for pf in part_files:
+                        f.write(f"file '{pf}'\n")
+
+                cmd = [
+                    'ffmpeg', '-f', 'concat', '-safe', '0',
+                    '-i', concat_list,
+                    '-ar', '16000', '-ac', '1',
+                    '-y', enroll_clip
+                ]
+                ret = subprocess.run(cmd, capture_output=True, text=True)
+                if ret.returncode != 0 or not os.path.exists(enroll_clip):
+                    print(f"  Warning: Failed to concatenate enrollment for speaker {spk_num}, skipping")
+                    continue
 
             output_filename = f"voder_ss_{original_name}_{timestamp}_speaker{spk_num}.wav"
             output_path = os.path.join(results_dir, output_filename)
 
-            print(f"  Extracting speaker {spk_num} (enrollment: {dur_t:.1f}s from {start_t:.1f}s)...")
+            num_clean = len([s for s in clean_segs]) if clean_segs else 0
+            print(f"  Extracting speaker {spk_num} (enrollment: {collected:.1f}s from {len(enroll_parts)} clean segment(s), {num_clean} exclusive segments available)...")
             tse_ok = tse_enhancer.tse_extract(clean_source, enroll_clip, output_path)
             if tse_ok and os.path.exists(output_path):
                 final_outputs.append(output_path)
