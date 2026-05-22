@@ -8221,7 +8221,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
 
         formatted = asr_segments
     else:
-        print("Stage 2: Speaker Diarization (pyannote — overlap-aware)...")
+        print("Stage 2: Speaker Diarization (pyannote)...")
         diarization = SpeakerDiarization()
         if diarization.pipeline is None:
             print("Error: Speaker diarization model not available (HF_TOKEN required)")
@@ -8270,11 +8270,6 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
 
         for spk in exclusive_segments:
             exclusive_segments[spk].sort(key=lambda x: x["duration"], reverse=True)
-
-        del diarization
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
 
     if not formatted:
         print("Error: No speaker segments found")
@@ -8336,7 +8331,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
         print(f"  Speaker {speaker_to_num[spk]}: {len(segs)} segments, longest: {dur:.1f}s")
 
     if use_overdose:
-        print("Stage 3: Target Speaker Extraction (UniSE TSE) — Iterative Refinement...")
+        print("Stage 3: Target Speaker Extraction (UniSE TSE)...")
         from unise import UniSEEnhancer
         tse_enhancer = UniSEEnhancer(UNISE_DIR)
         tse_enhancer.ensure_model()
@@ -8486,7 +8481,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
         return all_outputs
 
     else:
-        print("Stage 3: Target Speaker Extraction (UniSE TSE — overlap-aware enrollment)...")
+        print("Stage 3: Target Speaker Extraction (UniSE TSE)...")
         from unise import UniSEEnhancer
         tse_enhancer = UniSEEnhancer(UNISE_DIR)
         tse_enhancer.ensure_model()
@@ -8535,7 +8530,7 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
                 enroll_parts.append({"start": start_t, "duration": dur_t})
                 collected = dur_t
 
-            enroll_clip = os.path.join(tse_temp_dir, f"enroll_{spk_num}.wav")
+            enroll_clip = os.path.join(tse_temp_dir, f"enroll_{spk_num}_pass0.wav")
 
             if len(enroll_parts) == 1:
                 part = enroll_parts[0]
@@ -8586,18 +8581,98 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
                     print(f"  Warning: Failed to concatenate enrollment for speaker {spk_num}, skipping")
                     continue
 
+            current_enroll = enroll_clip
+            current_source = clean_source
+            max_passes = 3
             output_filename = f"voder_ss_{original_name}_{timestamp}_speaker{spk_num}.wav"
             output_path = os.path.join(results_dir, output_filename)
+            last_good_pass = None
 
-            num_clean = len([s for s in clean_segs]) if clean_segs else 0
-            print(f"  Extracting speaker {spk_num} (enrollment: {collected:.1f}s from {len(enroll_parts)} clean segment(s), {num_clean} exclusive segments available)...")
-            tse_ok = tse_enhancer.tse_extract(clean_source, enroll_clip, output_path)
-            if tse_ok and os.path.exists(output_path):
+            for pass_idx in range(1, max_passes + 1):
+                pass_output = os.path.join(tse_temp_dir, f"spk{spk_num}_pass{pass_idx}.wav")
+                num_parts = len(enroll_parts) if pass_idx == 1 else 1
+                print(f"  Speaker {spk_num} — Pass {pass_idx}: extracting...")
+
+                tse_ok = tse_enhancer.tse_extract(current_source, current_enroll, pass_output)
+                if not tse_ok or not os.path.exists(pass_output):
+                    print(f"  Warning: TSE extraction failed for speaker {spk_num} pass {pass_idx}")
+                    if last_good_pass:
+                        shutil.copy2(last_good_pass, output_path)
+                    break
+
+                last_good_pass = pass_output
+
+                recheck = diarization.diarize_full(pass_output)
+                if recheck is None:
+                    print(f"  Speaker {spk_num} — Re-check failed, using pass {pass_idx} result")
+                    shutil.copy2(pass_output, output_path)
+                    break
+
+                if hasattr(recheck, 'exclusive_speaker_diarization'):
+                    recheck_excl = recheck.exclusive_speaker_diarization
+                else:
+                    recheck_excl = recheck
+
+                recheck_speakers = set()
+                for turn in recheck_excl.itertracks(yield_label=True):
+                    _, _, speaker = turn
+                    recheck_speakers.add(speaker)
+
+                if len(recheck_speakers) <= 1:
+                    print(f"  Speaker {spk_num} — Clean! Single speaker confirmed after pass {pass_idx}")
+                    shutil.copy2(pass_output, output_path)
+                    break
+
+                print(f"  Speaker {spk_num} — Still {len(recheck_speakers)} speakers detected, refining...")
+
+                recheck_segs = []
+                for turn in recheck_excl.itertracks(yield_label=True):
+                    segment, _, speaker = turn
+                    dur = float(segment.end) - float(segment.start)
+                    recheck_segs.append({"start": float(segment.start), "duration": dur, "speaker": speaker})
+
+                recheck_segs.sort(key=lambda x: x["duration"], reverse=True)
+
+                best_seg = recheck_segs[0]
+                ls = best_seg["start"]
+                ld = best_seg["duration"]
+
+                if ld > 5.0:
+                    mid = ls + ld / 2.0
+                    ls = mid - 2.5
+                    ld = 5.0
+                    if ls < 0:
+                        ls = 0.0
+
+                next_enroll = os.path.join(tse_temp_dir, f"enroll_{spk_num}_pass{pass_idx}.wav")
+                cmd = [
+                    'ffmpeg', '-i', pass_output,
+                    '-ss', str(ls),
+                    '-t', str(ld),
+                    '-ar', '16000', '-ac', '1',
+                    '-y', next_enroll
+                ]
+                ret = subprocess.run(cmd, capture_output=True, text=True)
+                if ret.returncode != 0 or not os.path.exists(next_enroll):
+                    print(f"  Speaker {spk_num} — Failed to cut refined enrollment, using pass {pass_idx} result")
+                    shutil.copy2(pass_output, output_path)
+                    break
+
+                current_enroll = next_enroll
+                current_source = clean_source
+
+                if pass_idx == max_passes:
+                    print(f"  Speaker {spk_num} — Max passes reached, using final result")
+                    shutil.copy2(pass_output, output_path)
+
+            if os.path.exists(output_path):
                 final_outputs.append(output_path)
                 print(f"  Speaker {spk_num} saved to: {output_path}")
             else:
-                print(f"  Warning: TSE extraction failed for speaker {spk_num}")
+                print(f"  Warning: No output for speaker {spk_num}")
 
+        diarization.pipeline = None
+        del diarization
         tse_enhancer.cleanup()
         del tse_enhancer
         gc.collect()
