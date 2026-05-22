@@ -8135,37 +8135,6 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
 
     clean_source = svs_temp
 
-
-    if use_se:
-        print("Stage 1b: Speech Enhancement (UniSE SE)...")
-        from unise import UniSEEnhancer
-        se_enhancer = UniSEEnhancer(UNISE_DIR)
-        se_enhancer.ensure_model()
-        if se_enhancer.model is None:
-            print("Error: Failed to load UniSE SE model")
-            se_enhancer.cleanup()
-            del se_enhancer
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            return None
-
-        se_temp_dir = tempfile.mkdtemp()
-        temp_dirs.append(se_temp_dir)
-        se_temp = os.path.join(se_temp_dir, f'_ss_se_{timestamp}.wav')
-        se_ok = se_enhancer.enhance(clean_source, se_temp)
-        se_enhancer.cleanup()
-        del se_enhancer
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        if not se_ok or not os.path.exists(se_temp):
-            print("Error: Speech Enhancement failed")
-            return None
-
-        clean_source = se_temp
-
     if target_path and os.path.exists(target_path):
         print("Stage 2: Target-based extraction (UniSE TSE)...")
         from unise import UniSEEnhancer
@@ -8196,6 +8165,34 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
             print(f"  Target voice saved to: {output_path}")
         else:
             print(f"  Warning: TSE extraction failed for target voice")
+
+        if use_se and all_outputs:
+            print("Applying Speech Enhancement to extracted voice...")
+            from unise import UniSEEnhancer
+            se_enh = UniSEEnhancer(UNISE_DIR)
+            se_enh.ensure_model()
+            if se_enh.model is not None:
+                se_tmp_dir = tempfile.mkdtemp()
+                se_outputs = []
+                for out_f in all_outputs:
+                    se_tmp = os.path.join(se_tmp_dir, os.path.basename(out_f))
+                    se_ok = se_enh.enhance(out_f, se_tmp)
+                    if se_ok and os.path.exists(se_tmp):
+                        shutil.copy2(se_tmp, out_f)
+                        se_outputs.append(out_f)
+                    else:
+                        se_outputs.append(out_f)
+                all_outputs = se_outputs
+                try:
+                    shutil.rmtree(se_tmp_dir)
+                except Exception:
+                    pass
+            se_enh.cleanup()
+            del se_enh
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         return all_outputs if all_outputs else None
 
     if use_overdose:
@@ -8318,6 +8315,29 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
         shutil.copy2(clean_source, output_path)
         all_outputs.append(output_path)
         print(f"Output saved to: {output_path}")
+
+        if use_se and all_outputs:
+            print("Applying Speech Enhancement to extracted voice...")
+            from unise import UniSEEnhancer
+            se_enh = UniSEEnhancer(UNISE_DIR)
+            se_enh.ensure_model()
+            if se_enh.model is not None:
+                se_tmp_dir = tempfile.mkdtemp()
+                for out_f in all_outputs:
+                    se_tmp = os.path.join(se_tmp_dir, os.path.basename(out_f))
+                    se_ok = se_enh.enhance(out_f, se_tmp)
+                    if se_ok and os.path.exists(se_tmp):
+                        shutil.copy2(se_tmp, out_f)
+                try:
+                    shutil.rmtree(se_tmp_dir)
+                except Exception:
+                    pass
+            se_enh.cleanup()
+            del se_enh
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         return all_outputs
 
     speaker_to_num = {}
@@ -8478,6 +8498,29 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
             print(f"  {os.path.basename(p)}")
 
         all_outputs.extend(final_outputs)
+
+        if use_se and all_outputs:
+            print("Applying Speech Enhancement to extracted voices...")
+            from unise import UniSEEnhancer
+            se_enh = UniSEEnhancer(UNISE_DIR)
+            se_enh.ensure_model()
+            if se_enh.model is not None:
+                se_tmp_dir = tempfile.mkdtemp()
+                for out_f in all_outputs:
+                    se_tmp = os.path.join(se_tmp_dir, os.path.basename(out_f))
+                    se_ok = se_enh.enhance(out_f, se_tmp)
+                    if se_ok and os.path.exists(se_tmp):
+                        shutil.copy2(se_tmp, out_f)
+                try:
+                    shutil.rmtree(se_tmp_dir)
+                except Exception:
+                    pass
+            se_enh.cleanup()
+            del se_enh
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         return all_outputs
 
     else:
@@ -8700,6 +8743,29 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
             print(f"  {os.path.basename(p)}")
 
         all_outputs.extend(final_outputs)
+
+        if use_se and all_outputs:
+            print("Applying Speech Enhancement to extracted voices...")
+            from unise import UniSEEnhancer
+            se_enh = UniSEEnhancer(UNISE_DIR)
+            se_enh.ensure_model()
+            if se_enh.model is not None:
+                se_tmp_dir = tempfile.mkdtemp()
+                for out_f in all_outputs:
+                    se_tmp = os.path.join(se_tmp_dir, os.path.basename(out_f))
+                    se_ok = se_enh.enhance(out_f, se_tmp)
+                    if se_ok and os.path.exists(se_tmp):
+                        shutil.copy2(se_tmp, out_f)
+                try:
+                    shutil.rmtree(se_tmp_dir)
+                except Exception:
+                    pass
+            se_enh.cleanup()
+            del se_enh
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         return all_outputs
 
 def oneline_ss(params):
