@@ -577,7 +577,7 @@ python src/voder.py sts base "source_audio.wav" target "character_voice.wav" mim
 
 ### Text‑to‑Music (ttm)
 
-Generate music from lyrics and style prompt using ACE‑Step (three‑tier architecture). Supports instrumental-only generation with empty lyrics. **Sub‑tasks**: `complete` (add missing tracks), `lego` (build individual instrument tracks), `extract` (extract specific tracks), `remix` (style transfer / cover with `bias` control and optional `lyrics`), `repaint` (restyle a specific time range). **SFX overlay**: `bgm` and `complete` sub‑tasks support `sfx:` specs to overlay generated sound effects onto the output. **Voice conversion**: add `vc` flag **before** `lyrics`/`styling`/`duration` and use `clone` for voice reference. **Overdose quality**: add `overdose` flag for enhanced output quality.
+Generate music from lyrics and style prompt using ACE‑Step (three‑tier architecture). Supports instrumental-only generation with empty lyrics. **Sub‑tasks**: `complete` (add missing tracks), `lego` (build individual instrument tracks), `extract` (extract specific tracks), `remix` (style transfer / cover with `bias` control and optional `lyrics`), `repaint` (restyle a specific time range; multi-pass for sequential edits building on each previous result). **SFX overlay**: `bgm` and `complete` sub‑tasks support `sfx:` specs to overlay generated sound effects onto the output. **Voice conversion**: add `vc` flag **before** `lyrics`/`styling`/`duration` and use `clone` for voice reference. **Overdose quality**: add `overdose` flag for enhanced output quality.
 
 **Flags and modifiers** (can be combined):
 - `vc` — enable voice conversion after music generation
@@ -750,6 +750,12 @@ python src/voder.py ttm remix "song.wav" styling "rock" reference "ref1.wav" voi
 python src/voder.py ttm repaint "source.wav" time:20-80 styling "more energetic" result "/output/repainted.wav"
 ```
 
+**Repaint with voice/music isolation on source:**
+```bash
+python src/voder.py ttm repaint voice "source.wav" time:20-80 styling "more energetic" result "/output/repainted.wav"
+python src/voder.py ttm repaint music "source.wav" time:20-80 styling "more energetic" result "/output/repainted.wav"
+```
+
 **Repaint with bias and reference:**
 ```bash
 python src/voder.py ttm repaint "source.wav" time:20-80 styling "more energetic" bias 60 reference voice "ref.wav" result "/output/repainted.wav"
@@ -763,6 +769,21 @@ python src/voder.py ttm overdose repaint "source.wav" time:20-80 styling "more e
 **Repaint with multi-reference (up to 3):**
 ```bash
 python src/voder.py ttm repaint "source.wav" time:20-80 styling "more energetic" reference voice "ref1.wav" music "ref2.wav" result "/output/repainted.wav"
+```
+
+**Multi-pass repaint (multiple edits, each pass builds on the previous result):**
+```bash
+# Two passes: restyle 20-80s as orchestral, then restyle 10-30s of that result as jazz with bias 70
+python src/voder.py ttm repaint "song.wav" "20-80/styling(orchestral)" "10-30/styling(jazz)/bias/70"
+
+# Two passes with lyrics and reference
+python src/voder.py ttm repaint "song.wav" "0-30/styling(funk)/lyrics(new words\nhere)" "15-30/styling(ambient)/reference(ref.wav)"
+
+# Overdose multi-pass with per-pass references
+python src/voder.py ttm overdose repaint "song.wav" "0-15/styling(lo-fi)" "10-25/styling(drum and bass)/bias/80/reference-voice(vocals.wav)"
+
+# Multi-pass with voice isolation on source
+python src/voder.py ttm repaint music "song.wav" "0-30/styling(chill)" "20-30/styling(epic)/reference-music(inst.wav)"
 ```
 
 **BGM (Replace Background Music):**
@@ -832,6 +853,8 @@ python src/voder.py ttm bgm "podcast.wav" sfx "doorbell/5-12/50" result "/output
 | `target` | Optional music reference (`target voice "ref.wav"` or `target music "ref.wav"`) | No |
 | `bias` | Style transfer strength for `remix`/`repaint` (0‑100, default 40) | No |
 | `reference` | Reference audio for `remix`/`repaint`/`bgm`/`complete`/`lego` guidance (up to 3 entries with `voice`/`music` prefix; `reference voice "path"`, `reference music "path"`, or `reference "path"` for as-is; accepts audio, video, and URLs; multiple refs composed into 30s composite) | No |
+| `repaint` | Source audio for section repaint; optional `voice`/`music` prefix for SVS isolation (`repaint voice "path"` or `repaint music "path"`) | Required for repaint sub-task |
+| `"start-end/styling(...)/..."` | Multi-pass repaint spec (quoted string): time range `start-end` required; optional `/styling(text)`, `/lyrics(text)`, `/reference-voice(path)`, `/reference-music(path)`, `/reference(path)` (up to 3 per pass), `/bias/nn`. Multiple pass specs = multiple sequential repaint passes, each using previous result as source. | No (multi-pass mode) |
 | `video` | Preserve video output for `complete`/`bgm` (downloads video from URL, merges back to .mp4) | No |
 | `overdose` | Use enhanced quality mode (three‑tier ACE‑Step) | No |
 | `result` | Output file path | No |
@@ -844,7 +867,7 @@ python src/voder.py ttm bgm "podcast.wav" sfx "doorbell/5-12/50" result "/output
 | lego | `lego "source.wav" make "drums bass" mix` | Build individual instrument tracks (optional `styling` prompt) |
 | extract | `extract "source.wav" stems "vocals drums"` | Extract specific tracks |
 | remix | `remix "source.wav" styling "jazz"` | Style transfer (cover) with bias control, optional lyrics, multi-source (up to 3) and multi-reference (up to 3) |
-| repaint | `repaint "source.wav" time:20-80 styling "..."` | Restyle a specific time range |
+| repaint | `repaint "source.wav" time:20-80 styling "..."` | Restyle a specific time range; optional `voice`/`music` prefix on source for SVS isolation; multi-pass mode with `"start-end/styling(...)/lyrics(...)/reference-voice(path)/reference-music(path)/reference(path)/bias/nn"` quoted pass specs (each pass uses previous result as source) |
 | bgm | `bgm "source.wav" music "description" level 30` | Replace background music in audio/video (optional `video` flag for URL→video output, optional `reference`, optional `sfx:` specs for SFX overlay; `music` is optional if `sfx:` specs provided; SFX overlaid after BGM mixing or directly on clean voice) |
 
 **Examples:**

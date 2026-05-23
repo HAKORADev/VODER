@@ -678,7 +678,7 @@ TTM supports advanced music manipulation sub-tasks that go beyond simple generat
 |----------|-------------|------------|
 | `generate` | Standard music generation (default) | `python voder.py ttm lyrics "..." styling "..." duration 30` |
 | `remix` | Style-transferred version of an existing song (supports `reference` for additional guidance, optional `lyrics` for new vocal content, multi-source up to 3 and multi-reference up to 3) | `python voder.py ttm remix "input.wav" styling "..." bias 40 result "/output/remix.wav"` |
-| `repaint` | Repaint a time range of an existing track (supports `reference` for additional guidance) | `python voder.py ttm repaint "source.wav" time:20-80 styling "..." result "/output/repainted.wav"` |
+| `repaint` | Repaint a time range of an existing track (supports `reference` for additional guidance; optional `voice`/`music` prefix on source for SVS isolation; multi-pass mode for sequential edits building on each previous result) | `python voder.py ttm repaint "source.wav" time:20-80 styling "..." result "/output/repainted.wav"` |
 | `complete` | Add instrument tracks to existing audio (supports `sfx:` overlay) | `python voder.py ttm complete source "song.wav" add "drums bass" [target music "ref.wav"]` |
 | `extract` | Extract vocals or music from a track | `python voder.py ttm extract "song.wav" extract "vocals"` |
 | `lego` | Build a track from individual instrument stems | `python voder.py ttm lego source "song.wav" make "drums bass guitar"` |
@@ -847,11 +847,20 @@ python src/voder.py ttm remix "song.wav" styling "rock" reference "ref1.wav" voi
 # Repaint sub-task (repaint 20s-80s section)
 python src/voder.py ttm repaint "song.wav" time:20-80 styling "more energetic" result "/output/repainted.wav"
 
+# Repaint with voice/music isolation on source
+python src/voder.py ttm repaint voice "song.wav" time:20-80 styling "more energetic" result "/output/repainted.wav"
+python src/voder.py ttm repaint music "song.wav" time:20-80 styling "ambient" result "/output/repainted.wav"
+
 # Repaint with reference
 python src/voder.py ttm repaint "song.wav" time:20-80 styling "more energetic" reference voice "ref.wav" result "/output/repainted.wav"
 
 # Overdose repaint with reference
 python src/voder.py ttm overdose repaint "song.wav" time:20-80 styling "more energetic" reference music "ref.wav" result "/output/repainted.wav"
+
+# Multi-pass repaint (each pass builds on the previous result)
+python src/voder.py ttm repaint "song.wav" "20-80/styling(orchestral)" "10-30/styling(jazz)/bias/70"
+python src/voder.py ttm overdose repaint "song.wav" "0-15/styling(lo-fi)" "10-25/styling(drum and bass)/bias/80/reference-voice(vocals.wav)"
+python src/voder.py ttm repaint music "song.wav" "0-30/styling(chill)" "20-30/styling(epic)/reference-music(inst.wav)"
 
 # Complete sub-task (add drums and bass to existing track)
 python src/voder.py ttm complete source "vocals_only.wav" add "drums bass"
@@ -912,9 +921,10 @@ For voice conversion, BS‑RoFormer automatically extracts clean vocals from the
 | `target voice "ref.wav"` | Music reference — extract vocals | Optional (not with `vc`) |
 | `target music "ref.wav"` | Music reference — extract instrumental | Optional (not with `vc`) |
 | `remix "path"` | Source audio for remix style transfer | Required for remix sub-task |
-| `repaint "path"` | Source audio for section repaint | Required for repaint sub-task |
+| `repaint "path"` | Source audio for section repaint; optional `voice`/`music` prefix for SVS isolation | Required for repaint sub-task |
 | `bias N` | Style transfer strength 0–100 | Optional (default 40, for remix/repaint) |
-| `time:start-end` | Time range for repaint | Required for repaint sub-task |
+| `time:start-end` | Time range for repaint (single-pass mode) | Required for repaint sub-task (single-pass) |
+| `"start-end/styling(...)/..."` | Multi-pass repaint spec (quoted): time range required; optional `/styling(text)`, `/lyrics(text)`, `/reference-voice(path)`, `/reference-music(path)`, `/reference(path)` (up to 3 per pass), `/bias/nn`. Multiple pass specs = multiple sequential repaint passes. | No (multi-pass mode) |
 | `add "..."` | Instrument tracks to add (complete) | Required for complete sub-task (unless `sfx:` provided) |
 | `make "..."` | Instrument tracks to build (lego) | Required for lego sub-task |
 | `extract "..."` | Track to extract | Required for extract sub-task |
@@ -2295,10 +2305,24 @@ python src/voder.py ttm remix "song.wav" styling "rock" reference "ref1.wav" voi
 ```
 
 **Repaint Sections:**
-Use `repaint` to fix or change a specific section of a song without regenerating the entire thing. Great for fixing a weak chorus or changing a bridge. The `time:start-end` parameter is **required** to specify the time range. Optional `bias` (0–100, default 40) and `lyrics` (default `"..."`) parameters are available.
+Use `repaint` to fix or change a specific section of a song without regenerating the entire thing. Great for fixing a weak chorus or changing a bridge. The `time:start-end` parameter is **required** to specify the time range (single-pass mode). Optional `bias` (0–100, default 40) and `lyrics` (default `"..."`) parameters are available. Add `voice` or `music` prefix before the source path to isolate vocals or instruments via SVS before repainting. For multiple sequential edits, use **multi-pass mode** with quoted pass specs — each pass uses the previous result as the source, enabling creative layering of different styles, references, and lyrics across different time ranges.
 
 ```bash
 python src/voder.py ttm repaint "song.wav" time:45-75 styling "more energetic vocals" result "/output/repainted.wav"
+```
+
+**Multi-pass Repaint:**
+For complex edits, provide multiple quoted pass specs after the source path. Each spec contains a time range and optional parameters separated by `/`. The format is `"start-end[/styling(text)][/lyrics(text)][/reference-voice(path)][/reference-music(path)][/reference(path)][/bias/nn]"`. Each pass builds on the output of the previous pass.
+
+```bash
+# Two passes: restyle 20-80s as orchestral, then restyle 10-30s of that result as jazz
+python src/voder.py ttm repaint "song.wav" "20-80/styling(orchestral)" "10-30/styling(jazz)/bias/70"
+
+# With per-pass references and lyrics
+python src/voder.py ttm repaint "song.wav" "0-30/styling(funk)/lyrics(new words\nhere)" "15-30/styling(ambient)/reference(ref.wav)"
+
+# Overdose multi-pass with voice reference on second pass
+python src/voder.py ttm overdose repaint "song.wav" "0-15/styling(lo-fi)" "10-25/styling(drum and bass)/reference-voice(vocals.wav)"
 ```
 
 **Add Missing Instruments:**

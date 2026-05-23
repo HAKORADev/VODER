@@ -777,6 +777,74 @@ def _compose_sources(source_entries, results_dir):
     cleanup.append(out_path)
     return out_path, cleanup
 
+def _parse_repaint_pass_spec(spec):
+    parts = []
+    current = ''
+    depth = 0
+    for ch in spec:
+        if ch == '(':
+            depth += 1
+            current += ch
+        elif ch == ')':
+            depth -= 1
+            current += ch
+        elif ch == '/' and depth == 0:
+            parts.append(current)
+            current = ''
+        else:
+            current += ch
+    if current:
+        parts.append(current)
+    if not parts:
+        return None, 'empty pass spec'
+    time_part = parts[0]
+    time_parts = time_part.split('-')
+    if len(time_parts) != 2:
+        return None, f'invalid time range format: {time_part}'
+    try:
+        start_sec = float(time_parts[0].strip())
+        end_sec = float(time_parts[1].strip())
+    except ValueError:
+        return None, f'time values must be numbers: {time_part}'
+    if start_sec < 0:
+        return None, 'start time cannot be negative'
+    if end_sec <= 0:
+        return None, 'end time must be greater than 0'
+    if start_sec >= end_sec:
+        return None, 'start time must be less than end time'
+    lyrics = None
+    styling = None
+    references = []
+    bias = None
+    j = 1
+    while j < len(parts):
+        part = parts[j]
+        if part.startswith('lyrics(') and part.endswith(')'):
+            lyrics = part[7:-1].replace('\\n', '\n')
+        elif part.startswith('styling(') and part.endswith(')'):
+            styling = part[8:-1].replace('\\n', '\n')
+        elif part.startswith('reference-voice(') and part.endswith(')'):
+            references.append(('voice', part[16:-1]))
+        elif part.startswith('reference-music(') and part.endswith(')'):
+            references.append(('music', part[15:-1]))
+        elif part.startswith('reference(') and part.endswith(')'):
+            references.append(('asis', part[9:-1]))
+        elif part == 'bias' and j + 1 < len(parts):
+            bias = parts[j + 1]
+            j += 1
+        j += 1
+    if references and len(references) > 3:
+        print(f"Warning: repaint pass supports up to 3 references, using first 3")
+        references = references[:3]
+    return {
+        'start': start_sec,
+        'end': end_sec,
+        'lyrics': lyrics,
+        'styling': styling,
+        'references': references,
+        'bias': bias
+    }, None
+
 def _parse_script_directives(text):
     tokens = text.split()
     directives = {}
@@ -5252,8 +5320,21 @@ def parse_oneline_args(args):
                 result['error'] = 'repaint requires a source path'
                 return result
             result['is_repaint'] = True
-            result['repaint_path'] = args[i + 1]
-            i += 2
+            _rp_src_idx = i + 1
+            if args[_rp_src_idx].lower() in ('voice', 'music'):
+                result['repaint_source_prefix'] = args[_rp_src_idx].lower()
+                _rp_src_idx += 1
+                if _rp_src_idx >= len(args):
+                    result['error'] = f'repaint requires a source path after {result["repaint_source_prefix"]}'
+                    return result
+            result['repaint_path'] = args[_rp_src_idx]
+            i = _rp_src_idx + 1
+            _mp_pattern = re.compile(r'^\d+\.?\d*-\d+\.?\d*/')
+            if i < len(args) and _mp_pattern.match(args[i]):
+                result['repaint_multipass'] = []
+                while i < len(args) and _mp_pattern.match(args[i]):
+                    result['repaint_multipass'].append(args[i])
+                    i += 1
             current_keyword = None
         elif mode == 'ttm' and arg.startswith('time:'):
             result['time_range'] = arg[5:]
@@ -5460,6 +5541,19 @@ def show_oneline_usage():
     print('  python voder.py ttm remix voice "vocal.wav" music "inst.wav" styling "funk" reference "ref.wav"')
     print('  python voder.py ttm overdose remix "song.wav" lyrics "dreamy verse" styling "synthwave"')
     print()
+    print("Repaint examples (restyle a specific time range of a song):")
+    print('  python voder.py ttm repaint "song.wav" time:20-80 styling "more energetic"')
+    print('  python voder.py ttm repaint "song.wav" time:20-80 styling "orchestral" bias 80 reference "ref.wav"')
+    print('  python voder.py ttm overdose repaint "song.wav" time:20-80 styling "jazz" reference voice "ref.wav"')
+    print('  python voder.py ttm repaint voice "song.wav" time:20-80 styling "funk"')
+    print('  python voder.py ttm repaint music "song.wav" time:20-80 styling "ambient"')
+    print()
+    print("Multi-pass repaint examples (multiple edits, each pass builds on the previous):")
+    print('  python voder.py ttm repaint "song.wav" "20-80/styling(orchestral)" "10-30/styling(jazz)/bias/70"')
+    print('  python voder.py ttm repaint "song.wav" "0-30/styling(funk)/lyrics(new words\\nhere)" "15-30/styling(ambient)/reference(ref.wav)"')
+    print('  python voder.py ttm overdose repaint "song.wav" "0-15/styling(lo-fi)" "10-25/styling(drum and bass)/bias/80/reference-voice(vocals.wav)"')
+    print('  python voder.py ttm repaint music "song.wav" "0-30/styling(chill)" "20-30/styling(epic)/reference-music(inst.wav)"')
+    print()
     print('SFX spec format: "sfx:prompt/duration-position/level"')
     print("  prompt    - SFX description text (required)")
     print("  duration  - SFX length 5-30 seconds (clamped, auto-cut if exceeds source)")
@@ -5490,6 +5584,10 @@ def execute_oneline_command(parsed):
         params['is_repaint'] = parsed['is_repaint']
     if 'repaint_path' in parsed:
         params['repaint_path'] = parsed['repaint_path']
+    if 'repaint_source_prefix' in parsed:
+        params['repaint_source_prefix'] = parsed['repaint_source_prefix']
+    if 'repaint_multipass' in parsed:
+        params['repaint_multipass'] = parsed['repaint_multipass']
     if 'time_range' in parsed:
         params['time_range'] = parsed['time_range']
     if 'clone_path' in parsed:
@@ -6332,6 +6430,8 @@ def oneline_ttm(params):
     _is_repaint = params.get('is_repaint', False)
     _repaint_path = params.get('repaint_path')
     _time_range = params.get('time_range')
+    _repaint_multipass = params.get('repaint_multipass')
+    _repaint_source_prefix = params.get('repaint_source_prefix')
 
     if _is_repaint:
         if not _repaint_path:
@@ -6340,134 +6440,244 @@ def oneline_ttm(params):
         if not os.path.exists(_repaint_path) and not is_youtube_url(_repaint_path):
             print(f"Error: Repaint source not found: {_repaint_path}")
             return False
-        if _time_range is None:
-            print("Error: Repaint requires time range (e.g., time:20-80)")
-            return False
-        if 'styling' not in params or len(params['styling']) != 1:
-            print("Error: TTM repaint requires 'styling' parameter")
-            return False
-        _time_parts = _time_range.split('-')
-        if len(_time_parts) != 2:
-            print(f"Error: Invalid time format '{_time_range}', expected time:start-end")
-            return False
-        try:
-            _start_sec = float(_time_parts[0].strip())
-            _end_sec = float(_time_parts[1].strip())
-        except ValueError:
-            print(f"Error: Time values must be numbers, got '{_time_range}'")
-            return False
-        if _start_sec < 0:
-            print("Error: Start time cannot be negative")
-            return False
-        if _end_sec <= 0:
-            print("Error: End time must be greater than 0")
-            return False
-        if _start_sec == _end_sec:
-            print("Error: Start and end time cannot be the same")
-            return False
-        if _start_sec >= _end_sec:
-            print("Error: Start time must be less than end time")
-            return False
-        style = params['styling'][0].replace('\\n', '\n')
-        _lyrics_content = "..."
-        if 'lyrics' in params and len(params['lyrics']) == 1:
-            _lyrics_content = params['lyrics'][0].replace('\\n', '\n')
         _repaint_cleanup = []
         resolved_audio, cleanup = resolve_target_to_audio(_repaint_path)
         if resolved_audio is None:
             print("Error: Could not resolve repaint source")
             return False
         _repaint_cleanup.extend(cleanup)
-        _rp_ref_entries = params.get('ref_entries', [])
-        _repaint_ref_audio = None
-        if _rp_ref_entries:
-            _repaint_ref_audio, ref_cl = _compose_refs(_rp_ref_entries, results_dir)
-            _repaint_cleanup.extend(ref_cl)
-        try:
-            import soundfile as sf
-            _audio_info = sf.info(resolved_audio)
-            _max_duration = _audio_info.duration
-        except Exception:
-            print("Error: Could not read audio duration")
-            for f in _repaint_cleanup:
-                if f and os.path.exists(f):
-                    try:
-                        os.unlink(f)
-                    except:
-                        pass
-            return False
-        if _start_sec > _max_duration:
-            print(f"Error: Start time {_start_sec}s exceeds audio duration {_max_duration:.1f}s")
-            for f in _repaint_cleanup:
-                if f and os.path.exists(f):
-                    try:
-                        os.unlink(f)
-                    except:
-                        pass
-            return False
-        if _end_sec > _max_duration:
-            print(f"End time {_end_sec}s exceeds audio duration, clamping to {_max_duration:.1f}s")
-            _end_sec = _max_duration
-        _cover_strength = 0.4
-        _bias_raw = params.get('bias_val')
-        if _bias_raw is not None:
-            try:
-                _bv = int(_bias_raw)
-                if 0 <= _bv <= 100:
-                    if _bv == 0 or _bv == 100:
-                        _cover_strength = _bv / 100.0
-                    elif _bv % 10 == 5:
-                        _cover_strength = (_bv - 5) / 100.0
-                    else:
-                        _cover_strength = (round(_bv / 10) * 10) / 100.0
-            except (ValueError, TypeError):
-                pass
-        original_name = os.path.splitext(os.path.basename(_repaint_path))[0]
-        original_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', original_name)
-        print("Loading ACE-Step model...")
-        ace_step = AceStepWrapper(use_overdose=use_overdose)
-        if ace_step.handler is None:
-            print("Error: Failed to load ACE-Step model")
-            for f in _repaint_cleanup:
-                if f and os.path.exists(f):
-                    try:
-                        os.unlink(f)
-                    except:
-                        pass
-            return False
-        try:
-            _start_int = int(_start_sec)
-            _end_int = int(_end_sec)
-            print(f"Repainting {_start_int}s - {_end_int}s...")
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            output_path = os.path.join(results_dir, f"voder_ttm_repaint_{original_name}_{_start_int}-{_end_int}_{timestamp}.wav")
-            success = ace_step.repaint(
-                src_audio=resolved_audio,
-                style_prompt=style,
-                output_path=output_path,
-                repaint_start=_start_sec,
-                repaint_end=_end_sec,
-                lyrics=_lyrics_content,
-                cover_strength=_cover_strength,
-                reference_audio=_repaint_ref_audio
-            )
-            if not success:
-                print("Error: Repaint generation failed")
+        if _repaint_source_prefix:
+            _svs_timestamp = time.strftime("%Y%m%d_%H%M%S")
+            if _repaint_source_prefix == 'voice':
+                _svs_result = svs_extract_vocals(resolved_audio)
+            else:
+                _svs_result = svs_extract_music(resolved_audio)
+            if _svs_result and _svs_result != resolved_audio:
+                _repaint_cleanup.append(_svs_result)
+                resolved_audio = _svs_result
+        if _repaint_multipass:
+            _parsed_passes = []
+            for _pi, _spec in enumerate(_repaint_multipass):
+                _parsed, _err = _parse_repaint_pass_spec(_spec)
+                if _err:
+                    print(f"Error: Repaint pass {_pi + 1}: {_err}")
+                    for f in _repaint_cleanup:
+                        if f and os.path.exists(f):
+                            try: os.unlink(f)
+                            except: pass
+                    return False
+                _parsed_passes.append(_parsed)
+            original_name = os.path.splitext(os.path.basename(_repaint_path))[0]
+            original_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', original_name)
+            print("Loading ACE-Step model...")
+            ace_step = AceStepWrapper(use_overdose=use_overdose)
+            if ace_step.handler is None:
+                print("Error: Failed to load ACE-Step model")
+                for f in _repaint_cleanup:
+                    if f and os.path.exists(f):
+                        try: os.unlink(f)
+                        except: pass
                 return False
-            print(f"\n✓ Success! Output saved to: {output_path}")
-            del ace_step
-            ace_step = None
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            return True
-        finally:
-            for f in _repaint_cleanup:
-                if f and os.path.exists(f):
+            _current_source = resolved_audio
+            _last_output = None
+            _intermediate_files = []
+            _total_passes = len(_parsed_passes)
+            try:
+                for _pi, _pass in enumerate(_parsed_passes):
+                    _start_sec = _pass['start']
+                    _end_sec = _pass['end']
                     try:
-                        os.unlink(f)
-                    except:
-                        pass
+                        import soundfile as sf
+                        _audio_info = sf.info(_current_source)
+                        _max_duration = _audio_info.duration
+                    except Exception:
+                        print(f"Error: Could not read audio duration for pass {_pi + 1}")
+                        return False
+                    if _start_sec > _max_duration:
+                        print(f"Error: Pass {_pi + 1}: Start time {_start_sec}s exceeds audio duration {_max_duration:.1f}s")
+                        return False
+                    if _end_sec > _max_duration:
+                        print(f"Pass {_pi + 1}: End time {_end_sec}s exceeds audio duration, clamping to {_max_duration:.1f}s")
+                        _end_sec = _max_duration
+                    if _start_sec >= _end_sec:
+                        print(f"Error: Pass {_pi + 1}: Start time must be less than end time after clamping")
+                        return False
+                    _pass_style = (_pass.get('styling') or '...')
+                    _pass_lyrics = (_pass.get('lyrics') or '...')
+                    _cover_strength = 0.4
+                    if _pass.get('bias') is not None:
+                        try:
+                            _bv = int(_pass['bias'])
+                            if 0 <= _bv <= 100:
+                                if _bv == 0 or _bv == 100:
+                                    _cover_strength = _bv / 100.0
+                                elif _bv % 10 == 5:
+                                    _cover_strength = (_bv - 5) / 100.0
+                                else:
+                                    _cover_strength = (round(_bv / 10) * 10) / 100.0
+                        except (ValueError, TypeError):
+                            pass
+                    _pass_ref_audio = None
+                    if _pass.get('references'):
+                        _pass_ref_audio, _pass_ref_cl = _compose_refs(_pass['references'], results_dir)
+                        _repaint_cleanup.extend(_pass_ref_cl)
+                    _start_int = int(_start_sec)
+                    _end_int = int(_end_sec)
+                    _pass_num = _pi + 1
+                    print(f"Repainting pass {_pass_num}/{_total_passes}: {_start_int}s - {_end_int}s...")
+                    timestamp = time.strftime("%Y%m%d_%H%M%S")
+                    if _pi < _total_passes - 1:
+                        output_path = os.path.join(results_dir, f"voder_ttm_repaint_{original_name}_{_start_int}-{_end_int}_pass{_pass_num}_{timestamp}.wav")
+                    else:
+                        output_path = os.path.join(results_dir, f"voder_ttm_repaint_{original_name}_{_start_int}-{_end_int}_{timestamp}.wav")
+                    success = ace_step.repaint(
+                        src_audio=_current_source,
+                        style_prompt=_pass_style,
+                        output_path=output_path,
+                        repaint_start=_start_sec,
+                        repaint_end=_end_sec,
+                        lyrics=_pass_lyrics,
+                        cover_strength=_cover_strength,
+                        reference_audio=_pass_ref_audio
+                    )
+                    if not success:
+                        print(f"Error: Repaint pass {_pass_num} failed")
+                        return False
+                    if _last_output:
+                        _intermediate_files.append(_last_output)
+                    _last_output = output_path
+                    _current_source = output_path
+                for f in _intermediate_files:
+                    if f and os.path.exists(f):
+                        try: os.unlink(f)
+                        except: pass
+                print(f"\n✓ Success! Output saved to: {_last_output}")
+                del ace_step
+                ace_step = None
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                return True
+            finally:
+                for f in _repaint_cleanup:
+                    if f and os.path.exists(f):
+                        try: os.unlink(f)
+                        except: pass
+        else:
+            if _time_range is None:
+                print("Error: Repaint requires time range (e.g., time:20-80)")
+                return False
+            if 'styling' not in params or len(params['styling']) != 1:
+                print("Error: TTM repaint requires 'styling' parameter")
+                return False
+            _time_parts = _time_range.split('-')
+            if len(_time_parts) != 2:
+                print(f"Error: Invalid time format '{_time_range}', expected time:start-end")
+                return False
+            try:
+                _start_sec = float(_time_parts[0].strip())
+                _end_sec = float(_time_parts[1].strip())
+            except ValueError:
+                print(f"Error: Time values must be numbers, got '{_time_range}'")
+                return False
+            if _start_sec < 0:
+                print("Error: Start time cannot be negative")
+                return False
+            if _end_sec <= 0:
+                print("Error: End time must be greater than 0")
+                return False
+            if _start_sec == _end_sec:
+                print("Error: Start and end time cannot be the same")
+                return False
+            if _start_sec >= _end_sec:
+                print("Error: Start time must be less than end time")
+                return False
+            style = params['styling'][0].replace('\\n', '\n')
+            _lyrics_content = "..."
+            if 'lyrics' in params and len(params['lyrics']) == 1:
+                _lyrics_content = params['lyrics'][0].replace('\\n', '\n')
+            _rp_ref_entries = params.get('ref_entries', [])
+            _repaint_ref_audio = None
+            if _rp_ref_entries:
+                _repaint_ref_audio, ref_cl = _compose_refs(_rp_ref_entries, results_dir)
+                _repaint_cleanup.extend(ref_cl)
+            try:
+                import soundfile as sf
+                _audio_info = sf.info(resolved_audio)
+                _max_duration = _audio_info.duration
+            except Exception:
+                print("Error: Could not read audio duration")
+                for f in _repaint_cleanup:
+                    if f and os.path.exists(f):
+                        try: os.unlink(f)
+                        except: pass
+                return False
+            if _start_sec > _max_duration:
+                print(f"Error: Start time {_start_sec}s exceeds audio duration {_max_duration:.1f}s")
+                for f in _repaint_cleanup:
+                    if f and os.path.exists(f):
+                        try: os.unlink(f)
+                        except: pass
+                return False
+            if _end_sec > _max_duration:
+                print(f"End time {_end_sec}s exceeds audio duration, clamping to {_max_duration:.1f}s")
+                _end_sec = _max_duration
+            _cover_strength = 0.4
+            _bias_raw = params.get('bias_val')
+            if _bias_raw is not None:
+                try:
+                    _bv = int(_bias_raw)
+                    if 0 <= _bv <= 100:
+                        if _bv == 0 or _bv == 100:
+                            _cover_strength = _bv / 100.0
+                        elif _bv % 10 == 5:
+                            _cover_strength = (_bv - 5) / 100.0
+                        else:
+                            _cover_strength = (round(_bv / 10) * 10) / 100.0
+                except (ValueError, TypeError):
+                    pass
+            original_name = os.path.splitext(os.path.basename(_repaint_path))[0]
+            original_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', original_name)
+            print("Loading ACE-Step model...")
+            ace_step = AceStepWrapper(use_overdose=use_overdose)
+            if ace_step.handler is None:
+                print("Error: Failed to load ACE-Step model")
+                for f in _repaint_cleanup:
+                    if f and os.path.exists(f):
+                        try: os.unlink(f)
+                        except: pass
+                return False
+            try:
+                _start_int = int(_start_sec)
+                _end_int = int(_end_sec)
+                print(f"Repainting {_start_int}s - {_end_int}s...")
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                output_path = os.path.join(results_dir, f"voder_ttm_repaint_{original_name}_{_start_int}-{_end_int}_{timestamp}.wav")
+                success = ace_step.repaint(
+                    src_audio=resolved_audio,
+                    style_prompt=style,
+                    output_path=output_path,
+                    repaint_start=_start_sec,
+                    repaint_end=_end_sec,
+                    lyrics=_lyrics_content,
+                    cover_strength=_cover_strength,
+                    reference_audio=_repaint_ref_audio
+                )
+                if not success:
+                    print("Error: Repaint generation failed")
+                    return False
+                print(f"\n✓ Success! Output saved to: {output_path}")
+                del ace_step
+                ace_step = None
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                return True
+            finally:
+                for f in _repaint_cleanup:
+                    if f and os.path.exists(f):
+                        try: os.unlink(f)
+                        except: pass
 
     if 'lyrics' not in params or len(params['lyrics']) != 1:
         print("Error: TTM mode requires exactly one 'lyrics' parameter")

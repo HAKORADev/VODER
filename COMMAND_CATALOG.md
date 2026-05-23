@@ -407,29 +407,56 @@ python voder.py ttm remix "song.wav" styling "rock" reference "ref1.wav" voice "
 
 ### 3d. Repaint
 
-Re-generate a specific time range of a song in a new style.
+Re-generate a specific time range of a song in a new style. Supports two modes: **single-pass** (keyword-based, backward compatible) and **multi-pass** (quoted spec format for sequential edits that build on each previous result).
+
+#### Single-Pass Mode (keyword-based)
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `repaint` | `"<path>"` | Source audio/video file or YouTube/TikTok/Bilibili URL to repaint. |
-| `styling` | `"<text>"` | New style prompt for the repainted section. |
+| `repaint` | `[voice/music] "<path>"` | Source audio/video file or YouTube/TikTok/Bilibili URL to repaint. Optional `voice`/`music` prefix isolates vocals or instruments via SVS before repainting. |
+| `styling` | `"<text>"` | New style prompt for the repainted section. Required. |
 | `time:start-end` | `"<start>-<end>"` | Time range in seconds (e.g., `time:20-80` or `time:20.5-80.5`). Required. Supports float values. |
 | `lyrics` | `"<text>"` | Optional lyrics for the repainted section. Defaults to `"..."` if omitted. |
 | `bias` | `"<0-100>"` | Cover strength bias (same logic as remix). Default: 40. |
 | `reference` | `[voice/music] "<path>" [voice/music "<path>" ...]` | Optional reference audio(s). Up to 3 with optional `voice`/`music` prefix per entry. Multiple refs are composed into a 30s composite. Supports URLs and video files. |
 | `overdose` | (flag) | Use Overdose tier. |
 
-#### Rules
+#### Multi-Pass Mode (quoted spec format)
 
-- `repaint` requires `styling` and `time:start-end`.
+Each pass is a quoted string containing a time range and optional parameters. Each pass uses the output of the previous pass as its source, enabling creative layering of different styles, references, and lyrics across different time ranges.
+
+**Pass spec format:** `"start-end[/styling(text)][/lyrics(text)][/reference-voice(path)][/reference-music(path)][/reference(path)][/bias/nn]"`
+
+| Component | Format | Description |
+|-----------|--------|-------------|
+| `start-end` | `"<start>-<end>"` | Time range in seconds. Required. Supports float values. Start must be less than end. |
+| `/styling(text)` | `/styling(...)` | Style prompt for this pass. Optional, defaults to `"..."`. |
+| `/lyrics(text)` | `/lyrics(...)` | Lyrics for this pass. Optional, defaults to `"..."`. Use `\n` for newlines. |
+| `/reference-voice(path)` | `/reference-voice(...)` | Vocal reference (extracted via SVS). Optional. |
+| `/reference-music(path)` | `/reference-music(...)` | Instrumental reference (extracted via SVS). Optional. |
+| `/reference(path)` | `/reference(...)` | As-is reference (no SVS extraction). Optional. |
+| `/bias/nn` | `/bias/nn` | Cover strength 0-100. Optional, default: 40. |
+
+- Up to 3 references per pass; excess entries produce a warning and are trimmed.
+- Multiple references in a pass are composed into a 30s composite.
+- No limit on the number of passes.
+- Re-editing the same time range across passes is expected behavior.
+- Paths containing `/` are handled correctly (parenthesis-aware parsing).
+- Each pass can have different styling, lyrics, references, and bias.
+
+#### Rules (both modes)
+
 - Start must be less than end. If end exceeds audio duration, it is clamped. If start exceeds duration, it produces an error.
 - Cannot be combined with `vc`.
+- `voice` prefix on source extracts vocals via SVS before repainting.
+- `music` prefix on source extracts instruments via SVS before repainting.
 - `reference voice` extracts vocals from the reference via SVS before use.
 - `reference music` extracts instruments from the reference via SVS before use.
 - `reference "<path>"` uses the reference audio as-is.
 - Up to 3 references; excess entries produce a warning and are trimmed.
 - Multiple references are composed into a 30s composite (same logic as remix).
 - Reference can be a local file, video file, or YouTube/TikTok/Bilibili URL.
+- In multi-pass mode, each pass uses the output of the previous pass as its source. The model is loaded once and reused for all passes. Intermediate pass outputs are cleaned up; only the final output is retained.
 
 ```
 # Repaint 20s-80s of a song
@@ -452,6 +479,27 @@ python voder.py ttm repaint "song.wav" styling "orchestral" time:20-80 reference
 
 # Repaint with overdose (after mode name)
 python voder.py ttm overdose repaint "song.wav" styling "orchestral" time:20-80
+
+# Repaint with voice isolation on source
+python voder.py ttm repaint voice "song.wav" styling "funk" time:20-80
+
+# Repaint with music isolation on source
+python voder.py ttm repaint music "song.wav" styling "ambient" time:20-80
+
+# Multi-pass: two passes with different styles and bias
+python voder.py ttm repaint "song.wav" "20-80/styling(orchestral)" "10-30/styling(jazz)/bias/70"
+
+# Multi-pass: with lyrics and reference per pass
+python voder.py ttm repaint "song.wav" "0-30/styling(funk)/lyrics(new words\nhere)" "15-30/styling(ambient)/reference(ref.wav)"
+
+# Multi-pass: overdose with per-pass voice reference
+python voder.py ttm overdose repaint "song.wav" "0-15/styling(lo-fi)" "10-25/styling(drum and bass)/bias/80/reference-voice(vocals.wav)"
+
+# Multi-pass: music isolation on source, with reference-music on second pass
+python voder.py ttm repaint music "song.wav" "0-30/styling(chill)" "20-30/styling(epic)/reference-music(inst.wav)"
+
+# Multi-pass: three passes building on each other
+python voder.py ttm repaint "song.wav" "0-30/styling(ambient)" "10-25/styling(jazz)/reference(ref.wav)" "15-30/styling(rock)/bias/90/reference-voice(lead.wav)"
 ```
 
 ---
