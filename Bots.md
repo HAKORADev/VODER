@@ -640,6 +640,26 @@ python src/voder.py ttm complete "input.wav" add "drums bass" sfx "thunder rumbl
 python src/voder.py ttm complete "input.wav" sfx "doorbell/5-12/50" result "/output/complete_sfx_only.wav"
 ```
 
+**Complete with voice isolation (SVS pre-extract vocals):**
+```bash
+python src/voder.py ttm complete voice "song.wav" add "drums bass" result "/output/voice_completed.wav"
+```
+
+**Complete with music isolation (SVS pre-extract instruments):**
+```bash
+python src/voder.py ttm complete music "song.wav" add "everything" result "/output/music_completed.wav"
+```
+
+**Complete with voice isolation + usrc (blend with original source):**
+```bash
+python src/voder.py ttm complete voice usrc "song.wav" add "drums bass guitar" result "/output/voice_usrc_completed.wav"
+```
+
+**Complete with music isolation + usrc (blend with original source):**
+```bash
+python src/voder.py ttm complete music usrc "song.wav" add "everything" result "/output/music_usrc_completed.wav"
+```
+
 **Lego: build individual instrument tracks:**
 ```bash
 python src/voder.py ttm lego "input.wav" make "drums bass" mix result "/output/lego.wav"

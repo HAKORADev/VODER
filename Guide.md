@@ -897,6 +897,7 @@ For voice conversion, BS‑RoFormer automatically extracts clean vocals from the
 | `source "path"` | Source audio (complete/lego/extract) | Required for those sub-tasks |
 | `styling "..."` | Style prompt for complete/lego sub-tasks | Optional (influences mood and genre) |
 | `noblend` | Output generated instruments only without blending with original (`complete` only) | Optional (default: blend with original) |
+| `usrc` | Blend with original source instead of isolated voice/music (`complete` only, requires `voice` or `music`) | Optional (default: blend with isolated source) |
 | `sfx "prompt/duration-position/level"` | SFX overlay spec (bgm/complete only, multiple allowed) | Optional (see SFX Overlay Syntax below) |
 | `video` | Preserve video output (`complete`/`bgm`) — downloads video from URL, merges back | Optional |
 | `overdose` | Use XL-Turbo model for max quality | Optional |
@@ -2261,6 +2262,8 @@ python src/voder.py ttm repaint "song.wav" time:45-75 styling "more energetic vo
 **Add Missing Instruments:**
 Use `complete` to add instruments to an existing track. If you have a vocal recording, you can add a full band behind it. Optionally use `styling` to influence the mood and genre of the generated instruments. Add `noblend` to output just the generated instruments without blending with the original source. The `complete` sub-task also supports **SFX overlay** via `sfx:` specs — sound effects are overlaid after the blend step. When only `sfx:` specs are provided (no `add`), the music model is not loaded at all, making it efficient for SFX-only overlays. Note that `sfx:` cannot be used with `noblend`.
 
+The `voice` and `music` keywords isolate vocals or instruments from the source via SVS before processing — the model works on the isolated content and blends the result with the same isolated source by default. Add `usrc` (use source) to instead blend with the **original source before isolation**, which keeps the untouched parts intact in the final mix. `usrc` has no effect without `voice` or `music` (since there is only one source to blend with) and will be silently ignored with a warning in that case.
+
 ```bash
 python src/voder.py ttm complete source "vocal_demo.wav" add "everything"
 
@@ -2275,6 +2278,18 @@ python src/voder.py ttm complete source "vocal_demo.wav" add "drums bass" sfx "t
 
 # SFX only — no instruments added, no music model loaded
 python src/voder.py ttm complete source "narration.wav" sfx "wind howling/15-0/40" sfx "footsteps on gravel/8-20/55"
+
+# With voice isolation — extract vocals, complete on vocals, blend with vocals
+python src/voder.py ttm complete voice "song.wav" add "drums bass"
+
+# With music isolation — extract instruments, complete on instruments, blend with instruments
+python src/voder.py ttm complete music "song.wav" add "everything"
+
+# Voice + usrc — extract vocals, complete on vocals, blend with original source (pre-isolation)
+python src/voder.py ttm complete voice usrc "song.wav" add "drums bass guitar"
+
+# Music + usrc — extract instruments, complete on instruments, blend with original source
+python src/voder.py ttm complete music usrc "song.wav" add "everything"
 ```
 
 **Build from Stems:**

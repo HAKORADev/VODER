@@ -504,7 +504,7 @@ TTM supports multiple sub-tasks via the `task` parameter:
 
 | Sub-Task | CLI Keyword | Description | Model |
 |----------|------------|-------------|-------|
-| **Complete** | `complete` | Add missing tracks to existing audio; supports optional `styling` prompt, `noblend` flag, and `sfx:` overlay specs | XL-Base (+ TangoFlux for SFX) |
+| **Complete** | `complete` | Add missing tracks to existing audio; supports optional `styling` prompt, `noblend` flag, `voice`/`music` isolation, `usrc` blend source, and `sfx:` overlay specs | XL-Base (+ SVS if voice/music + TangoFlux for SFX) |
 | **Lego** | `lego` | Build/generate individual instrument tracks; supports optional `styling` prompt | XL-Base |
 | **Extract** | `extract` | Extract individual tracks from audio | XL-Base |
 | **Remix** | `remix` | Style transfer (cover) with bias control; supports `reference` for additional guidance | XL-Turbo (overdose) or Legacy |
@@ -582,6 +582,18 @@ python src/voder.py ttm complete "base_track.wav" add "drums bass" sfx:"cymbal c
 # Complete with SFX overlay is invalid with noblend
 # python src/voder.py ttm complete noblend "base.wav" sfx:"boom/5-0/50"
 # Error: sfx: cannot be used with noblend
+
+# Complete with voice isolation (SVS pre-extract vocals, blend with vocals)
+python src/voder.py ttm complete voice "song.wav" add "drums bass" result "/output/voice_completed.wav"
+
+# Complete with music isolation (SVS pre-extract instruments, blend with instruments)
+python src/voder.py ttm complete music "song.wav" add "everything" result "/output/music_completed.wav"
+
+# Complete with voice + usrc (blend with original source instead of isolated vocals)
+python src/voder.py ttm complete voice usrc "song.wav" add "drums bass guitar" result "/output/voice_usrc_completed.wav"
+
+# Complete with music + usrc (blend with original source instead of isolated instruments)
+python src/voder.py ttm complete music usrc "song.wav" add "everything" result "/output/music_usrc_completed.wav"
 
 # Lego: build/generate individual instrument tracks
 python src/voder.py ttm lego "..." make "drums bass strings" styling "jazz trio" duration 120 result "/output/stems.wav"

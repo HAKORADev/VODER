@@ -4907,6 +4907,12 @@ def parse_oneline_args(args):
                 return result
             result['params']['noblend'] = True
             i += 1
+        elif mode == 'ttm' and arg_lower == 'usrc':
+            if 'complete' not in result['params']:
+                result['error'] = 'usrc keyword is only valid with complete task'
+                return result
+            result['params']['use_source'] = True
+            i += 1
         elif mode == 'ttm' and (arg.startswith('sfx:') or (arg.startswith('"sfx:') and arg.endswith('"'))):
             if 'bgm' not in result['params'] and 'complete' not in result['params']:
                 result['error'] = '"sfx:" specs are only valid with bgm or complete task'
@@ -5251,6 +5257,7 @@ def show_oneline_usage():
     print("  ocr      - Image file path for OCR text extraction (TTS modes)")
     print("  overdose - Use VibeVoice ASR for dialogue source and enhanced music (TTS/TTM modes)")
     print("  bgm      - Add or replace background music on an audio/video (TTM mode)")
+    print("  usrc     - Blend with original source instead of isolated voice/music (complete)")
     print("  "sfx:"   - Sound effect spec for bgm/complete tasks: "sfx:prompt/duration-position/level"")
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
     print()
@@ -5271,6 +5278,13 @@ def show_oneline_usage():
     print('  python voder.py ttm complete "source.wav" add "drums bass" "sfx:thunder/10-5/50"')
     print('  python voder.py ttm complete "source.wav" "sfx:rain/8-22"')
     print('  python voder.py ttm complete video "source.mp4" add "everything" "sfx:boom/12-30/40"')
+    print()
+    print("Complete with voice/music isolation examples:")
+    print('  python voder.py ttm complete voice "song.wav" add "drums bass"')
+    print('  python voder.py ttm complete music "song.wav" add "everything"')
+    print('  python voder.py ttm complete voice usrc "song.wav" add "drums bass guitar"')
+    print('  python voder.py ttm complete music usrc "song.wav" add "everything"')
+    print('  python voder.py ttm complete voice "podcast.wav" "sfx:bell/5-10/40"')
     print()
     print('SFX spec format: "sfx:prompt/duration-position/level"')
     print("  prompt    - SFX description text (required)")
@@ -6467,6 +6481,7 @@ def oneline_ttm_complete(params):
 
     use_vocals = params.get('use_vocals', False)
     use_music = params.get('use_music', False)
+    use_source = params.get('use_source', False)
     want_video = params.get('want_video', False)
     _cleanup = []
 
@@ -6582,6 +6597,10 @@ def oneline_ttm_complete(params):
     else:
         print("Using source audio as-is")
 
+    if use_source and not use_vocals and not use_music:
+        print("Warning: usrc has no effect without voice or music (only one source to blend with)")
+        use_source = False
+
     reference_audio = None
     _ref_type = params.get('ref_type')
     _ref_path = params.get('ref_path')
@@ -6639,7 +6658,8 @@ def oneline_ttm_complete(params):
         elif want_video and not video_path:
             print("Warning: 'video' specified but source is an audio file (not video). Outputting as WAV.")
         _noblend_tag = '_noblend_' if noblend else ''
-        output_filename = f'voder_ttm_complete_{original_name}{_noblend_tag}_{timestamp}{output_ext}'
+        _usrc_tag = '_usrc_' if use_source else ''
+        output_filename = f'voder_ttm_complete_{original_name}{_noblend_tag}{_usrc_tag}{timestamp}{output_ext}'
         output_path = os.path.join(results_dir, output_filename)
 
         blended_path = actual_source
@@ -6692,9 +6712,13 @@ def oneline_ttm_complete(params):
                 blended_path = temp_gen_wav
                 _cleanup.append(temp_gen_wav)
             else:
-                print("Blending completed audio with source...")
+                blend_source = source_audio if use_source else actual_source
+                if use_source:
+                    print("Blending completed audio with original source (usrc)...")
+                else:
+                    print("Blending completed audio with source...")
                 temp_blend_wav = os.path.join(results_dir, f'_ttm_complete_blend_{timestamp}.wav')
-                ret = os.system(f'ffmpeg -y -i "{temp_gen_wav}" -i "{actual_source}" -filter_complex amix=inputs=2:duration=longest "{temp_blend_wav}" 2>/dev/null')
+                ret = os.system(f'ffmpeg -y -i "{temp_gen_wav}" -i "{blend_source}" -filter_complex amix=inputs=2:duration=longest "{temp_blend_wav}" 2>/dev/null')
                 if os.path.exists(temp_gen_wav):
                     try:
                         os.unlink(temp_gen_wav)

@@ -433,6 +433,7 @@ Add missing instruments to an existing track. Uses ACE-Step XL-Base + 1.7B LM + 
 | `noblend` | (flag) | Output the generated instruments only, without blending with the original source audio. Output filename includes `_noblend_`. |
 | `voice` | (flag) | Pre-extract vocals from source via SVS before processing. Cannot combine with `music`. |
 | `music` | (flag) | Pre-extract music (remove vocals) from source via SVS before processing. Cannot combine with `voice`. |
+| `usrc` | (flag) | Blend with original source (before SVS isolation) instead of the isolated voice/music. Only meaningful with `voice` or `music`. Ignored with a warning if used alone. Output filename includes `_usrc_`. |
 | `video` | (flag) | Preserve video if source is a video. Merges completed audio back with video. |
 | `reference` | `voice "<path>"` / `music "<path>"` / `"<path>"` | Optional reference audio. Single reference only (complete mode). |
 | `sfx:` | `prompt/duration-position/level` | Sound effect overlay spec. Multiple allowed. See **SFX Overlay Spec** below. |
@@ -445,6 +446,7 @@ Add missing instruments to an existing track. Uses ACE-Step XL-Base + 1.7B LM + 
 - If only `sfx:` specs are provided (no `add`), the music model is not loaded — SFX is overlaid directly on the source.
 - `add` (instruments) and `sfx:` can be combined.
 - `voice` and `music` are mutually exclusive. If neither, source is used as-is.
+- `usrc` changes the blend target: with `voice`/`music`, the default blend is with the isolated source; `usrc` switches to the original (pre-isolation) source. Without `voice`/`music`, `usrc` is ignored with a warning.
 - `noblend` skips the post-generation blend step — the output is the model's generated audio only (no mixing with the original source).
 - `video` is valid with `complete` and `bgm` (not lego/extract).
 - YouTube URLs: with `video` downloads video file, without downloads audio only.
@@ -485,6 +487,12 @@ python voder.py ttm complete "vocals_only.wav" add "drums bass" sfx:rain/8-22/40
 
 # Multiple SFX overlays
 python voder.py ttm complete "podcast.wav" sfx:thunder/10-5/50 sfx:rain/8-22/40
+
+# Voice isolation + usrc: complete vocals, blend with original source (not just isolated vocals)
+python voder.py ttm complete voice usrc "song.wav" add "drums bass guitar"
+
+# Music isolation + usrc: complete instruments, blend with original source
+python voder.py ttm complete music usrc "song.wav" add "everything"
 ```
 
 ---
