@@ -337,10 +337,11 @@ Re-generate a song in a new style. Uses ACE-Step cover method. Supports **multi-
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `remix` | `[voice/music] "<path>" [voice/music "<path>" ...]` | Source audio(s) to remix. Up to 3 sources with optional `voice`/`music` prefix per source. Multiple sources are composed into one (equal time per source). |
+| `remix` | `[voice/music] "<path>" [voice/music "<path>" ...]` | Source audio(s) to remix (shorthand, paths directly after `remix`). Up to 3 sources with optional `voice`/`music` prefix per source. Multiple sources are composed into one (equal time per source). |
 | `lyrics` | `"<text>"` | Optional lyrics to guide new vocal content in the remix. |
 | `styling` | `"<text>"` | New style prompt for the remix. |
 | `bias` | `"<0-100>"` | Cover strength bias. 0 = full original, 100 = full cover. Snaps to nearest 10; values ending in 5 snap down to the lower multiple of 10 (e.g., 45 → 0.4, 15 → 0.1). Default: 40 (= 0.4 strength). |
+| `source` | `[voice/music] "<path>" [voice/music "<path>" ...]` | Explicit source keyword for remix. Up to 3 sources with optional `voice`/`music` prefix per entry. Same composition logic as `remix` shorthand. |
 | `reference` | `[voice/music] "<path>" [voice/music "<path>" ...]` | Optional reference audio(s). Up to 3 with optional `voice`/`music` prefix per entry. Multiple refs are composed into a 30s composite. |
 | `overdose` | (flag) | Use Overdose tier. |
 
@@ -396,6 +397,12 @@ python voder.py ttm overdose remix voice "song.wav" styling "cinematic orchestra
 # Multi-source remix (vocals + instruments from different songs)
 python voder.py ttm remix voice "vocals.wav" music "instruments.wav" styling "funk" bias 60
 
+# Multi-source remix using explicit source keyword
+python voder.py ttm remix source voice "vocals.wav" music "instruments.wav" styling "funk" bias 60
+
+# Multi-source remix with 3 sources via source keyword + reference
+python voder.py ttm remix source voice "vocals.wav" music "instruments.wav" "extra.wav" styling "funk" reference voice "ref.wav"
+
 # Multi-reference remix (2 references)
 python voder.py ttm remix "song.wav" styling "pop" reference voice "ref1.wav" music "ref2.wav"
 
@@ -416,7 +423,7 @@ Re-generate a specific time range of a song in a new style.
 | `time:start-end` | `"<start>-<end>"` | Time range in seconds (e.g., `time:20-80` or `time:20.5-80.5`). Required. Supports float values. |
 | `lyrics` | `"<text>"` | Optional lyrics for the repainted section. Defaults to `"..."` if omitted. |
 | `bias` | `"<0-100>"` | Cover strength bias (same logic as remix). Default: 40. |
-| `reference` | `voice "<path>"` / `music "<path>"` / `"<path>"` | Optional reference audio. Single reference only (repaint mode). Supports URLs and video files. |
+| `reference` | `[voice/music] "<path>" [voice/music "<path>" ...]` | Optional reference audio(s). Up to 3 with optional `voice`/`music` prefix per entry. Multiple refs are composed into a 30s composite. Supports URLs and video files. |
 | `overdose` | (flag) | Use Overdose tier. |
 
 #### Rules
@@ -427,6 +434,8 @@ Re-generate a specific time range of a song in a new style.
 - `reference voice` extracts vocals from the reference via SVS before use.
 - `reference music` extracts instruments from the reference via SVS before use.
 - `reference "<path>"` uses the reference audio as-is.
+- Up to 3 references; excess entries produce a warning and are trimmed.
+- Multiple references are composed into a 30s composite (same logic as remix).
 - Reference can be a local file, video file, or YouTube/TikTok/Bilibili URL.
 
 ```
@@ -444,6 +453,9 @@ python voder.py ttm repaint "song.wav" styling "orchestral" time:20-80 reference
 
 # Repaint with reference (extract vocals)
 python voder.py ttm repaint "song.wav" styling "orchestral" time:20-80 reference voice "vocals.wav"
+
+# Repaint with multi-reference (2 references)
+python voder.py ttm repaint "song.wav" styling "orchestral" time:20-80 reference voice "ref1.wav" music "ref2.wav"
 
 # Repaint with overdose (after mode name)
 python voder.py ttm overdose repaint "song.wav" styling "orchestral" time:20-80
@@ -466,7 +478,7 @@ Add missing instruments to an existing track. Uses ACE-Step XL-Base + 1.7B LM + 
 | `music` | (flag) | Pre-extract music (remove vocals) from source via SVS before processing. Cannot combine with `voice`. |
 | `usrc` | (flag) | Blend with original source (before SVS isolation) instead of the isolated voice/music. Only meaningful with `voice` or `music`. Ignored with a warning if used alone. Output filename includes `_usrc_`. |
 | `video` | (flag) | Preserve video if source is a video. Merges completed audio back with video. |
-| `reference` | `voice "<path>"` / `music "<path>"` / `"<path>"` | Optional reference audio. Single reference only (complete mode). |
+| `reference` | `[voice/music] "<path>" [voice/music "<path>" ...]` | Optional reference audio(s). Up to 3 with optional `voice`/`music` prefix per entry. Multiple refs are composed into a 30s composite. |
 | `sfx:` | `prompt/duration-position/level` | Sound effect overlay spec. Multiple allowed. See **SFX Overlay Spec** below. |
 | `overdose` | (flag) | Valid flag for complete mode. Note: complete mode always uses XL-Base + 1.7B LM + shift 1.0 (50 steps) regardless — the `complete_mode=True` setting overrides model selection. Including `overdose` is not wrong; it serves to identify that the task uses the big model. |
 
@@ -677,7 +689,7 @@ Replace background music in an existing audio or video file. Strips existing mus
 | `music` | `"<description>"` | Description for the new background music to generate. Optional if `sfx:` specs are provided. |
 | `level` | `<0-100>` | Music volume level (0 = silent, 100 = full volume). Default: 35. |
 | `video` | (flag) | Preserve video output. When source is a URL, downloads the video file and merges result back into .mp4. For local video files, video output is automatic (no flag needed). |
-| `reference` | `"<path>"` | Optional reference audio/video/URL for style guidance. Processed through SVS music pipe to extract clean instrumental. |
+| `reference` | `[voice/music] "<path>" [voice/music "<path>" ...]` | Optional reference audio(s). Up to 3 with optional `voice`/`music` prefix per entry. Multiple refs are composed into a 30s composite. |
 | `sfx:` | `prompt/duration-position/level` | Sound effect overlay spec. Multiple allowed. See **SFX Overlay Spec** below. |
 | `overdose` | (flag) | Use Overdose tier (ACE-Step XL-Turbo + 4B LM + shift 3.0) instead of Standard tier (ACE-Step 1.5 Turbo). |
 
@@ -688,7 +700,7 @@ Replace background music in an existing audio or video file. Strips existing mus
 - `bgm` cannot be combined with `vc`, `remix`, `repaint`, `complete`, `lego`, or `extract`.
 - Source is resolved through `resolve_target_to_audio()` — supports audio files, video files, and URLs.
 - `video` flag: when source is a YouTube URL, downloads the video file (not just audio) and merges the result back into .mp4. For local video files, video output is automatic. If `video` is used with an audio source, outputs .wav with a warning.
-- Reference supports audio files, video files, and URLs — always processed through SVS music pipe for clean instrumental.
+- Reference supports audio files, video files, and URLs. Up to 3 references are composed into a 30s composite.
 - Video inputs produce `.mp4` output with the new audio re-muxed; audio inputs produce `.wav`.
 - Output naming: `voder_ttm_bgm_{original-name}_{timestamp}.wav` (audio) or `.mp4` (video).
 - Normal (non-overdose) uses ACE-Step turbo 1.5 model.
