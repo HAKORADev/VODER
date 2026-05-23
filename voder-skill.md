@@ -121,7 +121,7 @@ VODER uses three types of parameters:
 |------|-------------|----------|
 | **Positional** | Mode name comes first, input files follow | `stt "audio.wav"` |
 | **Named** | Key-value pairs with space separation | `voice "male"` `duration 30` |
-| **Flags** | Standalone keywords that enable features | `timestamp` `dialogue` `music` `translate` `overdose` `mimic` `vc` |
+| **Flags** | Standalone keywords that enable features | `timestamp` `dialogue` `music` `translate` `overdose` `mimic` `vc` `nomusic` |
 
 ### Parameter Multiplicity
 
@@ -148,7 +148,7 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 1. **Mode comes first**: `tts`, `stt`, `sts`, `ttm`, `svs`, `slc`, `ss`, etc.
 2. **Required parameters follow**: `script`, `voice`, `target`, `base`, `lyrics`, `styling`, etc.
 3. **Optional parameters come after**: `music`, `level`, `result`, `vc`, `stem`, `task`, etc.
-4. **Flags can appear anywhere after mode**: `timestamp`, `dialogue`, `music` (STS), `mimic` (STS), `translate` (STT), `overdose` (STT, TTM, TTS), `vc` (TTM)
+4. **Flags can appear anywhere after mode**: `timestamp`, `dialogue`, `music` (STS), `mimic` (STS), `nomusic` (STS), `translate` (STT), `overdose` (STT, TTM, TTS), `vc` (TTM)
 
 ---
 
@@ -390,18 +390,20 @@ STS mode transforms the **voice** in source audio to sound like a different pers
 STS supports audio **and video** input/output. When given a video file, the audio track is extracted, processed, and optionally re-attached to the video.
 
 ### How It Works
-1. **Input Processing**: Audio extracted from video if needed; optionally BS-RoFormer auto-extracts vocals from mixed audio
-2. **Content Extraction**: Seed-VC extracts the linguistic and prosodic content from source audio (what was said, how it was said)
-3. **Voice Extraction**: The target voice reference is analyzed for speaker characteristics
-4. **Voice Transfer**: The content is re-synthesized with the target voice characteristics
-5. **Output Assembly**: Converted audio is written (or re-attached to video container)
-6. **Sample Rate Handling**: v2 model outputs at 22.05kHz (speech), v1 at 44.1kHz (music)
+1. **Source Separation**: BS-RoFormer extracts vocals and music from source audio; only vocals go to the VC model
+2. **Target Extraction**: Clean vocals are extracted from the target reference
+3. **Content Extraction**: Seed-VC extracts the linguistic and prosodic content from source vocals (what was said, how it was said)
+4. **Voice Extraction**: The target voice reference is analyzed for speaker characteristics
+5. **Voice Transfer**: The content is re-synthesized with the target voice characteristics
+6. **Recombination**: Converted vocals are mixed back with the source music (unless `nomusic` is used)
+7. **Output Assembly**: Audio is written (or re-attached to video container)
+8. **Sample Rate Handling**: v2 model outputs at 22.05kHz (speech), v1 at 44.1kHz (music)
 
 ### Auto Vocal Extraction
-When the source audio contains music or background noise, BS-RoFormer can automatically extract the vocal track before voice conversion. This produces cleaner results by separating the voice from interference before Seed-VC processes it. This is particularly useful for:
-- Converting vocals in songs (use with `music` flag)
-- Cleaning up interview recordings before conversion
-- Processing audio with significant background noise
+VODER automatically runs BS‑RoFormer vocal isolation on both the source and target audio. For the source, vocals are separated so the VC model processes only the voice — producing cleaner conversion — and the instrumental is extracted separately for recombination after conversion (unless `nomusic` is used). For the target, clean vocals are extracted to improve cloning quality. If SVS extraction fails, the original audio is used as a fallback. This is particularly useful for:
+- Converting vocals in mixed audio without degrading the music
+- Cleaning up recordings before conversion
+- Ensuring the VC model receives the cleanest possible voice input
 
 ### STS vs TTS: When to Use Which
 
@@ -453,12 +455,24 @@ python src/voder.py sts base "source.wav" target "reference.wav" mimic music
 
 **Mimic Language Quality Note**: When using `mimic` for cross-language voice conversion (e.g., converting Spanish speech to an English speaker's voice), quality may vary. Mimic transfers timbre and style but does not translate content. For language conversion, use SLC mode (2.9) instead.
 
+#### nomusic (Voice-Only Output)
+```bash
+# Output only the converted voice without mixing back source music
+python src/voder.py sts base "song.wav" target "singer.wav" nomusic
+
+# This is invalid - nomusic and music cannot be combined
+python src/voder.py sts base "song.wav" target "singer.wav" nomusic music
+# Error: nomusic cannot be used with music
+```
+
 ### Model Selection
 
 | Flag | Model | Sample Rate | Use Case |
 |------|-------|-------------|----------|
-| (none) | Seed-VC v2 | 22.05kHz | Speech, podcasts, interviews |
+| (none) | Seed-VC v2 | 22.05kHz | Speech, podcasts, interviews (music auto-recombined) |
 | `music` | Seed-VC v1 | 44.1kHz | Songs, musical content, singing |
+| `nomusic` | Seed-VC v2 | 22.05kHz | Voice-only output (no music recombination) |
+| `mimic` | Seed-VC v2 (AR+CFM) | 22.05kHz | Style transfer (voice + accent + delivery) |
 
 ### Video I/O Support
 
@@ -1179,7 +1193,7 @@ python src/voder.py svs "song1.wav" "song2.mp3" "song3.flac" result "/output/ste
 
 | Mode | How SVS Is Used |
 |------|-----------------|
-| STS | Before voice conversion, extracts clean vocals from mixed source audio |
+| STS | Extracts vocals and music from source (vocals for conversion, music for recombination), and clean vocals from target |
 | STT | Pre-cleanup: separates vocals for cleaner transcription of music-heavy audio |
 | TTS | When `target` reference contains background noise/music, extracts clean voice |
 

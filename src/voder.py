@@ -4380,6 +4380,7 @@ def cli_sts_mode():
         return False
     target_path = resolved_target
     print()
+    no_music = False
     while True:
         music_input = input("Are the inputs musical? (Y/N): ").strip().lower()
         if music_input in ['y', 'yes']:
@@ -4390,6 +4391,17 @@ def cli_sts_mode():
             break
         else:
             print("Please enter Y or N")
+    if not is_music:
+        while True:
+            nomusic_input = input("Output voice only without music? (Y/N): ").strip().lower()
+            if nomusic_input in ['y', 'yes']:
+                no_music = True
+                break
+            elif nomusic_input in ['n', 'no']:
+                no_music = False
+                break
+            else:
+                print("Please enter Y or N")
     if is_music:
         if base_is_video:
             print("Error: Base input must be audio for MSTS mode")
@@ -4477,6 +4489,15 @@ def cli_sts_mode():
                     except:
                         pass
     else:
+        print("Extracting vocals from source...")
+        base_vocals = svs_extract_vocals(base_path)
+        _target_cleanup.append(base_vocals)
+        base_music = None
+        if not no_music:
+            print("Extracting music from source...")
+            base_music = svs_extract_music(base_path)
+            _target_cleanup.append(base_music)
+        print("Extracting clean vocals from target...")
         clean_vocal_target = svs_extract_vocals(target_path)
         _target_cleanup.append(clean_vocal_target)
         print("\nLoading Seed-VC v2 model...")
@@ -4494,23 +4515,23 @@ def cli_sts_mode():
             return False
         print("Resampling inputs to 22050Hz...")
         import torchaudio
-        waveform_base, sr_base = torchaudio.load(base_path)
-        if sr_base != 22050:
-            resampler_base = torchaudio.transforms.Resample(sr_base, 22050)
-            waveform_base = resampler_base(waveform_base)
+        waveform_vocals, sr_vocals = torchaudio.load(base_vocals)
+        if sr_vocals != 22050:
+            resampler_vocals = torchaudio.transforms.Resample(sr_vocals, 22050)
+            waveform_vocals = resampler_vocals(waveform_vocals)
         waveform_target, sr_target = torchaudio.load(clean_vocal_target)
         if sr_target != 22050:
             resampler_target = torchaudio.transforms.Resample(sr_target, 22050)
             waveform_target = resampler_target(waveform_target)
-        temp_base = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        temp_vocals = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         temp_target = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         temp_output_22k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         try:
-            torchaudio.save(temp_base.name, waveform_base, 22050)
+            torchaudio.save(temp_vocals.name, waveform_vocals, 22050)
             torchaudio.save(temp_target.name, waveform_target, 22050)
             print("Converting voice...")
             success = seed_vc.convert(
-                source_path=temp_base.name,
+                source_path=temp_vocals.name,
                 reference_path=temp_target.name,
                 output_path=temp_output_22k.name
             )
@@ -4522,30 +4543,35 @@ def cli_sts_mode():
             if sr_out != 44100:
                 resampler_out = torchaudio.transforms.Resample(sr_out, 44100)
                 waveform_out = resampler_out(waveform_out)
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            if base_is_video:
-                print("Merging converted audio with video...")
-                temp_audio_path = os.path.join(tempfile.gettempdir(), f"voder_sts_merge_{timestamp}.wav")
-                torchaudio.save(temp_audio_path, waveform_out, 44100)
-                output_path = os.path.join(results_dir, f"voder_sts_{timestamp}.mp4")
-                ret = os.system(f'ffmpeg -y -i "{base_original}" -i "{temp_audio_path}" -c:v copy -map 0:v:0 -map 1:a:0 -shortest "{output_path}" 2>/dev/null')
-                if ret != 0 or not os.path.exists(output_path):
-                    print("Error: Failed to merge audio with video")
-                    return False
-                if os.path.exists(temp_audio_path):
-                    os.remove(temp_audio_path)
-            else:
-                output_path = os.path.join(results_dir, f"voder_sts_{timestamp}.wav")
-                torchaudio.save(output_path, waveform_out, 44100)
-            print(f"\n✓ Success! Output saved to: {output_path}")
+            temp_output_44k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            torchaudio.save(temp_output_44k.name, waveform_out, 44100)
             del seed_vc
             seed_vc = None
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            if not no_music and base_music and os.path.exists(base_music):
+                print("Mixing converted vocals with source music...")
+                output_path = os.path.join(results_dir, f"voder_sts_{timestamp}.wav")
+                ret = os.system(f'ffmpeg -y -i "{temp_output_44k.name}" -i "{base_music}" -filter_complex "[0:a]volume=1.0[vc];[1:a]volume=1.0[music];[vc][music]amix=inputs=2:duration=longest" "{output_path}" 2>/dev/null')
+                if ret != 0 or not os.path.exists(output_path):
+                    print("Warning: Mixing failed, saving converted vocals only")
+                    shutil.copy(temp_output_44k.name, output_path)
+            elif base_is_video:
+                print("Merging converted audio with video...")
+                output_path = os.path.join(results_dir, f"voder_sts_{timestamp}.mp4")
+                ret = os.system(f'ffmpeg -y -i "{base_original}" -i "{temp_output_44k.name}" -c:v copy -map 0:v:0 -map 1:a:0 -shortest "{output_path}" 2>/dev/null')
+                if ret != 0 or not os.path.exists(output_path):
+                    print("Error: Failed to merge audio with video")
+                    return False
+            else:
+                output_path = os.path.join(results_dir, f"voder_sts_{timestamp}.wav")
+                shutil.copy(temp_output_44k.name, output_path)
+            print(f"\n✓ Success! Output saved to: {output_path}")
             return True
         finally:
-            for temp_file in [temp_base.name, temp_target.name, temp_output_22k.name]:
+            for temp_file in [temp_vocals.name, temp_target.name, temp_output_22k.name, temp_output_44k.name]:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
             if temp_base_extracted and os.path.exists(temp_base_extracted):
@@ -4839,7 +4865,7 @@ def parse_oneline_args(args):
     if not args:
         return {'error': 'No arguments provided'}
     mode = args[0].lower()
-    result = {'mode': mode, 'params': {}, 'error': None, 'is_music': False, 'is_mimic': False}
+    result = {'mode': mode, 'params': {}, 'error': None, 'is_music': False, 'is_mimic': False, 'nomusic': False}
     valid_keywords = ['script', 'voice', 'lyrics', 'styling', 'base', 'target', 'duration', 'timestamp', 'dialogue', 'sound', 'steps', 'guide', 'level', 'ocr', 'reference', 'music']
     i = 1
     current_keyword = None
@@ -5304,6 +5330,13 @@ def parse_oneline_args(args):
             result['is_mimic'] = True
             current_keyword = None
             i += 1
+        elif mode == 'sts' and arg_lower == 'nomusic':
+            if result['is_music']:
+                result['error'] = 'nomusic cannot be used with music'
+                return result
+            result['nomusic'] = True
+            current_keyword = None
+            i += 1
         elif mode == 'ttm' and arg_lower == 'vc':
             result['params']['vc'] = True
             i += 1
@@ -5612,6 +5645,8 @@ def execute_oneline_command(parsed):
         params['is_music'] = parsed['is_music']
     if 'is_mimic' in parsed:
         params['is_mimic'] = parsed['is_mimic']
+    if 'nomusic' in parsed:
+        params['nomusic'] = parsed['nomusic']
     if 'is_remix' in parsed:
         params['is_remix'] = parsed['is_remix']
     if 'remix_entries' in parsed:
@@ -6036,6 +6071,7 @@ def oneline_sts(params):
 
     is_music = params.get('is_music', False)
     is_mimic = params.get('is_mimic', False)
+    no_music = params.get('nomusic', False)
 
     if 'base' not in params or len(params['base']) != 1:
         print("Error: STS mode requires exactly one 'base' parameter")
@@ -6145,6 +6181,15 @@ def oneline_sts(params):
                     except:
                         pass
     else:
+        print("Extracting vocals from source...")
+        base_vocals = svs_extract_vocals(base_path)
+        _target_cleanup.append(base_vocals)
+        base_music = None
+        if not no_music:
+            print("Extracting music from source...")
+            base_music = svs_extract_music(base_path)
+            _target_cleanup.append(base_music)
+        print("Extracting clean vocals from target...")
         clean_vocal_target = svs_extract_vocals(target_path)
         _target_cleanup.append(clean_vocal_target)
         print("Loading Seed-VC v2 model...")
@@ -6162,23 +6207,23 @@ def oneline_sts(params):
             return False
         print("Resampling inputs to 22050Hz...")
         import torchaudio
-        waveform_base, sr_base = torchaudio.load(base_path)
-        if sr_base != 22050:
-            resampler_base = torchaudio.transforms.Resample(sr_base, 22050)
-            waveform_base = resampler_base(waveform_base)
+        waveform_vocals, sr_vocals = torchaudio.load(base_vocals)
+        if sr_vocals != 22050:
+            resampler_vocals = torchaudio.transforms.Resample(sr_vocals, 22050)
+            waveform_vocals = resampler_vocals(waveform_vocals)
         waveform_target, sr_target = torchaudio.load(clean_vocal_target)
         if sr_target != 22050:
             resampler_target = torchaudio.transforms.Resample(sr_target, 22050)
             waveform_target = resampler_target(waveform_target)
-        temp_base = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        temp_vocals = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         temp_target = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         temp_output_22k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         try:
-            torchaudio.save(temp_base.name, waveform_base, 22050)
+            torchaudio.save(temp_vocals.name, waveform_vocals, 22050)
             torchaudio.save(temp_target.name, waveform_target, 22050)
             print("Converting voice...")
             success = seed_vc.convert(
-                source_path=temp_base.name,
+                source_path=temp_vocals.name,
                 reference_path=temp_target.name,
                 output_path=temp_output_22k.name,
                 convert_style=is_mimic
@@ -6191,25 +6236,35 @@ def oneline_sts(params):
             if sr_out != 44100:
                 resampler_out = torchaudio.transforms.Resample(sr_out, 44100)
                 waveform_out = resampler_out(waveform_out)
+            temp_output_44k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            torchaudio.save(temp_output_44k.name, waveform_out, 44100)
+            del seed_vc
+            seed_vc = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             timestamp = time.strftime("%Y%m%d_%H%M%S")
-            if base_is_video:
+            if not no_music and base_music and os.path.exists(base_music):
+                print("Mixing converted vocals with source music...")
+                output_path = os.path.join(results_dir, f"voder_sts_{timestamp}.wav")
+                ret = os.system(f'ffmpeg -y -i "{temp_output_44k.name}" -i "{base_music}" -filter_complex "[0:a]volume=1.0[vc];[1:a]volume=1.0[music];[vc][music]amix=inputs=2:duration=longest" "{output_path}" 2>/dev/null')
+                if ret != 0 or not os.path.exists(output_path):
+                    print("Warning: Mixing failed, saving converted vocals only")
+                    shutil.copy(temp_output_44k.name, output_path)
+            elif base_is_video:
                 print("Merging converted audio with video...")
-                temp_audio_path = os.path.join(tempfile.gettempdir(), f"voder_sts_merge_{timestamp}.wav")
-                torchaudio.save(temp_audio_path, waveform_out, 44100)
                 output_path = os.path.join(results_dir, f"voder_sts_{timestamp}.mp4")
-                ret = os.system(f'ffmpeg -y -i "{base_original}" -i "{temp_audio_path}" -c:v copy -map 0:v:0 -map 1:a:0 -shortest "{output_path}" 2>/dev/null')
+                ret = os.system(f'ffmpeg -y -i "{base_original}" -i "{temp_output_44k.name}" -c:v copy -map 0:v:0 -map 1:a:0 -shortest "{output_path}" 2>/dev/null')
                 if ret != 0 or not os.path.exists(output_path):
                     print("Error: Failed to merge audio with video")
                     return False
-                if os.path.exists(temp_audio_path):
-                    os.remove(temp_audio_path)
             else:
                 output_path = os.path.join(results_dir, f"voder_sts_{timestamp}.wav")
-                torchaudio.save(output_path, waveform_out, 44100)
+                shutil.copy(temp_output_44k.name, output_path)
             print(f"✓ Success! Output saved to: {output_path}")
             return True
         finally:
-            for temp_file in [temp_base.name, temp_target.name, temp_output_22k.name]:
+            for temp_file in [temp_vocals.name, temp_target.name, temp_output_22k.name, temp_output_44k.name]:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
             if temp_base_extracted and os.path.exists(temp_base_extracted):

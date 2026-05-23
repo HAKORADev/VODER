@@ -537,12 +537,14 @@ python src/voder.py tts script "Character1: line1" "Character2: line2" target "C
 
 ### Speech‑to‑Speech / Voice Conversion (sts)
 
-Convert voice from base audio to target voice without changing content using Seed‑VC v2. **MSTS (Music-STS)**: For musical inputs, add the `music` keyword to use Seed‑VC v1 at 44.1kHz for better quality. **Supports video input/output**: when a video file is provided as `base`, audio is auto‑extracted, processed, and re‑muxed into an `.mp4` output. **Automatic vocal extraction**: vocals are automatically extracted from the `target` file before voice conversion.
+Convert voice from base audio to target voice without changing content using Seed‑VC v2. **MSTS (Music-STS)**: For musical inputs, add the `music` keyword to use Seed‑VC v1 at 44.1kHz for better quality. **Supports video input/output**: when a video file is provided as `base`, audio is auto‑extracted, processed, and re‑muxed into an `.mp4` output. **Automatic vocal extraction**: vocals are automatically extracted from both the source and the `target` before voice conversion. Source music is separated and mixed back after conversion. **`nomusic` flag**: outputs converted voice only without mixing back the source music.
 
 ```bash
 python src/voder.py sts base "source_audio.wav" target "voice_reference.wav"
 
 python src/voder.py sts base "song.wav" target "voice_reference.wav" music
+
+python src/voder.py sts base "song.wav" target "voice_reference.wav" nomusic
 ```
 
 **Parameters:**
@@ -553,6 +555,7 @@ python src/voder.py sts base "song.wav" target "voice_reference.wav" music
 | `target` | Path to target voice reference audio | Yes |
 | `music` | Use Seed-VC v1 (44.1kHz) for musical inputs | No |
 | `mimic` | Transfer accent and speaking style from target voice | No |
+| `nomusic` | Output converted voice only (no music recombination) | No |
 
 **Supported Input Formats:**
 - Audio: WAV, MP3, FLAC, OGG
@@ -573,7 +576,7 @@ python src/voder.py sts base "presentation.mp4" target "voice_actor.wav" result 
 ```bash
 python src/voder.py sts base "source_audio.wav" target "character_voice.wav" mimic
 ```
-**Note:** `mimic` and `music` cannot be used together.
+**Note:** `mimic` and `music` cannot be used together. `nomusic` cannot be used with `music`.
 
 ### Text‑to‑Music (ttm)
 

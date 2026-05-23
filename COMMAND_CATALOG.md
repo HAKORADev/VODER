@@ -213,7 +213,7 @@ python voder.py tts script "sfx: door creak /duration:2" script "sfx: footsteps 
 
 ## 2. `sts` — Speech-to-Speech (Voice Conversion)
 
-Convert voice from a base audio to match a target voice.
+Convert voice from a base audio to match a target voice. Source vocals are automatically separated via SVS before conversion, and source music is mixed back afterward (unless `nomusic` is used).
 
 ### Keywords
 
@@ -221,16 +221,19 @@ Convert voice from a base audio to match a target voice.
 |---------|-------|-------------|
 | `base` | `"<path>"` | Source audio/video file path or YouTube/TikTok/Bilibili URL. The audio whose content will be preserved. |
 | `target` | `"<path>"` | Reference voice audio. The voice characteristics to apply. Auto-extracts clean vocals. |
-| `music` | (flag) | Use Seed-VC v1 (44.1kHz music model) instead of v2 (22.05kHz speech model). Input must be audio (not video). Auto-extracts vocals from target. |
+| `music` | (flag) | Use Seed-VC v1 (44.1kHz music model) instead of v2 (22.05kHz speech model). Input must be audio (not video). Auto-extracts vocals from source and target. |
 | `mimic` | (flag) | Convert style + voice (not just voice). Uses Seed-VC v2 with `convert_style=True`. Cannot be combined with `music`. Input must be audio (not video). |
+| `nomusic` | (flag) | Output converted voice only without mixing back source music. Cannot be combined with `music`. |
 
 ### Rules
 
 - `music` and `mimic` cannot be used together.
+- `nomusic` and `music` cannot be used together.
 - Base can be audio or video in standard mode. `music` and `mimic` require audio input only (video is rejected).
+- Source vocals and music are automatically separated via SVS before conversion; music is recombined after (unless `nomusic`).
 - Target vocals are automatically cleaned via SVS before conversion.
 - Output is upsampled to 44100Hz.
-- Output filenames: music mode uses `voder_m_sts_*.wav`, standard/mimic uses `voder_sts_*.wav`.
+- Output filenames: music mode uses `voder_m_sts_*.wav`, standard/mimic/nomusic uses `voder_sts_*.wav`.
 
 ```
 # Standard voice conversion (speech)
@@ -241,6 +244,9 @@ python voder.py sts base "input.wav" target "voice.wav" music
 
 # Style + voice mimic
 python voder.py sts base "input.wav" target "voice.wav" mimic
+
+# Voice-only output (no music recombination)
+python voder.py sts base "input.wav" target "voice.wav" nomusic
 
 # Video input (extracts audio, converts, merges back)
 python voder.py sts base "input.mp4" target "voice.wav"

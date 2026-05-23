@@ -567,7 +567,7 @@ This is useful for converting screenshots of scripts, slides, or documents into 
 
 **What It Does:**
 
-STS (Speech‑to‑Speech) transforms source audio to sound like a target voice while preserving the original content, emotion, timing, and prosody. The speaker changes, but everything they say remains exactly the same. STS now supports video input — provide an MP4 video file and receive an MP4 output with the converted voice.
+STS (Speech‑to‑Speech) transforms source audio to sound like a target voice while preserving the original content, emotion, timing, and prosody. The speaker changes, but everything they say remains exactly the same. STS now supports video input — provide an MP4 video file and receive an MP4 output with the converted voice. Vocals are automatically separated from the source audio before conversion, and the source music is mixed back afterward for a clean result.
 
 **MSTS (Music-STS):**
 
@@ -585,9 +585,16 @@ STS supports a `mimic` keyword that enables full style transfer — converting n
 - **One-line CLI**: Add `mimic` keyword after the target path: `voder.py sts path/base path/target mimic`
 - **Mutual exclusion**: `mimic` and `music` cannot be used together — they target different models (v2 vs v1) and serve different purposes (style transfer vs music sample rate)
 
-**Automatic Vocal Extraction from Target:**
+**nomusic (Voice-Only Output):**
 
-When a target reference is provided, VODER automatically runs BS‑RoFormer vocal isolation to extract clean vocals from the target before voice conversion. This improves cloning quality when the target contains background music, noise, or other audio elements. If SVS extraction fails, the original target audio is used as a fallback.
+By default, STS separates vocals from the source, converts them, and mixes them back with the source's instrumental/music. The `nomusic` flag skips the music recombination step and outputs only the converted voice. This is useful when you want raw converted vocals without any background — for example, to process the voice further or when the source has no meaningful music content to preserve.
+
+- **One-line CLI**: Add `nomusic` keyword: `voder.py sts base "source.wav" target "voice.wav" nomusic`
+- **Mutual exclusion**: `nomusic` and `music` cannot be used together — `music` already handles music content via VCv1
+
+**Automatic Vocal Extraction:**
+
+VODER automatically runs BS‑RoFormer vocal isolation on both the source and target audio. For the source, vocals are separated so the VC model processes only the voice — producing cleaner conversion — and the instrumental is extracted separately for recombination after conversion (unless `nomusic` is used). For the target, clean vocals are extracted to improve cloning quality. If SVS extraction fails, the original audio is used as a fallback.
 
 **Video I/O:**
 
@@ -1194,7 +1201,7 @@ SVS is called automatically by several other VODER modes:
 
 | Mode | How SVS Is Used |
 |------|-----------------|
-| **STS** | Extracts clean vocals from the target reference before voice conversion |
+| **STS** | Extracts vocals and music from the source (vocals for conversion, music for recombination), and clean vocals from the target reference |
 | **TTS** (voice clone) | Extracts clean vocals from target references before cloning |
 | **STT** | Pre‑cleanup to isolate vocals from music before transcription |
 | **STT+TTS** | Vocal isolation before transcription for better accuracy |
@@ -2245,7 +2252,7 @@ python src/voder.py sts "non_english_speech.wav" "target_voice.wav" mimic
 
 SVS (BS‑RoFormer vocal isolation) now runs automatically in several modes:
 
-- **STS**: Clean vocals are extracted from the target reference before voice conversion
+- **STS**: Vocals and music are extracted from the source (vocals for conversion, music recombined afterward), and clean vocals from the target reference
 - **TTS (voice clone)**: Clean vocals are extracted from target references before cloning
 - **STT+TTS**: Vocals are isolated from the input before transcription
 
