@@ -3,6 +3,139 @@
 - All notable changes to VODER - Voice Blender will be documented in this file.
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 
+## 05/21/2026
+- Status: Stable, all features work, still developing
+- **Major Update & Bug Hunt Activity**
+
+### Added
+
+#### TTM Remix Multi-Source with SVS Isolation
+
+- **Multi-Source Support (Up to 3)** — TTM remix now accepts up to three audio/video sources combined into a single composite for style transfer.
+  - Paths are provided directly after `remix` keyword (no separate `source` keyword needed)
+  - Each source supports voice/music prefix: `voice "path"` extracts vocals, `music "path"` extracts instrumental, bare path uses audio directly
+  - Multiple sources are composed into a 30-second composite before style transfer
+  - CLI examples:
+    - `python voder.py ttm remix "song1.wav" "song2.wav" "song3.wav" styling "jazz fusion"`
+    - `python voder.py ttm remix voice "vocals.wav" music "inst.wav" styling "funk"`
+
+#### Multi-Reference Support (Up to 3)
+
+- **Enhanced Reference System** — TTM sub-tasks now accept up to three reference audio files for style guidance.
+  - CLI keyword: `reference` — accepts paths with optional voice/music prefix
+  - Format: `reference voice "ref_vocals.wav" music "ref_inst.wav"` or plain `reference "ref.wav"`
+  - Voice-prefixed references extract vocals via SVS; music-prefixed extract instrumental
+  - Multiple references are composed into a 30-second composite for style guidance
+  - Works with: remix, repaint, complete, lego sub-tasks
+
+#### TTM Remix Optional Lyrics
+
+- **Lyrics Parameter** — TTM remix now accepts an optional `lyrics` parameter to provide new vocal text.
+  - Format: `lyrics "verse words here\nmore on next line"`
+  - Applies new lyrics to the remixed section while preserving musical style
+  - CLI example: `python voder.py ttm overdose remix "song.wav" lyrics "dreamy verse" styling "synthwave"`
+
+#### SFX Overlay for BGM and Complete Tasks
+
+- **Sound Effect Overlays** — TTM BGM and Complete sub-tasks now support embedding sound effects.
+  - CLI keyword: `sfx:` — format: `"sfx:prompt/duration-position/level"`
+  - SFX specs must be enclosed in quotes for proper CLI parsing
+  - Auto-cuts duration if specified SFX length exceeds remaining source time
+  - Position values cannot exceed source duration
+  - Examples:
+    - `python voder.py ttm bgm "audio.wav" music "piano" "sfx:thunder/10-5/50"`
+    - `python voder.py ttm complete "source.wav" add "drums" "sfx:rain/8-22"`
+
+#### TTM Repaint Multi-Pass Mode
+
+- **Sequential Multi-Pass Editing** — TTM repaint now supports multiple passes where each edit builds on the previous output.
+  - Each pass specifies: time range, styling, lyrics, references, and bias independently
+  - Each pass uses the previous pass's result as its input source
+  - Supports up to 3 references per pass with voice/music prefix parsing
+  - Format: `start-end/styling(text)/lyrics(text)/reference-voice(path)/reference-music(path)/reference(path)/bias/0-100`
+  - CLI example: `python voder.py ttm repaint "song.wav" "20-80/styling(orchestral)" "10-30/styling(jazz)/bias/70"`
+  - Example with references: `python voder.py ttm overdose repaint "song.wav" "0-15/styling(lo-fi)" "10-25/styling(dnb)/bias/80/reference-voice(vocals.wav)"`
+  - Intermediate files cleaned up automatically after all passes complete
+
+- **Voice/Music Prefix for Repaint Source** — Repaint accepts optional prefix to control SVS processing of the source.
+  - `repaint voice "song.wav"` — extracts vocals before repainting
+  - `repaint music "song.wav"` — extracts instrumental before repainting
+  - `repaint "song.wav"` — uses source directly (existing behavior)
+
+#### SS Mode Overlap-Aware Pipeline
+
+- **Overlap-Aware SS for Overdose** — SS mode with overdose uses VibeVoice ASR with special overlap preservation.
+  - Added `transcribe_with_overlaps()` method that instructs VibeVoice to preserve overlapping speaker timestamps
+  - Enrollment selection uses overlap-aware scoring: picks segments with least overlap first, then longest duration
+  - If best segment has overlap, finds the largest non-overlapped gap within it for clean enrollment
+  - Iterative refinement loop re-runs VibeVoice on extracted audio until single speaker confirmed
+
+- **Overlap-Aware SS for Non-Overdose** — Non-overdose SS path uses pyannote with exclusive diarization, skips Whisper.
+  - Added `diarize_full()` method to SpeakerDiarization class for exclusive diarization access
+  - Uses pyannote's exclusive speaker diarization for clean enrollment without ASR
+  - Iterative refinement loop re-runs pyannote on extracted speaker until single speaker confirmed
+  - If multiple speakers detected after extraction, cuts to longest exclusive segment as enrollment
+
+#### TTM Complete Task Enhancements
+
+- **Blend Source Control (usrc)** — Complete task accepts `usrc` keyword to control which source elements blend into generated tracks.
+  - CLI format: `ttm complete "source.wav" usrc voice music styling "orchestral"`
+
+- **noblend Flag** — Complete task accepts `noblend` flag to generate tracks without blending with source.
+  - Useful for completely new instrument/vocal tracks independent of source
+  - CLI format: `ttm complete "source.wav" only "drums" noblend`
+
+- **5Hz LM CoT Pipeline** — Complete task uses 5Hz language model Chain-of-Thought for enhanced generation quality.
+
+- **Styling Prompt** — Complete and lego sub-tasks now accept `styling` parameter for style guidance.
+
+#### TTM BGM Video Support
+
+- **video Flag and Reference for BGM** — BGM subtask supports video input and video URLs as source.
+  - Video files are processed: audio extracted, music stripped, new music generated, then remuxed
+  - Reference audio for BGM now accepts video files (audio extracted before use)
+  - Output format matches input format (video in, video out)
+
+### Fixed
+
+- **TSE Enrollment Cap (5s) + Peak Normalize** — Fixed enrollment tensor dimensions.
+  - TSE enrollment capped at 5 seconds maximum
+  - Peak normalization applied to match training configuration
+  - Prevents crashes when pad length exceeds source tensor dimensions
+
+- **Circular Pad Crash Fix** — Fixed crash in `tse_extract` when enrollment tensor is 1D.
+  - Falls back to repeat enrollment to 5s instead of circular padding
+  - Fixes crashes when pad > source tensor dimensions
+
+- **STT Overdose Mode Fixes** — Multiple fixes for overdose path:
+  - Skip pyannote and Whisper when in overdose mode (uses VibeVoice only)
+  - Fixed compress ratio for overdosed audio processing
+  - Fixed dtype issues in the processing pipeline
+
+- **Overdose Per-Segment Timestamps** — Fixed timestamp generation for single-speaker overdose.
+  - Strips Lyric/Silence tags from VibeVoice output before processing
+  - Produces clean timestamped segments for single speaker confirmation
+
+- **SE Pipeline Reorder** — Speech enhancement now applied post-extraction instead of pre-extraction.
+  - Previously: SE applied to combined source before TSE
+  - Now: SE applied to each separated speaker file individually after TSE extraction
+  - Pipeline files kept in temp until SE completes, then exported to results
+
+### Technical Notes
+
+- Code size increased with multi-pass repaint parsing, sequential edit execution, and SFX overlay support
+- New function: `_parse_sfx_specs()` for parsing SFX spec strings with auto-cut overflow handling
+- New function: `_parse_repaint_pass_spec()` for multi-pass repaint specification parsing
+- New function: `_resolve_audio_entry()` for voice/music prefixed audio processing
+- New function: `_compose_refs()` for multi-reference composition into 30s composite
+- New function: `_compose_sources()` for multi-source composition into single audio
+- Added `random` import for composite reference/source composition randomization
+- `remix_entries` parameter renamed to `source_entries` for consistency
+- VibeVoice ASR `transcribe_with_overlaps()` method added for overlap-aware transcription
+- SpeakerDiarization `diarize_full()` method added for exclusive diarization access
+
+---
+
 ## 04/28/2026
 - Status: Stable, all features work, still developing
 - **Enhancement — Dialogue Background Music Reference Support & TTM BGM Subtask**
