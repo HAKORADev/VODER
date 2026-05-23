@@ -9,6 +9,27 @@
 
 ### Added
 
+#### STS Universal SVS Pre/Post-Processing
+
+- **SVS Voice Isolation on Source** — All STS modes (VCv1 music, VCv2 speech, VCv2 mimic) now isolate source vocals via SVS before feeding them to the VC model, instead of passing the raw source. This gives the VC model clean voice input and produces significantly cleaner conversions.
+  - Source → SVS voice → VC model (only vocals processed)
+  - Source → SVS music → saved for recombination after conversion
+  - VC output + source music → final output (instrumental untouched by VC)
+
+- **`nomusic` Flag** — Added `nomusic` flag for STS to output converted voice only without mixing back the source music.
+  - Useful for extracting raw converted vocals for further processing
+  - Mutually exclusive with `music` flag
+  - CLI example: `python voder.py sts base "song.wav" target "voice.wav" nomusic`
+
+- **VCv2 SVS Pipeline** — VCv2 (standard STS, mimic) now uses the same SVS voice/music isolation as VCv1 (music STS), making the pre/post-processing universal across all STS modes.
+
+#### TTM VC SVS Pipeline
+
+- **SVS Isolation for TTM VC** — TTM VC (both standard and overdose) now isolates TTM output vocals via SVS before feeding them to the VC model, and mixes converted vocals back with TTM instrumental after conversion.
+  - TTM output → SVS voice → VC model (only vocals converted)
+  - TTM output → SVS music → saved for recombination
+  - VC output + TTM music → final output
+
 #### TTM Remix Multi-Source with SVS Isolation
 
 - **Multi-Source Support (Up to 3)** — TTM remix now accepts up to three audio/video sources combined into a single composite for style transfer.
