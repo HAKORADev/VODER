@@ -729,6 +729,11 @@ def _parse_sfx_specs(sfx_args, max_duration):
                 return None, f"SFX position cannot be negative: {sfx_pos}"
             if sfx_pos > max_duration:
                 return None, f"SFX position {sfx_pos}s exceeds source duration {max_duration:.1f}s"
+            if sfx_pos + sfx_dur > max_duration:
+                new_dur = max_duration - sfx_pos
+                new_dur = max(1, int(new_dur))
+                print(f"Warning: SFX at {sfx_pos}s with duration {sfx_dur}s exceeds source duration {max_duration:.1f}s, auto-cutting to {new_dur}s")
+                sfx_dur = new_dur
 
         if len(parts) >= 3:
             lv_str = parts[2].strip()
@@ -746,7 +751,7 @@ def _parse_sfx_specs(sfx_args, max_duration):
                 sfx_level = 100
 
         if sfx_pos is None:
-            return None, f"SFX spec requires duration-position (e.g. sfx:thunder/10-5): {raw}"
+            return None, f'SFX spec requires duration-position (e.g. "sfx:thunder/10-5"): {raw}'
 
         parsed.append({
             'prompt': prompt,
@@ -4902,16 +4907,17 @@ def parse_oneline_args(args):
                 return result
             result['params']['noblend'] = True
             i += 1
-        elif mode == 'ttm' and arg.startswith('sfx:'):
+        elif mode == 'ttm' and (arg.startswith('sfx:') or (arg.startswith('"sfx:') and arg.endswith('"'))):
             if 'bgm' not in result['params'] and 'complete' not in result['params']:
-                result['error'] = 'sfx: specs are only valid with bgm or complete task'
+                result['error'] = '"sfx:" specs are only valid with bgm or complete task'
                 return result
             if 'complete' in result['params'] and result['params'].get('noblend'):
-                result['error'] = 'sfx: cannot be used with noblend'
+                result['error'] = '"sfx:" cannot be used with noblend'
                 return result
             if 'sfx_specs' not in result['params']:
                 result['params']['sfx_specs'] = []
-            result['params']['sfx_specs'].append(arg)
+            sfx_val = arg.strip('"') if arg.startswith('"') and arg.endswith('"') else arg
+            result['params']['sfx_specs'].append(sfx_val)
             i += 1
         elif mode == 'ttm' and arg_lower == 'stems':
             if 'extract' not in result['params']:
@@ -5245,7 +5251,7 @@ def show_oneline_usage():
     print("  ocr      - Image file path for OCR text extraction (TTS modes)")
     print("  overdose - Use VibeVoice ASR for dialogue source and enhanced music (TTS/TTM modes)")
     print("  bgm      - Add or replace background music on an audio/video (TTM mode)")
-    print("  sfx:     - Sound effect spec for bgm/complete tasks: sfx:prompt/duration-position/level")
+    print("  "sfx:"   - Sound effect spec for bgm/complete tasks: "sfx:prompt/duration-position/level"")
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
     print()
     print("SLC parameters:")
@@ -5258,17 +5264,17 @@ def show_oneline_usage():
     print('  python voder.py ttm overdose bgm "path/to/audio.wav" music "lo-fi chill" level 25 reference "ref_song.mp3"')
     print('  python voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient synth" level 40')
     print('  python voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinematic" level 30 reference "ref.mp3"')
-    print('  python voder.py ttm bgm "audio.wav" music "piano" sfx:thunder/10-5/50')
-    print('  python voder.py ttm bgm "audio.wav" sfx:rain/8-22 sfx:thunder/10-5/60')
+    print('  python voder.py ttm bgm "audio.wav" music "piano" "sfx:thunder/10-5/50"')
+    print('  python voder.py ttm bgm "audio.wav" "sfx:rain/8-22" "sfx:thunder/10-5/60"')
     print()
     print("Complete + SFX examples (add instruments and/or sound effects):")
-    print('  python voder.py ttm complete "source.wav" add "drums bass" sfx:thunder/10-5/50')
-    print('  python voder.py ttm complete "source.wav" sfx:rain/8-22')
-    print('  python voder.py ttm complete video "source.mp4" add "everything" sfx:boom/12-30/40')
+    print('  python voder.py ttm complete "source.wav" add "drums bass" "sfx:thunder/10-5/50"')
+    print('  python voder.py ttm complete "source.wav" "sfx:rain/8-22"')
+    print('  python voder.py ttm complete video "source.mp4" add "everything" "sfx:boom/12-30/40"')
     print()
-    print("SFX spec format: sfx:prompt/duration-position/level")
+    print('SFX spec format: "sfx:prompt/duration-position/level"')
     print("  prompt    - SFX description text (required)")
-    print("  duration  - SFX length 5-30 seconds (clamped)")
+    print("  duration  - SFX length 5-30 seconds (clamped, auto-cut if exceeds source)")
     print("  position  - Place at N seconds into source (required, cannot exceed source length)")
     print("  level     - Volume 1-100% (optional, default: 50)")
     print("  Multiple SFX specs can be specified")
@@ -6480,7 +6486,7 @@ def oneline_ttm_complete(params):
     has_sfx = bool(sfx_specs_raw)
 
     if not has_instruments and not has_sfx:
-        print('Error: Complete task requires instruments and/or sfx: specs (e.g., add "drums bass" or sfx:thunder/10-5)')
+        print('Error: Complete task requires instruments and/or "sfx:" specs (e.g., add "drums bass" or "sfx:thunder/10-5")')
         return False
 
     track_classes = None
@@ -7249,7 +7255,7 @@ def oneline_ttm_bgm(params):
     sfx_specs_raw = params.get('sfx_specs', [])
 
     if not music_description and not sfx_specs_raw:
-        print("Error: bgm requires a music description and/or sfx: specs")
+        print('Error: bgm requires a music description and/or "sfx:" specs')
         return False
 
     level = 35
