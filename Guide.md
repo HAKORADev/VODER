@@ -147,6 +147,10 @@ When we list minimum requirements, we're being honest about what actually works.
 | TTM (overdose) | 8GB | +~24GB (ACE-Step XL-Turbo) | 32GB | Optional | 32GB (RTX 4090) |
 | TTM (VC enabled) | 8GB | +15GB (ACE) +5GB (Seed-VC) +~3GB (SVS) | 31GB | Optional | 16GB |
 | TTM (complete sub-task) | 8GB | +~24GB (ACE-Step XL-Turbo) +~3GB (SVS) | 35GB | Optional | 32GB (RTX 4090) |
+| TTM (complete + SFX overlay) | 8GB | +~24GB (ACE-Step XL-Turbo) +~3GB (SVS) +~3-4GB (TangoFlux, ACE offloaded first) | 38GB | Optional | 32GB (RTX 4090) |
+| TTM (complete, SFX only) | 8GB | +~3GB (SVS) +~3-4GB (TangoFlux, no ACE loaded) | 15GB | Optional | 4GB |
+| TTM (BGM + SFX overlay) | 8GB | +~3GB (SVS) +15GB (ACE) +~3-4GB (TangoFlux, ACE offloaded first) | 29GB | Optional | 15GB |
+| TTM (BGM, SFX only) | 8GB | +~3GB (SVS) +~3-4GB (TangoFlux, no ACE loaded) | 15GB | Optional | 4GB |
 | SE | 8GB | +2-3GB (UniSE) | 11GB | Optional | 4GB |
 | SFX | 8GB | +3-4GB (TangoFlux) | 12GB | Optional | 4GB |
 | SVS | 8GB | +~3-4GB (BS-RoFormer) | 12GB | Optional | 4GB |
@@ -675,7 +679,7 @@ TTM supports advanced music manipulation sub-tasks that go beyond simple generat
 | `generate` | Standard music generation (default) | `python voder.py ttm lyrics "..." styling "..." duration 30` |
 | `remix` | Style-transferred version of an existing song (supports `reference` for additional guidance) | `python voder.py ttm remix "input.wav" styling "..." bias 40 result "/output/remix.wav"` |
 | `repaint` | Repaint a time range of an existing track (supports `reference` for additional guidance) | `python voder.py ttm repaint "source.wav" time:20-80 styling "..." result "/output/repainted.wav"` |
-| `complete` | Add instrument tracks to existing audio | `python voder.py ttm complete source "song.wav" add "drums bass" [target music "ref.wav"]` |
+| `complete` | Add instrument tracks to existing audio (supports `sfx:` overlay) | `python voder.py ttm complete source "song.wav" add "drums bass" [target music "ref.wav"]` |
 | `extract` | Extract vocals or music from a track | `python voder.py ttm extract "song.wav" extract "vocals"` |
 | `lego` | Build a track from individual instrument stems | `python voder.py ttm lego source "song.wav" make "drums bass guitar"` |
 
@@ -711,6 +715,8 @@ The track resolution system supports shorthand keywords:
 **How It Works:**
 
 ACE‑Step interprets your lyrics as vocal content and your style prompt as musical direction. It generates both the instrumental arrangement and the vocal performance, synchronized to your specified duration. The lyrics become the vocal melody, and the style prompt guides the instrumentation, genre, and mood.
+
+The `bgm` and `complete` sub‑tasks also support **SFX overlay** via the `sfx:` parameter. When SFX specs are provided, TangoFlux generates each sound effect and overlays it at the specified position and volume after the main processing step. ACE‑Step is offloaded from VRAM before TangoFlux loads to free memory. See the [BGM Subtask](#ttm-mode-bgm-subtask-replace-background-music) and [TTM Sub-Task Tricks](#ttm-sub-task-tricks) sections for details.
 
 **Why It's Like That:**
 
@@ -835,6 +841,18 @@ python src/voder.py ttm complete noblend source "vocals_only.wav" add "drums bas
 # Complete with reference (add instruments matching a reference)
 python src/voder.py ttm complete source "vocals_only.wav" add "everything" target music "style_ref.wav"
 
+# Complete with SFX overlay (add instruments + overlay sound effects)
+python src/voder.py ttm complete source "vocals_only.wav" add "drums bass" sfx "thunder rumble/10-5/60" sfx "door slam/5-30/80"
+
+# Complete with SFX only (no instruments added, no music model loaded)
+python src/voder.py ttm complete source "narration.wav" sfx "wind howling/15-0/40" sfx "footsteps on gravel/8-20/55"
+
+# BGM with SFX overlay (replace music + add sound effects)
+python src/voder.py ttm bgm "podcast.wav" music "soft ambient piano" level 30 sfx "phone ringing/6-45/70"
+
+# BGM with SFX only (no new music, just overlay sound effects on clean voice)
+python src/voder.py ttm bgm "interview.wav" sfx "coffee shop ambience/30-0/25" sfx "doorbell/3-60/65"
+
 # Lego sub-task (build track from stems)
 python src/voder.py ttm lego source "drums_track.wav" make "bass guitar strings"
 
@@ -873,19 +891,34 @@ For voice conversion, BS‑RoFormer automatically extracts clean vocals from the
 | `repaint "path"` | Source audio for section repaint | Required for repaint sub-task |
 | `bias N` | Style transfer strength 0–100 | Optional (default 40, for remix/repaint) |
 | `time:start-end` | Time range for repaint | Required for repaint sub-task |
-| `add "..."` | Instrument tracks to add (complete) | Required for complete sub-task |
+| `add "..."` | Instrument tracks to add (complete) | Required for complete sub-task (unless `sfx:` provided) |
 | `make "..."` | Instrument tracks to build (lego) | Required for lego sub-task |
 | `extract "..."` | Track to extract | Required for extract sub-task |
 | `source "path"` | Source audio (complete/lego/extract) | Required for those sub-tasks |
 | `styling "..."` | Style prompt for complete/lego sub-tasks | Optional (influences mood and genre) |
 | `noblend` | Output generated instruments only without blending with original (`complete` only) | Optional (default: blend with original) |
+| `sfx "prompt/duration-position/level"` | SFX overlay spec (bgm/complete only, multiple allowed) | Optional (see SFX Overlay Syntax below) |
 | `video` | Preserve video output (`complete`/`bgm`) — downloads video from URL, merges back | Optional |
 | `overdose` | Use XL-Turbo model for max quality | Optional |
 | `result "path"` | Output file path | Optional |
 
+**SFX Overlay Syntax (bgm/complete only):**
+
+Each `sfx:` spec uses the format `prompt/duration-position/level`:
+
+| Component | Format | Rules |
+|-----------|--------|-------|
+| `prompt` | Text description of the sound | Required |
+| `duration` | Seconds (5-30) | Required. Auto-clamped: <5 becomes 5, >30 becomes 30 with warning. Minus signs stripped. Invalid values produce an error. |
+| `position` | Seconds into source audio | Required. Non-negative. Cannot exceed source duration. Invalid values produce an error. |
+| `level` | Volume 1-100% | Optional (default: 50). Minus signs stripped. <1 produces warning and becomes 1. >100 produces warning and becomes 100. Invalid values produce an error. |
+
+Multiple `sfx:` specs can be specified by repeating the `sfx` parameter. SFX is generated by the TangoFlux model; ACE‑Step is offloaded before TangoFlux loads to free VRAM.
+
 **Mutual Exclusions:**
 - `vc` is mutually exclusive with `remix` and `repaint`
 - `target` is mutually exclusive with `vc`
+- `sfx:` is mutually exclusive with `noblend` (complete sub-task)
 
 **Memory Optimisation:**
 
@@ -897,7 +930,7 @@ VODER explicitly offloads models from memory after each operation completes. Thi
 
 This prevents memory accumulation when performing multiple operations in a single session, making VODER more reliable for batch processing workflows.
 
-**Memory Requirements:** TTM (standard) requires approximately 23GB RAM (8GB base + 15GB for ACE model). TTM (overdose) requires approximately 32GB+ RAM or 32GB+ VRAM. TTM (VC enabled) requires approximately 31GB RAM. TTM (complete sub-task) requires approximately 35GB RAM (32GB+ VRAM recommended).
+**Memory Requirements:** TTM (standard) requires approximately 23GB RAM (8GB base + 15GB for ACE model). TTM (overdose) requires approximately 32GB+ RAM or 32GB+ VRAM. TTM (VC enabled) requires approximately 31GB RAM. TTM (complete sub-task) requires approximately 35GB RAM (32GB+ VRAM recommended). When SFX overlay is used in BGM or Complete, add approximately 3-4GB for the TangoFlux model (ACE-Step is offloaded first to free VRAM).
 
 ---
 
@@ -1075,6 +1108,8 @@ Sound effects are essential for audio production but traditionally require searc
 **Technical Notes:**
 
 SFX mode works on both CPU and GPU. GPU acceleration significantly speeds up generation, especially at higher step counts. Output is at 44.1kHz sample rate for professional audio quality. The TangoFlux model is loaded on-demand and offloaded after processing.
+
+In addition to standalone SFX mode, the TangoFlux model is also used for **SFX overlay** in TTM `bgm` and `complete` sub-tasks. When SFX overlay is requested in those sub-tasks, ACE-Step is offloaded from VRAM before TangoFlux loads to free memory. This model-swapping pattern ensures that even GPU-constrained systems can handle music generation followed by SFX generation without running out of VRAM.
 
 **CLI Usage:**
 
@@ -1780,6 +1815,8 @@ sfx: mysterious ambient drone /duration:15 /level:25 /time:0
 - Position with `/time:` directive for precise placement
 - Volume controlled by `/level:` directive
 
+**Note:** This dialogue SFX syntax (`sfx: description /duration:N /level:N /time:N`) is distinct from the TTM SFX overlay syntax used in BGM and Complete sub-tasks (`sfx "prompt/duration-position/level"`). The dialogue syntax uses slash-prefixed directives with colons; the TTM syntax uses a compact slash-delimited format. Both use the same TangoFlux model under the hood.
+
 ---
 
 ## Optional Background Music for Dialogue
@@ -1894,19 +1931,20 @@ If `level` is not specified, music is mixed at 35% volume throughout the dialogu
 
 ### What It Is
 
-The TTM BGM subtask replaces background music in an existing audio or video file. It strips the current music from the source using SVS voice separation, generates new background music via ACE-Step, and mixes it at a configurable volume level. This is useful for replacing unwanted music in podcasts, interviews, videos, or any recording where you want to change the ambient soundtrack while preserving speech content.
+The TTM BGM subtask replaces background music in an existing audio or video file. It strips the current music from the source using SVS voice separation, generates new background music via ACE-Step, and mixes it at a configurable volume level. This is useful for replacing unwanted music in podcasts, interviews, videos, or any recording where you want to change the ambient soundtrack while preserving speech content. It also supports **SFX overlay** — sound effects generated by TangoFlux and placed at specific positions with controlled volume, overlaid after the BGM mixing step (or directly on clean voice if no music is provided).
 
 ### How It Works
 
 1. **Source Resolution**: The input (audio file, video file, or URL) is resolved to a local audio file. With the `video` flag and a URL source, the video file is downloaded (not just audio) for later re-muxing.
 2. **Music Stripping**: BS-RoFormer (SVS voice pipe) separates the source into clean vocals/speech and instrumental
 3. **Duration Detection**: The duration of the clean audio is measured
-4. **Music Generation**: ACE-Step generates new background music matching the detected duration
+4. **Music Generation** (if `music` is provided): ACE-Step generates new background music matching the detected duration
    - Uses ACE-Step turbo 1.5 model (standard) or ACE-Step XL 1.5 turbo model (overdose)
    - Long durations are handled by generating 250-300s chunks and concatenating
    - If a `reference` is provided (audio, video, or URL), it is processed through SVS music pipe to extract clean instrumental for style guidance
-5. **Mixing**: New music is mixed with clean vocals at the specified volume level (0-100, default 35)
-6. **Output**: If the source was video, the final audio is re-muxed back into the video container. With `video` flag + URL source, the video is downloaded and the result is merged back into .mp4.
+5. **Mixing** (if music was generated): New music is mixed with clean vocals at the specified volume level (0-100, default 35)
+6. **SFX Overlay** (if `sfx:` specs are provided): ACE-Step is offloaded from VRAM, then TangoFlux loads and generates each sound effect. Each SFX is overlaid at its specified position and volume onto the result from step 5 (or directly onto clean vocals if no music was provided). Default SFX volume is 50%.
+7. **Output**: If the source was video, the final audio is re-muxed back into the video container. With `video` flag + URL source, the video is downloaded and the result is merged back into .mp4.
 
 ### CLI Usage
 
@@ -1925,6 +1963,15 @@ python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chi
 
 # From YouTube URL with video output (downloads video, replaces bgm, outputs .mp4)
 python src/voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinematic" level 30 reference "ref.mp3"
+
+# BGM with SFX overlay (replace music + add sound effects)
+python src/voder.py ttm bgm "podcast.wav" music "soft ambient piano" level 30 sfx "phone ringing/6-45/70"
+
+# BGM with multiple SFX overlays
+python src/voder.py ttm bgm "interview.wav" music "light jazz" level 25 sfx "door opening/5-3/60" sfx "thunder clap/8-90/45"
+
+# SFX overlay only (no new music — overlay effects directly on clean voice)
+python src/voder.py ttm bgm "interview.wav" sfx "coffee shop ambience/30-0/25" sfx "doorbell/3-60/65"
 ```
 
 ### Output Naming
@@ -1934,13 +1981,17 @@ python src/voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinem
 
 ### Key Rules
 
-- `bgm` requires `music` (the description for the new background music)
+- `bgm` requires `music` **or** `sfx:` (at least one must be provided)
+- If only `sfx:` specs are provided (no `music`), no new background music is generated; sound effects are overlaid directly onto the clean voice after music stripping
 - `bgm` cannot be combined with `vc`, `remix`, `repaint`, `complete`, `lego`, or `extract`
 - Source accepts audio files, video files, and URLs (YouTube, Bilibili, TikTok)
 - `video` flag: when source is a YouTube URL, downloads the video file (not just audio) and merges the result back into .mp4. For local video files, video output is automatic (no flag needed). If `video` is used with an audio source, outputs .wav with a warning.
 - Reference accepts audio files, video files, and URLs — always processed through SVS music pipe for clean instrumental
 - Normal (non-overdose) uses ACE-Step turbo 1.5; overdose uses ACE-Step XL 1.5 turbo
 - Default volume level is 35 (range 0-100)
+- `sfx:` spec format: `prompt/duration-position/level` — duration is 5-30s (auto-clamped), position is in seconds (cannot exceed source duration), level is 1-100% (default 50, auto-clamped)
+- Multiple `sfx:` specs are allowed by repeating the `sfx` parameter
+- When SFX overlay is active, ACE-Step is offloaded before TangoFlux loads to free VRAM
 
 ### GUI Support
 
@@ -1954,6 +2005,9 @@ In the GUI, TTM tab now includes a **BGM** sub-mode with fields for source file,
 4. **Overdose for important content** — Use `overdose` flag when music quality is critical (final exports, professional productions)
 5. **URL support** — You can directly reference YouTube, Bilibili, or TikTok URLs as the source, no manual download needed
 6. **Video URLs with `video` flag** — Add the `video` keyword before the URL to download the video file and get a .mp4 output with replaced background music
+7. **Use SFX overlay for sound design** — Add `sfx:` specs to place sound effects at specific moments without manual editing
+8. **SFX-only mode for clean narration** — Skip `music` and use only `sfx:` when you just need spot effects on clean speech (e.g., adding ambient sounds to a dry recording)
+9. **Position SFX carefully** — The position value must not exceed the source duration; check your source length before specifying positions
 
 ---
 
@@ -2067,6 +2121,7 @@ If you use the **same input file** for both dialogue source and auto-clone, the 
 5. **Test mixing** — Generate without music first, then add music if needed
 6. **Use reference for consistency** — Provide a reference audio via `reference "path"` when you want the generated music to stylistically match a specific track; the reference is cleaned via SVS music pipe to extract instrumental only
 7. **Try TTM BGM for existing content** — For replacing music in an existing audio/video file, use `ttm bgm` instead of manually stripping and regenerating
+8. **Add SFX overlay for immersion** — Use `sfx:` specs in BGM and Complete sub-tasks to add sound effects at specific moments without a separate post-production step
 
 ### Diarization Best Practices
 
@@ -2105,6 +2160,9 @@ If you use the **same input file** for both dialogue source and auto-clone, the 
 4. **Match duration to need** — Don't generate 30s for a 2s transition
 5. **Test steps/guide** — Find your preferred quality/speed balance
 6. **Layer with dialogue** — Use `/level:` to blend SFX with speech
+7. **Use SFX overlay in TTM** — For BGM and Complete sub-tasks, use `sfx:` specs to place sound effects at precise positions without leaving the TTM workflow
+8. **Respect duration limits** — SFX overlay duration is 5-30 seconds; values outside this range are auto-clamped with warnings
+9. **Mind the position** — SFX overlay position must not exceed source duration; check your audio length first
 
 ### Speech Enhancement Best Practices
 
@@ -2201,7 +2259,7 @@ python src/voder.py ttm repaint "song.wav" time:45-75 styling "more energetic vo
 ```
 
 **Add Missing Instruments:**
-Use `complete` to add instruments to an existing track. If you have a vocal recording, you can add a full band behind it. Optionally use `styling` to influence the mood and genre of the generated instruments. Add `noblend` to output just the generated instruments without blending with the original source.
+Use `complete` to add instruments to an existing track. If you have a vocal recording, you can add a full band behind it. Optionally use `styling` to influence the mood and genre of the generated instruments. Add `noblend` to output just the generated instruments without blending with the original source. The `complete` sub-task also supports **SFX overlay** via `sfx:` specs — sound effects are overlaid after the blend step. When only `sfx:` specs are provided (no `add`), the music model is not loaded at all, making it efficient for SFX-only overlays. Note that `sfx:` cannot be used with `noblend`.
 
 ```bash
 python src/voder.py ttm complete source "vocal_demo.wav" add "everything"
@@ -2211,6 +2269,12 @@ python src/voder.py ttm complete source "vocal_demo.wav" add "drums bass" stylin
 
 # With noblend — generated instruments only (no mixing with original)
 python src/voder.py ttm complete noblend source "vocal_demo.wav" add "drums bass"
+
+# With SFX overlay — add instruments and overlay sound effects
+python src/voder.py ttm complete source "vocal_demo.wav" add "drums bass" sfx "thunder rumble/10-5/60" sfx "door slam/5-30/80"
+
+# SFX only — no instruments added, no music model loaded
+python src/voder.py ttm complete source "narration.wav" sfx "wind howling/15-0/40" sfx "footsteps on gravel/8-20/55"
 ```
 
 **Build from Stems:**
@@ -2251,6 +2315,7 @@ python src/voder.py ttm lego source "drums_only.wav" make "bass guitar" styling 
 - TTM three-tier system (standard, overdose, complete)
 - TTM sub-tasks: complete, lego, extract, remix, repaint
 - TTM 12 instrument tracks with shorthand expansion
+- TTM SFX overlay for BGM and Complete sub-tasks
 - Script directives for per-line control
 - SFX character in dialogue
 - Music volume level control
@@ -2348,13 +2413,26 @@ python src/voder.py ttm lego source "drums_only.wav" make "bass guitar" styling 
 - Solution: Close other GPU-intensive applications
 
 **Issue: Complete sub-task produces no output**
-- Solution: Ensure valid instrument names are provided
+- Solution: Ensure valid instrument names are provided (or `sfx:` specs if using SFX-only mode)
 - Solution: Use shorthand like "everything" or "vocals" for common combinations
 - Solution: Check that the source audio is accessible and not corrupted
 
 **Issue: VC cannot be used with other sub-tasks**
 - Solution: VC is mutually exclusive with remix and repaint modes
 - Solution: Use VC with generate mode only
+
+**Issue: SFX overlay position exceeds source duration**
+- Solution: The `position` value in `sfx:prompt/duration-position/level` must not exceed the source audio length
+- Solution: Check your source file duration before specifying positions
+- Solution: Invalid position values produce an error; use a valid non-negative number
+
+**Issue: SFX overlay with noblend produces an error**
+- Solution: `sfx:` cannot be used with `noblend` in the complete sub-task
+- Solution: Remove `noblend` or remove `sfx:` specs
+
+**Issue: BGM sub-task fails because no music or sfx provided**
+- Solution: `bgm` requires at least `music` **or** `sfx:` — provide one or both
+- Solution: Use `sfx:` only if you want to add sound effects without new background music
 
 ### SE Issues
 

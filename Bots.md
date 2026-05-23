@@ -350,7 +350,7 @@ python src/voder.py <mode> [parameters]
 | `tts` | Text‑to‑Speech with Voice Design & Voice Cloning (via `target`), optional `overdose` for VibeVoice ASR and enhanced music | No | ✅ Yes (single & dialogue + optional music + SFX + overdose support) |
 | `tts+vc` | Text‑to‑Speech + Voice Cloning — **REMOVED** (use `tts` with `target`) | No | ❌ No longer accepted |
 | `sts` | Speech‑to‑Speech (Voice Conversion) with video I/O & auto vocal extraction | No | ✅ Yes (single only) |
-| `ttm` | Text‑to‑Music Generation with sub‑tasks (`complete`, `lego`, `extract`, `remix`, `repaint`, `bgm`), `vc` flag, three‑tier ACE‑Step | No | ✅ Yes (single only) |
+| `ttm` | Text‑to‑Music Generation with sub‑tasks (`complete`, `lego`, `extract`, `remix`, `repaint`, `bgm`), `vc` flag, SFX overlay (`bgm`/`complete`), three‑tier ACE‑Step | No | ✅ Yes (single only) |
 | `ttm+vc` | Text‑to‑Music + Voice Conversion — **REMOVED** (use `ttm vc` with `clone`) | No | ❌ No longer accepted |
 | `stt` | Speech‑to‑Text Transcription with translation, overdose, video/URL input | No | ✅ Yes (single, batch, timestamps, diarization, URLs) |
 | `stt+tts` | Speech‑to‑Text + TTS | No | ❌ Interactive Only |
@@ -577,7 +577,7 @@ python src/voder.py sts base "source_audio.wav" target "character_voice.wav" mim
 
 ### Text‑to‑Music (ttm)
 
-Generate music from lyrics and style prompt using ACE‑Step (three‑tier architecture). Supports instrumental-only generation with empty lyrics. **Sub‑tasks**: `complete` (add missing tracks), `lego` (build individual instrument tracks), `extract` (extract specific tracks), `remix` (style transfer / cover with `bias` control), `repaint` (restyle a specific time range). **Voice conversion**: add `vc` flag **before** `lyrics`/`styling`/`duration` and use `clone` for voice reference. **Overdose quality**: add `overdose` flag for enhanced output quality.
+Generate music from lyrics and style prompt using ACE‑Step (three‑tier architecture). Supports instrumental-only generation with empty lyrics. **Sub‑tasks**: `complete` (add missing tracks), `lego` (build individual instrument tracks), `extract` (extract specific tracks), `remix` (style transfer / cover with `bias` control), `repaint` (restyle a specific time range). **SFX overlay**: `bgm` and `complete` sub‑tasks support `sfx:` specs to overlay generated sound effects onto the output. **Voice conversion**: add `vc` flag **before** `lyrics`/`styling`/`duration` and use `clone` for voice reference. **Overdose quality**: add `overdose` flag for enhanced output quality.
 
 **Flags and modifiers** (can be combined):
 - `vc` — enable voice conversion after music generation
@@ -623,6 +623,21 @@ python src/voder.py ttm complete "input.wav" add "drums bass" styling "dramatic 
 **Complete with noblend (generated instruments only, no mixing with original):**
 ```bash
 python src/voder.py ttm complete noblend "input.wav" add "drums bass" result "/output/instruments_only.wav"
+```
+
+**Complete with SFX overlay:**
+```bash
+python src/voder.py ttm complete "input.wav" add "drums bass" sfx "thunder rumbling/10-5/60" result "/output/completed_sfx.wav"
+```
+
+**Complete with multiple SFX overlays:**
+```bash
+python src/voder.py ttm complete "input.wav" add "drums bass" sfx "thunder rumbling/10-5/60" sfx "rain on roof/15-0/30" result "/output/completed_multi_sfx.wav"
+```
+
+**Complete with SFX only (no add, music model not loaded):**
+```bash
+python src/voder.py ttm complete "input.wav" sfx "doorbell/5-12/50" result "/output/complete_sfx_only.wav"
 ```
 
 **Lego: build individual instrument tracks:**
@@ -701,6 +716,15 @@ python src/voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chi
 
 # From YouTube URL with video output (downloads video, replaces bgm, outputs .mp4)
 python src/voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinematic" level 30 reference "ref.mp3"
+
+# BGM with SFX overlay (music + sound effects)
+python src/voder.py ttm bgm "podcast.wav" music "soft ambient piano" level 30 sfx "thunder rumbling/10-5/60"
+
+# BGM with multiple SFX overlays
+python src/voder.py ttm bgm "podcast.wav" music "soft ambient piano" level 30 sfx "thunder rumbling/10-5/60" sfx "rain on roof/15-20/30"
+
+# BGM with SFX only (no music, SFX overlaid directly on clean voice)
+python src/voder.py ttm bgm "podcast.wav" sfx "doorbell/5-12/50" result "/output/bgm_sfx_only.wav"
 ```
 
 **BGM Parameters:**
@@ -708,8 +732,9 @@ python src/voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinem
 | Parameter | Description | Required |
 |-----------|-------------|----------|
 | `bgm "source"` | Source audio/video/URL to replace music in | Yes |
-| `music "description"` | Description for new background music | Yes |
+| `music "description"` | Description for new background music | No (required unless `sfx:` specs provided) |
 | `level <0-100>` | Music volume level (default: 35) | No |
+| `sfx "prompt/duration-position/level"` | SFX overlay spec: prompt (required), duration 5-30s (auto-clamped), position in seconds (required, non-negative, cannot exceed source duration), level 1-100% (optional, default: 50). Multiple `sfx:` specs allowed. | No |
 | `video` | Preserve video output (downloads video from URL, merges back to .mp4) | No |
 | `reference "path"` | Reference audio/video/URL for style guidance (SVS music pipe cleanup) | No |
 | `overdose` | Use ACE-Step XL 1.5 turbo for enhanced quality | No |
@@ -717,9 +742,13 @@ python src/voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinem
 **BGM Rules:**
 - Cannot be combined with `vc`, `remix`, `repaint`, `complete`, `lego`, or `extract`
 - Source supports audio files, video files, and URLs
+- `music` is optional if `sfx:` specs are provided; at least one of `music` or `sfx:` must be present
+- When `sfx:` is provided without `music`, SFX are overlaid directly on the clean voice source
+- When both `music` and `sfx:` are provided, SFX are overlaid after BGM mixing
 - `video` flag: when source is a YouTube URL, downloads the video file (not just audio) and merges the result back into .mp4. For local video files, video output is automatic (no flag needed). If `video` is used with an audio source, outputs .wav with a warning.
 - Reference supports audio files, video files, and URLs — always processed through SVS music pipe for clean instrumental
 - Normal uses ACE-Step turbo 1.5; overdose uses ACE-Step XL 1.5 turbo
+- SFX are generated by TangoFlux; ACE-Step is offloaded first to free GPU memory
 - Output naming: `voder_ttm_bgm_{original-name}_{timestamp}.wav` (audio) or `.mp4` (video)
 
 **Instrument tracks:** The 12 available tracks are: `woodwinds`, `brass`, `fx`, `synth`, `strings`, `percussion`, `keyboard`, `guitar`, `bass`, `drums`, `backing_vocals`, `vocals`. Shortcuts: `everything` = all 12 tracks, `instruments` = 10 non‑voice tracks, `voices` = `vocals` + `backing_vocals`.
@@ -732,6 +761,7 @@ python src/voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinem
 | `styling` | Style prompt describing the music | Yes (generate mode), optional (`complete`/`lego`) |
 | `noblend` | Output generated instruments only without blending with original audio (`complete` only) | No |
 | `duration` | Duration in seconds (10‑300) | Yes (generate mode) |
+| `sfx "prompt/duration-position/level"` | SFX overlay spec for `bgm`/`complete` only: prompt (required), duration 5-30s (auto-clamped), position in seconds (required, non-negative, cannot exceed source duration), level 1-100% (optional, default: 50). Minus signs stripped from duration/level, invalid values = error, level clamped with warnings. Multiple `sfx:` specs allowed. SFX generated by TangoFlux; ACE-Step offloaded first. | No |
 | `vc` | Enable voice conversion (place **before** lyrics/styling/duration) | No |
 | `clone` | Voice reference audio path (required when `vc` is set) | Yes (when vc is set) |
 | `target` | Optional music reference (`target voice "ref.wav"` or `target music "ref.wav"`) | No |
@@ -745,12 +775,12 @@ python src/voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinem
 
 | Sub-task | CLI Keyword | Description |
 |----------|------------|-------------|
-| complete | `complete "source.wav" add "drums bass" voice` | Add missing tracks to existing audio (optional `styling` prompt, optional `noblend` flag to output generated instruments only without blending with original) |
+| complete | `complete "source.wav" add "drums bass" voice` | Add missing tracks to existing audio (optional `styling` prompt, optional `noblend` flag, optional `sfx:` specs for SFX overlay; `add` is optional if `sfx:` specs provided; `sfx:` cannot be used with `noblend`; if only `sfx:` with no `add`, music model not loaded; SFX overlaid after blend) |
 | lego | `lego "source.wav" make "drums bass" mix` | Build individual instrument tracks (optional `styling` prompt) |
 | extract | `extract "source.wav" stems "vocals drums"` | Extract specific tracks |
 | remix | `remix "source.wav" styling "jazz"` | Style transfer (cover) with bias control |
 | repaint | `repaint "source.wav" time:20-80 styling "..."` | Restyle a specific time range |
-| bgm | `bgm "source.wav" music "description" level 30` | Replace background music in audio/video (optional `video` flag for URL→video output, optional `reference`) |
+| bgm | `bgm "source.wav" music "description" level 30` | Replace background music in audio/video (optional `video` flag for URL→video output, optional `reference`, optional `sfx:` specs for SFX overlay; `music` is optional if `sfx:` specs provided; SFX overlaid after BGM mixing or directly on clean voice) |
 
 **Examples:**
 ```bash
@@ -770,6 +800,31 @@ python src/voder.py ttm vc lyrics "Chorus:\nThis is our moment" styling "rock ba
 # Overdose + VC combined
 python src/voder.py ttm overdose vc lyrics "Chorus:\nWe are the champions" styling "stadium rock" duration 30 clone "singer.wav"
 ```
+
+**SFX Overlay Syntax (BGM and Complete sub‑tasks only):**
+
+The `sfx:` parameter overlays generated sound effects onto the output audio. Syntax: `sfx "prompt/duration-position/level"`
+
+| Component | Format | Rules |
+|-----------|--------|-------|
+| `prompt` | Text description of the sound effect | Required. Any descriptive text. |
+| `duration` | Integer, 5-30 seconds | Required. Auto-clamped to 5-30 range. Minus signs are stripped. Invalid (non-numeric) values produce an error. |
+| `position` | Integer, non-negative seconds | Required. Place at N seconds into source audio. Cannot exceed source duration. Minus signs are stripped. Invalid values produce an error. |
+| `level` | Integer, 1-100% | Optional, default: 50. Clamped to 1-100 with warnings. Minus signs are stripped. Invalid values produce an error. |
+
+- Multiple `sfx:` specs are allowed; each generates and overlays a separate SFX
+- SFX are generated by TangoFlux; ACE-Step is offloaded from GPU first to free memory
+- In **BGM**: `music` is optional if `sfx:` specs are provided; SFX overlaid after BGM mixing, or directly on clean voice if no `music`
+- In **Complete**: `add` is optional if `sfx:` specs are provided; `sfx:` cannot be used with `noblend`; if only `sfx:` with no `add`, the music model is not loaded; SFX overlaid after blend
+
+**SFX Overlay Examples:**
+
+| Spec | Meaning |
+|------|---------|
+| `sfx "thunder rumbling/10-5/60"` | Thunder sound, 10s duration, at 5s position, 60% volume |
+| `sfx "doorbell/5-12"` | Doorbell sound, 5s duration, at 12s position, 50% volume (default) |
+| `sfx "rain on roof/15-0/30"` | Rain sound, 15s duration, at start (0s), 30% volume |
+| `sfx "alarm/30-60/80"` | Alarm sound, 30s duration (clamped from max), at 60s, 80% volume |
 
 **Style Prompt Examples:**
 
@@ -1282,6 +1337,7 @@ VODER offers different experiences depending on the interface. Understanding the
 | **Speakers Separator** | Extract individual speakers from multi‑speaker audio |
 | **Video I/O** | Video input with audio extraction; video output with replaced audio (STS) |
 | **TTM Sub-tasks** | Complete, lego, extract, remix, and repaint sub-tasks for music processing |
+| **TTM SFX Overlay** | Overlay generated sound effects on `bgm` and `complete` sub‑task outputs via `sfx:` specs |
 
 ### GUI‑Only Features
 

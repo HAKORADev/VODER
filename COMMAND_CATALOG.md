@@ -428,18 +428,22 @@ Add missing instruments to an existing track. Uses ACE-Step XL-Base + 1.7B LM + 
 |---------|-------|-------------|
 | `complete` | (flag) | Enable complete sub-task. |
 | `"<path>"` | source | Source audio/video file or YouTube/TikTok/Bilibili URL (positional, after all keywords). |
-| `add` | `"<instruments>"` | Instruments to add. See **Instruments Reference** below. |
+| `add` | `"<instruments>"` | Instruments to add. See **Instruments Reference** below. Optional if `sfx:` specs are provided. |
 | `styling` | `"<text>"` | Optional style prompt to influence the mood and genre of generated instruments (e.g., `"dramatic cinematic"`, `"upbeat pop"`). |
 | `noblend` | (flag) | Output the generated instruments only, without blending with the original source audio. Output filename includes `_noblend_`. |
 | `voice` | (flag) | Pre-extract vocals from source via SVS before processing. Cannot combine with `music`. |
 | `music` | (flag) | Pre-extract music (remove vocals) from source via SVS before processing. Cannot combine with `voice`. |
 | `video` | (flag) | Preserve video if source is a video. Merges completed audio back with video. |
 | `reference` | `voice "<path>"` / `music "<path>"` / `"<path>"` | Optional reference audio. Single reference only (complete mode). |
+| `sfx:` | `prompt/duration-position/level` | Sound effect overlay spec. Multiple allowed. See **SFX Overlay Spec** below. |
 | `overdose` | (flag) | Valid flag for complete mode. Note: complete mode always uses XL-Base + 1.7B LM + shift 1.0 (50 steps) regardless — the `complete_mode=True` setting overrides model selection. Including `overdose` is not wrong; it serves to identify that the task uses the big model. |
 
 #### Rules
 
-- Requires a source path and `add` with instruments.
+- Requires a source path and `add` with instruments, or `sfx:` specs (at least one must be present).
+- `sfx:` cannot be used with `noblend`.
+- If only `sfx:` specs are provided (no `add`), the music model is not loaded — SFX is overlaid directly on the source.
+- `add` (instruments) and `sfx:` can be combined.
 - `voice` and `music` are mutually exclusive. If neither, source is used as-is.
 - `noblend` skips the post-generation blend step — the output is the model's generated audio only (no mixing with the original source).
 - `video` is valid with `complete` and `bgm` (not lego/extract).
@@ -472,6 +476,15 @@ python voder.py ttm complete noblend "vocals_only.wav" add "drums bass"
 
 # Complete from YouTube with video
 python voder.py ttm complete video "https://youtube.com/watch?v=..." add "everything"
+
+# SFX overlay only (no instrument generation, no music model loaded)
+python voder.py ttm complete "podcast.wav" sfx:thunder/10-5/50
+
+# Combine instruments and SFX overlay
+python voder.py ttm complete "vocals_only.wav" add "drums bass" sfx:rain/8-22/40
+
+# Multiple SFX overlays
+python voder.py ttm complete "podcast.wav" sfx:thunder/10-5/50 sfx:rain/8-22/40
 ```
 
 ---
@@ -622,15 +635,17 @@ Replace background music in an existing audio or video file. Strips existing mus
 | Keyword | Value | Description |
 |---------|-------|-------------|
 | `bgm` | `"<path>"` | Source audio/video file or YouTube/TikTok/Bilibili URL whose background music will be replaced. |
-| `music` | `"<description>"` | Description for the new background music to generate. Required. |
+| `music` | `"<description>"` | Description for the new background music to generate. Optional if `sfx:` specs are provided. |
 | `level` | `<0-100>` | Music volume level (0 = silent, 100 = full volume). Default: 35. |
 | `video` | (flag) | Preserve video output. When source is a URL, downloads the video file and merges result back into .mp4. For local video files, video output is automatic (no flag needed). |
 | `reference` | `"<path>"` | Optional reference audio/video/URL for style guidance. Processed through SVS music pipe to extract clean instrumental. |
+| `sfx:` | `prompt/duration-position/level` | Sound effect overlay spec. Multiple allowed. See **SFX Overlay Spec** below. |
 | `overdose` | (flag) | Use Overdose tier (ACE-Step XL-Turbo + 4B LM + shift 3.0) instead of Standard tier (ACE-Step 1.5 Turbo). |
 
 #### Rules
 
-- `bgm` requires `music`.
+- `bgm` requires `music` and/or `sfx:` specs (at least one must be present).
+- SFX is overlaid after BGM mixing (or directly on voice if no music description).
 - `bgm` cannot be combined with `vc`, `remix`, `repaint`, `complete`, `lego`, or `extract`.
 - Source is resolved through `resolve_target_to_audio()` — supports audio files, video files, and URLs.
 - `video` flag: when source is a YouTube URL, downloads the video file (not just audio) and merges the result back into .mp4. For local video files, video output is automatic. If `video` is used with an audio source, outputs .wav with a warning.
@@ -658,6 +673,58 @@ python voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient chill" 
 
 # From YouTube URL with video output (downloads video, replaces bgm, outputs .mp4)
 python voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinematic" level 30 reference "ref.mp3"
+
+# BGM with SFX overlay
+python voder.py ttm bgm "podcast.wav" music "soft ambient piano" level 30 sfx:thunder/10-5/50
+
+# BGM with multiple SFX overlays
+python voder.py ttm bgm "podcast.wav" music "ambient chill" level 25 sfx:rain/8-22/40 sfx:thunder/10-5/50
+
+# SFX overlay only (no BGM, overlaid directly on voice)
+python voder.py ttm bgm "podcast.wav" sfx:rain/8-22/40
+```
+
+---
+
+### SFX Overlay Spec
+
+The `sfx:` keyword is available in `complete` and `bgm` sub-tasks. It overlays one or more generated sound effects onto the source audio.
+
+#### Format
+
+```
+sfx:prompt/duration-position/level
+```
+
+| Part | Required | Description |
+|------|----------|-------------|
+| `prompt` | Yes | SFX description text (e.g., `thunder`, `rain on a tin roof`). Slash (`/`) must not appear in the prompt. |
+| `duration` | Yes | SFX length in seconds (5-30). Auto-clamped: less than 5 becomes 5; greater than 30 becomes 30 with a warning. Minus signs are stripped. |
+| `position` | Yes | Place the SFX at N seconds into the source audio (in seconds). Cannot be negative. Cannot exceed source duration. |
+| `level` | No | Volume 1-100%. Default: 50. Minus signs are stripped. Less than 1 produces a warning and is set to 1. Greater than 100 produces a warning and is set to 100. |
+
+#### Notes
+
+- Multiple `sfx:` specs can be specified on a single command.
+- Invalid duration/position/level format (non-numeric, missing required parts) produces an error and stops execution.
+
+#### Valid Examples
+
+```
+sfx:thunder/10-5/50       # 10-second thunder at 5s into source, 50% volume
+sfx:rain/8-22             # 8-second rain at 22s into source, default 50% volume
+sfx:boom/12-30/40         # 12-second boom at 30s into source, 40% volume
+```
+
+#### Invalid Examples
+
+```
+sfx:thunder/5             # Missing position (duration-position required)
+sfx:thunder/-10-5/50      # Negative duration (minus sign stripped → 10-5/50, valid)
+sfx:thunder/10--5/50      # Negative position (error: position cannot be negative)
+sfx:thunder/abc-5/50      # Non-numeric duration (error)
+sfx:thunder/10-5/0        # Level below 1 (warning → clamped to 1)
+sfx:thunder/10-5/200      # Level above 100 (warning → clamped to 100)
 ```
 
 ---

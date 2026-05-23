@@ -682,6 +682,80 @@ def _validate_duration_directive(dur_str):
         return None, "Invalid duration: must be 1-30"
     return val, None
 
+def _parse_sfx_specs(sfx_args, max_duration):
+    parsed = []
+    for raw in sfx_args:
+        raw = raw.strip()
+        if not raw:
+            continue
+        if not raw.startswith('sfx:'):
+            return None, f"Invalid SFX spec (must start with sfx:): {raw}"
+        body = raw[4:]
+        if not body:
+            return None, "SFX spec requires a prompt after sfx:"
+        parts = body.split('/')
+        prompt = parts[0].strip()
+        if not prompt:
+            return None, "SFX prompt cannot be empty"
+
+        sfx_dur = 5
+        sfx_pos = None
+        sfx_level = 50
+
+        if len(parts) >= 2:
+            dp = parts[1].strip()
+            if not dp:
+                return None, f"SFX duration-position is empty in: {raw}"
+            dp_parts = dp.split('-')
+            if len(dp_parts) != 2:
+                return None, f"SFX duration-position must be duration-position (e.g. 10-5), got: {dp}"
+            dur_str = dp_parts[0].strip()
+            pos_str = dp_parts[1].strip()
+            if not dur_str or not pos_str:
+                return None, f"SFX duration and position must both be numbers, got: {dp}"
+            dur_str = dur_str.lstrip('-')
+            if not dur_str or not dur_str.isdigit():
+                return None, f"SFX duration must be a number, got: {dp_parts[0]}"
+            sfx_dur = int(dur_str)
+            if sfx_dur < 5:
+                sfx_dur = 5
+            if sfx_dur > 30:
+                print(f"Warning: SFX duration {sfx_dur}s exceeds 30s, clamping to 30")
+                sfx_dur = 30
+            if not pos_str.isdigit():
+                return None, f"SFX position must be a non-negative number, got: {dp_parts[1]}"
+            sfx_pos = int(pos_str)
+            if sfx_pos < 0:
+                return None, f"SFX position cannot be negative: {sfx_pos}"
+            if sfx_pos > max_duration:
+                return None, f"SFX position {sfx_pos}s exceeds source duration {max_duration:.1f}s"
+
+        if len(parts) >= 3:
+            lv_str = parts[2].strip()
+            if not lv_str:
+                return None, f"SFX level is empty in: {raw}"
+            lv_str = lv_str.lstrip('-')
+            if not lv_str or not lv_str.isdigit():
+                return None, f"SFX level must be a number, got: {parts[2]}"
+            sfx_level = int(lv_str)
+            if sfx_level < 1:
+                print(f"Warning: SFX level {sfx_level} is below 1, setting to 1")
+                sfx_level = 1
+            if sfx_level > 100:
+                print(f"Warning: SFX level {sfx_level} exceeds 100, setting to 100")
+                sfx_level = 100
+
+        if sfx_pos is None:
+            return None, f"SFX spec requires duration-position (e.g. sfx:thunder/10-5): {raw}"
+
+        parsed.append({
+            'prompt': prompt,
+            'duration': sfx_dur,
+            'position': sfx_pos,
+            'level': sfx_level
+        })
+    return parsed, None
+
 def _parse_directives_for_line(directives):
     result = {'time_end': 0, 'time_start': 0, 'time_pad': 0, 'level': 100, 'duration': None, 'has_time': False}
     errors = []
@@ -836,6 +910,68 @@ def _generate_music_and_mix(ace, music_description, dialogue_path, output_path, 
     if music_temp_dir is not None:
         shutil.rmtree(music_temp_dir, ignore_errors=True)
     return success
+
+def _generate_and_overlay_sfx(source_path, sfx_specs, output_path):
+    from tangoflux import TangoFluxGenerator
+    sfx_gen = TangoFluxGenerator(TANGOFLUX_DIR)
+    sfx_gen.ensure_model()
+    if sfx_gen.model is None:
+        print("Error: Failed to load TangoFlux SFX model")
+        sfx_gen.cleanup()
+        del sfx_gen
+        return False
+
+    sfx_temp_dir = tempfile.mkdtemp()
+    sfx_files = []
+    try:
+        for idx, spec in enumerate(sfx_specs):
+            print(f"  Generating SFX [{idx+1}/{len(sfx_specs)}]: \"{spec['prompt']}\" ({spec['duration']}s at {spec['position']}s, level {spec['level']}%)")
+            sfx_wav = os.path.join(sfx_temp_dir, f"sfx_{idx}.wav")
+            audio = sfx_gen.generate(spec['prompt'], spec['duration'])
+            if audio is None:
+                print(f"  Warning: SFX generation failed for \"{spec['prompt']}\", skipping")
+                continue
+            sfx_gen.save(audio, sfx_wav)
+            if not os.path.exists(sfx_wav):
+                print(f"  Warning: SFX file not saved for \"{spec['prompt']}\", skipping")
+                continue
+            sfx_files.append((sfx_wav, spec['position'], spec['level'] / 100.0))
+
+        sfx_gen.cleanup()
+        del sfx_gen
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        if not sfx_files:
+            print("Warning: No SFX files generated, copying source as-is")
+            shutil.copy2(source_path, output_path)
+            return True
+
+        filter_parts = []
+        input_idx = 0
+        cmd = ['ffmpeg', '-i', source_path]
+        for sfx_path, pos, vol in sfx_files:
+            cmd.extend(['-i', sfx_path])
+            delay_ms = int(pos * 1000)
+            label = f"sfx{input_idx}"
+            filter_parts.append(f"[{input_idx + 1}:a]adelay={delay_ms}|{delay_ms},volume={vol:.2f}[{label}]")
+            input_idx += 1
+
+        mix_inputs = "[0:a]" + "".join(f"[sfx{i}]" for i in range(len(sfx_files)))
+        filter_parts.append(f"{mix_inputs}amix=inputs={len(sfx_files) + 1}:duration=first:dropout_transition=0[out]")
+        filter_str = ";".join(filter_parts)
+        cmd.extend(['-filter_complex', filter_str, '-map', '[out]', '-y', output_path])
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"Warning: SFX overlay failed: {result.stderr}, copying source as-is")
+            shutil.copy2(source_path, output_path)
+        return True
+    finally:
+        try:
+            shutil.rmtree(sfx_temp_dir)
+        except Exception:
+            pass
 
 def _assemble_enhanced_dialogue(dialogue_items, voice_data, tts_design_obj=None, tts_vc_obj=None, vc_voice_data=None, output_path=None, mode='tts'):
     temp_dir = tempfile.mkdtemp()
@@ -4766,6 +4902,17 @@ def parse_oneline_args(args):
                 return result
             result['params']['noblend'] = True
             i += 1
+        elif mode == 'ttm' and arg.startswith('sfx:'):
+            if 'bgm' not in result['params'] and 'complete' not in result['params']:
+                result['error'] = 'sfx: specs are only valid with bgm or complete task'
+                return result
+            if 'complete' in result['params'] and result['params'].get('noblend'):
+                result['error'] = 'sfx: cannot be used with noblend'
+                return result
+            if 'sfx_specs' not in result['params']:
+                result['params']['sfx_specs'] = []
+            result['params']['sfx_specs'].append(arg)
+            i += 1
         elif mode == 'ttm' and arg_lower == 'stems':
             if 'extract' not in result['params']:
                 result['error'] = 'stems keyword is only valid with extract task'
@@ -5098,6 +5245,7 @@ def show_oneline_usage():
     print("  ocr      - Image file path for OCR text extraction (TTS modes)")
     print("  overdose - Use VibeVoice ASR for dialogue source and enhanced music (TTS/TTM modes)")
     print("  bgm      - Add or replace background music on an audio/video (TTM mode)")
+    print("  sfx:     - Sound effect spec for bgm/complete tasks: sfx:prompt/duration-position/level")
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
     print()
     print("SLC parameters:")
@@ -5110,6 +5258,20 @@ def show_oneline_usage():
     print('  python voder.py ttm overdose bgm "path/to/audio.wav" music "lo-fi chill" level 25 reference "ref_song.mp3"')
     print('  python voder.py ttm bgm "https://youtube.com/watch?v=..." music "ambient synth" level 40')
     print('  python voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinematic" level 30 reference "ref.mp3"')
+    print('  python voder.py ttm bgm "audio.wav" music "piano" sfx:thunder/10-5/50')
+    print('  python voder.py ttm bgm "audio.wav" sfx:rain/8-22 sfx:thunder/10-5/60')
+    print()
+    print("Complete + SFX examples (add instruments and/or sound effects):")
+    print('  python voder.py ttm complete "source.wav" add "drums bass" sfx:thunder/10-5/50')
+    print('  python voder.py ttm complete "source.wav" sfx:rain/8-22')
+    print('  python voder.py ttm complete video "source.mp4" add "everything" sfx:boom/12-30/40')
+    print()
+    print("SFX spec format: sfx:prompt/duration-position/level")
+    print("  prompt    - SFX description text (required)")
+    print("  duration  - SFX length 5-30 seconds (clamped)")
+    print("  position  - Place at N seconds into source (required, cannot exceed source length)")
+    print("  level     - Volume 1-100% (optional, default: 50)")
+    print("  Multiple SFX specs can be specified")
     print()
     print("Script directives (per line, at end of text):")
     print("  /time:nn-nn+nn  - Cut nn seconds from end (-nn) and/or start (+nn)")
@@ -6313,19 +6475,27 @@ def oneline_ttm_complete(params):
         return False
 
     instruments_raw = params.get('instruments_raw', '')
-    if not instruments_raw:
-        print('Error: Complete task requires instruments (e.g., add "drums bass guitar" or add "everything")')
+    sfx_specs_raw = params.get('sfx_specs', [])
+    has_instruments = bool(instruments_raw)
+    has_sfx = bool(sfx_specs_raw)
+
+    if not has_instruments and not has_sfx:
+        print('Error: Complete task requires instruments and/or sfx: specs (e.g., add "drums bass" or sfx:thunder/10-5)')
         return False
 
-    track_classes, unknown = resolve_acestep_tracks(instruments_raw)
-    if unknown is not None and len(unknown) > 0:
-        print(f"Error: Unknown stem name(s): {', '.join(unknown)}")
-        print(f"Valid stems: {', '.join(sorted(VALID_ACESTEP_TRACKS))}")
-        print(f'Shortcuts: everything, instruments (non-vocal), voices (vocal only)')
-        return False
-    if track_classes is None:
-        print("Error: No valid tracks specified")
-        return False
+    track_classes = None
+    if has_instruments:
+        track_classes, unknown = resolve_acestep_tracks(instruments_raw)
+        if unknown is not None and len(unknown) > 0:
+            print(f"Error: Unknown stem name(s): {', '.join(unknown)}")
+            print(f"Valid stems: {', '.join(sorted(VALID_ACESTEP_TRACKS))}")
+            print(f'Shortcuts: everything, instruments (non-vocal), voices (vocal only)')
+            return False
+        if track_classes is None:
+            print("Error: No valid tracks specified")
+            return False
+
+    noblend = params.get('noblend', False)
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     original_name = os.path.splitext(os.path.basename(source_path))[0].replace(' ', '_')[:50]
@@ -6380,6 +6550,15 @@ def oneline_ttm_complete(params):
             print(f"Error: {msg}")
             return False
         source_audio = source_path
+
+    source_duration = _get_audio_duration(source_audio)
+
+    sfx_specs = None
+    if sfx_specs_raw:
+        sfx_specs, sfx_err = _parse_sfx_specs(sfx_specs_raw, source_duration)
+        if sfx_err:
+            print(f"Error: {sfx_err}")
+            return False
 
     actual_source = source_audio
     if use_vocals:
@@ -6447,23 +6626,6 @@ def oneline_ttm_complete(params):
         else:
             print(f"Using reference audio: {_ref_type}")
 
-    print(f"Tracks to add: {', '.join(track_classes)}")
-    print("Loading ACE-Step XL-Base model (complete task)...")
-    print("Note: Complete task uses the base model (50 inference steps), this may take a while...")
-
-    ace_step = AceStepWrapper(use_overdose=True, complete_mode=True)
-    if ace_step.handler is None:
-        print("Error: Failed to load ACE-Step model for complete task")
-        for f in _cleanup:
-            if f and os.path.exists(f):
-                try:
-                    os.unlink(f)
-                except:
-                    pass
-        return False
-
-    noblend = params.get('noblend', False)
-
     try:
         output_ext = '.wav'
         if want_video and video_path:
@@ -6474,84 +6636,111 @@ def oneline_ttm_complete(params):
         output_filename = f'voder_ttm_complete_{original_name}{_noblend_tag}_{timestamp}{output_ext}'
         output_path = os.path.join(results_dir, output_filename)
 
-        temp_gen_wav = os.path.join(results_dir, f'_ttm_complete_gen_{timestamp}.wav')
-        print(f"Completing track (adding {len(track_classes)} instruments)...")
-        _styling = None
-        if 'styling' in params and len(params['styling']) == 1:
-            _styling = params['styling'][0].replace('\\n', '\n')
-        success = ace_step.complete(
-            src_audio=actual_source,
-            track_classes=track_classes,
-            output_path=temp_gen_wav,
-            styling=_styling,
-            reference_audio=reference_audio
-        )
+        blended_path = actual_source
 
-        if success:
-            if noblend:
-                if want_video and video_path:
-                    print("Merging generated audio with video...")
-                    ret = os.system(f'ffmpeg -y -i "{video_path}" -i "{temp_gen_wav}" -c:v copy -map 0:v:0 -map 1:a:0 -shortest "{output_path}" 2>/dev/null')
-                    if ret != 0 or not os.path.exists(output_path):
-                        print("Error: Failed to merge audio with video")
-                        success = False
-                else:
-                    shutil.move(temp_gen_wav, output_path)
+        if has_instruments:
+            print(f"Tracks to add: {', '.join(track_classes)}")
+            print("Loading ACE-Step XL-Base model (complete task)...")
+            print("Note: Complete task uses the base model (50 inference steps), this may take a while...")
+
+            ace_step = AceStepWrapper(use_overdose=True, complete_mode=True)
+            if ace_step.handler is None:
+                print("Error: Failed to load ACE-Step model for complete task")
+                for f in _cleanup:
+                    if f and os.path.exists(f):
+                        try:
+                            os.unlink(f)
+                        except:
+                            pass
+                return False
+
+            temp_gen_wav = os.path.join(results_dir, f'_ttm_complete_gen_{timestamp}.wav')
+            print(f"Completing track (adding {len(track_classes)} instruments)...")
+            _styling = None
+            if 'styling' in params and len(params['styling']) == 1:
+                _styling = params['styling'][0].replace('\\n', '\n')
+            success = ace_step.complete(
+                src_audio=actual_source,
+                track_classes=track_classes,
+                output_path=temp_gen_wav,
+                styling=_styling,
+                reference_audio=reference_audio
+            )
+
+            del ace_step
+            ace_step = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            if not success or not os.path.exists(temp_gen_wav):
                 if os.path.exists(temp_gen_wav):
                     try:
                         os.unlink(temp_gen_wav)
                     except:
                         pass
+                print("Error: Complete generation failed")
+                return False
+
+            if noblend:
+                blended_path = temp_gen_wav
+                _cleanup.append(temp_gen_wav)
             else:
                 print("Blending completed audio with source...")
                 temp_blend_wav = os.path.join(results_dir, f'_ttm_complete_blend_{timestamp}.wav')
                 ret = os.system(f'ffmpeg -y -i "{temp_gen_wav}" -i "{actual_source}" -filter_complex amix=inputs=2:duration=longest "{temp_blend_wav}" 2>/dev/null')
-                if ret == 0 and os.path.exists(temp_blend_wav):
-                    if want_video and video_path:
-                        print("Merging blended audio with video...")
-                        ret = os.system(f'ffmpeg -y -i "{video_path}" -i "{temp_blend_wav}" -c:v copy -map 0:v:0 -map 1:a:0 -shortest "{output_path}" 2>/dev/null')
-                        if ret != 0 or not os.path.exists(output_path):
-                            print("Error: Failed to merge audio with video")
-                            success = False
-                    else:
-                        shutil.move(temp_blend_wav, output_path)
-                else:
-                    print("Warning: Blend failed, using generated audio as-is")
-                    if want_video and video_path:
-                        ret = os.system(f'ffmpeg -y -i "{video_path}" -i "{temp_gen_wav}" -c:v copy -map 0:v:0 -map 1:a:0 -shortest "{output_path}" 2>/dev/null')
-                        if ret != 0 or not os.path.exists(output_path):
-                            print("Error: Failed to merge audio with video")
-                            success = False
-                    else:
-                        shutil.move(temp_gen_wav, output_path)
                 if os.path.exists(temp_gen_wav):
                     try:
                         os.unlink(temp_gen_wav)
                     except:
                         pass
-                if os.path.exists(temp_blend_wav):
+                if ret == 0 and os.path.exists(temp_blend_wav):
+                    blended_path = temp_blend_wav
+                    _cleanup.append(temp_blend_wav)
+                else:
+                    print("Warning: Blend failed, using generated audio as-is")
+                    blended_path = temp_gen_wav
+                    _cleanup.append(temp_gen_wav)
+                    if os.path.exists(temp_blend_wav):
+                        try:
+                            os.unlink(temp_blend_wav)
+                        except:
+                            pass
+
+        if sfx_specs:
+            print(f"Applying {len(sfx_specs)} SFX overlay(s)...")
+            sfx_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            sfx_temp.close()
+            sfx_ok = _generate_and_overlay_sfx(blended_path, sfx_specs, sfx_temp.name)
+            if sfx_ok and os.path.exists(sfx_temp.name):
+                blended_path = sfx_temp.name
+                _cleanup.append(sfx_temp.name)
+            else:
+                if os.path.exists(sfx_temp.name):
                     try:
-                        os.unlink(temp_blend_wav)
+                        os.unlink(sfx_temp.name)
                     except:
                         pass
+                print("Warning: SFX overlay failed, using audio without SFX")
 
-        if not success:
-            if os.path.exists(temp_gen_wav):
-                try:
-                    os.unlink(temp_gen_wav)
-                except:
-                    pass
-            print("Error: Complete generation failed")
-            return False
+        if want_video and video_path:
+            print("Merging audio with video...")
+            mux_cmd = ['ffmpeg', '-i', video_path, '-i', blended_path,
+                        '-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0',
+                        '-shortest', '-y', output_path]
+            mux_result = subprocess.run(mux_cmd, capture_output=True, text=True)
+            if mux_result.returncode != 0:
+                print(f"Error: Video muxing failed: {mux_result.stderr}")
+                return False
+        else:
+            shutil.copy2(blended_path, output_path)
 
         print(f"\nSuccess! Output saved to: {output_path}")
         return True
     finally:
-        del ace_step
-        ace_step = None
-        gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        gc.collect()
         for f in _cleanup:
             if f and os.path.exists(f):
                 try:
@@ -6559,7 +6748,10 @@ def oneline_ttm_complete(params):
                 except:
                     pass
         if downloaded_video and os.path.exists(downloaded_video):
-            os.remove(downloaded_video)
+            try:
+                os.remove(downloaded_video)
+            except:
+                pass
 
 def oneline_ttm_lego(params):
     original_cwd = os.getcwd()
@@ -7048,14 +7240,17 @@ def oneline_ttm_bgm(params):
         return False
 
     music_params_list = params.get('music', [])
-    if not music_params_list:
-        print("Error: bgm requires a music description (e.g. music \"soft piano\")")
+    music_description = None
+    if music_params_list:
+        music_description = music_params_list[-1]
+        if music_description:
+            music_description = music_description.strip()
+
+    sfx_specs_raw = params.get('sfx_specs', [])
+
+    if not music_description and not sfx_specs_raw:
+        print("Error: bgm requires a music description and/or sfx: specs")
         return False
-    music_description = music_params_list[-1]
-    if not music_description or not music_description.strip():
-        print("Error: music description cannot be empty")
-        return False
-    music_description = music_description.strip()
 
     level = 35
     level_list = params.get('level', [])
@@ -7122,6 +7317,15 @@ def oneline_ttm_bgm(params):
                 return False
             cleanup_files.extend(source_cleanup)
 
+        source_duration = _get_audio_duration(source_audio)
+
+        sfx_specs = None
+        if sfx_specs_raw:
+            sfx_specs, sfx_err = _parse_sfx_specs(sfx_specs_raw, source_duration)
+            if sfx_err:
+                print(f"Error: {sfx_err}")
+                return False
+
         print("Cleaning source audio through SVS voice pipe...")
         clean_voice = svs_extract_vocals(source_audio)
         if clean_voice != source_audio:
@@ -7143,42 +7347,66 @@ def oneline_ttm_bgm(params):
                 if reference_audio != ref_audio:
                     cleanup_files.append(reference_audio)
 
-        print("Loading ACE-Step model...")
-        ace = AceStepWrapper(use_overdose=use_overdose)
-        if ace.handler is None:
-            print("Error: Failed to load ACE-Step model")
-            return False
+        mixed_path = None
 
-        print(f"Generating background music (description: \"{music_description}\")...")
-        music_result = generate_background_music(ace, music_description, voice_duration, reference_audio=reference_audio)
-        del ace
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        if music_description:
+            print("Loading ACE-Step model...")
+            ace = AceStepWrapper(use_overdose=use_overdose)
+            if ace.handler is None:
+                print("Error: Failed to load ACE-Step model")
+                return False
 
-        if music_result is None:
-            print("Error: Background music generation failed")
-            return False
-        music_temp_path, music_temp_dir = music_result
+            print(f"Generating background music (description: \"{music_description}\")...")
+            music_result = generate_background_music(ace, music_description, voice_duration, reference_audio=reference_audio)
+            del ace
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
-        vol = level / 100.0
-        print(f"Mixing clean voice with music (volume: {level}%)...")
-        mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-        mixed_temp.close()
-        cmd = [
-            'ffmpeg', '-i', clean_voice, '-i', music_temp_path,
-            '-filter_complex', f'[1:a]volume={vol:.2f}[music];[0:a][music]amix=inputs=2:duration=longest',
-            '-y', mixed_temp.name
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if music_temp_dir is not None:
-            shutil.rmtree(music_temp_dir, ignore_errors=True)
-        if result.returncode != 0:
-            print(f"Error: FFmpeg mixing failed: {result.stderr}")
-            try:
-                os.unlink(mixed_temp.name)
-            except:
-                pass
-            return False
+            if music_result is None:
+                print("Error: Background music generation failed")
+                return False
+            music_temp_path, music_temp_dir = music_result
+
+            vol = level / 100.0
+            print(f"Mixing clean voice with music (volume: {level}%)...")
+            mixed_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            mixed_temp.close()
+            cmd = [
+                'ffmpeg', '-i', clean_voice, '-i', music_temp_path,
+                '-filter_complex', f'[1:a]volume={vol:.2f}[music];[0:a][music]amix=inputs=2:duration=longest',
+                '-y', mixed_temp.name
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if music_temp_dir is not None:
+                shutil.rmtree(music_temp_dir, ignore_errors=True)
+            if result.returncode != 0:
+                print(f"Error: FFmpeg mixing failed: {result.stderr}")
+                try:
+                    os.unlink(mixed_temp.name)
+                except:
+                    pass
+                return False
+            mixed_path = mixed_temp.name
+            cleanup_files.append(mixed_path)
+        else:
+            mixed_path = clean_voice
+
+        if sfx_specs:
+            print(f"Applying {len(sfx_specs)} SFX overlay(s)...")
+            sfx_temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            sfx_temp.close()
+            sfx_ok = _generate_and_overlay_sfx(mixed_path, sfx_specs, sfx_temp.name)
+            if sfx_ok and os.path.exists(sfx_temp.name):
+                mixed_path = sfx_temp.name
+                cleanup_files.append(sfx_temp.name)
+            else:
+                if os.path.exists(sfx_temp.name):
+                    try:
+                        os.unlink(sfx_temp.name)
+                    except:
+                        pass
+                print("Warning: SFX overlay failed, using audio without SFX")
 
         if original_video_path and os.path.exists(original_video_path):
             if downloaded_video and video_title:
@@ -7193,15 +7421,11 @@ def oneline_ttm_bgm(params):
             final_temp = tempfile.NamedTemporaryFile(suffix=out_ext, delete=False)
             final_temp.close()
             mux_cmd = [
-                'ffmpeg', '-i', original_video_path, '-i', mixed_temp.name,
+                'ffmpeg', '-i', original_video_path, '-i', mixed_path,
                 '-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0',
                 '-shortest', '-y', final_temp.name
             ]
             mux_result = subprocess.run(mux_cmd, capture_output=True, text=True)
-            try:
-                os.unlink(mixed_temp.name)
-            except:
-                pass
             if mux_result.returncode != 0:
                 print(f"Error: Video muxing failed: {mux_result.stderr}")
                 try:
@@ -7218,7 +7442,7 @@ def oneline_ttm_bgm(params):
                 if not name:
                     name = "audio"
             output_path = os.path.join(results_dir, f"voder_ttm_bgm_{name}_{timestamp}.wav")
-            shutil.move(mixed_temp.name, output_path)
+            shutil.copy2(mixed_path, output_path)
 
         print(f"✓ Success! Output saved to: {output_path}")
         return True
