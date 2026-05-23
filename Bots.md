@@ -732,12 +732,7 @@ python src/voder.py ttm overdose remix voice "song.wav" styling "cinematic orche
 
 **Multi-source remix (compose vocals from one song + instruments from another):**
 ```bash
-python src/voder.py ttm remix source voice "vocals.wav" music "instruments.wav" styling "funk" bias 60 result "/output/multi_src_remix.wav"
-```
-
-**Multi-source remix with 3 sources + reference:**
-```bash
-python src/voder.py ttm remix source voice "vocals.wav" music "instruments.wav" "extra.wav" styling "funk" reference voice "ref.wav" result "/output/multi_src3_remix.wav"
+python src/voder.py ttm remix voice "vocals.wav" music "instruments.wav" styling "funk" bias 60 result "/output/multi_src_remix.wav"
 ```
 
 **Multi-reference remix (2 references composed into 30s composite):**
@@ -837,7 +832,6 @@ python src/voder.py ttm bgm "podcast.wav" sfx "doorbell/5-12/50" result "/output
 | `target` | Optional music reference (`target voice "ref.wav"` or `target music "ref.wav"`) | No |
 | `bias` | Style transfer strength for `remix`/`repaint` (0‑100, default 40) | No |
 | `reference` | Reference audio for `remix`/`repaint`/`bgm`/`complete`/`lego` guidance (up to 3 entries with `voice`/`music` prefix; `reference voice "path"`, `reference music "path"`, or `reference "path"` for as-is; accepts audio, video, and URLs; multiple refs composed into 30s composite) | No |
-| `source` | Source audio for `remix` (up to 3 entries with `voice`/`music` prefix; `source voice "path"`, `source music "path"`, or `source "path"` for as-is; multiple sources composed with equal time allocation) | No (remix only) |
 | `video` | Preserve video output for `complete`/`bgm` (downloads video from URL, merges back to .mp4) | No |
 | `overdose` | Use enhanced quality mode (three‑tier ACE‑Step) | No |
 | `result` | Output file path | No |
@@ -849,7 +843,7 @@ python src/voder.py ttm bgm "podcast.wav" sfx "doorbell/5-12/50" result "/output
 | complete | `complete "source.wav" add "drums bass" voice` | Add missing tracks to existing audio (optional `styling` prompt, optional `noblend` flag, optional `sfx:` specs for SFX overlay; `add` is optional if `sfx:` specs provided; `sfx:` cannot be used with `noblend`; if only `sfx:` with no `add`, music model not loaded; SFX overlaid after blend) |
 | lego | `lego "source.wav" make "drums bass" mix` | Build individual instrument tracks (optional `styling` prompt) |
 | extract | `extract "source.wav" stems "vocals drums"` | Extract specific tracks |
-| remix | `remix "source.wav" styling "jazz"` | Style transfer (cover) with bias control, optional lyrics, multi-source via `source` keyword (up to 3) and multi-reference (up to 3) |
+| remix | `remix "source.wav" styling "jazz"` | Style transfer (cover) with bias control, optional lyrics, multi-source (up to 3) and multi-reference (up to 3) |
 | repaint | `repaint "source.wav" time:20-80 styling "..."` | Restyle a specific time range |
 | bgm | `bgm "source.wav" music "description" level 30` | Replace background music in audio/video (optional `video` flag for URL→video output, optional `reference`, optional `sfx:` specs for SFX overlay; `music` is optional if `sfx:` specs provided; SFX overlaid after BGM mixing or directly on clean voice) |
 

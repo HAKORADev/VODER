@@ -337,11 +337,10 @@ Re-generate a song in a new style. Uses ACE-Step cover method. Supports **multi-
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `remix` | `[voice/music] "<path>" [voice/music "<path>" ...]` | Source audio(s) to remix (shorthand, paths directly after `remix`). Up to 3 sources with optional `voice`/`music` prefix per source. Multiple sources are composed into one (equal time per source). |
+| `remix` | `[voice/music] "<path>" [voice/music "<path>" ...]` | Source audio(s) to remix (paths directly after `remix`). Up to 3 sources with optional `voice`/`music` prefix per source. Multiple sources are composed into one (equal time per source). |
 | `lyrics` | `"<text>"` | Optional lyrics to guide new vocal content in the remix. |
 | `styling` | `"<text>"` | New style prompt for the remix. |
 | `bias` | `"<0-100>"` | Cover strength bias. 0 = full original, 100 = full cover. Snaps to nearest 10; values ending in 5 snap down to the lower multiple of 10 (e.g., 45 → 0.4, 15 → 0.1). Default: 40 (= 0.4 strength). |
-| `source` | `[voice/music] "<path>" [voice/music "<path>" ...]` | Explicit source keyword for remix. Up to 3 sources with optional `voice`/`music` prefix per entry. Same composition logic as `remix` shorthand. |
 | `reference` | `[voice/music] "<path>" [voice/music "<path>" ...]` | Optional reference audio(s). Up to 3 with optional `voice`/`music` prefix per entry. Multiple refs are composed into a 30s composite. |
 | `overdose` | (flag) | Use Overdose tier. |
 
@@ -396,12 +395,6 @@ python voder.py ttm overdose remix voice "song.wav" styling "cinematic orchestra
 
 # Multi-source remix (vocals + instruments from different songs)
 python voder.py ttm remix voice "vocals.wav" music "instruments.wav" styling "funk" bias 60
-
-# Multi-source remix using explicit source keyword
-python voder.py ttm remix source voice "vocals.wav" music "instruments.wav" styling "funk" bias 60
-
-# Multi-source remix with 3 sources via source keyword + reference
-python voder.py ttm remix source voice "vocals.wav" music "instruments.wav" "extra.wav" styling "funk" reference voice "ref.wav"
 
 # Multi-reference remix (2 references)
 python voder.py ttm remix "song.wav" styling "pop" reference voice "ref1.wav" music "ref2.wav"

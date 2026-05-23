@@ -677,7 +677,7 @@ TTM supports advanced music manipulation sub-tasks that go beyond simple generat
 | Sub-Task | Description | CLI Syntax |
 |----------|-------------|------------|
 | `generate` | Standard music generation (default) | `python voder.py ttm lyrics "..." styling "..." duration 30` |
-| `remix` | Style-transferred version of an existing song (supports `reference` for additional guidance, optional `lyrics` for new vocal content, multi-source via `source` keyword up to 3 and multi-reference up to 3) | `python voder.py ttm remix "input.wav" styling "..." bias 40 result "/output/remix.wav"` |
+| `remix` | Style-transferred version of an existing song (supports `reference` for additional guidance, optional `lyrics` for new vocal content, multi-source up to 3 and multi-reference up to 3) | `python voder.py ttm remix "input.wav" styling "..." bias 40 result "/output/remix.wav"` |
 | `repaint` | Repaint a time range of an existing track (supports `reference` for additional guidance) | `python voder.py ttm repaint "source.wav" time:20-80 styling "..." result "/output/repainted.wav"` |
 | `complete` | Add instrument tracks to existing audio (supports `sfx:` overlay) | `python voder.py ttm complete source "song.wav" add "drums bass" [target music "ref.wav"]` |
 | `extract` | Extract vocals or music from a track | `python voder.py ttm extract "song.wav" extract "vocals"` |
@@ -835,11 +835,8 @@ python src/voder.py ttm remix music "original_song.wav" styling "electronic" res
 # Overdose remix with voice isolation
 python src/voder.py ttm overdose remix voice "original_song.wav" styling "cinematic orchestral" result "/output/voice_od_remix.wav"
 
-# Multi-source remix using explicit source keyword (vocals + instruments from different songs)
-python src/voder.py ttm remix source voice "vocals.wav" music "instruments.wav" styling "funk" bias 60 result "/output/multi_remix.wav"
-
-# Multi-source remix with 3 sources + reference
-python src/voder.py ttm remix source voice "vocals.wav" music "instruments.wav" "extra.wav" styling "funk" reference voice "ref.wav" result "/output/multi_remix.wav"
+# Multi-source remix (vocals + instruments from different songs)
+python src/voder.py ttm remix voice "vocals.wav" music "instruments.wav" styling "funk" bias 60 result "/output/multi_remix.wav"
 
 # Multi-reference remix (2 references composed into 30s composite)
 python src/voder.py ttm remix "song.wav" styling "pop" reference voice "ref1.wav" music "ref2.wav" result "/output/multi_ref_remix.wav"
@@ -914,8 +911,7 @@ For voice conversion, BS‑RoFormer automatically extracts clean vocals from the
 | `clone "path"` | Voice clone source path | Required when `vc` is set |
 | `target voice "ref.wav"` | Music reference — extract vocals | Optional (not with `vc`) |
 | `target music "ref.wav"` | Music reference — extract instrumental | Optional (not with `vc`) |
-| `remix "path"` | Source audio for remix style transfer (shorthand, paths after `remix`) | Required for remix sub-task |
-| `source [voice/music] "path"` | Explicit source keyword for remix, up to 3 with optional `voice`/`music` prefix per entry | Optional (alternative to shorthand) |
+| `remix "path"` | Source audio for remix style transfer | Required for remix sub-task |
 | `repaint "path"` | Source audio for section repaint | Required for repaint sub-task |
 | `bias N` | Style transfer strength 0–100 | Optional (default 40, for remix/repaint) |
 | `time:start-end` | Time range for repaint | Required for repaint sub-task |
@@ -2274,7 +2270,7 @@ python src/voder.py sts "presentation.mp4" "narrator_voice.wav"
 The new TTM sub‑tasks open up powerful music manipulation workflows:
 
 **Remix (Style Transfer):**
-Remix generates a style-transferred version of an existing song. The `bias` parameter (0–100, default 40) controls how much the new style is applied — 0 means pure original, 100 means pure new style. Use `voice` or `music` before a source path to pre-extract vocals or instruments from that source via SVS before remixing — this lets you remix only the vocal performance or only the instrumental, giving the model a cleaner source for more creative results. Optionally provide `lyrics` to guide the vocal content of the remix — this lets you create a remix with entirely new lyrics while keeping the musical vibe from the source. **Multi-source**: provide up to 3 source paths using the `source` keyword (each with optional `voice`/`music` prefix) and they are composed into one source with equal time allocation per source. **Multi-reference**: provide up to 3 reference entries (each with optional `voice`/`music` prefix) and they are composed into a 30s composite reference — 2 refs: 10s front of ref1 + 5s mid of each + 10s end of ref2; 3 refs: 10s front of ref1 + 10s mid of ref2 + 10s end of ref3.
+Remix generates a style-transferred version of an existing song. The `bias` parameter (0–100, default 40) controls how much the new style is applied — 0 means pure original, 100 means pure new style. Use `voice` or `music` before a source path to pre-extract vocals or instruments from that source via SVS before remixing — this lets you remix only the vocal performance or only the instrumental, giving the model a cleaner source for more creative results. Optionally provide `lyrics` to guide the vocal content of the remix — this lets you create a remix with entirely new lyrics while keeping the musical vibe from the source. **Multi-source**: provide up to 3 source paths (each with optional `voice`/`music` prefix) and they are composed into one source with equal time allocation per source. **Multi-reference**: provide up to 3 reference entries (each with optional `voice`/`music` prefix) and they are composed into a 30s composite reference — 2 refs: 10s front of ref1 + 5s mid of each + 10s end of ref2; 3 refs: 10s front of ref1 + 10s mid of ref2 + 10s end of ref3.
 
 ```bash
 python src/voder.py ttm remix "rock_song.wav" styling "acoustic jazz version" bias 50 result "/output/jazz_remix.wav"
@@ -2289,7 +2285,7 @@ python src/voder.py ttm remix voice "rock_song.wav" styling "soulful R&B" result
 python src/voder.py ttm remix music "rock_song.wav" styling "electronic synth" result "/output/music_remix.wav"
 
 # Multi-source remix — vocals from one song, instruments from another
-python src/voder.py ttm remix source voice "song1.wav" music "song2.wav" styling "funk" result "/output/multi_remix.wav"
+python src/voder.py ttm remix voice "song1.wav" music "song2.wav" styling "funk" result "/output/multi_remix.wav"
 
 # Multi-reference remix — 2 references composed into 30s composite
 python src/voder.py ttm remix "song.wav" styling "pop" reference voice "ref1.wav" music "ref2.wav" result "/output/remix.wav"

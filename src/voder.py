@@ -5117,7 +5117,7 @@ def parse_oneline_args(args):
                                   'remix', 'repaint', 'bias', 'vc', 'clone', 'noblend', 'usrc',
                                   'script', 'lyrics', 'styling', 'base', 'target', 'duration',
                                   'timestamp', 'dialogue', 'sound', 'steps', 'guide', 'level', 'ocr',
-                                  'reference', 'source', 'sfx:', 'bgm', 'music'):
+                                  'reference', 'sfx:', 'bgm', 'music'):
                     break
                 if peek_lower in ('voice', 'music'):
                     sv_type = peek_lower
@@ -5137,39 +5137,6 @@ def parse_oneline_args(args):
                 print("Warning: reference supports up to 3 entries, using first 3")
                 ref_entries = ref_entries[:3]
             result['params']['ref_entries'] = ref_entries
-        elif mode == 'ttm' and arg_lower == 'source':
-            if 'is_remix' not in result:
-                result['error'] = 'source keyword is only valid with remix task'
-                return result
-            i += 1
-            src_entries = []
-            while i < len(args):
-                peek_lower = args[i].lower()
-                if peek_lower in ('mix', 'blend', 'result', 'make', 'add', 'overdose',
-                                  'complete', 'lego', 'video', 'extract', 'stems', 'only',
-                                  'remix', 'repaint', 'bias', 'vc', 'clone', 'noblend', 'usrc',
-                                  'script', 'lyrics', 'styling', 'base', 'target', 'duration',
-                                  'timestamp', 'dialogue', 'sound', 'steps', 'guide', 'level', 'ocr',
-                                  'reference', 'source', 'sfx:', 'bgm', 'music'):
-                    break
-                if peek_lower in ('voice', 'music'):
-                    sv_type = peek_lower
-                    i += 1
-                    if i >= len(args):
-                        result['error'] = 'source requires a path after voice/music'
-                        return result
-                    src_entries.append((sv_type, args[i]))
-                    i += 1
-                else:
-                    src_entries.append(('asis', args[i]))
-                    i += 1
-            if not src_entries:
-                result['error'] = 'source requires at least one path'
-                return result
-            if len(src_entries) > 3:
-                print("Warning: source supports up to 3 entries, using first 3")
-                src_entries = src_entries[:3]
-            result['params']['source_entries'] = src_entries
         elif mode == 'ttm' and arg_lower == 'make':
             if 'lego' not in result['params']:
                 result['error'] = 'make keyword is only valid with lego task'
@@ -5251,7 +5218,7 @@ def parse_oneline_args(args):
                                   'dialogue', 'sound', 'steps', 'guide', 'level', 'ocr',
                                   'complete', 'lego', 'video', 'extract', 'stems', 'only',
                                   'noblend', 'usrc', 'remix', 'repaint', 'bias', 'vc', 'clone',
-                                  'reference', 'source', 'sfx:', 'add', 'make', 'mix', 'blend', 'result', 'overdose',
+                                  'reference', 'sfx:', 'add', 'make', 'mix', 'blend', 'result', 'overdose',
                                   'music', 'bgm'):
                     break
                 if peek_lower in ('voice', 'music'):
@@ -5450,7 +5417,6 @@ def show_oneline_usage():
     print("  music    - Background music description (dialogue/bgm modes)")
     print("  level    - Music volume levels e.g. \"10:20-50 30:60-80\" (dialogue modes) or 0-100 (bgm mode, default: 35)")
     print("  reference - Music reference audio/video path or URL (up to 3 with voice/music prefix)")
-    print("  source   - Remix source audio/video path or URL (up to 3 with voice/music prefix, remix only)")
     print("  ocr      - Image file path for OCR text extraction (TTS modes)")
     print("  overdose - Use VibeVoice ASR for dialogue source and enhanced music (TTS/TTM modes)")
     print("  bgm      - Add or replace background music on an audio/video (TTM mode)")
@@ -5491,8 +5457,7 @@ def show_oneline_usage():
     print('  python voder.py ttm remix "song.wav" lyrics "custom lyrics" styling "hip hop" bias 70')
     print('  python voder.py ttm remix "song.wav" styling "ambient" reference "ref_song.mp3"')
     print('  python voder.py ttm remix "song.wav" styling "pop" reference voice "ref1.wav" music "ref2.wav"')
-    print('  python voder.py ttm remix source voice "vocal.wav" music "inst.wav" styling "funk" reference "ref.wav"')
-    print('  python voder.py ttm remix source voice "voc.wav" music "inst.wav" "extra.wav" styling "funk" reference voice "ref.wav"')
+    print('  python voder.py ttm remix voice "vocal.wav" music "inst.wav" styling "funk" reference "ref.wav"')
     print('  python voder.py ttm overdose remix "song.wav" lyrics "dreamy verse" styling "synthwave"')
     print()
     print('SFX spec format: "sfx:prompt/duration-position/level"')
@@ -5519,8 +5484,6 @@ def execute_oneline_command(parsed):
         params['is_remix'] = parsed['is_remix']
     if 'remix_entries' in parsed:
         params['remix_entries'] = parsed['remix_entries']
-    if 'source_entries' in parsed:
-        params['source_entries'] = parsed['source_entries']
     if 'bias_val' in parsed:
         params['bias_val'] = parsed['bias_val']
     if 'is_repaint' in parsed:
@@ -6281,7 +6244,7 @@ def oneline_ttm(params):
                         pass
 
     if _is_remix:
-        _remix_entries = params.get('source_entries', []) or params.get('remix_entries', [])
+        _remix_entries = params.get('remix_entries', [])
         if not _remix_entries:
             print("Error: Remix requires at least one source path")
             return False
