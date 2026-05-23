@@ -4413,44 +4413,61 @@ def cli_sts_mode():
                     except:
                         pass
             return False
+        print("Extracting vocals from source...")
+        base_vocals = svs_extract_vocals(base_path)
+        _target_cleanup.append(base_vocals)
+        print("Extracting music from source...")
+        base_music = svs_extract_music(base_path)
+        _target_cleanup.append(base_music)
+        print("Extracting clean vocals from target...")
+        clean_vocal_target = svs_extract_vocals(target_path)
+        _target_cleanup.append(clean_vocal_target)
         print("Resampling inputs to 44100Hz...")
         import torchaudio
-        waveform_base, sr_base = torchaudio.load(base_path)
-        if sr_base != 44100:
-            resampler_base = torchaudio.transforms.Resample(sr_base, 44100)
-            waveform_base = resampler_base(waveform_base)
-        waveform_target, sr_target = torchaudio.load(target_path)
+        waveform_vocals, sr_vocals = torchaudio.load(base_vocals)
+        if sr_vocals != 44100:
+            resampler_vocals = torchaudio.transforms.Resample(sr_vocals, 44100)
+            waveform_vocals = resampler_vocals(waveform_vocals)
+        waveform_target, sr_target = torchaudio.load(clean_vocal_target)
         if sr_target != 44100:
             resampler_target = torchaudio.transforms.Resample(sr_target, 44100)
             waveform_target = resampler_target(waveform_target)
-        temp_base = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        temp_vocals = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         temp_target = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         temp_output_44k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         try:
-            torchaudio.save(temp_base.name, waveform_base, 44100)
+            torchaudio.save(temp_vocals.name, waveform_vocals, 44100)
             torchaudio.save(temp_target.name, waveform_target, 44100)
-            print("Converting voice (auto-extracting clean vocals from target)...")
+            print("Converting voice...")
             success = seed_vc.convert(
-                source_path=temp_base.name,
+                source_path=temp_vocals.name,
                 reference_path=temp_target.name,
-                output_path=temp_output_44k.name,
-                extract_vocals=True
+                output_path=temp_output_44k.name
             )
             if not success:
                 print("Error: Voice conversion failed")
                 return False
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            output_path = os.path.join(results_dir, f"voder_m_sts_{timestamp}.wav")
-            shutil.copy(temp_output_44k.name, output_path)
-            print(f"\n✓ Success! Output saved to: {output_path}")
             del seed_vc
             seed_vc = None
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+            if base_music and os.path.exists(base_music):
+                print("Mixing converted vocals with source music...")
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                output_path = os.path.join(results_dir, f"voder_m_sts_{timestamp}.wav")
+                ret = os.system(f'ffmpeg -y -i "{temp_output_44k.name}" -i "{base_music}" -filter_complex "[0:a]volume=1.0[vc];[1:a]volume=1.0[music];[vc][music]amix=inputs=2:duration=longest" "{output_path}" 2>/dev/null')
+                if ret != 0 or not os.path.exists(output_path):
+                    print("Warning: Mixing failed, saving converted vocals only")
+                    shutil.copy(temp_output_44k.name, output_path)
+            else:
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                output_path = os.path.join(results_dir, f"voder_m_sts_{timestamp}.wav")
+                shutil.copy(temp_output_44k.name, output_path)
+            print(f"\n✓ Success! Output saved to: {output_path}")
             return True
         finally:
-            for temp_file in [temp_base.name, temp_target.name, temp_output_44k.name]:
+            for temp_file in [temp_vocals.name, temp_target.name, temp_output_44k.name]:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
             for f in _target_cleanup:
@@ -4643,12 +4660,24 @@ def cli_ttm_mode():
             if not success:
                 print("Error: Music generation failed")
                 return False
-            print("Resampling TTM output to 44100Hz...")
-            waveform_ttm, sr_ttm = torchaudio.load(temp_ttm_output.name)
-            if sr_ttm != 44100:
-                resampler_ttm = torchaudio.transforms.Resample(sr_ttm, 44100)
-                waveform_ttm = resampler_ttm(waveform_ttm)
-            torchaudio.save(temp_ttm_44k.name, waveform_ttm, 44100)
+            print("Extracting vocals from TTM output...")
+            ttm_vocals = svs_extract_vocals(temp_ttm_output.name)
+            if ttm_vocals and ttm_vocals != temp_ttm_output.name:
+                _vc_cleanup.append(ttm_vocals)
+            else:
+                ttm_vocals = temp_ttm_output.name
+            print("Extracting music from TTM output...")
+            ttm_music = svs_extract_music(temp_ttm_output.name)
+            if ttm_music and ttm_music != temp_ttm_output.name:
+                _vc_cleanup.append(ttm_music)
+            else:
+                ttm_music = None
+            print("Resampling TTM vocals to 44100Hz...")
+            waveform_vocals, sr_vocals = torchaudio.load(ttm_vocals)
+            if sr_vocals != 44100:
+                resampler_vocals = torchaudio.transforms.Resample(sr_vocals, 44100)
+                waveform_vocals = resampler_vocals(waveform_vocals)
+            torchaudio.save(temp_ttm_44k.name, waveform_vocals, 44100)
             print("Resampling clone voice to 44100Hz...")
             waveform_clone, sr_clone = torchaudio.load(clean_vocal)
             if sr_clone != 44100:
@@ -4675,16 +4704,25 @@ def cli_ttm_mode():
             if not vc_success:
                 print("Error: Voice conversion failed")
                 return False
-            print("Saving output...")
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            output_path = os.path.join(results_dir, f"voder_ttm_vc_{timestamp}.wav")
-            shutil.copy(temp_vc_output.name, output_path)
-            print(f"\n✓ Success! Output saved to: {output_path}")
             del seed_vc
             seed_vc = None
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+            if ttm_music:
+                print("Mixing converted vocals with TTM music...")
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                output_path = os.path.join(results_dir, f"voder_ttm_vc_{timestamp}.wav")
+                ret = os.system(f'ffmpeg -y -i "{temp_vc_output.name}" -i "{ttm_music}" -filter_complex "[0:a]volume=1.0[vc];[1:a]volume=1.0[music];[vc][music]amix=inputs=2:duration=longest" "{output_path}" 2>/dev/null')
+                if ret != 0 or not os.path.exists(output_path):
+                    print("Warning: Mixing failed, saving converted vocals only")
+                    shutil.copy(temp_vc_output.name, output_path)
+            else:
+                print("Saving output...")
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                output_path = os.path.join(results_dir, f"voder_ttm_vc_{timestamp}.wav")
+                shutil.copy(temp_vc_output.name, output_path)
+            print(f"\n✓ Success! Output saved to: {output_path}")
             return True
         finally:
             for temp_file in [temp_ttm_output.name, temp_ttm_44k.name, temp_clone_44k.name, temp_vc_output.name]:
@@ -6041,39 +6079,61 @@ def oneline_sts(params):
                     except:
                         pass
             return False
+        print("Extracting vocals from source...")
+        base_vocals = svs_extract_vocals(base_path)
+        _target_cleanup.append(base_vocals)
+        print("Extracting music from source...")
+        base_music = svs_extract_music(base_path)
+        _target_cleanup.append(base_music)
+        print("Extracting clean vocals from target...")
+        clean_vocal_target = svs_extract_vocals(target_path)
+        _target_cleanup.append(clean_vocal_target)
         print("Resampling inputs to 44100Hz...")
         import torchaudio
-        waveform_base, sr_base = torchaudio.load(base_path)
-        if sr_base != 44100:
-            resampler_base = torchaudio.transforms.Resample(sr_base, 44100)
-            waveform_base = resampler_base(waveform_base)
-        waveform_target, sr_target = torchaudio.load(target_path)
+        waveform_vocals, sr_vocals = torchaudio.load(base_vocals)
+        if sr_vocals != 44100:
+            resampler_vocals = torchaudio.transforms.Resample(sr_vocals, 44100)
+            waveform_vocals = resampler_vocals(waveform_vocals)
+        waveform_target, sr_target = torchaudio.load(clean_vocal_target)
         if sr_target != 44100:
             resampler_target = torchaudio.transforms.Resample(sr_target, 44100)
             waveform_target = resampler_target(waveform_target)
-        temp_base = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        temp_vocals = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         temp_target = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         temp_output_44k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         try:
-            torchaudio.save(temp_base.name, waveform_base, 44100)
+            torchaudio.save(temp_vocals.name, waveform_vocals, 44100)
             torchaudio.save(temp_target.name, waveform_target, 44100)
-            print("Converting voice (auto-extracting clean vocals from target)...")
+            print("Converting voice...")
             success = seed_vc.convert(
-                source_path=temp_base.name,
+                source_path=temp_vocals.name,
                 reference_path=temp_target.name,
-                output_path=temp_output_44k.name,
-                extract_vocals=True
+                output_path=temp_output_44k.name
             )
             if not success:
                 print("Error: Voice conversion failed")
                 return False
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            output_path = os.path.join(results_dir, f"voder_m_sts_{timestamp}.wav")
-            shutil.copy(temp_output_44k.name, output_path)
+            del seed_vc
+            seed_vc = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            if base_music and os.path.exists(base_music):
+                print("Mixing converted vocals with source music...")
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                output_path = os.path.join(results_dir, f"voder_m_sts_{timestamp}.wav")
+                ret = os.system(f'ffmpeg -y -i "{temp_output_44k.name}" -i "{base_music}" -filter_complex "[0:a]volume=1.0[vc];[1:a]volume=1.0[music];[vc][music]amix=inputs=2:duration=longest" "{output_path}" 2>/dev/null')
+                if ret != 0 or not os.path.exists(output_path):
+                    print("Warning: Mixing failed, saving converted vocals only")
+                    shutil.copy(temp_output_44k.name, output_path)
+            else:
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                output_path = os.path.join(results_dir, f"voder_m_sts_{timestamp}.wav")
+                shutil.copy(temp_output_44k.name, output_path)
             print(f"✓ Success! Output saved to: {output_path}")
             return True
         finally:
-            for temp_file in [temp_base.name, temp_target.name, temp_output_44k.name]:
+            for temp_file in [temp_vocals.name, temp_target.name, temp_output_44k.name]:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
             if temp_base_extracted and os.path.exists(temp_base_extracted):
@@ -6287,12 +6347,24 @@ def oneline_ttm(params):
             if not success:
                 print("Error: Music generation failed")
                 return False
-            print("Resampling TTM output to 44100Hz...")
-            waveform_ttm, sr_ttm = torchaudio.load(temp_ttm_output.name)
-            if sr_ttm != 44100:
-                resampler_ttm = torchaudio.transforms.Resample(sr_ttm, 44100)
-                waveform_ttm = resampler_ttm(waveform_ttm)
-            torchaudio.save(temp_ttm_44k.name, waveform_ttm, 44100)
+            print("Extracting vocals from TTM output...")
+            ttm_vocals = svs_extract_vocals(temp_ttm_output.name)
+            if ttm_vocals and ttm_vocals != temp_ttm_output.name:
+                _vc_cleanup.append(ttm_vocals)
+            else:
+                ttm_vocals = temp_ttm_output.name
+            print("Extracting music from TTM output...")
+            ttm_music = svs_extract_music(temp_ttm_output.name)
+            if ttm_music and ttm_music != temp_ttm_output.name:
+                _vc_cleanup.append(ttm_music)
+            else:
+                ttm_music = None
+            print("Resampling TTM vocals to 44100Hz...")
+            waveform_vocals, sr_vocals = torchaudio.load(ttm_vocals)
+            if sr_vocals != 44100:
+                resampler_vocals = torchaudio.transforms.Resample(sr_vocals, 44100)
+                waveform_vocals = resampler_vocals(waveform_vocals)
+            torchaudio.save(temp_ttm_44k.name, waveform_vocals, 44100)
             print("Resampling clone voice to 44100Hz...")
             waveform_clone, sr_clone = torchaudio.load(clean_vocal)
             if sr_clone != 44100:
@@ -6319,16 +6391,25 @@ def oneline_ttm(params):
             if not vc_success:
                 print("Error: Voice conversion failed")
                 return False
-            print("Saving output...")
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            output_path = os.path.join(results_dir, f"voder_ttm_vc_{timestamp}.wav")
-            shutil.copy(temp_vc_output.name, output_path)
-            print(f"\n✓ Success! Output saved to: {output_path}")
             del seed_vc
             seed_vc = None
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+            if ttm_music:
+                print("Mixing converted vocals with TTM music...")
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                output_path = os.path.join(results_dir, f"voder_ttm_vc_{timestamp}.wav")
+                ret = os.system(f'ffmpeg -y -i "{temp_vc_output.name}" -i "{ttm_music}" -filter_complex "[0:a]volume=1.0[vc];[1:a]volume=1.0[music];[vc][music]amix=inputs=2:duration=longest" "{output_path}" 2>/dev/null')
+                if ret != 0 or not os.path.exists(output_path):
+                    print("Warning: Mixing failed, saving converted vocals only")
+                    shutil.copy(temp_vc_output.name, output_path)
+            else:
+                print("Saving output...")
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                output_path = os.path.join(results_dir, f"voder_ttm_vc_{timestamp}.wav")
+                shutil.copy(temp_vc_output.name, output_path)
+            print(f"\n✓ Success! Output saved to: {output_path}")
             return True
         finally:
             for temp_file in [temp_ttm_output.name, temp_ttm_44k.name, temp_clone_44k.name, temp_vc_output.name]:
