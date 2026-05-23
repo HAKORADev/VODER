@@ -507,7 +507,7 @@ TTM supports multiple sub-tasks via the `task` parameter:
 | **Complete** | `complete` | Add missing tracks to existing audio; supports optional `styling` prompt, `noblend` flag, `voice`/`music` isolation, `usrc` blend source, and `sfx:` overlay specs | XL-Base (+ SVS if voice/music + TangoFlux for SFX) |
 | **Lego** | `lego` | Build/generate individual instrument tracks; supports optional `styling` prompt | XL-Base |
 | **Extract** | `extract` | Extract individual tracks from audio | XL-Base |
-| **Remix** | `remix` | Style transfer (cover) with bias control; supports `voice`/`music` source isolation, optional `lyrics` for new vocal content, and `reference` for additional guidance | XL-Turbo (overdose) or Legacy (+ SVS if voice/music) |
+| **Remix** | `remix` | Style transfer (cover) with bias control; supports `voice`/`music` source isolation per entry (up to 3 sources), optional `lyrics` for new vocal content, and `reference` for additional guidance (up to 3 references composed into 30s composite) | XL-Turbo (overdose) or Legacy (+ SVS if voice/music) |
 | **Repaint** | `repaint` | Restyle a specific time range of a song; supports `reference` for additional guidance | XL-Turbo (overdose) or Legacy |
 | **BGM** | `bgm` | Replace background music in existing audio/video; strips music, generates new bgm, mixes at level; supports `video` flag, `reference`, and `sfx:` overlay specs | 1.5 Turbo (standard) or XL-Turbo (overdose) (+ TangoFlux for SFX) |
 | **Overdose** | (flag) | Maximum quality full generation | XL-Turbo |
@@ -630,6 +630,15 @@ python src/voder.py ttm remix music "song.wav" styling "electronic synth" result
 
 # Overdose remix with voice isolation
 python src/voder.py ttm overdose remix voice "song.wav" styling "cinematic orchestral" result "/output/voice_od_remix.wav"
+
+# Multi-source remix (vocals from one song + instruments from another)
+python src/voder.py ttm remix voice "vocals.wav" music "instruments.wav" styling "funk" bias 60 result "/output/multi_remix.wav"
+
+# Multi-reference remix (2 references composed into 30s composite)
+python src/voder.py ttm remix "song.wav" styling "pop" reference voice "ref1.wav" music "ref2.wav" result "/output/remix.wav"
+
+# Multi-reference remix (3 references)
+python src/voder.py ttm remix "song.wav" styling "rock" reference "ref1.wav" voice "ref2.wav" music "ref3.wav" result "/output/remix.wav"
 
 # Repaint: restyle a specific time range of a song
 python src/voder.py ttm repaint "source.wav" time:20-80 styling "more energetic" result "/output/repainted.wav"
@@ -800,7 +809,7 @@ The automatic model offloading between ACE-Step and Seed-VC stages means voice c
 | `repaint` | No | Source audio for section repaint | — |
 | `time:start-end` | No† | Time range (for repaint, required) | — |
 | `bias` | No | Cover strength 0-100 (for remix/repaint) | 40 |
-| `reference` | No | Reference audio for remix/repaint guidance (`reference voice "path"`, `reference music "path"`, or `reference "path"` for as-is) | — |
+| `reference` | No | Reference audio for remix/repaint/bgm guidance (up to 3 entries with `voice`/`music` prefix; `reference voice "path"`, `reference music "path"`, or `reference "path"` for as-is; multiple refs composed into 30s composite) | — |
 | `complete` | No | Complete sub-task flag | Off |
 | `lego` | No | Lego sub-task flag | Off |
 | `extract` | No | Extract sub-task flag | Off |
@@ -1760,7 +1769,7 @@ python src/voder.py ttm [lyrics "lyrics text"] styling "style prompt" duration N
 python src/voder.py ttm complete "source.wav" [add "instruments"] [noblend] [sfx:"prompt/duration-position/level" ...] styling "style" [result "path"]
 python src/voder.py ttm lego "..." [make "instruments"] styling "style" duration N [result "path"]
 python src/voder.py ttm extract "source.wav" [stems "instruments"] [result "path"]
-python src/voder.py ttm remix "source.wav" [lyrics "lyrics text"] styling "style" [bias N] [result "path"]
+python src/voder.py ttm remix [voice/music] "source.wav" [voice/music "source2.wav"] [lyrics "lyrics text"] styling "style" [bias N] [reference [voice/music] "ref.wav" [voice/music "ref2.wav"]] [result "path"]
 python src/voder.py ttm repaint "source.wav" time:start-end styling "style" [bias N] [result "path"]
 python src/voder.py ttm bgm "source.wav" [music "description"] level N [reference "path"] [sfx:"prompt/duration-position/level" ...] [video] [result "path"]
 ```
@@ -2086,7 +2095,7 @@ Total memory needed: 14GB
 17. **TTM is unified now**: Don't think in terms of TTM vs TTM+VC — just use `ttm` with `vc` + `clone` when you need voice cloning
 18. **Legos for custom arrangements**: Use `lego` with specific `make` stems to build custom instrumental arrangements
 19. **Extract for remixing**: Use `extract` to pull individual stems from existing songs
-20. **Remix for style transfer**: Use `remix` with `styling` and `bias` to create cover versions with adjustable style strength; add `lyrics` to guide new vocal content
+20. **Remix for style transfer**: Use `remix` with `styling` and `bias` to create cover versions with adjustable style strength; add `lyrics` to guide new vocal content; use multi-source (up to 3) for creative composite sources and multi-reference (up to 3) for diverse style guidance
 21. **Repaint for section editing**: Use `repaint` with `time:start-end` to restyle specific sections of a song
 22. **Overdose XOR translate**: Remember these STT flags are mutually exclusive — pick based on whether you need translation or enhanced transcription
 23. **TTS overdose for cleaner cloning**: Use `overdose` flag with TTS when doing voice cloning from dialogue sources — the 2s/3s trim on extracted voice clips avoids cross-speaker contamination and produces cleaner reference audio

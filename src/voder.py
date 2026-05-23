@@ -59,6 +59,7 @@ from huggingface_hub import hf_hub_download
 import subprocess
 import json
 import re
+import random
 
 HF_TOKEN_FILE = "HF_TOKEN.txt"
 
@@ -619,6 +620,162 @@ def _get_audio_duration(path):
             return info.num_frames / info.sample_rate
         except Exception:
             return 30
+
+def _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup_list):
+    resolved = None
+    if not os.path.exists(raw_path) and not is_youtube_url(raw_path):
+        print(f"Warning: Audio path not found: {raw_path}, skipping")
+        return None
+    if is_youtube_url(raw_path):
+        print(f"Downloading audio from URL: {raw_path}")
+        res, cl = resolve_target_to_audio(raw_path)
+        if res is None:
+            print("Warning: Could not download audio, skipping")
+            return None
+        cleanup_list.extend(cl)
+        resolved = res
+    else:
+        r_ext = os.path.splitext(raw_path)[1].lower()
+        if r_ext in VIDEO_EXTENSIONS:
+            tmp = os.path.join(results_dir, f'_vid_{timestamp}_{len(cleanup_list)}.wav')
+            ret = os.system(f'ffmpeg -y -i "{raw_path}" -vn -acodec pcm_s16le -ar 48000 -ac 2 "{tmp}" 2>/dev/null')
+            if ret != 0 or not os.path.exists(tmp):
+                print("Warning: Failed to extract audio from video, skipping")
+                return None
+            cleanup_list.append(tmp)
+            resolved = tmp
+        else:
+            valid, msg = validate_audio_file(raw_path)
+            if not valid:
+                print(f"Warning: Invalid audio file: {msg}, skipping")
+                return None
+            resolved = raw_path
+    if sv_type == 'voice':
+        print("Extracting vocals via SVS...")
+        processed = svs_extract_vocals(resolved)
+    elif sv_type == 'music':
+        print("Extracting music (removing vocals) via SVS...")
+        processed = svs_extract_music(resolved)
+    else:
+        processed = resolved
+    if processed and processed != resolved and processed not in cleanup_list:
+        cleanup_list.append(processed)
+    return processed
+
+def _compose_refs(ref_entries, results_dir):
+    if not ref_entries:
+        return None, []
+    cleanup = []
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    processed = []
+    for sv_type, raw_path in ref_entries:
+        audio_path = _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup)
+        if audio_path is None:
+            continue
+        processed.append(audio_path)
+    if not processed:
+        return None, cleanup
+    if len(processed) == 1:
+        return processed[0], cleanup
+    print(f"Composing {len(processed)} references into 30s composite...")
+    tensors = []
+    for p in processed:
+        wav, sr = torchaudio.load(p)
+        if sr != 48000:
+            wav = torchaudio.transforms.Resample(sr, 48000)(wav)
+        if wav.shape[0] == 1:
+            wav = wav.repeat(2, 1)
+        elif wav.shape[0] > 2:
+            wav = wav[:2, :]
+        tensors.append(wav)
+    sr = 48000
+    seg10 = 10 * sr
+    seg5 = 5 * sr
+    composed = None
+    if len(tensors) == 2:
+        t1, t2 = tensors[0], tensors[1]
+        for idx, t in enumerate([t1, t2]):
+            if t.shape[-1] < seg10:
+                reps = math.ceil(seg10 / t.shape[-1])
+                if idx == 0:
+                    t1 = t.repeat(1, reps)
+                else:
+                    t2 = t.repeat(1, reps)
+        third1 = t1.shape[-1] // 3
+        third2 = t2.shape[-1] // 3
+        off1m = random.randint(0, max(0, third1 - seg5))
+        off2m = random.randint(0, max(0, third2 - seg5))
+        front = t1[:, :seg10]
+        mid1 = t1[:, third1 + off1m:third1 + off1m + seg5]
+        mid2 = t2[:, third2 + off2m:third2 + off2m + seg5]
+        end2_start = max(0, t2.shape[-1] - seg10)
+        end2 = t2[:, end2_start:end2_start + seg10]
+        composed = torch.cat([front, mid1, mid2, end2], dim=-1)
+    else:
+        for idx, t in enumerate(tensors):
+            if t.shape[-1] < seg10:
+                reps = math.ceil(seg10 / t.shape[-1])
+                tensors[idx] = t.repeat(1, reps)
+        t1, t2, t3 = tensors[0], tensors[1], tensors[2]
+        third2 = t2.shape[-1] // 3
+        off2 = random.randint(0, max(0, third2 - seg10))
+        front = t1[:, :seg10]
+        mid = t2[:, third2 + off2:third2 + off2 + seg10]
+        end3_start = max(0, t3.shape[-1] - seg10)
+        end = t3[:, end3_start:end3_start + seg10]
+        composed = torch.cat([front, mid, end], dim=-1)
+    out_path = os.path.join(results_dir, f'_composed_ref_{timestamp}.wav')
+    torchaudio.save(out_path, composed, sr)
+    cleanup.append(out_path)
+    return out_path, cleanup
+
+def _compose_sources(source_entries, results_dir):
+    if not source_entries:
+        return None, []
+    if len(source_entries) == 1:
+        sv_type, raw_path = source_entries[0]
+        cleanup = []
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        audio_path = _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup)
+        return audio_path, cleanup
+    cleanup = []
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    processed = []
+    for sv_type, raw_path in source_entries:
+        audio_path = _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup)
+        if audio_path is None:
+            continue
+        processed.append(audio_path)
+    if not processed:
+        return None, cleanup
+    print(f"Composing {len(processed)} sources into composite...")
+    tensors = []
+    durations = []
+    for p in processed:
+        wav, sr = torchaudio.load(p)
+        if sr != 48000:
+            wav = torchaudio.transforms.Resample(sr, 48000)(wav)
+        if wav.shape[0] == 1:
+            wav = wav.repeat(2, 1)
+        elif wav.shape[0] > 2:
+            wav = wav[:2, :]
+        tensors.append(wav)
+        durations.append(wav.shape[-1] / 48000.0)
+    total_dur = sum(durations)
+    per_source = total_dur / len(tensors)
+    per_source_frames = int(per_source * 48000)
+    segments = []
+    for t in tensors:
+        if t.shape[-1] < per_source_frames:
+            reps = math.ceil(per_source_frames / t.shape[-1])
+            t = t.repeat(1, reps)
+        seg = t[:, :per_source_frames]
+        segments.append(seg)
+    composed = torch.cat(segments, dim=-1)
+    out_path = os.path.join(results_dir, f'_composed_src_{timestamp}.wav')
+    torchaudio.save(out_path, composed, 48000)
+    cleanup.append(out_path)
+    return out_path, cleanup
 
 def _parse_script_directives(text):
     tokens = text.split()
@@ -4878,8 +5035,8 @@ def parse_oneline_args(args):
             result['params']['bgm_source'] = args[i + 1]
             i += 2
         elif mode == 'ttm' and arg_lower == 'voice':
-            if 'complete' not in result['params'] and 'lego' not in result['params'] and 'is_remix' not in result:
-                result['error'] = 'voice keyword is only valid with complete/lego/remix task'
+            if 'complete' not in result['params'] and 'lego' not in result['params']:
+                result['error'] = 'voice keyword is only valid with complete/lego task'
                 return result
             if result['params'].get('use_music'):
                 result['error'] = 'voice and music cannot be used together, use one or the other'
@@ -4887,8 +5044,8 @@ def parse_oneline_args(args):
             result['params']['use_vocals'] = True
             i += 1
         elif mode == 'ttm' and arg_lower == 'music' and 'bgm' not in result['params']:
-            if 'complete' not in result['params'] and 'lego' not in result['params'] and 'is_remix' not in result:
-                result['error'] = 'music keyword is only valid with complete/lego/remix/bgm task'
+            if 'complete' not in result['params'] and 'lego' not in result['params']:
+                result['error'] = 'music keyword is only valid with complete/lego/bgm task'
                 return result
             if result['params'].get('use_vocals'):
                 result['error'] = 'voice and music cannot be used together, use one or the other'
@@ -4945,59 +5102,41 @@ def parse_oneline_args(args):
             else:
                 result['error'] = 'add keyword requires instruments (e.g., add "drums bass guitar" or add "everything")'
                 return result
-        elif mode == 'ttm' and arg_lower == 'reference' and 'bgm' in result['params']:
-            i += 1
-            if i >= len(args):
-                result['error'] = 'reference requires a path or URL'
-                return result
-            if 'reference' not in result['params']:
-                result['params']['reference'] = []
-            result['params']['reference'].append(args[i])
-            i += 1
         elif mode == 'ttm' and arg_lower == 'reference':
             if ('complete' not in result['params'] and 'lego' not in result['params']
-                and 'is_remix' not in result and 'is_repaint' not in result):
+                and 'is_remix' not in result and 'is_repaint' not in result
+                and 'bgm' not in result['params']):
                 result['error'] = 'reference keyword is only valid with complete/lego/remix/repaint/bgm task'
                 return result
-            if result['params'].get('lego'):
-                i += 1
-                ref_entries = []
-                while i < len(args):
-                    peek = args[i]
-                    peek_lower = peek.lower()
-                    if peek_lower in ('mix', 'blend', 'result', 'make', 'add', 'overdose',
-                                      'complete', 'lego', 'video', 'extract', 'stems', 'only',
-                                      'remix', 'repaint', 'bias', 'vc', 'clone', 'noblend'):
-                        break
-                    if peek_lower in ('voice', 'music'):
-                        sv_type = peek_lower
-                        i += 1
-                        if i >= len(args):
-                            result['error'] = 'reference requires a path after voice/music'
-                            return result
-                        ref_entries.append((sv_type, args[i]))
-                        i += 1
-                    else:
-                        ref_entries.append(('asis', args[i]))
-                        i += 1
-                if not ref_entries:
-                    result['error'] = 'reference requires at least one path'
-                    return result
-                result['params']['ref_entries'] = ref_entries
-            else:
-                ref_type = 'asis'
-                i += 1
-                if i < len(args):
-                    peek = args[i].lower()
-                    if peek in ('voice', 'music'):
-                        ref_type = peek
-                        i += 1
-                if i >= len(args):
-                    result['error'] = 'reference requires a path or URL (e.g., reference voice "path" or reference "path")'
-                    return result
-                result['params']['ref_type'] = ref_type
-                result['params']['ref_path'] = args[i]
-                i += 1
+            i += 1
+            ref_entries = []
+            while i < len(args):
+                peek_lower = args[i].lower()
+                if peek_lower in ('mix', 'blend', 'result', 'make', 'add', 'overdose',
+                                  'complete', 'lego', 'video', 'extract', 'stems', 'only',
+                                  'remix', 'repaint', 'bias', 'vc', 'clone', 'noblend', 'usrc',
+                                  'script', 'lyrics', 'styling', 'base', 'target', 'duration',
+                                  'timestamp', 'dialogue', 'sound', 'steps', 'guide', 'level', 'ocr',
+                                  'reference', 'sfx:', 'bgm', 'music'):
+                    break
+                if peek_lower in ('voice', 'music'):
+                    sv_type = peek_lower
+                    i += 1
+                    if i >= len(args):
+                        result['error'] = 'reference requires a path after voice/music'
+                        return result
+                    ref_entries.append((sv_type, args[i]))
+                    i += 1
+                else:
+                    ref_entries.append(('asis', args[i]))
+                    i += 1
+            if not ref_entries:
+                result['error'] = 'reference requires at least one path'
+                return result
+            if len(ref_entries) > 3:
+                print("Warning: reference supports up to 3 entries, using first 3")
+                ref_entries = ref_entries[:3]
+            result['params']['ref_entries'] = ref_entries
         elif mode == 'ttm' and arg_lower == 'make':
             if 'lego' not in result['params']:
                 result['error'] = 'make keyword is only valid with lego task'
@@ -5070,12 +5209,36 @@ def parse_oneline_args(args):
             i += 2
             current_keyword = None
         elif mode == 'ttm' and arg_lower == 'remix':
-            if i + 1 >= len(args):
-                result['error'] = 'remix requires a source path'
-                return result
             result['is_remix'] = True
-            result['remix_path'] = args[i + 1]
-            i += 2
+            i += 1
+            remix_entries = []
+            while i < len(args):
+                peek_lower = args[i].lower()
+                if peek_lower in ('script', 'lyrics', 'styling', 'base', 'target', 'duration', 'timestamp',
+                                  'dialogue', 'sound', 'steps', 'guide', 'level', 'ocr',
+                                  'complete', 'lego', 'video', 'extract', 'stems', 'only',
+                                  'noblend', 'usrc', 'remix', 'repaint', 'bias', 'vc', 'clone',
+                                  'reference', 'sfx:', 'add', 'make', 'mix', 'blend', 'result', 'overdose',
+                                  'music', 'bgm'):
+                    break
+                if peek_lower in ('voice', 'music'):
+                    sv_type = peek_lower
+                    i += 1
+                    if i >= len(args):
+                        result['error'] = 'remix source requires a path after voice/music'
+                        return result
+                    remix_entries.append((sv_type, args[i]))
+                    i += 1
+                else:
+                    remix_entries.append(('asis', args[i]))
+                    i += 1
+            if not remix_entries:
+                result['error'] = 'remix requires at least one source path'
+                return result
+            if len(remix_entries) > 3:
+                print("Warning: remix supports up to 3 sources, using first 3")
+                remix_entries = remix_entries[:3]
+            result['remix_entries'] = remix_entries
             current_keyword = None
         elif mode == 'ttm' and arg_lower == 'bias':
             if i + 1 >= len(args):
@@ -5253,12 +5416,12 @@ def show_oneline_usage():
     print("  guide    - Guidance scale (1.0-10.0, SFX mode, default: 4.5)")
     print("  music    - Background music description (dialogue/bgm modes)")
     print("  level    - Music volume levels e.g. \"10:20-50 30:60-80\" (dialogue modes) or 0-100 (bgm mode, default: 35)")
-    print("  reference - Music reference audio/video path or URL (dialogue/bgm modes, for style guidance)")
+    print("  reference - Music reference audio/video path or URL (dialogue/bgm modes, for style guidance; up to 3 with voice/music prefix)")
     print("  ocr      - Image file path for OCR text extraction (TTS modes)")
     print("  overdose - Use VibeVoice ASR for dialogue source and enhanced music (TTS/TTM modes)")
     print("  bgm      - Add or replace background music on an audio/video (TTM mode)")
     print("  usrc     - Blend with original source instead of isolated voice/music (complete)")
-    print("  "sfx:"   - Sound effect spec for bgm/complete tasks: "sfx:prompt/duration-position/level"")
+    print('  "sfx:"   - Sound effect spec for bgm/complete tasks: "sfx:prompt/duration-position/level"')
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
     print()
     print("SLC parameters:")
@@ -5293,6 +5456,8 @@ def show_oneline_usage():
     print('  python voder.py ttm remix music "song.wav" lyrics "verse lyrics" styling "jazz"')
     print('  python voder.py ttm remix "song.wav" lyrics "custom lyrics" styling "hip hop" bias 70')
     print('  python voder.py ttm remix "song.wav" styling "ambient" reference "ref_song.mp3"')
+    print('  python voder.py ttm remix "song.wav" styling "pop" reference voice "ref1.wav" music "ref2.wav"')
+    print('  python voder.py ttm remix voice "vocal.wav" music "inst.wav" styling "funk" reference "ref.wav"')
     print('  python voder.py ttm overdose remix "song.wav" lyrics "dreamy verse" styling "synthwave"')
     print()
     print('SFX spec format: "sfx:prompt/duration-position/level"')
@@ -5317,8 +5482,8 @@ def execute_oneline_command(parsed):
         params['is_mimic'] = parsed['is_mimic']
     if 'is_remix' in parsed:
         params['is_remix'] = parsed['is_remix']
-    if 'remix_path' in parsed:
-        params['remix_path'] = parsed['remix_path']
+    if 'remix_entries' in parsed:
+        params['remix_entries'] = parsed['remix_entries']
     if 'bias_val' in parsed:
         params['bias_val'] = parsed['bias_val']
     if 'is_repaint' in parsed:
@@ -5904,7 +6069,6 @@ def oneline_ttm(params):
     os.makedirs(results_dir, exist_ok=True)
 
     _is_remix = params.get('is_remix', False)
-    _remix_path = params.get('remix_path')
     use_overdose = params.get('overdose', False)
     use_vc = params.get('vc', False)
 
@@ -6080,11 +6244,9 @@ def oneline_ttm(params):
                         pass
 
     if _is_remix:
-        if not _remix_path:
-            print("Error: Remix requires a source path")
-            return False
-        if not os.path.exists(_remix_path) and not is_youtube_url(_remix_path):
-            print(f"Error: Remix source not found: {_remix_path}")
+        _remix_entries = params.get('remix_entries', [])
+        if not _remix_entries:
+            print("Error: Remix requires at least one source path")
             return False
         if 'styling' not in params or len(params['styling']) != 1:
             print("Error: TTM remix requires 'styling' parameter")
@@ -6094,82 +6256,22 @@ def oneline_ttm(params):
         if 'lyrics' in params and len(params['lyrics']) == 1:
             _remix_lyrics = params['lyrics'][0].replace('\\n', '\n')
         _remix_cleanup = []
-        resolved_audio, cleanup = resolve_target_to_audio(_remix_path)
+        resolved_audio, src_cl = _compose_sources(_remix_entries, results_dir)
         if resolved_audio is None:
-            print("Error: Could not resolve remix source")
+            print("Error: Could not resolve remix source(s)")
+            for f in _remix_cleanup:
+                if f and os.path.exists(f):
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
             return False
-        _remix_cleanup.extend(cleanup)
-
-        use_vocals = params.get('use_vocals', False)
-        use_music = params.get('use_music', False)
-        if use_vocals:
-            print("Extracting vocals via SVS...")
-            vocals = svs_extract_vocals(resolved_audio)
-            if vocals != resolved_audio and vocals not in _remix_cleanup:
-                _remix_cleanup.append(vocals)
-            resolved_audio = vocals
-        elif use_music:
-            print("Extracting music (removing vocals) via SVS...")
-            music = svs_extract_music(resolved_audio)
-            if music != resolved_audio and music not in _remix_cleanup:
-                _remix_cleanup.append(music)
-            resolved_audio = music
-        _ref_type = params.get('ref_type')
-        _ref_path = params.get('ref_path')
+        _remix_cleanup.extend(src_cl)
+        _remix_ref_entries = params.get('ref_entries', [])
         _remix_ref_audio = None
-        if _ref_type and _ref_path:
-            if not os.path.exists(_ref_path) and not is_youtube_url(_ref_path):
-                print(f"Error: Reference not found: {_ref_path}")
-                for f in _remix_cleanup:
-                    if f and os.path.exists(f):
-                        try:
-                            os.unlink(f)
-                        except:
-                            pass
-                return False
-            if is_youtube_url(_ref_path):
-                print(f"Downloading reference audio from URL: {_ref_path}")
-                resolved_ref, ref_cl = resolve_target_to_audio(_ref_path)
-                if resolved_ref is None:
-                    print("Error: Could not download reference")
-                    for f in _remix_cleanup:
-                        if f and os.path.exists(f):
-                            try:
-                                os.unlink(f)
-                            except:
-                                pass
-                    return False
-                _remix_cleanup.extend(ref_cl)
-                ref_audio = resolved_ref
-            else:
-                r_ext = os.path.splitext(_ref_path)[1].lower()
-                if r_ext in VIDEO_EXTENSIONS:
-                    ref_temp = os.path.join(results_dir, f'_remix_ref_vid_{time.strftime("%Y%m%d_%H%M%S")}.wav')
-                    ret = os.system(f'ffmpeg -y -i "{_ref_path}" -vn -acodec pcm_s16le -ar 48000 -ac 2 "{ref_temp}" 2>/dev/null')
-                    if ret != 0 or not os.path.exists(ref_temp):
-                        print("Error: Failed to extract audio from reference video")
-                        for f in _remix_cleanup:
-                            if f and os.path.exists(f):
-                                try:
-                                    os.unlink(f)
-                                except:
-                                    pass
-                        return False
-                    ref_audio = ref_temp
-                    _remix_cleanup.append(ref_temp)
-                else:
-                    ref_audio = _ref_path
-            if _ref_type == 'voice':
-                print("Extracting vocals from reference via SVS...")
-                _remix_ref_audio = svs_extract_vocals(ref_audio)
-            elif _ref_type == 'music':
-                print("Extracting music from reference via SVS...")
-                _remix_ref_audio = svs_extract_music(ref_audio)
-            else:
-                _remix_ref_audio = ref_audio
-            if _remix_ref_audio and _remix_ref_audio != ref_audio:
-                if _remix_ref_audio not in _remix_cleanup:
-                    _remix_cleanup.append(_remix_ref_audio)
+        if _remix_ref_entries:
+            _remix_ref_audio, ref_cl = _compose_refs(_remix_ref_entries, results_dir)
+            _remix_cleanup.extend(ref_cl)
         _cover_strength = 0.4
         _bias_raw = params.get('bias_val')
         if _bias_raw is not None:
@@ -6184,7 +6286,7 @@ def oneline_ttm(params):
                         _cover_strength = (round(_bv / 10) * 10) / 100.0
             except (ValueError, TypeError):
                 pass
-        original_name = os.path.splitext(os.path.basename(_remix_path))[0]
+        original_name = os.path.splitext(os.path.basename(_remix_entries[0][1]))[0]
         original_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', original_name)
         print("Loading ACE-Step model...")
         ace_step = AceStepWrapper(use_overdose=use_overdose)
@@ -6276,62 +6378,11 @@ def oneline_ttm(params):
             print("Error: Could not resolve repaint source")
             return False
         _repaint_cleanup.extend(cleanup)
-        _rp_ref_type = params.get('ref_type')
-        _rp_ref_path = params.get('ref_path')
+        _rp_ref_entries = params.get('ref_entries', [])
         _repaint_ref_audio = None
-        if _rp_ref_type and _rp_ref_path:
-            if not os.path.exists(_rp_ref_path) and not is_youtube_url(_rp_ref_path):
-                print(f"Error: Reference not found: {_rp_ref_path}")
-                for f in _repaint_cleanup:
-                    if f and os.path.exists(f):
-                        try:
-                            os.unlink(f)
-                        except:
-                            pass
-                return False
-            if is_youtube_url(_rp_ref_path):
-                print(f"Downloading reference audio from URL: {_rp_ref_path}")
-                resolved_ref, ref_cl = resolve_target_to_audio(_rp_ref_path)
-                if resolved_ref is None:
-                    print("Error: Could not download reference")
-                    for f in _repaint_cleanup:
-                        if f and os.path.exists(f):
-                            try:
-                                os.unlink(f)
-                            except:
-                                pass
-                    return False
-                _repaint_cleanup.extend(ref_cl)
-                rp_ref_audio = resolved_ref
-            else:
-                rp_r_ext = os.path.splitext(_rp_ref_path)[1].lower()
-                if rp_r_ext in VIDEO_EXTENSIONS:
-                    rp_ref_temp = os.path.join(results_dir, f'_repaint_ref_vid_{time.strftime("%Y%m%d_%H%M%S")}.wav')
-                    ret = os.system(f'ffmpeg -y -i "{_rp_ref_path}" -vn -acodec pcm_s16le -ar 48000 -ac 2 "{rp_ref_temp}" 2>/dev/null')
-                    if ret != 0 or not os.path.exists(rp_ref_temp):
-                        print("Error: Failed to extract audio from reference video")
-                        for f in _repaint_cleanup:
-                            if f and os.path.exists(f):
-                                try:
-                                    os.unlink(f)
-                                except:
-                                    pass
-                        return False
-                    rp_ref_audio = rp_ref_temp
-                    _repaint_cleanup.append(rp_ref_temp)
-                else:
-                    rp_ref_audio = _rp_ref_path
-            if _rp_ref_type == 'voice':
-                print("Extracting vocals from reference via SVS...")
-                _repaint_ref_audio = svs_extract_vocals(rp_ref_audio)
-            elif _rp_ref_type == 'music':
-                print("Extracting music from reference via SVS...")
-                _repaint_ref_audio = svs_extract_music(rp_ref_audio)
-            else:
-                _repaint_ref_audio = rp_ref_audio
-            if _repaint_ref_audio and _repaint_ref_audio != rp_ref_audio:
-                if _repaint_ref_audio not in _repaint_cleanup:
-                    _repaint_cleanup.append(_repaint_ref_audio)
+        if _rp_ref_entries:
+            _repaint_ref_audio, ref_cl = _compose_refs(_rp_ref_entries, results_dir)
+            _repaint_cleanup.extend(ref_cl)
         try:
             import soundfile as sf
             _audio_info = sf.info(resolved_audio)
@@ -6630,54 +6681,10 @@ def oneline_ttm_complete(params):
         use_source = False
 
     reference_audio = None
-    _ref_type = params.get('ref_type')
-    _ref_path = params.get('ref_path')
-    if _ref_path:
-        if not os.path.exists(_ref_path) and not is_youtube_url(_ref_path):
-            print(f"Error: Reference source not found: {_ref_path}")
-            return False
-        if is_youtube_url(_ref_path):
-            print(f"Downloading reference audio from URL: {_ref_path}")
-            resolved_ref, ref_cleanup = resolve_target_to_audio(_ref_path)
-            if resolved_ref is None:
-                print("Error: Could not download reference audio")
-                return False
-            _cleanup.extend(ref_cleanup)
-            ref_audio = resolved_ref
-        else:
-            ref_ext = os.path.splitext(_ref_path)[1].lower()
-            if ref_ext in VIDEO_EXTENSIONS:
-                ref_temp = os.path.join(results_dir, f'_complete_ref_vid_{timestamp}.wav')
-                ret = os.system(f'ffmpeg -y -i "{_ref_path}" -vn -acodec pcm_s16le -ar 48000 -ac 2 "{ref_temp}" 2>/dev/null')
-                if ret != 0 or not os.path.exists(ref_temp):
-                    print("Error: Failed to extract audio from reference video")
-                    return False
-                ref_audio = ref_temp
-                _cleanup.append(ref_temp)
-            else:
-                valid, msg = validate_audio_file(_ref_path)
-                if not valid:
-                    print(f"Error: {msg}")
-                    return False
-                ref_audio = _ref_path
-        if _ref_type == 'voice':
-            print("Extracting vocals from reference via SVS...")
-            ref_processed = svs_extract_vocals(ref_audio)
-        elif _ref_type == 'music':
-            print("Extracting music from reference via SVS...")
-            ref_processed = svs_extract_music(ref_audio)
-        else:
-            ref_processed = ref_audio
-        if ref_processed and ref_processed != ref_audio:
-            if ref_processed not in _cleanup:
-                _cleanup.append(ref_processed)
-        if ref_audio not in _cleanup and ref_audio != ref_processed:
-            _cleanup.append(ref_audio)
-        reference_audio = ref_processed
-        if _ref_type == 'asis':
-            print("Using reference audio (as-is)")
-        else:
-            print(f"Using reference audio: {_ref_type}")
+    _ref_entries = params.get('ref_entries', [])
+    if _ref_entries:
+        reference_audio, ref_cl = _compose_refs(_ref_entries, results_dir)
+        _cleanup.extend(ref_cl)
 
     try:
         output_ext = '.wav'
@@ -7325,8 +7332,6 @@ def oneline_ttm_bgm(params):
 
     use_overdose = params.get('overdose', False)
     want_video = params.get('want_video', False)
-    reference_params_list = params.get('reference', [])
-    ref_input = reference_params_list[-1] if reference_params_list else None
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     cleanup_files = []
@@ -7393,17 +7398,10 @@ def oneline_ttm_bgm(params):
         print(f"Clean voice duration: {voice_duration:.2f}s")
 
         reference_audio = None
-        if ref_input:
-            print(f"Resolving reference source: {ref_input}")
-            ref_audio, ref_cleanup = resolve_target_to_audio(ref_input)
-            if ref_audio is None:
-                print("Warning: Could not resolve reference, ignoring it")
-            else:
-                cleanup_files.extend(ref_cleanup)
-                print("Cleaning reference through SVS music pipe...")
-                reference_audio = svs_extract_music(ref_audio)
-                if reference_audio != ref_audio:
-                    cleanup_files.append(reference_audio)
+        _bgm_ref_entries = params.get('ref_entries', [])
+        if _bgm_ref_entries:
+            reference_audio, ref_cl = _compose_refs(_bgm_ref_entries, results_dir)
+            cleanup_files.extend(ref_cl)
 
         mixed_path = None
 

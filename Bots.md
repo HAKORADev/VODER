@@ -730,6 +730,21 @@ python src/voder.py ttm remix music "song.wav" styling "electronic synth" result
 python src/voder.py ttm overdose remix voice "song.wav" styling "cinematic orchestral" result "/output/voice_od_remix.wav"
 ```
 
+**Multi-source remix (compose vocals from one song + instruments from another):**
+```bash
+python src/voder.py ttm remix voice "vocals.wav" music "instruments.wav" styling "funk" bias 60 result "/output/multi_src_remix.wav"
+```
+
+**Multi-reference remix (2 references composed into 30s composite):**
+```bash
+python src/voder.py ttm remix "song.wav" styling "pop" reference voice "ref1.wav" music "ref2.wav" result "/output/multi_ref_remix.wav"
+```
+
+**Multi-reference remix (3 references):**
+```bash
+python src/voder.py ttm remix "song.wav" styling "rock" reference "ref1.wav" voice "ref2.wav" music "ref3.wav" result "/output/multi_ref3_remix.wav"
+```
+
 **Repaint: restyle a specific time range of existing audio:**
 ```bash
 python src/voder.py ttm repaint "source.wav" time:20-80 styling "more energetic" result "/output/repainted.wav"
@@ -743,6 +758,11 @@ python src/voder.py ttm repaint "source.wav" time:20-80 styling "more energetic"
 **Overdose repaint with reference:**
 ```bash
 python src/voder.py ttm overdose repaint "source.wav" time:20-80 styling "more energetic" reference music "ref.wav" result "/output/repainted.wav"
+```
+
+**Repaint with multi-reference (up to 3):**
+```bash
+python src/voder.py ttm repaint "source.wav" time:20-80 styling "more energetic" reference voice "ref1.wav" music "ref2.wav" result "/output/repainted.wav"
 ```
 
 **BGM (Replace Background Music):**
@@ -811,7 +831,7 @@ python src/voder.py ttm bgm "podcast.wav" sfx "doorbell/5-12/50" result "/output
 | `clone` | Voice reference audio path (required when `vc` is set) | Yes (when vc is set) |
 | `target` | Optional music reference (`target voice "ref.wav"` or `target music "ref.wav"`) | No |
 | `bias` | Style transfer strength for `remix`/`repaint` (0‑100, default 40) | No |
-| `reference` | Reference audio for `remix`/`repaint`/`bgm` guidance (`reference voice "path"`, `reference music "path"`, or `reference "path"` for as-is; accepts audio, video, and URLs) | No |
+| `reference` | Reference audio for `remix`/`repaint`/`bgm` guidance (up to 3 entries with `voice`/`music` prefix; `reference voice "path"`, `reference music "path"`, or `reference "path"` for as-is; accepts audio, video, and URLs; multiple refs composed into 30s composite) | No |
 | `video` | Preserve video output for `complete`/`bgm` (downloads video from URL, merges back to .mp4) | No |
 | `overdose` | Use enhanced quality mode (three‑tier ACE‑Step) | No |
 | `result` | Output file path | No |
@@ -823,7 +843,7 @@ python src/voder.py ttm bgm "podcast.wav" sfx "doorbell/5-12/50" result "/output
 | complete | `complete "source.wav" add "drums bass" voice` | Add missing tracks to existing audio (optional `styling` prompt, optional `noblend` flag, optional `sfx:` specs for SFX overlay; `add` is optional if `sfx:` specs provided; `sfx:` cannot be used with `noblend`; if only `sfx:` with no `add`, music model not loaded; SFX overlaid after blend) |
 | lego | `lego "source.wav" make "drums bass" mix` | Build individual instrument tracks (optional `styling` prompt) |
 | extract | `extract "source.wav" stems "vocals drums"` | Extract specific tracks |
-| remix | `remix "source.wav" styling "jazz"` | Style transfer (cover) with bias control and optional lyrics |
+| remix | `remix "source.wav" styling "jazz"` | Style transfer (cover) with bias control, optional lyrics, multi-source (up to 3) and multi-reference (up to 3) |
 | repaint | `repaint "source.wav" time:20-80 styling "..."` | Restyle a specific time range |
 | bgm | `bgm "source.wav" music "description" level 30` | Replace background music in audio/video (optional `video` flag for URL→video output, optional `reference`, optional `sfx:` specs for SFX overlay; `music` is optional if `sfx:` specs provided; SFX overlaid after BGM mixing or directly on clean voice) |
 

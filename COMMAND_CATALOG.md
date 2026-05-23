@@ -333,17 +333,15 @@ python voder.py ttm vc lyrics "hello world" styling "pop" 30 clone "voice.wav" t
 
 ### 3c. Remix
 
-Re-generate a song in a new style. Uses ACE-Step cover method.
+Re-generate a song in a new style. Uses ACE-Step cover method. Supports **multi-source** (up to 3) and **multi-reference** (up to 3).
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `remix` | `"<path>"` | Source audio/video file or YouTube/TikTok/Bilibili URL to remix. |
+| `remix` | `[voice/music] "<path>" [voice/music "<path>" ...]` | Source audio(s) to remix. Up to 3 sources with optional `voice`/`music` prefix per source. Multiple sources are composed into one (equal time per source). |
 | `lyrics` | `"<text>"` | Optional lyrics to guide new vocal content in the remix. |
 | `styling` | `"<text>"` | New style prompt for the remix. |
 | `bias` | `"<0-100>"` | Cover strength bias. 0 = full original, 100 = full cover. Snaps to nearest 10; values ending in 5 snap down to the lower multiple of 10 (e.g., 45 → 0.4, 15 → 0.1). Default: 40 (= 0.4 strength). |
-| `voice` | (flag) | Pre-extract vocals from source via SVS before remixing. Cannot combine with `music`. |
-| `music` | (flag) | Pre-extract music (remove vocals) from source via SVS before remixing. Cannot combine with `voice`. |
-| `reference` | `voice "<path>"` / `music "<path>"` / `"<path>"` | Optional reference audio. Single reference only (remix mode). Supports URLs and video files. |
+| `reference` | `[voice/music] "<path>" [voice/music "<path>" ...]` | Optional reference audio(s). Up to 3 with optional `voice`/`music` prefix per entry. Multiple refs are composed into a 30s composite. |
 | `overdose` | (flag) | Use Overdose tier. |
 
 #### Rules
@@ -351,10 +349,14 @@ Re-generate a song in a new style. Uses ACE-Step cover method.
 - `remix` requires `styling`.
 - `lyrics` is optional. When provided, the model uses the lyrics to guide vocal generation in the remix.
 - Cannot be combined with `vc`.
-- `voice` and `music` are mutually exclusive. If neither, source is used as-is.
-- `reference voice` extracts vocals from the reference via SVS before use.
-- `reference music` extracts instruments from the reference via SVS before use.
-- `reference "<path>"` uses the reference audio as-is.
+- Up to 3 sources; excess entries produce a warning and are trimmed.
+- Up to 3 references; excess entries produce a warning and are trimmed.
+- `voice` prefix before a source/reference path extracts vocals via SVS.
+- `music` prefix before a source/reference path extracts instruments via SVS.
+- No prefix uses the audio as-is.
+- Multi-source composition: total duration = sum of all source durations; each source contributes equal time.
+- Multi-reference composition (2 refs): 10s front of ref1 + 5s mid of ref1 + 5s mid of ref2 + 10s end of ref2 = 30s.
+- Multi-reference composition (3 refs): 10s front of ref1 + 10s mid of ref2 + 10s end of ref3 = 30s.
 - Reference can be a local file, video file, or YouTube/TikTok/Bilibili URL.
 
 ```
@@ -390,6 +392,15 @@ python voder.py ttm remix music "song.wav" styling "electronic"
 
 # Overdose remix with voice isolation
 python voder.py ttm overdose remix voice "song.wav" styling "cinematic orchestral"
+
+# Multi-source remix (vocals + instruments from different songs)
+python voder.py ttm remix voice "vocals.wav" music "instruments.wav" styling "funk" bias 60
+
+# Multi-reference remix (2 references)
+python voder.py ttm remix "song.wav" styling "pop" reference voice "ref1.wav" music "ref2.wav"
+
+# Multi-reference remix (3 references)
+python voder.py ttm remix "song.wav" styling "rock" reference "ref1.wav" voice "ref2.wav" music "ref3.wav"
 ```
 
 ---
