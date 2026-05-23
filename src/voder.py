@@ -1783,14 +1783,14 @@ class AceStepWrapper:
             print(f"ACE-Step generation error: {e}")
             return False
 
-    def cover(self, src_audio, style_prompt, output_path, cover_strength=0.4, reference_audio=None):
+    def cover(self, src_audio, style_prompt, output_path, cover_strength=0.4, reference_audio=None, lyrics="..."):
         if self.handler is None:
             return False
         try:
             import soundfile as sf
             _gen_kwargs = {
                 "captions": style_prompt,
-                "lyrics": "...",
+                "lyrics": lyrics,
                 "vocal_language": "unknown",
                 "inference_steps": 8,
                 "guidance_scale": 7.0,
@@ -5240,7 +5240,7 @@ def show_oneline_usage():
     print("  script   - Dialogue line in 'Character: text' format, or plain text for single mode")
     print("  voice    - Voice prompt in 'Character: description' format (TTS)")
     print("  target   - Audio file path in 'Character: path' format (voice clone) or single path (STS)")
-    print("  lyrics   - Song lyrics for TTM (single)")
+    print("  lyrics   - Song lyrics for TTM / remix (single, optional for remix)")
     print("  styling  - Style prompt for TTM (single)")
     print("  base     - Base audio/video path")
     print("  music    - Music flag for STS mode (uses 44.1kHz v1 model)")
@@ -5285,6 +5285,15 @@ def show_oneline_usage():
     print('  python voder.py ttm complete voice usrc "song.wav" add "drums bass guitar"')
     print('  python voder.py ttm complete music usrc "song.wav" add "everything"')
     print('  python voder.py ttm complete voice "podcast.wav" "sfx:bell/5-10/40"')
+    print()
+    print("Remix examples (remix a song with new style and optional lyrics):")
+    print('  python voder.py ttm remix "song.wav" styling "electronic dance"')
+    print('  python voder.py ttm remix "song.wav" lyrics "new words here" styling "pop rock"')
+    print('  python voder.py ttm remix voice "song.wav" styling "lo-fi chill"')
+    print('  python voder.py ttm remix music "song.wav" lyrics "verse lyrics" styling "jazz"')
+    print('  python voder.py ttm remix "song.wav" lyrics "custom lyrics" styling "hip hop" bias 70')
+    print('  python voder.py ttm remix "song.wav" styling "ambient" reference "ref_song.mp3"')
+    print('  python voder.py ttm overdose remix "song.wav" lyrics "dreamy verse" styling "synthwave"')
     print()
     print('SFX spec format: "sfx:prompt/duration-position/level"')
     print("  prompt    - SFX description text (required)")
@@ -6081,6 +6090,9 @@ def oneline_ttm(params):
             print("Error: TTM remix requires 'styling' parameter")
             return False
         style = params['styling'][0].replace('\\n', '\n')
+        _remix_lyrics = "..."
+        if 'lyrics' in params and len(params['lyrics']) == 1:
+            _remix_lyrics = params['lyrics'][0].replace('\\n', '\n')
         _remix_cleanup = []
         resolved_audio, cleanup = resolve_target_to_audio(_remix_path)
         if resolved_audio is None:
@@ -6194,7 +6206,8 @@ def oneline_ttm(params):
                 style_prompt=style,
                 output_path=output_path,
                 cover_strength=_cover_strength,
-                reference_audio=_remix_ref_audio
+                reference_audio=_remix_ref_audio,
+                lyrics=_remix_lyrics
             )
             if not success:
                 print("Error: Remix generation failed")

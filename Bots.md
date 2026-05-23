@@ -577,7 +577,7 @@ python src/voder.py sts base "source_audio.wav" target "character_voice.wav" mim
 
 ### Text‑to‑Music (ttm)
 
-Generate music from lyrics and style prompt using ACE‑Step (three‑tier architecture). Supports instrumental-only generation with empty lyrics. **Sub‑tasks**: `complete` (add missing tracks), `lego` (build individual instrument tracks), `extract` (extract specific tracks), `remix` (style transfer / cover with `bias` control), `repaint` (restyle a specific time range). **SFX overlay**: `bgm` and `complete` sub‑tasks support `sfx:` specs to overlay generated sound effects onto the output. **Voice conversion**: add `vc` flag **before** `lyrics`/`styling`/`duration` and use `clone` for voice reference. **Overdose quality**: add `overdose` flag for enhanced output quality.
+Generate music from lyrics and style prompt using ACE‑Step (three‑tier architecture). Supports instrumental-only generation with empty lyrics. **Sub‑tasks**: `complete` (add missing tracks), `lego` (build individual instrument tracks), `extract` (extract specific tracks), `remix` (style transfer / cover with `bias` control and optional `lyrics`), `repaint` (restyle a specific time range). **SFX overlay**: `bgm` and `complete` sub‑tasks support `sfx:` specs to overlay generated sound effects onto the output. **Voice conversion**: add `vc` flag **before** `lyrics`/`styling`/`duration` and use `clone` for voice reference. **Overdose quality**: add `overdose` flag for enhanced output quality.
 
 **Flags and modifiers** (can be combined):
 - `vc` — enable voice conversion after music generation
@@ -680,6 +680,11 @@ python src/voder.py ttm extract "input.wav" stems "vocals drums" result "/output
 python src/voder.py ttm remix "input.wav" styling "jazz" result "/output/remix.wav"
 ```
 
+**Remix with custom lyrics (optional lyrics for new vocal content):**
+```bash
+python src/voder.py ttm remix "input.wav" lyrics "new verse words" styling "jazz" result "/output/remix.wav"
+```
+
 **Remix with bias control (0‑100, default 40):**
 ```bash
 python src/voder.py ttm remix "input.wav" styling "jazz" bias 70 result "/output/remix.wav"
@@ -703,6 +708,11 @@ python src/voder.py ttm remix "input.wav" styling "jazz" reference "ref.wav" res
 **Overdose remix with reference:**
 ```bash
 python src/voder.py ttm overdose remix "input.wav" styling "jazz" reference voice "ref.wav" result "/output/remix.wav"
+```
+
+**Overdose remix with lyrics:**
+```bash
+python src/voder.py ttm overdose remix "input.wav" lyrics "dreamy verse lines" styling "synthwave" result "/output/remix.wav"
 ```
 
 **Remix vocals only (SVS pre-extract vocals from source):**
@@ -792,7 +802,7 @@ python src/voder.py ttm bgm "podcast.wav" sfx "doorbell/5-12/50" result "/output
 
 | Parameter | Description | Required |
 |-----------|-------------|----------|
-| `lyrics` | Song lyrics (use `"..."` for instrumental only) | Yes (generate mode) |
+| `lyrics` | Song lyrics (use `"..."` for instrumental only; also optional for `remix` to guide new vocal content) | Yes (generate mode) |
 | `styling` | Style prompt describing the music | Yes (generate mode), optional (`complete`/`lego`) |
 | `noblend` | Output generated instruments only without blending with original audio (`complete` only) | No |
 | `duration` | Duration in seconds (10‑300) | Yes (generate mode) |
@@ -813,7 +823,7 @@ python src/voder.py ttm bgm "podcast.wav" sfx "doorbell/5-12/50" result "/output
 | complete | `complete "source.wav" add "drums bass" voice` | Add missing tracks to existing audio (optional `styling` prompt, optional `noblend` flag, optional `sfx:` specs for SFX overlay; `add` is optional if `sfx:` specs provided; `sfx:` cannot be used with `noblend`; if only `sfx:` with no `add`, music model not loaded; SFX overlaid after blend) |
 | lego | `lego "source.wav" make "drums bass" mix` | Build individual instrument tracks (optional `styling` prompt) |
 | extract | `extract "source.wav" stems "vocals drums"` | Extract specific tracks |
-| remix | `remix "source.wav" styling "jazz"` | Style transfer (cover) with bias control |
+| remix | `remix "source.wav" styling "jazz"` | Style transfer (cover) with bias control and optional lyrics |
 | repaint | `repaint "source.wav" time:20-80 styling "..."` | Restyle a specific time range |
 | bgm | `bgm "source.wav" music "description" level 30` | Replace background music in audio/video (optional `video` flag for URL→video output, optional `reference`, optional `sfx:` specs for SFX overlay; `music` is optional if `sfx:` specs provided; SFX overlaid after BGM mixing or directly on clean voice) |
 

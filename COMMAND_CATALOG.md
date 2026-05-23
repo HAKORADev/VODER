@@ -338,6 +338,7 @@ Re-generate a song in a new style. Uses ACE-Step cover method.
 | Keyword | Value | Description |
 |---------|-------|-------------|
 | `remix` | `"<path>"` | Source audio/video file or YouTube/TikTok/Bilibili URL to remix. |
+| `lyrics` | `"<text>"` | Optional lyrics to guide new vocal content in the remix. |
 | `styling` | `"<text>"` | New style prompt for the remix. |
 | `bias` | `"<0-100>"` | Cover strength bias. 0 = full original, 100 = full cover. Snaps to nearest 10; values ending in 5 snap down to the lower multiple of 10 (e.g., 45 → 0.4, 15 → 0.1). Default: 40 (= 0.4 strength). |
 | `voice` | (flag) | Pre-extract vocals from source via SVS before remixing. Cannot combine with `music`. |
@@ -348,6 +349,7 @@ Re-generate a song in a new style. Uses ACE-Step cover method.
 #### Rules
 
 - `remix` requires `styling`.
+- `lyrics` is optional. When provided, the model uses the lyrics to guide vocal generation in the remix.
 - Cannot be combined with `vc`.
 - `voice` and `music` are mutually exclusive. If neither, source is used as-is.
 - `reference voice` extracts vocals from the reference via SVS before use.
@@ -358,6 +360,9 @@ Re-generate a song in a new style. Uses ACE-Step cover method.
 ```
 # Basic remix
 python voder.py ttm remix "song.wav" styling "jazz"
+
+# Remix with custom lyrics (new vocal content)
+python voder.py ttm remix "song.wav" lyrics "new verse words" styling "jazz"
 
 # Remix with bias (stronger cover)
 python voder.py ttm remix "song.wav" styling "jazz" bias 70
@@ -373,6 +378,9 @@ python voder.py ttm remix "song.wav" styling "jazz" reference "https://youtube.c
 
 # Remix with overdose (after mode name)
 python voder.py ttm overdose remix "song.wav" styling "jazz"
+
+# Overdose remix with lyrics
+python voder.py ttm overdose remix "song.wav" lyrics "dreamy verse" styling "synthwave"
 
 # Remix vocals only (pre-extract vocals from source)
 python voder.py ttm remix voice "song.wav" styling "jazz"

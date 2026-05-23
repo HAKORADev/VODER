@@ -677,7 +677,7 @@ TTM supports advanced music manipulation sub-tasks that go beyond simple generat
 | Sub-Task | Description | CLI Syntax |
 |----------|-------------|------------|
 | `generate` | Standard music generation (default) | `python voder.py ttm lyrics "..." styling "..." duration 30` |
-| `remix` | Style-transferred version of an existing song (supports `reference` for additional guidance) | `python voder.py ttm remix "input.wav" styling "..." bias 40 result "/output/remix.wav"` |
+| `remix` | Style-transferred version of an existing song (supports `reference` for additional guidance, optional `lyrics` for new vocal content) | `python voder.py ttm remix "input.wav" styling "..." bias 40 result "/output/remix.wav"` |
 | `repaint` | Repaint a time range of an existing track (supports `reference` for additional guidance) | `python voder.py ttm repaint "source.wav" time:20-80 styling "..." result "/output/repainted.wav"` |
 | `complete` | Add instrument tracks to existing audio (supports `sfx:` overlay) | `python voder.py ttm complete source "song.wav" add "drums bass" [target music "ref.wav"]` |
 | `extract` | Extract vocals or music from a track | `python voder.py ttm extract "song.wav" extract "vocals"` |
@@ -808,6 +808,9 @@ python src/voder.py ttm overdose vc lyrics "Verse:\nAmazing lyrics here" styling
 # Remix sub-task (style transfer)
 python src/voder.py ttm remix "original_song.wav" styling "jazz version" bias 40 result "/output/jazz_remix.wav"
 
+# Remix with custom lyrics (optional lyrics guide new vocal content)
+python src/voder.py ttm remix "original_song.wav" lyrics "new verse words here" styling "jazz version" result "/output/jazz_remix.wav"
+
 # Remix with reference (extract vocals from reference for guidance)
 python src/voder.py ttm remix "original_song.wav" styling "jazz version" reference voice "ref.wav" result "/output/jazz_remix.wav"
 
@@ -819,6 +822,9 @@ python src/voder.py ttm remix "original_song.wav" styling "jazz" reference "ref.
 
 # Overdose remix with reference
 python src/voder.py ttm overdose remix "original_song.wav" styling "jazz" reference voice "ref.wav" result "/output/jazz_remix.wav"
+
+# Overdose remix with lyrics
+python src/voder.py ttm overdose remix "original_song.wav" lyrics "dreamy verse lines" styling "synthwave" result "/output/remix.wav"
 
 # Remix vocals only (pre-extract vocals from source via SVS)
 python src/voder.py ttm remix voice "original_song.wav" styling "jazz version" result "/output/voice_remix.wav"
@@ -889,7 +895,7 @@ For voice conversion, BS‑RoFormer automatically extracts clean vocals from the
 
 | Parameter | Description | Required/Default |
 |-----------|-------------|-----------------|
-| `lyrics "..."` | Song lyrics text | Required (for generate/VC) |
+| `lyrics "..."` | Song lyrics text (also optional for remix to guide new vocal content) | Required (for generate/VC) |
 | `styling "..."` | Musical style/description | Required |
 | `duration N` | Duration in seconds | Required |
 | `vc` | Enable voice cloning flag | Optional |
@@ -1174,7 +1180,7 @@ SVS is called automatically by several other VODER modes:
 | **STT** | Pre‑cleanup to isolate vocals from music before transcription |
 | **STT+TTS** | Vocal isolation before transcription for better accuracy |
 | **SS** | Stage 1 voice isolation for speaker separation |
-| **TTM** | Extracts vocals or music from reference audio for remix/complete/lego tasks |
+| **TTM** | Extracts vocals or music from source/reference audio for remix/complete/lego tasks; remix also accepts optional `lyrics` |
 
 In all internal uses, if SVS extraction fails for any reason, VODER gracefully falls back to using the original audio. This means you never lose functionality — SVS is an enhancement, not a requirement.
 
@@ -2255,10 +2261,13 @@ python src/voder.py sts "presentation.mp4" "narrator_voice.wav"
 The new TTM sub‑tasks open up powerful music manipulation workflows:
 
 **Remix (Style Transfer):**
-Remix generates a style-transferred version of an existing song. The `bias` parameter (0–100, default 40) controls how much the new style is applied — 0 means pure original, 100 means pure new style. Use `voice` or `music` to pre-extract vocals or instruments from the source via SVS before remixing — this lets you remix only the vocal performance or only the instrumental, giving the model a cleaner source for more creative results.
+Remix generates a style-transferred version of an existing song. The `bias` parameter (0–100, default 40) controls how much the new style is applied — 0 means pure original, 100 means pure new style. Use `voice` or `music` to pre-extract vocals or instruments from the source via SVS before remixing — this lets you remix only the vocal performance or only the instrumental, giving the model a cleaner source for more creative results. Optionally provide `lyrics` to guide the vocal content of the remix — this lets you create a remix with entirely new lyrics while keeping the musical vibe from the source.
 
 ```bash
 python src/voder.py ttm remix "rock_song.wav" styling "acoustic jazz version" bias 50 result "/output/jazz_remix.wav"
+
+# Remix with custom lyrics — new vocal content over the source vibe
+python src/voder.py ttm remix "rock_song.wav" lyrics "sunshine in my heart" styling "acoustic jazz" result "/output/lyrics_remix.wav"
 
 # Remix vocals only — isolate voice, then style-transfer
 python src/voder.py ttm remix voice "rock_song.wav" styling "soulful R&B" result "/output/voice_remix.wav"
