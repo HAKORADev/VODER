@@ -4878,8 +4878,8 @@ def parse_oneline_args(args):
             result['params']['bgm_source'] = args[i + 1]
             i += 2
         elif mode == 'ttm' and arg_lower == 'voice':
-            if 'complete' not in result['params'] and 'lego' not in result['params']:
-                result['error'] = 'voice keyword is only valid with complete/lego task'
+            if 'complete' not in result['params'] and 'lego' not in result['params'] and 'is_remix' not in result:
+                result['error'] = 'voice keyword is only valid with complete/lego/remix task'
                 return result
             if result['params'].get('use_music'):
                 result['error'] = 'voice and music cannot be used together, use one or the other'
@@ -4887,8 +4887,8 @@ def parse_oneline_args(args):
             result['params']['use_vocals'] = True
             i += 1
         elif mode == 'ttm' and arg_lower == 'music' and 'bgm' not in result['params']:
-            if 'complete' not in result['params'] and 'lego' not in result['params']:
-                result['error'] = 'music keyword is only valid with complete/lego/bgm task'
+            if 'complete' not in result['params'] and 'lego' not in result['params'] and 'is_remix' not in result:
+                result['error'] = 'music keyword is only valid with complete/lego/remix/bgm task'
                 return result
             if result['params'].get('use_vocals'):
                 result['error'] = 'voice and music cannot be used together, use one or the other'
@@ -6087,6 +6087,21 @@ def oneline_ttm(params):
             print("Error: Could not resolve remix source")
             return False
         _remix_cleanup.extend(cleanup)
+
+        use_vocals = params.get('use_vocals', False)
+        use_music = params.get('use_music', False)
+        if use_vocals:
+            print("Extracting vocals via SVS...")
+            vocals = svs_extract_vocals(resolved_audio)
+            if vocals != resolved_audio and vocals not in _remix_cleanup:
+                _remix_cleanup.append(vocals)
+            resolved_audio = vocals
+        elif use_music:
+            print("Extracting music (removing vocals) via SVS...")
+            music = svs_extract_music(resolved_audio)
+            if music != resolved_audio and music not in _remix_cleanup:
+                _remix_cleanup.append(music)
+            resolved_audio = music
         _ref_type = params.get('ref_type')
         _ref_path = params.get('ref_path')
         _remix_ref_audio = None

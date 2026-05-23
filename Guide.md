@@ -820,6 +820,15 @@ python src/voder.py ttm remix "original_song.wav" styling "jazz" reference "ref.
 # Overdose remix with reference
 python src/voder.py ttm overdose remix "original_song.wav" styling "jazz" reference voice "ref.wav" result "/output/jazz_remix.wav"
 
+# Remix vocals only (pre-extract vocals from source via SVS)
+python src/voder.py ttm remix voice "original_song.wav" styling "jazz version" result "/output/voice_remix.wav"
+
+# Remix music only (pre-extract instruments from source via SVS)
+python src/voder.py ttm remix music "original_song.wav" styling "electronic" result "/output/music_remix.wav"
+
+# Overdose remix with voice isolation
+python src/voder.py ttm overdose remix voice "original_song.wav" styling "cinematic orchestral" result "/output/voice_od_remix.wav"
+
 # Repaint sub-task (repaint 20s-80s section)
 python src/voder.py ttm repaint "song.wav" time:20-80 styling "more energetic" result "/output/repainted.wav"
 
@@ -2246,10 +2255,16 @@ python src/voder.py sts "presentation.mp4" "narrator_voice.wav"
 The new TTM sub‑tasks open up powerful music manipulation workflows:
 
 **Remix (Style Transfer):**
-Remix generates a style-transferred version of an existing song. The `bias` parameter (0–100, default 40) controls how much the new style is applied — 0 means pure original, 100 means pure new style.
+Remix generates a style-transferred version of an existing song. The `bias` parameter (0–100, default 40) controls how much the new style is applied — 0 means pure original, 100 means pure new style. Use `voice` or `music` to pre-extract vocals or instruments from the source via SVS before remixing — this lets you remix only the vocal performance or only the instrumental, giving the model a cleaner source for more creative results.
 
 ```bash
 python src/voder.py ttm remix "rock_song.wav" styling "acoustic jazz version" bias 50 result "/output/jazz_remix.wav"
+
+# Remix vocals only — isolate voice, then style-transfer
+python src/voder.py ttm remix voice "rock_song.wav" styling "soulful R&B" result "/output/voice_remix.wav"
+
+# Remix music only — isolate instruments, then style-transfer
+python src/voder.py ttm remix music "rock_song.wav" styling "electronic synth" result "/output/music_remix.wav"
 ```
 
 **Repaint Sections:**

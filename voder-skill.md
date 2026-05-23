@@ -507,7 +507,7 @@ TTM supports multiple sub-tasks via the `task` parameter:
 | **Complete** | `complete` | Add missing tracks to existing audio; supports optional `styling` prompt, `noblend` flag, `voice`/`music` isolation, `usrc` blend source, and `sfx:` overlay specs | XL-Base (+ SVS if voice/music + TangoFlux for SFX) |
 | **Lego** | `lego` | Build/generate individual instrument tracks; supports optional `styling` prompt | XL-Base |
 | **Extract** | `extract` | Extract individual tracks from audio | XL-Base |
-| **Remix** | `remix` | Style transfer (cover) with bias control; supports `reference` for additional guidance | XL-Turbo (overdose) or Legacy |
+| **Remix** | `remix` | Style transfer (cover) with bias control; supports `voice`/`music` source isolation and `reference` for additional guidance | XL-Turbo (overdose) or Legacy (+ SVS if voice/music) |
 | **Repaint** | `repaint` | Restyle a specific time range of a song; supports `reference` for additional guidance | XL-Turbo (overdose) or Legacy |
 | **BGM** | `bgm` | Replace background music in existing audio/video; strips music, generates new bgm, mixes at level; supports `video` flag, `reference`, and `sfx:` overlay specs | 1.5 Turbo (standard) or XL-Turbo (overdose) (+ TangoFlux for SFX) |
 | **Overdose** | (flag) | Maximum quality full generation | XL-Turbo |
@@ -615,6 +615,15 @@ python src/voder.py ttm remix "input.wav" styling "jazz" reference "ref.wav" res
 
 # Overdose remix with reference
 python src/voder.py ttm overdose remix "input.wav" styling "jazz" reference voice "ref.wav" result "/output/remix.wav"
+
+# Remix vocals only (SVS pre-extract vocals from source)
+python src/voder.py ttm remix voice "song.wav" styling "soulful R&B" result "/output/voice_remix.wav"
+
+# Remix music only (SVS pre-extract instruments from source)
+python src/voder.py ttm remix music "song.wav" styling "electronic synth" result "/output/music_remix.wav"
+
+# Overdose remix with voice isolation
+python src/voder.py ttm overdose remix voice "song.wav" styling "cinematic orchestral" result "/output/voice_od_remix.wav"
 
 # Repaint: restyle a specific time range of a song
 python src/voder.py ttm repaint "source.wav" time:20-80 styling "more energetic" result "/output/repainted.wav"
