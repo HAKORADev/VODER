@@ -167,18 +167,24 @@
 
 #### TTS SLC Sub-Task (Speaker Language Conversion)
 
-- **`tts slc` Oneline Command** — SLC (Speaker Language Conversion) is now a TTS oneline sub-task instead of a standalone mode. Transcribes source audio, clones voice from source, resynthesizes in same or translated language.
-  - `tts slc "path.wav"` — transcribe and resynthesize in detected language
-  - `tts slc translate "path.wav"` — transcribe, translate to English, resynthesize
-  - `tts overdose slc translate "path.wav"` — after TTS output, runs STS v2 non-mimic pass with source vocals for enhanced voice preservation
+- **`tts slc` Oneline Command** — SLC (Speaker Language Conversion) is now a TTS oneline sub-task instead of a standalone mode. Always translates to English using Whisper large-v3 (not turbo) — no separate `translate` keyword needed.
+  - `tts slc "path.wav"` — transcribe, translate to English, resynthesize with original voice
+  - `tts slc music "path.wav"` — same as above, but also extracts instrumental via SVS music and blends it with the voice output for music preservation
+  - `tts overdose slc "path.wav"` — after TTS output, runs STS v2 non-mimic pass with source vocals for enhanced voice preservation
+  - `tts overdose slc music "path.wav"` — overdose + music preservation combined
   - Supports video files, YouTube URLs, and audio files (modernized from standalone SLC which was audio-only)
   - SVS voice isolation on source before transcription for cleaner results
+  - Uses Whisper large-v3 exclusively (not turbo) for both transcription and translation — single model load, no redundant second instance
+  - `music` flag: SVS music extraction from source + ffmpeg blend with TTS voice output; note voice-music sync may vary
+  - `translate` keyword removed — translation to English is now hardcoded (Whisper can only translate to English, not between arbitrary language pairs)
 
 #### TTS Interactive Speech Modification (STT+TTS Integration)
 
 - **"Modify Speech?" Prompt** — STT+TTS functionality is now integrated into TTS interactive mode as the first prompt, instead of being a standalone mode.
   - When entering TTS interactive mode, user is asked "Want to modify speech? (Y/N)"
-  - If yes: provide audio/video/URL → SVS voice isolation → Whisper transcription → edit text → choose voice (source audio or custom path) → Qwen-TTS synthesis
+  - If yes: provide audio/video/URL → SVS voice isolation → Whisper transcription → edit text → choose voice (source audio or custom path)
+  - After voice selection: "Enable overdose? (Y/N)" — if yes, runs STS v2 non-mimic pass after TTS output for better voice preservation
+  - Then: "Preserve non-vocals? (Y/N)" — if yes, extracts instrumental via SVS music and blends with voice output
   - Modernized: supports video files and YouTube URLs (old STT+TTS mode only supported audio)
   - SVS voice isolation before transcription for cleaner results
 

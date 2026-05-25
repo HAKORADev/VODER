@@ -159,29 +159,31 @@ python voder.py tts overdose script "James: Hello" script "Sarah: Hi" target "Ja
 
 ### SLC Sub-Task
 
-Speaker Language Conversion: transcribe speech from an audio/video source, clone the speaker's voice, and re-synthesize in the detected language (or translated to English). SVS voice isolation is automatically run on the source before transcription.
+Speaker Language Conversion: transcribe speech from an audio/video source, translate to English, clone the speaker's voice, and re-synthesize. Always translates to English using Whisper large-v3. SVS voice isolation is automatically run on the source before transcription.
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `slc` | (flag) | Enable SLC sub-task. |
-| `translate` | (flag) | Force translation to English regardless of detected language. |
+| `slc` | (flag) | Enable SLC sub-task. Always translates to English. |
+| `music` | (flag) | Preserve non-vocals: extract music from source via SVS music and blend with voice output. |
 | `"<path>"` | file | Audio/video file path or YouTube/TikTok/Bilibili URL. |
 | `result` | `"<path>"` | Copy output to custom path. |
 
 #### Rules
 
-- Pipeline: SVS voice isolation → Whisper STT → (optional translate) → Qwen-TTS with voice cloning.
-- If audio is already English and `translate` is specified, translation is skipped.
-- If the detected language is not supported by Qwen-TTS, auto-translates to English.
+- Pipeline: SVS voice isolation → Whisper large-v3 (transcribe + translate to English) → Qwen-TTS with voice cloning.
+- Always translates to English. If audio is already English, translation is skipped.
+- Uses Whisper large-v3 (not turbo) for maximum translation accuracy.
 - Supports audio files, video files, and YouTube/TikTok/Bilibili URLs.
+- `music` flag extracts the instrumental track from the source and blends it with the voice output, preserving background music.
 - `overdose slc` runs an additional STS v2 pass after TTS for better voice preservation.
+- Voice-music sync may vary when using the `music` flag; this is inherent to the approach.
 
 ```
-# Convert language (auto-detect, resynthesize in same language)
+# Translate speech to English, preserving voice
 python voder.py tts slc "french_speech.wav"
 
-# Translate to English and resynthesize
-python voder.py tts slc translate "french_speech.wav"
+# Translate with music preservation (blend non-vocals back)
+python voder.py tts slc music "french_speech.wav"
 
 # SLC from video
 python voder.py tts slc "interview.mp4"
@@ -190,7 +192,10 @@ python voder.py tts slc "interview.mp4"
 python voder.py tts slc "https://youtube.com/watch?v=..."
 
 # SLC with overdose (additional STS v2 pass for better voice preservation)
-python voder.py tts overdose slc translate "french_speech.wav"
+python voder.py tts overdose slc "french_speech.wav"
+
+# SLC with overdose + music preservation
+python voder.py tts overdose slc music "french_speech.wav"
 ```
 
 ### Newline Support

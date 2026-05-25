@@ -100,7 +100,9 @@ SEPARATION PATH (SVS):
 Mixed Audio → BS-RoFormer → [Vocals] + [Instrumental]
 
 LANGUAGE CONVERSION PATH (TTS SLC Sub-Task):
-Source Audio/Video/URL → SVS Voice Isolation → Whisper Translate → English Text → Qwen3-TTS (with voice ref) → Translated Audio
+Source Audio/Video/URL → SVS Voice Isolation → Whisper large-v3 (Transcribe + Translate to English) → Qwen3-TTS (with voice ref) → English Audio
+                                                                                                                                                   ↓ (optional `music` flag)
+                                                                                                          SVS Music Extraction → Blend with Voice Output
 [With overdose: → Seed-VC v2 non-mimic pass for better voice preservation]
 
 SPEAKER SEPARATION PATH (SS):
@@ -125,7 +127,7 @@ VODER uses three types of parameters:
 |------|-------------|----------|
 | **Positional** | Mode name comes first, input files follow | `stt "audio.wav"` |
 | **Named** | Key-value pairs with space separation | `voice "male"` `duration 30` |
-| **Flags** | Standalone keywords that enable features | `timestamp` `dialogue` `music` `translate` `overdose` `mimic` `vc` `nomusic` |
+| **Flags** | Standalone keywords that enable features | `timestamp` `dialogue` `music` `translate` `overdose` `mimic` `vc` `nomusic` `slc` |
 
 ### Parameter Multiplicity
 
@@ -149,7 +151,7 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 
 ### Parameter Order Rules
 
-1. **Mode comes first**: `tts`, `stt`, `sts`, `ttm`, `svs`, `ss`, etc. Sub-tasks follow mode: `tts slc`, `tts overdose slc`
+1. **Mode comes first**: `tts`, `stt`, `sts`, `ttm`, `svs`, `ss`, etc. Sub-tasks follow mode: `tts slc`, `tts overdose slc`, `tts slc music`
 2. **Required parameters follow**: `script`, `voice`, `target`, `base`, `lyrics`, `styling`, etc.
 3. **Optional parameters come after**: `music`, `level`, `result`, `vc`, `stem`, `task`, etc.
 4. **Flags can appear anywhere after mode**: `timestamp`, `dialogue`, `music` (STS), `mimic` (STS), `nomusic` (STS), `translate` (STT), `overdose` (STT, TTM, TTS), `vc` (TTM)
@@ -392,24 +394,17 @@ python src/voder.py tts script "First paragraph\nSecond paragraph" voice "profes
 
 ### SLC Sub-Task (Spoken Language Conversion / Dubbing)
 
-SLC (Spoken Language Conversion) is now a TTS oneline sub-task that translates spoken content from one language to another and re-synthesizes it with speech. It combines Whisper's translation capability with Qwen3-TTS's voice synthesis to produce **dubbed audio** — the content is translated but the voice character is preserved (or replaced).
+SLC (Spoken Language Conversion) is now a TTS oneline sub-task that translates spoken content from any language to English and re-synthesizes it with the original speaker's voice. It combines Whisper large-v3's translation capability with Qwen3-TTS's voice synthesis to produce **dubbed audio** — the content is translated but the voice character is preserved. Translation to English is always performed; no separate `translate` flag is needed.
 
 **How It Works:**
 1. **Source Input**: Accepts audio files, video files, and YouTube/URL sources
 2. **SVS Voice Isolation**: BS-RoFormer isolates the voice from the source (handles mixed audio/video)
-3. **Translation**: Whisper large-v3 transcribes and translates the isolated voice to English
-4. **Voice Extraction** (if no `target`): The source audio's voice characteristics are analyzed
-5. **Re-Synthesis**: Qwen3-TTS Base synthesizes the English text with the extracted or target voice
-6. **Overdose Post-Processing** (optional): When `tts overdose slc` is used, Seed-VC v2 runs a non-mimic pass after TTS output for better voice preservation
-
-**Two Modes of Operation:**
-
-| Mode | Parameter | Result |
-|------|-----------|--------|
-| **Same-Voice Translation** | No `target` | Translated in the original speaker's voice |
-| **Different-Voice Translation** | With `target` | Translated in a different person's voice |
-
-**Language Preservation Trick:** To preserve specific words or phrases in the original language (e.g., names, technical terms, cultural expressions), wrap them in `{original}` markers within the translation. The translator preserves text inside `{ }` braces without translation.
+3. **Music Extraction** (optional): When the `music` flag is used, SVS also extracts the instrumental track for later blending
+4. **Translation**: Whisper large-v3 (not turbo) transcribes and translates the isolated voice to English
+5. **Voice Extraction**: The source audio's voice characteristics are analyzed
+6. **Re-Synthesis**: Qwen3-TTS Base synthesizes the English text with the extracted voice
+7. **Overdose Post-Processing** (optional): When `tts overdose slc` is used, Seed-VC v2 runs a non-mimic pass after TTS output for better voice preservation
+8. **Music Blending** (optional): When the `music` flag is used, the extracted instrumental is blended with the voice output
 
 **Command Catalog:**
 
@@ -417,41 +412,31 @@ SLC (Spoken Language Conversion) is now a TTS oneline sub-task that translates s
 # Same-voice translation (preserves original speaker's voice)
 python src/voder.py tts slc "foreign_speech.wav"
 
-# Different-voice translation
-python src/voder.py tts slc "foreign_speech.wav" target "english_voice.wav"
+# Translation with music preservation (blend non-vocals back)
+python src/voder.py tts slc music "foreign_speech.wav"
 
 # From video file (audio auto-extracted)
-python src/voder.py tts slc "foreign_movie.mp4" target "dub_actor.wav" result "/output/dubbed.mp4"
+python src/voder.py tts slc "foreign_movie.mp4"
 
 # From YouTube URL
 python src/voder.py tts slc "https://www.youtube.com/watch?v=VIDEO_ID"
 
 # With output routing
-python src/voder.py tts slc "spanish_interview.mp3" target "narrator.wav" result "/output/english_version.wav"
-
-# Same-voice with language preservation
-python src/voder.py tts slc "japanese_speech.wav" result "/output/english_dub.wav"
+python src/voder.py tts slc "spanish_interview.mp3" result "/output/english_version.wav"
 
 # Overdose SLC — runs STS v2 non-mimic pass after TTS for better voice preservation
 python src/voder.py tts overdose slc "foreign_speech.wav"
 
-# Overdose SLC with custom target voice
-python src/voder.py tts overdose slc "foreign_speech.wav" target "voice_ref.wav"
-
-# Translate only (just get the English text, no synthesis)
-python src/voder.py tts slc translate "foreign_speech.wav"
-
-# Overdose SLC with translate
-python src/voder.py tts overdose slc translate "foreign_speech.wav"
+# Overdose SLC with music preservation
+python src/voder.py tts overdose slc music "foreign_speech.wav"
 ```
 
 **SLC Parameter Reference:**
 
 | Parameter | Required | Purpose | Default |
 |-----------|----------|---------|----------|
-| `target` | No | Voice reference for dubbing voice | (uses source speaker's voice) |
-| `translate` | No | Translate only (no synthesis, output English text) | Off |
-| `overdose` | No | Runs STS v2 non-mimic pass after TTS for better voice preservation | Off |
+| `music` | No | Preserve non-vocals (extract and blend instrumental back) | Off |
+| `overdose` | No | Additional STS v2 non-mimic pass for better voice fidelity | Off |
 | `result` | No | Output destination | Auto-generated |
 
 **Limitations:**
@@ -1892,8 +1877,8 @@ Not all features work together. This section maps out exactly what combinations 
 ### TTS Mode
 ```
 python src/voder.py tts [overdose] script "text" [script "text2" ...] [voice "prompt" [voice "prompt2" ...]] [target "path" [target "Char: path2" ...]] [music "description"] [level "spec"] [result "path"]
-python src/voder.py tts slc [translate] "source_audio.wav" [target "voice.wav"] [result "path"]
-python src/voder.py tts overdose slc [translate] "source_audio.wav" [target "voice.wav"] [result "path"]
+python src/voder.py tts slc [music] "source_audio.wav" [result "path"]
+python src/voder.py tts overdose slc [music] "source_audio.wav" [result "path"]
 ```
 
 ### STS Mode
@@ -2068,19 +2053,22 @@ python src/voder.py tts script "Speaker 0's lines here..." target "/output/speak
 
 ### Combo 16: SLC (Language Dubbing)
 **Mode**: TTS SLC sub-task
-**Features**: Foreign audio/video/URL + optional target voice
+**Features**: Foreign audio/video/URL → English with original voice, optional music preservation
 ```bash
 # Same-voice dubbing (preserves original speaker's voice)
 python src/voder.py tts slc "french_interview.wav" result "/output/english_dub.wav"
 
-# Different-voice dubbing
-python src/voder.py tts slc "spanish_podcast.mp3" target "english_narrator.wav" result "/output/english_version.wav"
+# With music preservation (blend non-vocals back)
+python src/voder.py tts slc music "french_interview.wav" result "/output/english_dub.wav"
 
 # From YouTube
 python src/voder.py tts slc "https://youtube.com/watch?v=VIDEO_ID"
 
 # Overdose SLC for better voice preservation
 python src/voder.py tts overdose slc "foreign_speech.wav"
+
+# Overdose SLC with music preservation
+python src/voder.py tts overdose slc music "foreign_speech.wav"
 ```
 
 ### Combo 17: Image-to-Audio Pipeline
@@ -2147,8 +2135,8 @@ python src/voder.py tts overdose script "Host: Let's dive in" "Guest: Absolutely
 | SE | 11GB | 4GB | UniSE |
 | SFX | 12GB | 4GB | TangoFlux |
 | SVS | 14GB | 8GB | BS-RoFormer |
-| TTS slc | 14GB | 4GB | Whisper + Qwen3-TTS (+ SVS for voice isolation) |
-| TTS slc overdose | 18GB | 12GB | Whisper + Qwen3-TTS + Seed-VC v2 (non-mimic) |
+| TTS slc | 16GB | 4GB | Whisper large-v3 + Qwen3-TTS (+ SVS for voice isolation + music) |
+| TTS slc overdose | 20GB | 12GB | Whisper large-v3 + Qwen3-TTS + Seed-VC v2 (non-mimic) |
 | SS | 14GB | N/A (CPU) | VibeVoice ASR |
 
 ## Planning Complex Workflows
@@ -2235,7 +2223,7 @@ Total memory needed: 14GB
 12. **Use overdose for final output**: Generate with standard TTM for testing, switch to overdose for final production
 13. **SS before STT for multi-speaker**: Run SS first to identify and separate speakers, then transcribe individually for cleaner results
 14. **SVS before STS for mixed audio**: Auto vocal extraction in STS handles most cases, but manual SVS → STS gives more control
-15. **TTS slc preserves speaker identity**: For dubbing, use no-target mode (`tts slc "source.wav"`) to keep the original speaker's voice in English
+15. **TTS slc preserves speaker identity**: SLC always translates to English while keeping the original speaker's voice (`tts slc "source.wav"`). Use `music` flag to preserve background music too
 16. **TTS is unified now**: Don't think in terms of TTS vs TTS+VC — just use `tts` with `voice` or `target` (or both via cross-use)
 17. **TTM is unified now**: Don't think in terms of TTM vs TTM+VC — just use `ttm` with `vc` + `clone` when you need voice cloning
 18. **Legos for custom arrangements**: Use `lego` with specific `make` stems to build custom instrumental arrangements

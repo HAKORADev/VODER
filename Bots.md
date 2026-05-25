@@ -42,7 +42,7 @@ VODER is a professional‑grade voice processing tool that enables seamless conv
 - **Automatic Voice Extraction**: Extract individual voice clips from multi‑speaker sources for cloning
 - **Result Routing**: Copy results to any filesystem path using the `result` parameter
 - **Song Voice Separation (SVS)**: Separate vocals from music using BS‑RoFormer
-- **Speaker Language Conversion (SLC)**: Translate speech to another language while preserving speaker voice (TTS sub‑task: `tts slc`)
+- **Speaker Language Conversion (SLC)**: Translate speech to English while preserving speaker voice (TTS sub‑task: `tts slc`, `tts slc music` for music preservation)
 - **Speakers Separator (SS)**: Extract individual speakers from multi‑speaker audio
 - **Translation in STT**: Translate transcribed speech to English automatically
 - **Overdose Quality Mode**: Enhanced transcription, dialogue source analysis, and music generation using VibeVoice ASR
@@ -363,7 +363,7 @@ python src/voder.py <mode> [parameters]
 Generate speech from text using Qwen3‑TTS VoiceDesign model.
 **Supports both single and dialogue modes. Dialogue mode supports optional background music and SFX lines.**
 **Voice cloning is available via the `target` parameter — supply a voice reference audio path to clone that voice. Multi-reference cloning is supported using parenthesized format: `(path1)(path2)(path3)`. Add the `first` keyword before the references (`target first "(path1)(path2)(path3)"`) to extract only the first reference's speaker from all others via TSE before compiling.**
-**SLC (Speaker Language Conversion) is available as a sub‑task: `tts slc "path.wav"`, `tts slc translate "path.wav"`, `tts overdose slc translate "path.wav"`. Supports audio files, video files, and YouTube/URL input with automatic SVS voice isolation on source.**
+**SLC (Speaker Language Conversion) is available as a sub‑task: `tts slc "path.wav"`, `tts slc music "path.wav"`, `tts overdose slc "path.wav"`, `tts overdose slc music "path.wav"`. Always translates to English using Whisper large-v3. Supports audio files, video files, and YouTube/URL input with automatic SVS voice isolation on source. The `music` flag preserves non-vocals by extracting and blending the instrumental track.**
 **In interactive CLI mode, providing audio/video/URL as input triggers a "modify speech? (Y/N)" prompt that runs the STT+TTS flow: SVS voice isolation → Whisper transcription → edit text → choose voice (source or custom) → Qwen‑TTS synthesis.**
 
 **Single mode (voice design):**
@@ -471,21 +471,26 @@ When `overdose` is used:
 
 **SLC (Speaker Language Conversion) — TTS Sub‑task:**
 
-Translate speech to another language while preserving speaker voice. SLC is now a TTS sub‑task accessed via `tts slc`. Supports audio files, video files, and YouTube/URL input. SVS voice isolation runs automatically on the source before processing.
+Translate speech from any language to English while preserving the speaker's voice. SLC is now a TTS sub‑task accessed via `tts slc`. Always translates to English using Whisper large-v3 (not turbo). Supports audio files, video files, and YouTube/URL input. SVS voice isolation runs automatically on the source before processing.
 
-**Translate to English (default):**
+**Translate to English:**
 ```bash
 python src/voder.py tts slc "spanish_speech.wav"
 ```
 
-**Translate with `translate` flag:**
+**Translate with music preservation (blend non-vocals back):**
 ```bash
-python src/voder.py tts slc translate "speech.wav" result "/output.wav"
+python src/voder.py tts slc music "speech.wav" result "/output.wav"
 ```
 
 **Translate with overdose quality:**
 ```bash
-python src/voder.py tts overdose slc translate "speech.wav" result "/output.wav"
+python src/voder.py tts overdose slc "speech.wav" result "/output.wav"
+```
+
+**Overdose + music preservation:**
+```bash
+python src/voder.py tts overdose slc music "speech.wav" result "/output.wav"
 ```
 
 **From YouTube/Video URL:**
@@ -497,17 +502,17 @@ python src/voder.py tts slc "https://youtube.com/watch?v=..." result "/output/en
 
 | Parameter | Description | Required |
 |-----------|-------------|----------|
-| `slc` | Invoke SLC sub‑task within TTS mode | Yes (for SLC) |
-| `translate` | Explicitly request translation (default behaviour) | No |
-| `file` | Input audio/video/URL (positional after `slc` or `slc translate`) | Yes |
-| `target` | Voice reference audio for preserving specific voice characteristics | No |
+| `slc` | Invoke SLC sub‑task within TTS mode (always translates to English) | Yes (for SLC) |
+| `music` | Preserve non-vocals — extract instrumental and blend with voice output | No |
+| `file` | Input audio/video/URL (positional after `slc` or `slc music`) | Yes |
 | `result` | Output path | No |
 
 **SLC Limitations:**
-- Translation quality depends on Whisper's transcription accuracy for the source language
-- Limited output languages: voice synthesis is limited to the languages supported by Qwen3‑TTS (approximately 10 output languages)
+- Translation quality depends on Whisper large-v3's transcription accuracy for the source language
+- Output is always English (Whisper can only translate to English)
+- Voice-music sync may vary when using the `music` flag; this is inherent to the approach
 
-> **Note:** The standalone `slc` mode has been merged into TTS. The old `slc` command is no longer accepted — use `tts slc` instead.
+> **Note:** The standalone `slc` mode has been merged into TTS. The old `slc` command is no longer accepted — use `tts slc` instead. The `translate` keyword is no longer needed; SLC always translates to English.
 
 **Voice Stabilization:**
 
@@ -525,7 +530,7 @@ VoiceDesign characters in dialogue mode automatically get their voice stabilized
 | `reference` | Reference audio/video/URL for dialogue background music style guidance (processed via SVS music pipe to extract clean instrumental) | No |
 | `overdose` | Use VibeVoice ASR for dialogue source/voice clip extraction and ACE-Step XL turbo for background music (TTS mode) | No |
 | `language` | Output language for speech synthesis (e.g., `"Spanish"`, `"English"`) | No |
-| `slc` | Invoke SLC sub‑task for speech translation (use `tts slc "path.wav"`) | No |
+| `slc` | Invoke SLC sub‑task for speech translation to English (use `tts slc "path.wav"`, `tts slc music "path.wav"` for music preservation) | No |
 
 **Voice Prompt Examples:**
 
@@ -1544,7 +1549,7 @@ VODER offers different experiences depending on the interface. Understanding the
 | **Speech Enhancement** | Denoise, dereverberate, restore speech audio |
 | **Sound Effects Generation** | Text-to-audio synthesis with configurable parameters |
 | **Song Voice Separation** | Separate vocals from music using BS‑RoFormer |
-| **Speaker Language Conversion** | Translate speech to another language preserving voice (TTS sub‑task: `tts slc`) |
+| **Speaker Language Conversion** | Translate speech to English preserving voice (TTS sub‑task: `tts slc`, `tts slc music` for music preservation) |
 | **Speakers Separator** | Extract individual speakers from multi‑speaker audio |
 | **Video I/O** | Video input with audio extraction; video output with replaced audio (STS) |
 | **TTM Sub-tasks** | Complete, lego, extract, remix, and repaint sub-tasks for music processing |
@@ -1611,7 +1616,7 @@ VODER operates entirely on CPU. No GPU is required for any mode. This makes VODE
 | SE | 11GB | Optional | 4GB | 8GB base + 2-3GB (UniSE) |
 | SFX | 12GB | Optional | 4GB | 8GB base + 3-4GB (TangoFlux) |
 | SVS | 14GB | Optional | 6-7GB (additional for BS-RoFormer) | 8GB base + 2-3GB (BS-RoFormer) |
-| TTS + SLC | 16GB | Optional | 4GB | 8GB base + 4GB (Qwen, shared with TTS) |
+| TTS + SLC | 18GB | Optional | 4GB | 8GB base + ~3GB (SVS) + ~3GB (Whisper large-v3) + 4GB (Qwen, shared with TTS) |
 | SS | 48GB | Optional | 24GB VRAM or 48GB RAM | 8GB base + ~40GB (VibeVoice ASR) |
 
 ### VRAM Guidelines
@@ -1652,7 +1657,7 @@ The following modes work with approximately 11-13GB RAM:
 
 - **TTS** (Text-to-Speech) - 12GB
 - **TTS** (Text-to-Speech, including voice cloning via `target`) - 12GB
-- **TTS SLC** (Speaker Language Conversion via `tts slc`) - 16GB
+- **TTS SLC** (Speaker Language Conversion via `tts slc`) - 18GB
 - **STT** (Speech-to-Text) - 12GB
 - **STS** (Speech-to-Speech) - 13GB
 - **SE** (Speech Enhancement) - 11GB
@@ -1692,8 +1697,9 @@ free -h
 
 ### SLC Mode Limitations (TTS Sub‑task)
 
-1. **Translation Quality Depends on Whisper**: Translation accuracy depends on Whisper's transcription accuracy for the source language
-2. **Limited Output Languages**: Voice synthesis output is limited to the languages supported by Qwen3‑TTS (approximately 10 output languages)
+1. **Translation Quality Depends on Whisper large-v3**: Translation accuracy depends on Whisper large-v3's transcription accuracy for the source language
+2. **English Only**: Output is always English (Whisper can only translate to English, not between arbitrary language pairs)
+3. **Music Sync**: When using the `music` flag, voice-music synchronization may vary; this is inherent to the approach
 
 ### SS Mode Limitations
 
@@ -1906,13 +1912,14 @@ python src/voder.py tts script "James: Hello" "sfx: thunder /duration:5" voice "
 
 ### Issue: SLC translation produces incorrect output
 
-**Cause**: Source language not well supported by Whisper, or unclear speech
+**Cause**: Source language not well supported by Whisper large-v3, or unclear speech
 
 **Solution**:
 1. Ensure source audio is clear with minimal background noise
 2. Pre-process with speech enhancement (`se` mode) before SLC
 3. Use shorter audio segments for better accuracy
-4. Note: SLC is now a TTS sub‑task — use `tts slc "path.wav"` instead of the old standalone `slc` command
+4. SLC always uses Whisper large-v3 (not turbo) for maximum accuracy
+5. Note: SLC is now a TTS sub‑task — use `tts slc "path.wav"` instead of the old standalone `slc` command
 
 ### Issue: SS fails with out of memory
 
@@ -1948,7 +1955,7 @@ VODER is a mature tool with all modes fully operational. When issues occur, they
 10. **SE used on music**: SE is speech-only
 11. **SFX missing duration**: Add `/duration:nn` to SFX lines
 12. **SS/overdose insufficient memory**: Ensure 48GB+ RAM or 24GB+ VRAM
-13. **STT overdose + translate conflict**: These flags are mutually exclusive
+13. **STT overdose + translate conflict**: These flags are mutually exclusive (STT mode only; SLC always translates to English)
 
 VODER handles all internal error cases gracefully with clear error messages.
 
