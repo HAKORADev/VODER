@@ -9,6 +9,37 @@
 
 ### Added
 
+#### TTS Voice Training
+
+- **`train voice:character-name` Command** — New oneline command to train Qwen-TTS Base voice clones and save them as `.tts` files for reuse.
+  - Creates `voices/` directory in project root if not present
+  - Saves trained voice prompts as `voder_tts_character-name_timestamp.tts` files
+  - Supports multiple reference audios (video/audio/URL) with SVS voice extraction
+  - Optional `test` keyword generates a test sample using a hardcoded 30+ second script after training
+  - Optional `test "custom script"` uses a user-provided test script
+  - Oneline only: `python voder.py train voice:james "ref1.wav" "ref2.wav" test`
+
+- **Trained Voice Usage in TTS** — The `voice` parameter now accepts trained voice references in addition to voice descriptions.
+  - `voice "character-name"` uses the latest `.tts` file with that name from `voices/`
+  - `voice "character-name:path/to/file.tts"` uses a specific `.tts` file
+  - `voice "character-name:another-name"` uses the latest `.tts` for `another-name`
+  - When a trained voice is used, Qwen-TTS Base (voice cloning) is used instead of VoiceDesign
+  - Works in both oneline and interactive CLI modes
+
+#### TTS Script Newlines
+
+- **`\n` Newline Support** — TTS scripts now support `\n` for actual newlines in both oneline and interactive CLI modes.
+  - Oneline: `tts script "James: First line\nSecond line" voice "James: deep male"`
+  - Interactive: Enter `\n` in text to create line breaks within a character's speech
+
+#### Voice Stabilization
+
+- **Automatic VoiceDesign Stabilization** — VoiceDesign characters in dialogue mode are automatically stabilized to prevent vocal drift across long scripts.
+  - After a VoiceDesign character produces 3 script lines, the outputs are concatenated, SVS-cleaned, and fed to Qwen-TTS Base for voice extraction
+  - All subsequent lines for that character use the cloned voice instead of VoiceDesign
+  - This eliminates the gradual voice changes that occur when VoiceDesign regenerates voice characteristics for each line
+  - Operates transparently — no user configuration needed
+
 #### STS Universal SVS Pre/Post-Processing
 
 - **SVS Voice Isolation on Source** — All STS modes (VCv1 music, VCv2 speech, VCv2 mimic) now isolate source vocals via SVS before feeding them to the VC model, instead of passing the raw source. This gives the VC model clean voice input and produces significantly cleaner conversions.
@@ -162,6 +193,17 @@
 - New function: `_parse_multi_refs()` for parsing TTS multi-reference target format (`(path1)(path2)(path3)`)
 - New function: `_concat_audio_files()` for concatenating multiple audio files via ffmpeg
 - New function: `_resolve_multi_refs()` for resolving, SVS-cleaning, and concatenating multiple voice references
+- New function: `_save_voice_prompt()` for saving trained voice prompts as `.tts` files
+- New function: `_load_voice_prompt()` for loading trained voice prompts from `.tts` files
+- New function: `_find_voice_file()` for finding latest trained voice file by character name
+- New function: `_resolve_voice_ref()` for resolving trained voice references (name, name:path, name:othername)
+- New function: `_is_trained_voice_ref()` for checking if a voice value is a trained voice reference
+- New function: `_ensure_voices_dir()` for creating `voices/` directory
+- New function: `oneline_train()` for `train voice:name` command execution
+- `TRAIN_TEST_SCRIPT` constant added for default test script in train mode
+- `_assemble_enhanced_dialogue()` updated with automatic VoiceDesign voice stabilization after 3 lines
+- `train` added to valid oneline modes
+- `\n` replacement added to dialogue script parsing in both oneline and interactive CLI modes
 - Added `random` import for composite reference/source composition randomization
 - `remix_entries` parameter renamed to `source_entries` for consistency
 - VibeVoice ASR `transcribe_with_overlaps()` method added for overlap-aware transcription

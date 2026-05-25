@@ -12,6 +12,7 @@
 - [Processing Modes Deep Dive](#processing-modes-deep-dive)
   - [STT: Speech-to-Text](#stt-speech-to-text)
   - [TTS: Text-to-Speech](#tts-text-to-speech)
+  - [Voice Training](#voice-training)
   - [STS: Speech-to-Speech Voice Conversion](#sts-speech-to-speech-voice-conversion)
   - [TTM: Text-to-Music](#ttm-text-to-music)
   - [STT+TTS: Speech-to-Text + Synthesis](#stttts-speech-to-text--synthesis)
@@ -398,9 +399,11 @@ TTS generates speech from text using Qwen3‑TTS. When no target voice reference
 
 VODER automatically selects the appropriate TTS model based on whether voice cloning is requested:
 
-- **VoiceDesign mode** (no `target` parameter): The VoiceDesign model interprets natural language descriptions to generate appropriate voice characteristics. Unlike traditional TTS systems that use pre‑recorded voice samples, VoiceDesign creates voices from scratch based on your description. This makes it incredibly flexible — you can describe voices that don't exist in any database.
+- **VoiceDesign mode** (no `target` parameter): The VoiceDesign model interprets natural language descriptions to generate appropriate voice characteristics. Unlike traditional TTS systems that use pre‑recorded voice samples, VoiceDesign creates voices from scratch based on your description. This makes it incredibly flexible — you can describe voices that don't exist in any database. **Trained voices** can also be used via the `voice` parameter — see [Voice Training](#voice-training) for details.
 
 - **Voice Clone mode** (`target` parameter provided): The process happens in two stages. First, Qwen3‑TTS Base generates speech from your text using its default voice characteristics. Before that, BS‑RoFormer automatically extracts clean vocals from the target reference audio via SVS (voice separation), ensuring the best possible cloning quality even if the reference has background music or noise. Then, the voice cloning system extracts distinctive features from the cleaned reference audio and applies them to the generated speech. The result is your text spoken by a voice that matches your reference.
+
+- **Trained Voice mode** (`voice` parameter with a trained voice name or path): When a trained voice is used, Qwen3‑TTS Base (voice cloning) is used instead of VoiceDesign. The trained `.tts` file provides the voice embedding directly, producing consistent cloned voice output without needing a reference audio file. See [Voice Training](#voice-training) for details.
 
 **Why It's Like That:**
 
@@ -486,6 +489,10 @@ In **single mode** (one reference file), the entire script uses that voice. In *
 
 VODER extracts voice characteristics **once per character** in dialogue mode, rather than re‑extracting for each line. This ensures consistent voice quality throughout the dialogue. If a character speaks multiple lines (e.g., 5 lines for "James"), the voice prompt is extracted once and reused for all lines of that character. This eliminates variations that occurred when re-extracting voice for each line, providing stable and professional-quality voice cloning across entire dialogues.
 
+**Voice Stabilization:**
+
+VoiceDesign characters in dialogue mode automatically get their voice stabilized to eliminate vocal drift in long dialogues. After 3 script lines, the outputs are concatenated, SVS-cleaned, and fed to Qwen3‑TTS Base for voice extraction. All subsequent lines use the cloned voice instead of VoiceDesign, ensuring the character's voice remains consistent even across dozens of lines. This happens automatically — no configuration is needed.
+
 **Optional Background Music (Dialogue Only):**
 
 When using TTS in **dialogue mode** (multiple speakers, script lines containing a colon), you can optionally add automatically generated background music. After the dialogue is synthesized, VODER generates a music track using ACE‑Step with empty lyrics `"..."` and a duration matching the exact length of the dialogue. The music is mixed at **35% volume** relative to the dialogue (configurable via `level` parameter), creating a subtle ambient bed. The final file is saved with an `_m` suffix (e.g., `voder_tts_dialogue_..._m.wav`). This feature is available in GUI (via a clean modal dialog), interactive CLI (prompt after voice prompts), and one‑liner CLI (optional `music` and `level` parameters). See [Optional Background Music for Dialogue](#optional-background-music-for-dialogue) for full details.
@@ -513,6 +520,18 @@ When using TTS in **dialogue mode** (multiple speakers, script lines containing 
 | News anchor | "middle‑aged, authoritative, measured pace, broadcasting quality" |
 | Storytelling | "deep narrative voice, expressive, dramatic pauses" |
 
+**Newline Support in TTS Scripts:**
+
+Use `\n` in script text to insert actual newlines. This works in both oneline and interactive CLI modes:
+
+```bash
+# Newline in a dialogue script line
+python src/voder.py tts script "James: First line\nSecond line" voice "James: deep male"
+
+# Newline in single mode
+python src/voder.py tts script "First paragraph\nSecond paragraph" voice "professional narrator"
+```
+
 **CLI Usage:**
 
 ```bash
@@ -528,12 +547,28 @@ python src/voder.py tts script "Hello world" target "https://www.youtube.com/wat
 # Voice Clone with specific language
 python src/voder.py tts script "Bonjour le monde" target "french_speaker.wav" language "fr"
 
-# Dialogue with mixed voices (generated + cloned)
+# Trained voice mode (use a trained .tts voice)
+python src/voder.py tts script "Hello world" voice "my-character"
+
+# Trained voice with specific .tts file
+python src/voder.py tts script "Hello world" voice "my-character:path/to/file.tts"
+
+# Dialogue with trained voice
+python src/voder.py tts \
+  script "James: Hello!" \
+  script "Sarah: Hi there!" \
+  voice "James: my-character" \
+  voice "Sarah: another-character"
+
+# Dialogue with mixed voices (generated + cloned + trained)
 python src/voder.py tts \
   script "James: Hello!" \
   script "Sarah: Hi there!" \
   voice "James: deep male voice" \
   target "Sarah: /path/to/sarah_voice.wav"
+
+# Dialogue with newline in script
+python src/voder.py tts script "James: First line\nSecond line" voice "James: deep male"
 
 # OCR Input (Image to Narration)
 python src/voder.py tts ocr "path/to/image.png" voice "text: professional male narrator"
@@ -560,6 +595,79 @@ python src/voder.py tts ocr "script_screenshot.jpg" target "voice_ref.wav"
 This is useful for converting screenshots of scripts, slides, or documents into spoken narration without manual text entry.
 
 **Memory Requirements:** TTS (VoiceDesign, no music) requires approximately 12GB RAM (8GB base + 4GB for Qwen model). TTS (Voice Clone, no music) requires approximately 15GB RAM (8GB base + 4GB for Qwen + ~3GB for BS‑RoFormer SVS). With background music, add approximately 15GB for the ACE model.
+
+---
+
+### Voice Training
+
+VODER can train voice clones from reference audio files and save them as `.tts` files for later reuse. This eliminates the need to keep original reference audio files around — the trained voice embedding is stored in a compact `.tts` file that can be used directly in TTS commands.
+
+**What It Does:**
+
+The `train voice` command trains a Qwen3‑TTS Base voice clone from one or more reference audio files. The resulting `.tts` file contains the extracted voice embedding and can be used in the `voice` parameter of TTS commands instead of a voice description.
+
+**Command Syntax (Oneline Only):**
+
+```bash
+python src/voder.py train voice:character-name "path1" "path2" ...
+```
+
+- `character-name` is the name used to reference the trained voice later
+- One or more audio file paths provide the reference audio for training
+- Multiple paths are SVS-cleaned individually and concatenated into a composite before voice extraction
+- The trained voice is saved as `voder_tts_character-name_timestamp.tts` in the `voices/` directory
+
+**Optional Test Sample:**
+
+- Add `test` at the end of the command to generate a test sample using a hardcoded 30+ second script:
+  ```bash
+  python src/voder.py train voice:my-character "ref1.wav" "ref2.wav" test
+  ```
+
+- Add `test "custom script"` to use a custom test script instead:
+  ```bash
+  python src/voder.py train voice:my-character "ref1.wav" test "Custom test script for verification"
+  ```
+
+**Using Trained Voices in TTS:**
+
+When using the `voice` parameter in TTS, you can provide a trained voice name or path instead of a voice description:
+
+| Syntax | Behavior |
+|--------|----------|
+| `voice "character-name"` | Uses the latest `.tts` file with that name from `voices/` |
+| `voice "character-name:path/to/file.tts"` | Uses a specific `.tts` file |
+| `voice "character-name:another-name"` | Uses the latest `.tts` file for `another-name` from `voices/` |
+
+When a trained voice is used, Qwen3‑TTS Base (voice cloning) is used instead of VoiceDesign. This works in both oneline and interactive CLI modes.
+
+**Examples:**
+
+```bash
+# Train a voice from a single reference
+python src/voder.py train voice:narrator "narrator_ref.wav"
+
+# Train a voice from multiple references
+python src/voder.py train voice:hero "hero_clip1.wav" "hero_clip2.wav" "hero_clip3.wav"
+
+# Train with test sample
+python src/voder.py train voice:narrator "narrator_ref.wav" test
+
+# Train with custom test script
+python src/voder.py train voice:narrator "narrator_ref.wav" test "The quick brown fox jumps over the lazy dog."
+
+# Use trained voice in TTS (single mode)
+python src/voder.py tts script "Hello world" voice "narrator"
+
+# Use trained voice in TTS (dialogue mode)
+python src/voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: hero" voice "Sarah: cheerful female"
+
+# Use a specific .tts file
+python src/voder.py tts script "Hello" voice "narrator:voices/voder_tts_narrator_20260101_120000.tts"
+
+# Use a different trained voice name
+python src/voder.py tts script "Hello" voice "my-char:hero"
+```
 
 ---
 

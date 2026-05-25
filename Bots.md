@@ -417,6 +417,33 @@ python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Ch
 python src/voder.py tts script "Character1: line1" "Character2: line2" voice "Character1: voice prompt" "Character2: voice prompt" music "soft piano" level "0:30-60:50"
 ```
 
+**Dialogue with trained voices:**
+```bash
+# Use a trained voice by name (latest .tts from voices/ directory)
+python src/voder.py tts script "Hello world" voice "my-character"
+
+# Use a specific trained .tts file
+python src/voder.py tts script "Hello world" voice "my-character:path/to/file.tts"
+
+# Use a trained voice for a different character name
+python src/voder.py tts script "Hello world" voice "my-char:another-name"
+
+# Dialogue with trained voices
+python src/voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: hero" voice "Sarah: heroine"
+
+# Mix trained and described voices
+python src/voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: hero" voice "Sarah: cheerful female"
+```
+
+**Newline support in scripts:**
+```bash
+# Use \n for line breaks in script text
+python src/voder.py tts script "James: First line\nSecond line" voice "James: deep male"
+
+# Newline in dialogue
+python src/voder.py tts script "Narrator: Chapter one\nThe beginning" voice "Narrator: deep male"
+```
+
 **Dialogue with SFX lines:**
 ```bash
 python src/voder.py tts script "James: Hello" "sfx: door bell /duration:3 /level:60" "Sarah: Hi!" voice "James: male" "Sarah: female" music "ambient"
@@ -437,12 +464,16 @@ When `overdose` is used:
 - Background music generation uses **ACE-Step XL turbo** for enhanced quality
 - Requires 24GB+ VRAM or 48GB+ combined system memory for VibeVoice ASR
 
+**Voice Stabilization:**
+
+VoiceDesign characters in dialogue mode automatically get their voice stabilized. After 3 script lines, the outputs are concatenated, SVS-cleaned, and fed to Qwen3-TTS Base for voice extraction. All subsequent lines use the cloned voice instead of VoiceDesign, eliminating vocal drift in long dialogues. This happens automatically with no configuration needed.
+
 **Parameters:**
 
 | Parameter | Description | Required |
 |-----------|-------------|----------|
 | `script` | Text to synthesize (single mode) OR `Character: text` (dialogue mode) OR `sfx: description /duration:nn` (SFX lines) | Yes |
-| `voice` | Voice prompt (single mode) OR `Character: prompt` (dialogue mode) for generated voices | Yes (unless all scripts are SFX lines or using target) |
+| `voice` | Voice prompt (single mode) OR `Character: prompt` (dialogue mode) for generated voices. Also accepts trained voice names/paths: `"character-name"`, `"character-name:path/to/file.tts"`, or `"character-name:another-name"` | Yes (unless all scripts are SFX lines or using target) |
 | `target` | Path to voice reference (single) OR `Character: path` (dialogue) for cloned voices — can mix with `voice`. Multi-reference format: `(path1)(path2)(path3)` concatenates multiple references into one | No (but required if no `voice` for non-SFX lines) |
 | `music` | Description for automatically generated background music (dialogue only) | No |
 | `level` | Music volume levels e.g. `"10:20-50 30:60-80"` (dialogue modes, default: 35%) | No |
@@ -495,6 +526,37 @@ python src/voder.py tts script "James: Hello!" target "James:(voice1.wav)(voice2
 **Important:** A character cannot have both `voice` and `target` assignments — each character must use either generated or cloned voice, not both.
 
 > **Note:** The `tts+vc` mode has been fully merged into TTS. The old `tts+vc` command is no longer accepted — use `tts` with `target` instead.
+
+### Voice Training (train voice)
+
+Train a voice clone from reference audio and save it as a `.tts` file for later reuse. Oneline-only command.
+
+```bash
+# Train a voice from a single reference
+python src/voder.py train voice:character-name "path/to/reference.wav"
+
+# Train from multiple references (SVS-cleaned and concatenated)
+python src/voder.py train voice:character-name "ref1.wav" "ref2.wav" "ref3.wav"
+
+# Train with test sample (hardcoded 30+ second script)
+python src/voder.py train voice:character-name "ref.wav" test
+
+# Train with custom test script
+python src/voder.py train voice:character-name "ref.wav" test "Custom test script text"
+```
+
+**Parameters:**
+
+| Parameter | Description | Required |
+|-----------|-------------|----------|
+| `voice:name` | Character name for the trained voice (used to reference it later) | Yes |
+| `"path1" "path2" ...` | One or more audio file paths for reference audio | Yes |
+| `test` | Generate a test sample using a hardcoded 30+ second script | No |
+| `test "script"` | Generate a test sample using a custom test script | No |
+
+**Output:** Trained voices are saved as `voder_tts_character-name_timestamp.tts` in the `voices/` directory.
+
+**Using Trained Voices:** See the `voice` parameter in the TTS section above for syntax (`"character-name"`, `"character-name:path.tts"`, `"character-name:another-name"`).
 
 ### Text‑to‑Speech + Voice Clone (merged into TTS)
 

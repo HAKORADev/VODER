@@ -1249,6 +1249,8 @@ def _assemble_enhanced_dialogue(dialogue_items, voice_data, tts_design_obj=None,
     try:
         clips = []
         sfx_generator = None
+        design_audio_tracker = {}
+        design_cloned_prompts = {}
         for i, item in enumerate(dialogue_items):
             num = item[0]
             char = item[1]
@@ -1291,12 +1293,38 @@ def _assemble_enhanced_dialogue(dialogue_items, voice_data, tts_design_obj=None,
                     if not success:
                         return False, f"Failed to synthesize line {num}"
                 else:
-                    if tts_design_obj is None:
-                        return False, "TTS design object not provided"
-                    voice_instruct = voice_data[char_lower]
-                    success = tts_design_obj.synthesize(text, voice_instruct, raw_file)
-                    if not success:
-                        return False, f"Failed to synthesize line {num}"
+                    if char_lower in design_cloned_prompts and tts_vc_obj is not None:
+                        tts_vc_obj.voice_prompt = design_cloned_prompts[char_lower]
+                        success = tts_vc_obj.synthesize(text, raw_file)
+                        if not success:
+                            return False, f"Failed to synthesize line {num}"
+                    else:
+                        if tts_design_obj is None:
+                            return False, "TTS design object not provided"
+                        voice_instruct = voice_data[char_lower]
+                        success = tts_design_obj.synthesize(text, voice_instruct, raw_file)
+                        if not success:
+                            return False, f"Failed to synthesize line {num}"
+                        if tts_vc_obj is not None and char_lower not in design_cloned_prompts:
+                            if char_lower not in design_audio_tracker:
+                                design_audio_tracker[char_lower] = []
+                            design_audio_tracker[char_lower].append(raw_file)
+                            if len(design_audio_tracker[char_lower]) >= 3:
+                                concat_path = os.path.join(temp_dir, f"design_clone_{char_lower}_{int(time.time())}.wav")
+                                if _concat_audio_files(design_audio_tracker[char_lower], concat_path):
+                                    extracted = svs_extract_vocals(concat_path)
+                                    clone_src = extracted if extracted and extracted != concat_path else concat_path
+                                    try:
+                                        clone_success = tts_vc_obj.extract_voice(clone_src)
+                                        if clone_success and tts_vc_obj.voice_prompt is not None:
+                                            design_cloned_prompts[char_lower] = tts_vc_obj.voice_prompt
+                                    except:
+                                        pass
+                                    if extracted and extracted != concat_path:
+                                        try:
+                                            os.unlink(extracted)
+                                        except:
+                                            pass
             if not os.path.exists(raw_file):
                 return False, f"Audio file not generated for line {num}"
             if cut_start > 0 or cut_end > 0 or level != 100:
@@ -3390,13 +3418,38 @@ def cli_tts_mode():
             print("Error: No script provided")
             return False
 
+        lines = [l.replace('\\n', '\n') for l in lines]
+
         if mode_detected == 'single':
             script = "\n".join(lines)
-            print("Enter voice prompt (or audio/video/URL path to clone a voice):")
+            print("Enter voice prompt (or audio/video/URL path to clone a voice, or trained voice name):")
             voice_prompt = input("> ").strip()
             if not voice_prompt:
                 print("Error: No voice prompt provided")
                 return False
+            trained_file = _resolve_voice_ref(voice_prompt)
+            if trained_file:
+                print(f"Loading trained voice from: {trained_file}")
+                voice_items = _load_voice_prompt(trained_file)
+                if voice_items is None:
+                    print(f"Error: Failed to load trained voice: {trained_file}")
+                    return False
+                print("Loading Qwen-TTS model...")
+                tts = QwenTTS()
+                if tts.model is None:
+                    print("Error: Failed to load Qwen-TTS model")
+                    return False
+                tts.voice_prompt = voice_items
+                print("Generating speech with trained voice...")
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                output_path = os.path.join(results_dir, f"voder_tts_{timestamp}.wav")
+                success = tts.synthesize(script, output_path)
+                if not success:
+                    print("Error: Synthesis failed")
+                    return False
+                print(f"\n✓ Success! Output saved to: {output_path}")
+                del tts
+                return True
             if os.path.exists(voice_prompt) or is_youtube_url(voice_prompt):
                 ref_paths = [voice_prompt]
                 while True:
@@ -3479,7 +3532,7 @@ def cli_tts_mode():
                     return False
                 char, text = line.split(':', 1)
                 char = char.strip()
-                text = text.strip()
+                text = text.strip().replace('\\n', '\n')
                 if not char:
                     print(f"Error: Empty character in line: {line}")
                     return False
@@ -3548,6 +3601,7 @@ def cli_tts_mode():
 
         voice_prompts = {}
         target_assignments = {}
+        trained_voice_refs = {}
         _dialogue_cleanup = []
         temp_clip_dir = None
 
@@ -3648,7 +3702,15 @@ def cli_tts_mode():
                     if not prompt:
                         print(f"Error: No voice prompt or audio path provided for {orig_char}")
                         return False
-                    if os.path.exists(prompt) or is_youtube_url(prompt):
+                    trained_file = _resolve_voice_ref(prompt)
+                    if trained_file:
+                        voice_items = _load_voice_prompt(trained_file)
+                        if voice_items is None:
+                            print(f"Error: Failed to load trained voice: {trained_file}")
+                            return False
+                        trained_voice_refs[char_lower] = trained_file
+                        print(f"  {orig_char} -> trained voice ({os.path.basename(trained_file)})")
+                    elif os.path.exists(prompt) or is_youtube_url(prompt):
                         ref_paths = [prompt]
                         ref_num = 2
                         while True:
@@ -3679,7 +3741,7 @@ def cli_tts_mode():
                     print(f"Progress: {i+1}/{len(chars)} completed")
 
         has_tts_chars = len(voice_prompts) > 0
-        has_vc_chars = len(target_assignments) > 0
+        has_vc_chars = len(target_assignments) > 0 or len(trained_voice_refs) > 0
 
         music_description = None
         music_level_spec = None
@@ -3739,6 +3801,17 @@ def cli_tts_mode():
                         print(f"Error: Failed to extract voice from {audio_path}")
                         return False
                     vc_voice_prompts[char_lower] = tts_obj.voice_prompt
+                for char_lower, trained_file in trained_voice_refs.items():
+                    print(f"Loading trained voice for '{char_lower}' from: {trained_file}")
+                    voice_items = _load_voice_prompt(trained_file)
+                    if voice_items is None:
+                        print(f"Error: Failed to load trained voice: {trained_file}")
+                        return False
+                    vc_voice_prompts[char_lower] = voice_items
+
+            if has_tts_chars and tts_obj is None:
+                print("Loading Qwen-TTS model for voice stabilization...")
+                tts_obj = QwenTTS()
 
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             base_name = f"voder_tts_dialogue_{timestamp}"
@@ -3755,7 +3828,7 @@ def cli_tts_mode():
                 for item in dialogue_items
             ) if len(dialogue_items) > 0 else False
 
-            if has_sfx or has_effects or has_vc_chars:
+            if has_sfx or has_effects or has_vc_chars or has_tts_chars:
                 success, msg = _assemble_enhanced_dialogue(
                     dialogue_items, voice_prompts, tts_design_obj=tts_design,
                     tts_vc_obj=tts_obj, vc_voice_data=vc_voice_prompts,
@@ -5228,6 +5301,49 @@ def parse_oneline_args(args):
         result['params']['result_path'] = result_path
         return result
 
+    if mode == 'train':
+        sub_type = None
+        voice_name = None
+        ref_paths = []
+        test_script = None
+        has_test = False
+        while i < len(args):
+            arg = args[i]
+            arg_lower = arg.lower()
+            if arg_lower.startswith('voice:'):
+                sub_type = 'voice'
+                voice_name = arg[6:].strip()
+                i += 1
+            elif arg_lower == 'test':
+                has_test = True
+                if i + 1 < len(args) and not args[i + 1].lower().startswith('voice:') and not args[i + 1].lower() == 'test':
+                    test_script = args[i + 1]
+                    i += 2
+                else:
+                    test_script = None
+                    i += 1
+            elif os.path.exists(arg) or is_youtube_url(arg):
+                ref_paths.append(arg)
+                i += 1
+            else:
+                ref_paths.append(arg)
+                i += 1
+        if sub_type != 'voice':
+            result['error'] = 'Train mode requires voice: sub-type (e.g., train voice:character-name "path")'
+            return result
+        if not voice_name:
+            result['error'] = 'Train mode requires a character name after voice: (e.g., voice:james)'
+            return result
+        if not ref_paths:
+            result['error'] = 'Train mode requires at least one reference audio path'
+            return result
+        result['params']['sub_type'] = sub_type
+        result['params']['voice_name'] = voice_name
+        result['params']['ref_paths'] = ref_paths
+        result['params']['has_test'] = has_test
+        result['params']['test_script'] = test_script
+        return result
+
     while i < len(args):
         arg = args[i]
         arg_lower = arg.lower()
@@ -5552,8 +5668,106 @@ def is_num(s):
     except (ValueError, TypeError):
         return False
 
+VOICES_DIR = os.path.join(os.getcwd(), "voices")
+
+def _ensure_voices_dir():
+    os.makedirs(VOICES_DIR, exist_ok=True)
+
+def _save_voice_prompt(voice_prompt_items, character_name):
+    _ensure_voices_dir()
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    filename = f"voder_tts_{character_name}_{timestamp}.tts"
+    filepath = os.path.join(VOICES_DIR, filename)
+    import torch
+    from dataclasses import asdict
+    payload = {"items": [asdict(it) for it in voice_prompt_items], "character": character_name, "timestamp": timestamp}
+    torch.save(payload, filepath)
+    return filepath
+
+def _load_voice_prompt(filepath):
+    import torch
+    from qwen_tts import VoiceClonePromptItem
+    if not os.path.exists(filepath):
+        return None
+    payload = torch.load(filepath, map_location="cpu", weights_only=True)
+    if not isinstance(payload, dict) or "items" not in payload:
+        return None
+    items_raw = payload["items"]
+    if not isinstance(items_raw, list) or len(items_raw) == 0:
+        return None
+    items = []
+    for d in items_raw:
+        if not isinstance(d, dict):
+            return None
+        ref_code = d.get("ref_code", None)
+        if ref_code is not None and not torch.is_tensor(ref_code):
+            ref_code = torch.tensor(ref_code)
+        ref_spk = d.get("ref_spk_embedding", None)
+        if ref_spk is None:
+            return None
+        if not torch.is_tensor(ref_spk):
+            ref_spk = torch.tensor(ref_spk)
+        items.append(VoiceClonePromptItem(
+            ref_code=ref_code,
+            ref_spk_embedding=ref_spk,
+            x_vector_only_mode=bool(d.get("x_vector_only_mode", False)),
+            icl_mode=bool(d.get("icl_mode", not bool(d.get("x_vector_only_mode", False)))),
+            ref_text=d.get("ref_text", None),
+        ))
+    return items
+
+def _find_voice_file(name):
+    _ensure_voices_dir()
+    if os.path.exists(name) and name.endswith('.tts'):
+        return name
+    matches = []
+    for f in os.listdir(VOICES_DIR):
+        if not f.endswith('.tts'):
+            continue
+        if f.startswith(f"voder_tts_{name}_"):
+            matches.append(os.path.join(VOICES_DIR, f))
+    if not matches:
+        return None
+    matches.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+    return matches[0]
+
+def _resolve_voice_ref(value):
+    if ':' not in value:
+        voice_file = _find_voice_file(value)
+        if voice_file:
+            return voice_file
+        return None
+    parts = value.split(':', 1)
+    first = parts[0].strip()
+    second = parts[1].strip()
+    if second.endswith('.tts'):
+        if os.path.exists(second):
+            return second
+        voice_file = _find_voice_file(second)
+        if voice_file:
+            return voice_file
+        return None
+    voice_file = _find_voice_file(second)
+    if voice_file:
+        return voice_file
+    return None
+
+def _is_trained_voice_ref(value):
+    if os.path.exists(value) and value.endswith('.tts'):
+        return True
+    if _find_voice_file(value) is not None:
+        return True
+    if ':' in value:
+        parts = value.split(':', 1)
+        second = parts[1].strip()
+        if second.endswith('.tts') or _find_voice_file(second) is not None:
+            return True
+        if os.path.exists(second) and second.endswith('.tts'):
+            return True
+    return False
+
 def validate_oneline_mode(mode_name):
-    valid_modes = ['tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'slc', 'ss']
+    valid_modes = ['tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'slc', 'ss', 'train']
     if mode_name.lower() in ['stt+tts', 'stt_tts', 'stttts']:
         return 'stt+tts_rejected'
     if mode_name.lower() in valid_modes:
@@ -5574,6 +5788,12 @@ def show_oneline_usage():
     print("  svs      - Song Voice Separate (extract vocals/music from song)")
     print("  slc      - Speaker Language Conversion (STT + TTS+VC)")
     print("  ss       - Speakers Separator (extract all speakers one by one)")
+    print("  train    - Train and save voice clones")
+    print()
+    print("Train examples:")
+    print('  python voder.py train voice:james "ref1.wav" "ref2.wav"')
+    print('  python voder.py train voice:sarah "ref.wav" test')
+    print('  python voder.py train voice:narrator "ref.wav" test "Custom test script here"')
     print()
     print("SVS examples (Song Voice Separate):")
     print('  python voder.py svs voice "path/to/song.mp3"')
@@ -5785,6 +6005,8 @@ def execute_oneline_command(parsed):
         success = oneline_slc(params)
     elif mode == 'ss':
         success = oneline_ss(params)
+    elif mode == 'train':
+        success = oneline_train(params)
     else:
         print(f"Error: Unknown mode '{mode}'")
         show_oneline_usage()
@@ -5821,6 +6043,85 @@ def copy_result_to_path(result_path):
         print(f"Result copied to: {destination}")
     except Exception as e:
         print(f"Note: Could not copy to result path: {e}")
+
+TRAIN_TEST_SCRIPT = "The quick brown fox jumps over the lazy dog. She sells seashells by the seashore, while the crystal clear waves gently lap against the warm golden sand. Every morning, the old lighthouse keeper climbs the winding stone stairs to check the beam that guides ships safely through the foggy harbor. In the distance, you can hear the distant rumble of thunder rolling across the wide open plains, signaling that a summer storm is approaching fast."
+
+def oneline_train(params):
+    sub_type = params.get('sub_type')
+    voice_name = params.get('voice_name', '')
+    ref_paths = params.get('ref_paths', [])
+    has_test = params.get('has_test', False)
+    test_script = params.get('test_script')
+
+    if sub_type != 'voice':
+        print("Error: Only 'voice' training is supported")
+        return False
+
+    _cleanup = []
+    try:
+        print(f"Training voice '{voice_name}' from {len(ref_paths)} reference(s)...")
+        clean_vocal = None
+        if len(ref_paths) > 1:
+            clean_vocal = _resolve_multi_refs(ref_paths, _cleanup)
+            if not clean_vocal:
+                print("Error: Failed to resolve reference audios")
+                return False
+        else:
+            resolved_audio, _cl = resolve_target_to_audio(ref_paths[0])
+            if not resolved_audio:
+                print(f"Error: Failed to resolve reference: {ref_paths[0]}")
+                return False
+            _cleanup.extend(_cl)
+            clean_vocal = svs_extract_vocals(resolved_audio)
+            if clean_vocal and clean_vocal != resolved_audio:
+                _cleanup.append(clean_vocal)
+            if resolved_audio not in _cleanup and resolved_audio != clean_vocal:
+                _cleanup.append(resolved_audio)
+
+        print("Loading Qwen-TTS model...")
+        tts = QwenTTS()
+        if tts.model is None:
+            print("Error: Failed to load Qwen-TTS model")
+            return False
+
+        print("Extracting voice characteristics...")
+        success = tts.extract_voice(clean_vocal)
+        if not success:
+            print("Error: Voice extraction failed")
+            return False
+
+        voice_prompt = tts.voice_prompt
+        if voice_prompt is None:
+            print("Error: Voice prompt extraction returned None")
+            return False
+
+        if not isinstance(voice_prompt, list):
+            voice_prompt = [voice_prompt]
+
+        saved_path = _save_voice_prompt(voice_prompt, voice_name)
+        print(f"Voice '{voice_name}' saved to: {saved_path}")
+
+        if has_test:
+            script = test_script if test_script else TRAIN_TEST_SCRIPT
+            print(f"Testing trained voice...")
+            results_dir = os.path.join(os.getcwd(), "results")
+            os.makedirs(results_dir, exist_ok=True)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            test_output = os.path.join(results_dir, f"voder_tts_{voice_name}_test_{timestamp}.wav")
+            success = tts.synthesize(script, test_output)
+            if success:
+                print(f"Test output saved to: {test_output}")
+            else:
+                print("Warning: Test synthesis failed (voice was still saved)")
+
+        return True
+    finally:
+        for f in _cleanup:
+            if f and os.path.exists(f):
+                try:
+                    os.unlink(f)
+                except:
+                    pass
 
 def oneline_tts(params):
     original_cwd = os.getcwd()
@@ -5893,7 +6194,30 @@ def oneline_tts(params):
             print("Warning: Music reference is only supported for dialogue mode. Ignoring reference parameter.")
         script = scripts[0].replace('\\n', '\n')
         if voices:
-            voice_prompt = voices[0]
+            voice_value = voices[0]
+            trained_file = _resolve_voice_ref(voice_value)
+            if trained_file:
+                print(f"Loading trained voice from: {trained_file}")
+                voice_items = _load_voice_prompt(trained_file)
+                if voice_items is None:
+                    print(f"Error: Failed to load trained voice: {trained_file}")
+                    return False
+                print("Loading Qwen-TTS model...")
+                tts = QwenTTS()
+                if tts.model is None:
+                    print("Error: Failed to load Qwen-TTS model")
+                    return False
+                tts.voice_prompt = voice_items
+                print("Generating speech with trained voice...")
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                output_path = os.path.join(results_dir, f"voder_tts_{timestamp}.wav")
+                success = tts.synthesize(script, output_path)
+                if not success:
+                    print("Error: Synthesis failed")
+                    return False
+                print(f"✓ Success! Output saved to: {output_path}")
+                return True
+            voice_prompt = voice_value
             print("Loading Qwen-TTS VoiceDesign model...")
             tts_design = QwenTTSVoiceDesign()
             if tts_design.model is None:
@@ -5964,7 +6288,7 @@ def oneline_tts(params):
                 return False
             char, text = s.split(':', 1)
             char = char.strip()
-            text = text.strip()
+            text = text.strip().replace('\\n', '\n')
             if not char:
                 print(f"Error: Empty character in script: {s}")
                 return False
@@ -5985,6 +6309,7 @@ def oneline_tts(params):
             dialogue_items.append((idx, char, clean_text, parsed_directives))
 
         voice_prompts = {}
+        trained_voice_refs = {}
         for v in voices:
             if ':' not in v:
                 print(f"Error: Voice prompt must be in format 'Character: prompt', got: {v}")
@@ -5995,7 +6320,11 @@ def oneline_tts(params):
             if not char or not prompt:
                 print(f"Error: Empty character or prompt in voice: {v}")
                 return False
-            voice_prompts[char.lower()] = prompt
+            trained_file = _resolve_voice_ref(prompt)
+            if trained_file:
+                trained_voice_refs[char.lower()] = trained_file
+            else:
+                voice_prompts[char.lower()] = prompt
 
         try:
             target_assignments = {}
@@ -6026,23 +6355,28 @@ def oneline_tts(params):
                         all_target_cleanup.append(clean_vocal)
                     target_assignments[char.lower()] = clean_vocal
 
-            overlap = set(voice_prompts.keys()) & set(target_assignments.keys())
+            overlap = set(voice_prompts.keys()) & (set(target_assignments.keys()) | set(trained_voice_refs.keys()))
             if overlap:
-                print(f"Error: Character(s) specified in both voice and target: {', '.join(overlap)}")
+                print(f"Error: Character(s) specified in both voice and target/trained: {', '.join(overlap)}")
+                return False
+
+            trained_voice_overlap = set(trained_voice_refs.keys()) & set(target_assignments.keys())
+            if trained_voice_overlap:
+                print(f"Error: Character(s) specified in both trained voice and target: {', '.join(trained_voice_overlap)}")
                 return False
 
             script_chars = set()
             for _, char, _, _ in dialogue_items:
                 if char.lower() != 'sfx':
                     script_chars.add(char.lower())
-            all_assigned = set(voice_prompts.keys()) | set(target_assignments.keys())
+            all_assigned = set(voice_prompts.keys()) | set(target_assignments.keys()) | set(trained_voice_refs.keys())
             missing = script_chars - all_assigned
             if missing:
                 print(f"Error: Missing voice/target for characters: {', '.join(missing)}")
                 return False
 
             has_tts_chars = len(voice_prompts) > 0
-            has_vc_chars = len(target_assignments) > 0
+            has_vc_chars = len(target_assignments) > 0 or len(trained_voice_refs) > 0
 
             if music_description and music_description.strip() == "":
                 music_description = None
@@ -6097,6 +6431,17 @@ def oneline_tts(params):
                         print(f"Error: Failed to extract voice from {audio_path}")
                         return False
                     vc_voice_prompts[char_lower] = tts_obj.voice_prompt
+                for char_lower, trained_file in trained_voice_refs.items():
+                    print(f"Loading trained voice for '{char_lower}' from: {trained_file}")
+                    voice_items = _load_voice_prompt(trained_file)
+                    if voice_items is None:
+                        print(f"Error: Failed to load trained voice: {trained_file}")
+                        return False
+                    vc_voice_prompts[char_lower] = voice_items
+
+            if has_tts_chars and tts_obj is None:
+                print("Loading Qwen-TTS model for voice stabilization...")
+                tts_obj = QwenTTS()
 
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             base_name = f"voder_tts_dialogue_{timestamp}"
@@ -6113,7 +6458,7 @@ def oneline_tts(params):
                 for item in dialogue_items
             ) if len(dialogue_items) > 0 else False
 
-            if has_sfx or has_effects or has_vc_chars:
+            if has_sfx or has_effects or has_vc_chars or has_tts_chars:
                 success, msg = _assemble_enhanced_dialogue(
                     dialogue_items, voice_prompts, tts_design_obj=tts_design,
                     tts_vc_obj=tts_obj, vc_voice_data=vc_voice_prompts,

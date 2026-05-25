@@ -158,7 +158,8 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 
 | Mode | Section | Input Type | Output Type | One-Liner Support |
 |------|---------|------------|-------------|-------------------|
-| TTS | 2.1 | Text [ + Audio ] | Audio | ✅ Full (single + dialogue, voice cloning via `target`) |
+| TTS | 2.1 | Text [ + Audio ] | Audio | ✅ Full (single + dialogue, voice cloning via `target`, trained voices via `voice`) |
+| Voice Training | 2.1a | Audio | .tts file | ✅ Full (oneline only) |
 | STS | 2.2 | Audio/Video + Audio | Audio/Video | ✅ Single only |
 | TTM | 2.3 | Text [ + Audio ] | Audio | ✅ Single only (voice cloning via `vc` + `clone`) |
 | STT | 2.4 | Audio/Video/Image/URL | Text | ✅ Full (single + batch) |
@@ -336,7 +337,7 @@ python src/voder.py tts script \
 | Parameter | Required | Purpose | Single Mode | Dialogue Mode |
 |-----------|----------|---------|-------------|---------------|
 | `script` | Yes | Text to synthesize | Single text string | Multiple `"Char: text"` strings |
-| `voice` | Yes* | Voice description | Single prompt | `"Char: prompt"` per character |
+| `voice` | Yes* | Voice description or trained voice | Single prompt or trained voice name | `"Char: prompt"` per character or `"Char: trained-name"` |
 | `target` | No* | Voice reference file | Single path or multi-ref `(path1)(path2)` | `"Char: /path/to/file.wav"` or `"Char:(ref1.wav)(ref2.wav)"` |
 | `music` | No | Background music style | Ignored | Single description |
 | `level` | No | Music volume | Ignored | Volume specification |
@@ -344,7 +345,94 @@ python src/voder.py tts script \
 | `overdose` | No | Use VibeVoice ASR for source analysis + safer voice clip extraction; XL Turbo for bgm when `music` is set | Ignored | Flag only |
 | `result` | No | Output destination | Path | Path |
 
-*Either `voice` or `target` required for non-SFX lines. Can mix both using cross-use feature. If `target` is provided without `voice`, voice cloning path is used automatically.
+*Either `voice` or `target` required for non-SFX lines. Can mix both using cross-use feature. If `target` is provided without `voice`, voice cloning path is used automatically. The `voice` parameter also accepts trained voice references — see **Trained Voice Usage** below.
+
+### Trained Voice Usage in TTS
+
+When using the `voice` parameter, a trained voice name or path can be used instead of a voice description. When a trained voice is used, Qwen3-TTS Base (voice cloning) is used instead of VoiceDesign.
+
+| Syntax | Behavior |
+|--------|----------|
+| `voice "character-name"` | Uses the latest `.tts` file with that name from `voices/` |
+| `voice "character-name:path/to/file.tts"` | Uses a specific `.tts` file |
+| `voice "character-name:another-name"` | Uses the latest `.tts` file for `another-name` from `voices/` |
+
+This works in both oneline and interactive CLI modes.
+
+```bash
+# Single mode with trained voice
+python src/voder.py tts script "Hello world" voice "my-character"
+
+# Dialogue with trained voices
+python src/voder.py tts script "James: Hello" "Sarah: Hi" voice "James: hero" voice "Sarah: heroine"
+
+# Mix trained and described voices
+python src/voder.py tts script "James: Hello" "Sarah: Hi" voice "James: hero" voice "Sarah: cheerful female"
+
+# Specific .tts file
+python src/voder.py tts script "Hello" voice "narrator:voices/voder_tts_narrator_20260101.tts"
+```
+
+### Newline Support in TTS Scripts
+
+Use `\n` in script text for actual newlines. Works in both oneline and interactive CLI modes.
+
+```bash
+# Newline in dialogue script
+python src/voder.py tts script "James: First line\nSecond line" voice "James: deep male"
+
+# Newline in single mode
+python src/voder.py tts script "First paragraph\nSecond paragraph" voice "professional narrator"
+```
+
+### Voice Stabilization
+
+VoiceDesign characters in dialogue mode automatically get their voice stabilized. After 3 script lines, the outputs are concatenated, SVS-cleaned, and fed to Qwen3-TTS Base for voice extraction. All subsequent lines use the cloned voice instead of VoiceDesign, eliminating vocal drift in long dialogues. This happens automatically — no configuration is needed.
+
+---
+
+## 2.1a Voice Training (train voice)
+
+Train a Qwen3-TTS Base voice clone from reference audio and save it as a `.tts` file for later reuse. Oneline-only command.
+
+**Command Syntax:**
+
+```bash
+python src/voder.py train voice:character-name "path1" "path2" ...
+```
+
+- `character-name` is the name used to reference the trained voice later
+- One or more audio file paths provide the reference audio for training
+- Multiple paths are SVS-cleaned individually and concatenated into a composite before voice extraction
+- The trained voice is saved as `voder_tts_character-name_timestamp.tts` in the `voices/` directory
+
+**Optional Test Sample:**
+
+- Add `test` at the end to generate a test sample using a hardcoded 30+ second script:
+  ```bash
+  python src/voder.py train voice:my-character "ref1.wav" "ref2.wav" test
+  ```
+
+- Add `test "custom script"` to use a custom test script:
+  ```bash
+  python src/voder.py train voice:my-character "ref1.wav" test "Custom test script for verification"
+  ```
+
+**Examples:**
+
+```bash
+# Train from single reference
+python src/voder.py train voice:narrator "narrator_ref.wav"
+
+# Train from multiple references
+python src/voder.py train voice:hero "hero_clip1.wav" "hero_clip2.wav" "hero_clip3.wav"
+
+# Train with test sample
+python src/voder.py train voice:narrator "ref.wav" test
+
+# Train with custom test script
+python src/voder.py train voice:narrator "ref.wav" test "The quick brown fox jumps over the lazy dog."
+```
 
 ### Voice Prompt Syntax
 
@@ -382,6 +470,8 @@ VODER extracts voice characteristics **once per character** at the start of dial
 - All lines from "James" use the same extracted voice profile
 - No variation between the 1st and 10th line of the same character
 - Professional-quality consistency throughout long dialogues
+
+**Voice Stabilization:** VoiceDesign characters in dialogue mode automatically get their voice stabilized after 3 lines. The outputs are concatenated, SVS-cleaned, and fed to Qwen3-TTS Base for voice extraction. All subsequent lines use the cloned voice instead of VoiceDesign, eliminating vocal drift. This is automatic — no configuration needed.
 
 ---
 
