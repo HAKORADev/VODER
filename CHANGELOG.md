@@ -221,6 +221,7 @@
 - New function: `ss_extract_speakers()` for SS pipe extraction of per-speaker audio clips (reusable pipe, same pattern as `svs_extract_vocals()`/`svs_extract_music()`)
 - `oneline_sts()` target parameter now supports multi-reference `(path1)(path2)(path3)` format via `_parse_multi_refs()`/`_resolve_multi_refs()`
 - `oneline_ttm()` clone parameter now supports multi-reference `(path1)(path2)(path3)` format via `_parse_multi_refs()`/`_resolve_multi_refs()`
+- Removed dead function `extract_voice_clips_from_multispeaker()` — replaced by `ss_extract_speakers()` SS pipe (longest-segment cut logic superseded by TSE extraction)
 
 ---
 
@@ -784,13 +785,13 @@
   - Smart speaker switching: only switches on significant gaps (0.3s) or after 3+ words to avoid rapid switching artifacts
   - Available in interactive CLI for both TTS and TTS+VC modes
 
-- **Automatic Voice Clip Extraction from Multi-Speaker Audio** — Extract individual speaker voice clips automatically.
-  - New `extract_voice_clips_from_multispeaker()` function
-  - Given a multi-speaker audio source (file or YouTube URL), extracts the longest voice clip per speaker
-  - Uses Whisper (word timestamps) + Pyannote (speaker diarization) for speaker identification
-  - Extracts clips via FFmpeg with precise timing
-  - Integrated with TTS+VC interactive CLI: after entering dialogue, user can provide a multi-speaker source and clips are auto-assigned to characters alphabetically
-  - Falls back to manual entry if not enough clips extracted
+- **Automatic Voice Clip Extraction from Multi-Speaker Audio** — *(Replaced by SS pipe — see 05/21/2026 `ss_extract_speakers()`)* ~~Extract individual speaker voice clips automatically.~~
+  - ~~New `extract_voice_clips_from_multispeaker()` function~~ — Removed (dead code)
+  - ~~Given a multi-speaker audio source (file or YouTube URL), extracts the longest voice clip per speaker~~
+  - ~~Uses Whisper (word timestamps) + Pyannote (speaker diarization) for speaker identification~~
+  - ~~Extracts clips via FFmpeg with precise timing~~
+  - ~~Integrated with TTS+VC interactive CLI: after entering dialogue, user can provide a multi-speaker source and clips are auto-assigned to characters alphabetically~~
+  - ~~Falls back to manual entry if not enough clips extracted~~
 
 - **`result` Parameter** — New universal CLI parameter to copy the latest result to a specified path.
   - Works with all one-liner modes
