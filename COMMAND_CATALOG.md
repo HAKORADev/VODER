@@ -73,7 +73,7 @@ Generate speech from text using voice descriptions (VoiceDesign) or voice clone 
 |---------|-------|-------------|
 | `script` | `"<text>"` or `"CharName: text"` | Dialogue line (plain text for single mode, `Character: text` for dialogue mode). Can appear multiple times. |
 | `voice` | `"<description>"` or `"CharName: description"` | Voice prompt for VoiceDesign TTS. Single mode: one prompt. Dialogue mode: `"CharName: description"` per character. Can appear multiple times. |
-| `target` | `"<path>"` or `"CharName: path"` | Audio path for voice cloning. Single mode: one path. Dialogue mode: `"CharName: path"` per character. **Multi-reference**: `1/path1 2/path2 3/path3` concatenates multiple references into a composite for richer voice extraction. Can appear multiple times. |
+| `target` | `"<path>"` or `"CharName: path"` | Audio path for voice cloning. Single mode: one path. Dialogue mode: `"CharName: path"` per character. **Multi-reference**: `(path1)(path2)(path3)` wraps multiple references in parentheses — each is resolved, SVS-cleaned, and concatenated into a composite for richer voice extraction. Can appear multiple times. |
 | `music` | `"<description>"` | Background music description (dialogue mode only). Generated via ACE-Step and mixed under speech. |
 | `level` | `"<spec>"` | Music volume levels per dialogue segment, e.g. `"10:20-50 30:60-80"`. Format: `<volume%>:<start_sec>-<end_sec>`. Default: 35%. Dialogue mode only. |
 | `reference` | `"<path>"` | Optional reference audio/video/URL for dialogue background music style guidance. Processed through SVS music pipe to extract clean instrumental before use. Accepts audio files, video files, and YouTube/TikTok/Bilibili URLs. Dialogue mode only. |
@@ -93,7 +93,7 @@ python voder.py tts script "hello world" voice "male voice"
 python voder.py tts script "hello" target "voice.wav"
 
 # Multi-reference clone: concatenate multiple references
-python voder.py tts script "hello" target "1/voice1.wav 2/voice2.wav 3/voice3.wav"
+python voder.py tts script "hello" target "(voice1.wav)(voice2.wav)(voice3.wav)"
 
 # OCR: extract text from image then speak it
 python voder.py tts ocr "path/to/image.png" voice "text: female voice"
@@ -112,7 +112,7 @@ python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep 
 python voder.py tts script "James: Hello" script "Sarah: Hi" target "James: james.wav" target "Sarah: sarah.wav"
 
 # Multi-reference cloning per character
-python voder.py tts script "James: Hello" target "James:1/clip1.wav 2/clip2.wav"
+python voder.py tts script "James: Hello" target "James:(clip1.wav)(clip2.wav)"
 
 # Dialogue with background music
 python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "soft piano"

@@ -779,17 +779,10 @@ def _compose_sources(source_entries, results_dir):
 
 def _parse_multi_refs(text):
     import re
-    matches = list(re.finditer(r'(?<!\S)(\d+)/', text))
+    matches = re.findall(r'\(([^)]+)\)', text)
     if not matches:
         return None
-    refs = []
-    for i, match in enumerate(matches):
-        start = match.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        path = text[start:end].strip()
-        if path:
-            refs.append(path)
-    return refs if refs else None
+    return [m.strip() for m in matches if m.strip()]
 
 def _concat_audio_files(file_list, output_path):
     if len(file_list) == 1:

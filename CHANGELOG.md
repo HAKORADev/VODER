@@ -26,7 +26,7 @@
 #### TTS Multi-Reference Voice Cloning
 
 - **Multi-Reference Cloning** — TTS voice cloning now supports multiple reference audios per character, concatenated into a single composite for richer voice extraction.
-  - Oneline format: `target "1/path1.wav 2/path2.wav 3/path3.wav"` (single mode) or `target "James:1/clip1.wav 2/clip2.wav"` (dialogue mode)
+  - Oneline format: `target "(path1.wav)(path2.wav)(path3.wav)"` (single mode) or `target "James:(clip1.wav)(clip2.wav)"` (dialogue mode)
   - Each reference is resolved (video/URL supported), cleaned via SVS voice extraction, then concatenated via ffmpeg
   - The composite reference is fed to Qwen-TTS for a single voice extraction pass
   - Interactive CLI: keeps asking for additional references per character until user hits Enter (first reference required)
@@ -159,7 +159,7 @@
 - New function: `_resolve_audio_entry()` for voice/music prefixed audio processing
 - New function: `_compose_refs()` for multi-reference composition into 30s composite
 - New function: `_compose_sources()` for multi-source composition into single audio
-- New function: `_parse_multi_refs()` for parsing TTS multi-reference target format (`1/path 2/path 3/path`)
+- New function: `_parse_multi_refs()` for parsing TTS multi-reference target format (`(path1)(path2)(path3)`)
 - New function: `_concat_audio_files()` for concatenating multiple audio files via ffmpeg
 - New function: `_resolve_multi_refs()` for resolving, SVS-cleaning, and concatenating multiple voice references
 - Added `random` import for composite reference/source composition randomization

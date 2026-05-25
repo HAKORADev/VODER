@@ -258,7 +258,7 @@ python src/voder.py tts ocr "script_screenshot.jpg" voice "text: warm female voi
 python src/voder.py tts script "Your text here" target "voice_reference.wav"
 
 # Multi-reference cloning (concatenates references into composite)
-python src/voder.py tts script "Your text here" target "1/voice1.wav 2/voice2.wav 3/voice3.wav"
+python src/voder.py tts script "Your text here" target "(voice1.wav)(voice2.wav)(voice3.wav)"
 
 # With output routing
 python src/voder.py tts script "Your text here" target "voice_reference.wav" result "/output/file.wav"
@@ -337,7 +337,7 @@ python src/voder.py tts script \
 |-----------|----------|---------|-------------|---------------|
 | `script` | Yes | Text to synthesize | Single text string | Multiple `"Char: text"` strings |
 | `voice` | Yes* | Voice description | Single prompt | `"Char: prompt"` per character |
-| `target` | No* | Voice reference file | Single path or multi-ref `1/path 2/path` | `"Char: /path/to/file.wav"` or `"Char:1/ref1.wav 2/ref2.wav"` |
+| `target` | No* | Voice reference file | Single path or multi-ref `(path1)(path2)` | `"Char: /path/to/file.wav"` or `"Char:(ref1.wav)(ref2.wav)"` |
 | `music` | No | Background music style | Ignored | Single description |
 | `level` | No | Music volume | Ignored | Volume specification |
 | `reference` | No | Reference audio/video/URL for bgm style guidance | Ignored | Single path (processed via SVS music pipe to extract clean instrumental) |
@@ -1198,7 +1198,7 @@ python src/voder.py svs "song1.wav" "song2.mp3" "song3.flac" result "/output/ste
 |------|-----------------|
 | STS | Extracts vocals and music from source (vocals for conversion, music for recombination), and clean vocals from target |
 | STT | Pre-cleanup: separates vocals for cleaner transcription of music-heavy audio |
-| TTS | When `target` reference contains background noise/music, extracts clean voice. Multi-reference targets (`1/path 2/path`) are individually cleaned then concatenated |
+| TTS | When `target` reference contains background noise/music, extracts clean voice. Multi-reference targets (`(path1)(path2)`) are individually cleaned then concatenated |
 
 ### Best Use Cases
 - Creating karaoke tracks (extract instrumental from songs)
