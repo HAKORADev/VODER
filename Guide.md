@@ -699,9 +699,11 @@ The Modify Speech feature transcribes audio to text using Whisper, allows you to
 3. **Whisper Transcription**: Whisper converts speech to text with word‑level timestamps
 4. **Text Editing**: Review and modify the transcribed text before synthesis
 5. **Voice Selection**: Choose whether to use the source audio as the voice reference or provide a custom target path
-6. **Qwen-TTS Synthesis**: The edited text is synthesized using the chosen voice via Qwen3‑TTS
+6. **Enable Overdose? (Y/N)**: If yes, an additional Seed‑VC v2 non‑mimic pass is applied to the synthesized output for maximum voice fidelity
+7. **Preserve Non‑Vocals? (Y/N)**: If yes, SVS music extraction is run on the original source to isolate instrumentals, then the synthesized voice (with or without overdose) is blended with the instrumental track via ffmpeg — preserving background music and instrumentals in the final output
+8. **Qwen-TTS Synthesis**: The edited text is synthesized using the chosen voice via Qwen3‑TTS
 
-This preserves the timing and delivery structure from the original audio if you don't modify the text significantly.
+The overdose and preserve non‑vocals prompts appear in that order right after voice selection. When preserve non‑vocals is enabled, voice‑music synchronization may vary as the synthesized speech duration may differ from the original.
 
 **Why It's Like That:**
 
@@ -726,9 +728,9 @@ If your base audio contains multiple speakers, Whisper will transcribe all of th
 
 **Technical Notes:**
 
-Modify Speech works on CPU without GPU for the Whisper transcription stage. Voice cloning in the synthesis stage also works on CPU. This makes it accessible for users without NVIDIA graphics hardware.
+Modify Speech works on CPU without GPU for the Whisper transcription stage. Voice cloning in the synthesis stage also works on CPU. This makes it accessible for users without NVIDIA graphics hardware. When overdose is enabled, the Seed‑VC v2 pass adds roughly 5GB to peak memory. When preserve non‑vocals is enabled, SVS processes both voice and music stems sequentially (no additional peak memory), and the final blend uses ffmpeg `amix` with the duration of the first input (the voice track).
 
-**Memory Requirements:** TTS (Modify Speech) requires approximately 19GB RAM (8GB base + 4GB for Whisper + 4GB for Qwen + ~3GB for BS‑RoFormer SVS).
+**Memory Requirements:** TTS (Modify Speech) requires approximately 19GB RAM (8GB base + 4GB for Whisper + 4GB for Qwen + ~3GB for BS‑RoFormer SVS). TTS (Modify Speech + Overdose) requires approximately 24GB RAM. With preserve non‑vocals, SVS processes both stems but peak memory does not significantly increase since they are processed sequentially.
 
 ---
 
