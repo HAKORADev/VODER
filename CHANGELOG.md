@@ -3,30 +3,6 @@
 - All notable changes to VODER - Voice Blender will be documented in this file.
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 
-## 05/25/2026
-- Status: Stable, all features work, still developing
-- **SS Pipe Integration for TTS Dialogue Import**
-
-### Added
-
-#### SS Pipe for TTS Interactive Dialogue Voice Extraction
-
-- **`ss_extract_speakers()` Pipe** — New reusable pipe function that calls the full SS pipeline (SVS → diarization → TSE) to extract clean per-speaker audio clips.
-  - Same pattern as `svs_extract_vocals()` and `svs_extract_music()` — no code duplication, calls `_ss_run_pipeline()` directly
-  - Returns a dict of `{speaker_number: audio_path}` for each detected speaker
-
-- **Automatic SS-Based Voice Extraction** — Interactive TTS dialogue mode now automatically runs the SS pipe on the source audio after transcription, eliminating the manual "Do you have a multi-speaker audio source?" question.
-  - When dialogue is imported from audio/video/YouTube, the SS pipe automatically extracts clean speaker clips
-  - Speaker numbers from STT transcription (1, 2, 3...) map directly to SS pipe outputs
-  - Extracted clips are SVS-cleaned before voice extraction for maximum quality
-  - Characters without SS clips fall back to manual reference entry
-  - Works for both TTS and TTS-overdose modes
-  - Significantly improves voice accuracy and quality compared to the previous ffmpeg-clip approach
-
-### Fixed
-
-- **Case-insensitive character names** — `.tts` voice file naming and lookup now normalize to lowercase, so `JAMes`, `jamES`, and `james` all resolve to the same voice file.
-
 ## 05/21/2026
 - Status: Stable, all features work, still developing
 - **Major Update & Bug Hunt Activity**
@@ -161,6 +137,8 @@
   - Iterative refinement loop re-runs pyannote on extracted speaker until single speaker confirmed
   - If multiple speakers detected after extraction, cuts to longest exclusive segment as enrollment
 
+- **SS Pipe for TTS Dialogue Voice Extraction** — Interactive TTS dialogue mode now uses `ss_extract_speakers()` pipe (same pattern as `svs_extract_vocals()`) to automatically extract per-speaker audio clips from imported dialogue audio. Speaker numbers from STT transcription map directly to SS outputs, eliminating manual reference entry and improving voice cloning accuracy for both TTS and TTS-overdose modes.
+
 #### TTM Complete Task Enhancements
 
 - **Blend Source Control (usrc)** — Complete task accepts `usrc` keyword to control which source elements blend into generated tracks.
@@ -206,6 +184,8 @@
   - Now: SE applied to each separated speaker file individually after TSE extraction
   - Pipeline files kept in temp until SE completes, then exported to results
 
+- **Case-insensitive character names** — `.tts` voice file naming and lookup now normalize to lowercase, so `JAMes`, `jamES`, and `james` all resolve to the same voice file.
+
 ### Technical Notes
 
 - Code size increased with multi-pass repaint parsing, sequential edit execution, and SFX overlay support
@@ -232,6 +212,7 @@
 - `remix_entries` parameter renamed to `source_entries` for consistency
 - VibeVoice ASR `transcribe_with_overlaps()` method added for overlap-aware transcription
 - SpeakerDiarization `diarize_full()` method added for exclusive diarization access
+- New function: `ss_extract_speakers()` for SS pipe extraction of per-speaker audio clips (reusable pipe, same pattern as `svs_extract_vocals()`/`svs_extract_music()`)
 
 ---
 
