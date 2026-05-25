@@ -3,6 +3,30 @@
 - All notable changes to VODER - Voice Blender will be documented in this file.
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 
+## 05/25/2026
+- Status: Stable, all features work, still developing
+- **SS Pipe Integration for TTS Dialogue Import**
+
+### Added
+
+#### SS Pipe for TTS Interactive Dialogue Voice Extraction
+
+- **`ss_extract_speakers()` Pipe** — New reusable pipe function that calls the full SS pipeline (SVS → diarization → TSE) to extract clean per-speaker audio clips.
+  - Same pattern as `svs_extract_vocals()` and `svs_extract_music()` — no code duplication, calls `_ss_run_pipeline()` directly
+  - Returns a dict of `{speaker_number: audio_path}` for each detected speaker
+
+- **Automatic SS-Based Voice Extraction** — Interactive TTS dialogue mode now automatically runs the SS pipe on the source audio after transcription, eliminating the manual "Do you have a multi-speaker audio source?" question.
+  - When dialogue is imported from audio/video/YouTube, the SS pipe automatically extracts clean speaker clips
+  - Speaker numbers from STT transcription (1, 2, 3...) map directly to SS pipe outputs
+  - Extracted clips are SVS-cleaned before voice extraction for maximum quality
+  - Characters without SS clips fall back to manual reference entry
+  - Works for both TTS and TTS-overdose modes
+  - Significantly improves voice accuracy and quality compared to the previous ffmpeg-clip approach
+
+### Fixed
+
+- **Case-insensitive character names** — `.tts` voice file naming and lookup now normalize to lowercase, so `JAMes`, `jamES`, and `james` all resolve to the same voice file.
+
 ## 05/21/2026
 - Status: Stable, all features work, still developing
 - **Major Update & Bug Hunt Activity**

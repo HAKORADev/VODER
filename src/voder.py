@@ -2697,6 +2697,34 @@ def svs_extract_music(audio_path):
         print(f"Warning: SVS error: {_e}, using original target")
         return audio_path
 
+def ss_extract_speakers(audio_path, use_overdose=False):
+    try:
+        print("Running SS pipe for speaker separation...")
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        original_name = os.path.splitext(os.path.basename(audio_path))[0]
+        temp_results = tempfile.mkdtemp()
+        outputs = _ss_run_pipeline(
+            audio_path, False, temp_results, original_name, timestamp,
+            target_path=None, use_overdose=use_overdose
+        )
+        if not outputs:
+            try:
+                shutil.rmtree(temp_results)
+            except:
+                pass
+            return {}, None
+        speaker_clips = {}
+        for out_path in outputs:
+            fname = os.path.basename(out_path)
+            match = re.search(r'speaker(\d+)', fname)
+            if match:
+                spk_num = str(int(match.group(1)))
+                speaker_clips[spk_num] = out_path
+        return speaker_clips, temp_results
+    except Exception as _e:
+        print(f"Warning: SS pipe error: {_e}")
+        return {}, None
+
 def resolve_target_to_audio(path):
     cleanup_files = []
     if is_youtube_url(path):
@@ -2833,13 +2861,13 @@ def validate_dialogue_source_file(file_path):
 
 def analyze_dialogue_source(file_path, source_type="audio", use_overdose=False):
     if source_type == "txt":
-        return True, None, None
+        return True, None, None, None
 
     if source_type == "image":
         print("Loading EasyOCR model...")
         ocr = EasyOCRReader()
         if ocr.reader is None:
-            return False, "Failed to load EasyOCR model", None
+            return False, "Failed to load EasyOCR model", None, None
 
         print(f"Extracting text from image: {os.path.basename(file_path)}")
         success, text, error_msg = ocr.extract_text_from_image(file_path)
@@ -2849,19 +2877,19 @@ def analyze_dialogue_source(file_path, source_type="audio", use_overdose=False):
         gc.collect()
 
         if not success:
-            return False, error_msg or "Failed to extract text from image", None
+            return False, error_msg or "Failed to extract text from image", None, None
 
         if not text:
-            return False, "No text found in image", None
+            return False, "No text found in image", None, None
 
         dialogue_items = [(1, 'text', text)]
-        return True, None, dialogue_items
+        return True, None, dialogue_items, None
 
     if source_type == "youtube":
         print(f"Downloading audio from YouTube...")
         success, error_msg, audio_path = download_youtube_audio(file_path)
         if not success:
-            return False, error_msg, None
+            return False, error_msg, None, None
 
         file_path = audio_path
 
@@ -2871,10 +2899,10 @@ def analyze_dialogue_source(file_path, source_type="audio", use_overdose=False):
         print("Extracting audio from video...")
         audio_path = extract_audio_from_video_cli(file_path)
         if not audio_path:
-            return False, "Failed to extract audio from video", None
+            return False, "Failed to extract audio from video", None, None
         needs_cleanup = True
     elif not file_path.lower().endswith(('.wav', '.mp3', '.flac', '.m4a')):
-        return False, f"Unsupported audio format: {file_path}", None
+        return False, f"Unsupported audio format: {file_path}", None, None
 
     try:
         if use_overdose:
@@ -2895,7 +2923,7 @@ def analyze_dialogue_source(file_path, source_type="audio", use_overdose=False):
                     torch.cuda.empty_cache()
 
                 if not asr_segments:
-                    return False, "VibeVoice ASR transcription returned no segments", None
+                    return False, "VibeVoice ASR transcription returned no segments", None, None
 
                 original_speakers = []
                 for seg in asr_segments:
@@ -2933,12 +2961,12 @@ def analyze_dialogue_source(file_path, source_type="audio", use_overdose=False):
                         content = " ".join(current_text_parts)
                         dialogue_items.append((current_speaker_num, str(current_speaker_num), content))
 
-                return True, None, dialogue_items
+                return True, None, dialogue_items, audio_path
 
         print("Loading Whisper model...")
         stt = WhisperSTT()
         if stt.model is None:
-            return False, "Failed to load Whisper model", None
+            return False, "Failed to load Whisper model", None, None
 
         print("Transcribing audio...")
         result = stt.transcribe(audio_path)
@@ -2950,7 +2978,7 @@ def analyze_dialogue_source(file_path, source_type="audio", use_overdose=False):
             torch.cuda.empty_cache()
 
         if not result:
-            return False, "Transcription failed", None
+            return False, "Transcription failed", None, None
 
         print("Performing speaker diarization...")
         diarization = SpeakerDiarization()
@@ -2958,9 +2986,9 @@ def analyze_dialogue_source(file_path, source_type="audio", use_overdose=False):
         if diarization.pipeline is None:
             text = result.get("text", "").strip()
             if not text:
-                return False, "No text transcribed", None
+                return False, "No text transcribed", None, None
             dialogue_items = [(1, 'text', text)]
-            return True, None, dialogue_items
+            return True, None, dialogue_items, audio_path
 
         diar_result = diarization.diarize(audio_path)
 
@@ -2974,7 +3002,7 @@ def analyze_dialogue_source(file_path, source_type="audio", use_overdose=False):
         if not formatted_segments:
             text = result.get("text", "").strip()
             dialogue_items = [(1, 'text', text)]
-            return True, None, dialogue_items
+            return True, None, dialogue_items, audio_path
 
         original_speakers = []
         for seg in formatted_segments:
@@ -3018,21 +3046,10 @@ def analyze_dialogue_source(file_path, source_type="audio", use_overdose=False):
                 content = " ".join(current_text_parts)
                 dialogue_items.append((current_speaker_num, str(current_speaker_num), content))
 
-        return True, None, dialogue_items
+        return True, None, dialogue_items, audio_path
 
     except Exception as e:
-        return False, f"Error analyzing audio: {str(e)}", None
-    finally:
-        if needs_cleanup and os.path.exists(audio_path):
-            try:
-                os.unlink(audio_path)
-            except:
-                pass
-        if source_type == "youtube" and os.path.exists(audio_path):
-            try:
-                os.unlink(audio_path)
-            except:
-                pass
+        return False, f"Error analyzing audio: {str(e)}", None, None
 
 def extract_voice_clips_from_multispeaker(file_path, num_speakers, source_type="audio", use_overdose=False):
     audio_path = file_path
@@ -3322,6 +3339,7 @@ def cli_tts_mode():
 
     dialogue_items = None
     mode_detected = None
+    resolved_audio_path = None
 
     if has_source in ['y', 'yes']:
         while True:
@@ -3345,7 +3363,7 @@ def cli_tts_mode():
                 break
             elif msg == "image":
                 print(f"\nAnalyzing image: {os.path.basename(file_path)}...")
-                success, error_msg, items = analyze_dialogue_source(file_path, source_type="image", use_overdose=use_overdose)
+                success, error_msg, items, _audio_path = analyze_dialogue_source(file_path, source_type="image", use_overdose=use_overdose)
                 if not success:
                     print(f"Error: {error_msg}")
                     retry = input("Try another source? (Y/N): ").strip().lower()
@@ -3363,7 +3381,7 @@ def cli_tts_mode():
                 break
             elif msg == "youtube":
                 print(f"\nProcessing YouTube video...")
-                success, error_msg, items = analyze_dialogue_source(file_path, source_type="youtube", use_overdose=use_overdose)
+                success, error_msg, items, _audio_path = analyze_dialogue_source(file_path, source_type="youtube", use_overdose=use_overdose)
                 if not success:
                     print(f"Error: {error_msg}")
                     retry = input("Try another source? (Y/N): ").strip().lower()
@@ -3373,6 +3391,8 @@ def cli_tts_mode():
 
                 dialogue_items = items
                 mode_detected = 'dialogue' if len(items) > 1 else 'single'
+                if _audio_path:
+                    resolved_audio_path = _audio_path
 
                 print(f"\nDetected {len(items)} speaker(s):")
                 for idx, speaker_num, content in dialogue_items:
@@ -3381,7 +3401,7 @@ def cli_tts_mode():
                 break
             else:
                 print(f"\nAnalyzing {os.path.basename(file_path)}...")
-                success, error_msg, items = analyze_dialogue_source(file_path, source_type="audio", use_overdose=use_overdose)
+                success, error_msg, items, _audio_path = analyze_dialogue_source(file_path, source_type="audio", use_overdose=use_overdose)
                 if not success:
                     print(f"Error: {error_msg}")
                     retry = input("Try another source? (Y/N): ").strip().lower()
@@ -3391,6 +3411,8 @@ def cli_tts_mode():
 
                 dialogue_items = items
                 mode_detected = 'dialogue' if len(items) > 1 else 'single'
+                if _audio_path:
+                    resolved_audio_path = _audio_path
 
                 print(f"\nDetected {len(items)} speaker(s):")
                 for idx, speaker_num, content in dialogue_items:
@@ -3603,100 +3625,44 @@ def cli_tts_mode():
         target_assignments = {}
         trained_voice_refs = {}
         _dialogue_cleanup = []
-        temp_clip_dir = None
+        ss_clips = {}
+        ss_temp_dir = None
 
         if not _is_all_sfx_interactive:
             sorted_chars = sorted(chars)
-            print(f"\nDo you have a multi-speaker audio source? (for auto voice cloning)")
-            print("Press Y to provide a file, or N to enter manually for each character")
-            has_multispeaker = input("> ").strip().lower()
 
-            if has_multispeaker in ['y', 'yes']:
-                while True:
-                    print("\nEnter the path to your multi-speaker audio source (file path or YouTube URL):")
-                    file_path = input("> ").strip()
-                    if not file_path:
-                        print("Error: No file path provided")
-                        continue
+            if resolved_audio_path and os.path.exists(resolved_audio_path):
+                print(f"\nRunning SS pipe on source audio for speaker extraction...")
+                ss_clips, ss_temp_dir = ss_extract_speakers(resolved_audio_path, use_overdose=use_overdose)
+                if ss_clips:
+                    print(f"\nExtracted {len(ss_clips)} speaker clip(s) via SS pipe.")
+                    for spk_num in sorted(ss_clips.keys(), key=lambda x: int(x)):
+                        print(f"  Speaker {spk_num}: {os.path.basename(ss_clips[spk_num])}")
+                else:
+                    print("SS pipe returned no speaker clips, falling back to manual entry.")
+                if ss_temp_dir:
+                    _dialogue_cleanup.append(ss_temp_dir)
+                _dialogue_cleanup.append(resolved_audio_path)
 
-                    source_type = "audio"
-                    if "youtube.com" in file_path.lower() or "youtu.be" in file_path.lower():
-                        source_type = "youtube"
-                        success, msg, _ = validate_dialogue_source_file(file_path)
-                        if not success:
-                            print(f"Error: {msg}")
-                            retry = input("Try another source? (Y/N): ").strip().lower()
-                            if retry not in ['y', 'yes']:
-                                return False
-                            continue
-                    elif not os.path.exists(file_path):
-                        print(f"Error: File not found: {file_path}")
-                        retry = input("Try another source? (Y/N): ").strip().lower()
-                        if retry not in ['y', 'yes']:
-                            return False
-                        continue
+            chars_needing_refs = []
+            for char_lower in sorted_chars:
+                if char_lower in [str(i) for i in range(1, len(ss_clips) + 1)]:
+                    clip_path = ss_clips[char_lower]
+                    clean_vocal = svs_extract_vocals(clip_path)
+                    if clean_vocal and clean_vocal != clip_path:
+                        _dialogue_cleanup.append(clean_vocal)
+                        target_assignments[char_lower] = clean_vocal
+                    else:
+                        target_assignments[char_lower] = clip_path
+                    orig_char = next((c for _, c, _, _ in dialogue_items if c.lower() == char_lower), char_lower)
+                    print(f"  {orig_char} -> speaker {char_lower} (SS pipe)")
+                else:
+                    chars_needing_refs.append(char_lower)
 
-                    print(f"\nExtracting voice clips from multi-speaker source...")
-                    success, error_msg, clips_dict = extract_voice_clips_from_multispeaker(
-                        file_path, len(sorted_chars), source_type=source_type, use_overdose=use_overdose
-                    )
-
-                    if not success:
-                        print(f"Error: {error_msg}")
-                        retry = input("Try another source? (Y/N): ").strip().lower()
-                        if retry not in ['y', 'yes']:
-                            return False
-                        continue
-
-                    print(f"\nExtracted {len(clips_dict)} voice clip(s). Assigning to characters...")
-
-                    clip_keys = sorted(clips_dict.keys(), key=lambda x: int(x))
-
-                    for i, char_lower in enumerate(sorted_chars):
-                        orig_char = next((c for _, c, _, _ in dialogue_items if c.lower() == char_lower), char_lower)
-                        if i < len(clip_keys):
-                            clip_path = clips_dict[clip_keys[i]]
-                            target_assignments[char_lower] = clip_path
-                            print(f"  {orig_char} -> speaker {clip_keys[i]} (auto)")
-                        else:
-                            first_path = None
-                            while True:
-                                label = f"{orig_char} reference 1" if first_path is None else f"{orig_char} reference (Enter to finish)"
-                                path = input(f"{label}: ").strip()
-                                if not path:
-                                    if first_path is None:
-                                        print(f"Warning: At least one reference required for {orig_char}")
-                                        continue
-                                    break
-                                if not os.path.exists(path) and not is_youtube_url(path):
-                                    print(f"Warning: File not found: {path}, skipping")
-                                    continue
-                                if first_path is None:
-                                    first_path = path
-                                    ref_paths = [path]
-                                else:
-                                    ref_paths.append(path)
-                            if len(ref_paths) > 1:
-                                clean_vocal = _resolve_multi_refs(ref_paths, _dialogue_cleanup)
-                                if not clean_vocal:
-                                    return False
-                            else:
-                                resolved_audio, _cl = resolve_target_to_audio(ref_paths[0])
-                                if not resolved_audio:
-                                    return False
-                                _dialogue_cleanup.extend(_cl)
-                                clean_vocal = svs_extract_vocals(resolved_audio)
-                                if clean_vocal and clean_vocal != resolved_audio:
-                                    _dialogue_cleanup.append(clean_vocal)
-                            target_assignments[char_lower] = clean_vocal
-                            print(f"  {orig_char} -> manual ({len(ref_paths)} ref{'s' if len(ref_paths) > 1 else ''})")
-
-                    temp_clip_dir = os.path.dirname(list(clips_dict.values())[0]) if clips_dict else None
-                    break
-            else:
-                print(f"\nVoice prompts or audio file paths for {len(chars)} character(s):")
-                print("(Enter text for voice prompt, or a path/URL to clone a voice)")
-                for i, char_lower in enumerate(sorted_chars):
+            if chars_needing_refs:
+                print(f"\nVoice prompts or audio file paths for {len(chars_needing_refs)} character(s):")
+                print("(Enter text for voice prompt, a path/URL to clone a voice, or a trained voice name)")
+                for i, char_lower in enumerate(chars_needing_refs):
                     orig_char = next((c for _, c, _, _ in dialogue_items if c.lower() == char_lower), char_lower)
                     prompt = input(f"{orig_char}: ").strip()
                     if not prompt:
@@ -3738,7 +3704,7 @@ def cli_tts_mode():
                         print(f"  {orig_char} -> voice clone ({len(ref_paths)} ref{'s' if len(ref_paths) > 1 else ''})")
                     else:
                         voice_prompts[char_lower] = prompt
-                    print(f"Progress: {i+1}/{len(chars)} completed")
+                    print(f"Progress: {i+1}/{len(chars_needing_refs)} completed")
 
         has_tts_chars = len(voice_prompts) > 0
         has_vc_chars = len(target_assignments) > 0 or len(trained_voice_refs) > 0
@@ -3891,15 +3857,13 @@ def cli_tts_mode():
                         os.unlink(f)
                     except:
                         pass
-            if temp_clip_dir and os.path.exists(temp_clip_dir):
-                try:
-                    shutil.rmtree(temp_clip_dir)
-                except:
-                    pass
             for f in _dialogue_cleanup:
                 if f and os.path.exists(f):
                     try:
-                        os.unlink(f)
+                        if os.path.isdir(f):
+                            shutil.rmtree(f)
+                        else:
+                            os.unlink(f)
                     except:
                         pass
             if 'dialogue_temp' in dir() and os.path.exists(dialogue_temp.name):
