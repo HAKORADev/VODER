@@ -558,6 +558,15 @@ python src/voder.py sts base "song.wav" target "singer.wav" nomusic music
 # Error: nomusic cannot be used with music
 ```
 
+#### Multi-Reference Target (Oneline Only)
+```bash
+# Multiple voice references concatenated for richer cloning
+python src/voder.py sts base "source.wav" target "(voice1.wav)(voice2.wav)(voice3.wav)"
+
+# Multi-reference with MSTS
+python src/voder.py sts base "song.wav" target "(singer1.wav)(singer2.wav)" music
+```
+
 ### Model Selection
 
 | Flag | Model | Sample Rate | Use Case |
@@ -782,6 +791,9 @@ python src/voder.py ttm vc lyrics "Chorus:\nThis is our moment" styling "pop ant
 
 # With optional music reference
 python src/voder.py ttm vc lyrics "Chorus:\nThis is our moment" styling "pop" duration 30 clone "singer.wav" target music "backing_track.wav"
+
+# With multi-reference clone (oneline only)
+python src/voder.py ttm vc lyrics "Chorus:\nThis is our moment" styling "pop" duration 30 clone "(voice1.wav)(voice2.wav)(voice3.wav)"
 ```
 
 #### Maximum TTM VC Command
@@ -919,7 +931,7 @@ The automatic model offloading between ACE-Step and Seed-VC stages means voice c
 | `lyrics` | Yes* | Song lyrics or `"..."` for instrumental; also optional for `remix` to guide new vocal content | — |
 | `styling` | Yes** | Musical style description (optional for `complete`/`lego` sub-tasks) | — |
 | `duration` | Yes** | Target duration in seconds | — |
-| `clone` | No* | Voice clone source path (required when `vc` is set) | — |
+| `clone` | No* | Voice clone source path (required when `vc` is set). Multi-reference format: `(path1)(path2)` concatenates multiple references into one | — |
 | `target` | No | Music reference audio (optional, with type prefix: `target voice "path"` or `target music "path"`) | — |
 | `remix` | No | Source audio for remix style transfer | — |
 | `repaint` | No | Source audio for section repaint; optional `voice`/`music` prefix for SVS isolation | — |

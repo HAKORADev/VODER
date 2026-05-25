@@ -704,6 +704,14 @@ By default, STS separates vocals from the source, converts them, and mixes them 
 
 VODER automatically runs BS‑RoFormer vocal isolation on both the source and target audio. For the source, vocals are separated so the VC model processes only the voice — producing cleaner conversion — and the instrumental is extracted separately for recombination after conversion (unless `nomusic` is used). For the target, clean vocals are extracted to improve cloning quality. If SVS extraction fails, the original audio is used as a fallback.
 
+**Multi-Reference Target (Oneline Only):**
+
+The `target` parameter accepts multiple voice references using the parenthesized format `(path1)(path2)(path3)`. Each reference is resolved, SVS-cleaned individually, then concatenated into a single composite for richer voice cloning. This works for all STS sub-modes (standard, music, mimic).
+
+- CLI: `voder.py sts base "source.wav" target "(voice1.wav)(voice2.wav)(voice3.wav)"`
+- YouTube URLs are supported within parentheses: `target "(voice1.wav)(https://youtube.com/...)"`
+- Single path format still works as before: `target "voice.wav"`
+
 **Video I/O:**
 
 STS now supports video input with MP4 output. When you provide a video file as input, VODER extracts the audio, performs voice conversion, and re‑encodes the result as an MP4 video with the converted voice track. This enables direct voice replacement in video content without manual audio extraction and re‑encoding.
@@ -771,6 +779,14 @@ TTM now supports voice conversion directly within the mode. When the `vc` flag i
 3. Seed‑VC voice conversion transforms the generated vocals to match the clone voice
 
 This replaces the previous separate TTM+VC mode. The entire pipeline runs in sequence with automatic model offloading between stages. VC is mutually exclusive with `remix` and `repaint` sub-tasks.
+
+**Multi-Reference Clone (Oneline Only):**
+
+The `clone` parameter accepts multiple voice references using the parenthesized format `(path1)(path2)(path3)`. Each reference is resolved, SVS-cleaned individually, then concatenated into a single composite for richer voice cloning. This provides the VC model with a more complete voice profile from multiple samples.
+
+- CLI: `voder.py ttm vc lyrics "..." styling "..." duration 30 clone "(voice1.wav)(voice2.wav)"`
+- YouTube URLs are supported within parentheses: `clone "(voice1.wav)(https://youtube.com/...)"`
+- Single path format still works as before: `clone "voice.wav"`
 
 **Reference Audio for Reference-Aware Generation:**
 

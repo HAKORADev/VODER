@@ -6584,13 +6584,23 @@ def oneline_sts(params):
         print("Error: STS mode requires exactly one 'target' parameter")
         return False
     base_path = params['base'][0]
-    target_path = params['target'][0]
+    target_value = params['target'][0]
     if not os.path.exists(base_path) and not is_youtube_url(base_path):
         print(f"Error: Base file not found: {base_path}")
         return False
-    resolved_target, _target_cleanup = resolve_target_to_audio(target_path)
-    if not resolved_target:
-        return False
+    _target_cleanup = []
+    target_multi = _parse_multi_refs(target_value)
+    target_pre_cleaned = False
+    if target_multi:
+        resolved_target = _resolve_multi_refs(target_multi, _target_cleanup)
+        if not resolved_target:
+            return False
+        target_pre_cleaned = True
+    else:
+        resolved_target, _cl = resolve_target_to_audio(target_value)
+        if not resolved_target:
+            return False
+        _target_cleanup.extend(_cl)
     base_is_video = os.path.splitext(base_path)[1].lower() in VIDEO_EXTENSIONS
     base_original = base_path
     temp_base_extracted = None
@@ -6626,8 +6636,11 @@ def oneline_sts(params):
         base_music = svs_extract_music(base_path)
         _target_cleanup.append(base_music)
         print("Extracting clean vocals from target...")
-        clean_vocal_target = svs_extract_vocals(target_path)
-        _target_cleanup.append(clean_vocal_target)
+        if target_pre_cleaned:
+            clean_vocal_target = target_path
+        else:
+            clean_vocal_target = svs_extract_vocals(target_path)
+            _target_cleanup.append(clean_vocal_target)
         print("Resampling inputs to 44100Hz...")
         import torchaudio
         waveform_vocals, sr_vocals = torchaudio.load(base_vocals)
@@ -6694,8 +6707,11 @@ def oneline_sts(params):
             base_music = svs_extract_music(base_path)
             _target_cleanup.append(base_music)
         print("Extracting clean vocals from target...")
-        clean_vocal_target = svs_extract_vocals(target_path)
-        _target_cleanup.append(clean_vocal_target)
+        if target_pre_cleaned:
+            clean_vocal_target = target_path
+        else:
+            clean_vocal_target = svs_extract_vocals(target_path)
+            _target_cleanup.append(clean_vocal_target)
         print("Loading Seed-VC v2 model...")
         seed_vc = SeedVCV2()
         if seed_vc.model is None:
@@ -6813,22 +6829,30 @@ def oneline_ttm(params):
         if not clone_path:
             print("Error: TTM VC requires clone source path")
             return False
-        if not os.path.exists(clone_path) and not is_youtube_url(clone_path):
-            print(f"Error: Clone source not found: {clone_path}")
-            return False
         lyrics = params['lyrics'][0].replace('\\n', '\n')
         style = params['styling'][0].replace('\\n', '\n')
         _vc_cleanup = []
-        resolved_audio, cleanup = resolve_target_to_audio(clone_path)
-        if resolved_audio is None:
-            print("Error: Could not resolve clone source")
-            return False
-        _vc_cleanup.extend(cleanup)
-        clean_vocal = svs_extract_vocals(resolved_audio)
-        if clean_vocal != resolved_audio and clean_vocal not in _vc_cleanup:
-            _vc_cleanup.append(clean_vocal)
-        if resolved_audio not in _vc_cleanup and resolved_audio != clean_vocal:
-            _vc_cleanup.append(resolved_audio)
+        clone_multi = _parse_multi_refs(clone_path)
+        clone_pre_cleaned = False
+        if clone_multi:
+            clean_vocal = _resolve_multi_refs(clone_multi, _vc_cleanup)
+            if not clean_vocal:
+                return False
+            clone_pre_cleaned = True
+        else:
+            if not os.path.exists(clone_path) and not is_youtube_url(clone_path):
+                print(f"Error: Clone source not found: {clone_path}")
+                return False
+            resolved_audio, cleanup = resolve_target_to_audio(clone_path)
+            if resolved_audio is None:
+                print("Error: Could not resolve clone source")
+                return False
+            _vc_cleanup.extend(cleanup)
+            clean_vocal = svs_extract_vocals(resolved_audio)
+            if clean_vocal != resolved_audio and clean_vocal not in _vc_cleanup:
+                _vc_cleanup.append(clean_vocal)
+            if resolved_audio not in _vc_cleanup and resolved_audio != clean_vocal:
+                _vc_cleanup.append(resolved_audio)
         reference_audio = None
         _target_vals = params.get('target', [])
         if _target_vals:

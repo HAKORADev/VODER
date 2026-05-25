@@ -63,6 +63,10 @@
   - Interactive CLI: keeps asking for additional references per character until user hits Enter (first reference required)
   - Backward compatible: single path format still works as before
 
+- **STS Multi-Reference Target** — STS oneline mode now supports multiple voice references via `target "(path1)(path2)(path3)"`, same parenthesized format as TTS. Each reference is resolved, SVS-cleaned, then concatenated into a composite for richer voice conversion. Works for all STS sub-modes (standard, music, mimic).
+
+- **TTM VC Multi-Reference Clone** — TTM VC oneline mode now supports multiple voice references via `clone "(path1)(path2)(path3)"`, same parenthesized format as TTS target. Each reference is resolved, SVS-cleaned, then concatenated into a composite for richer voice cloning.
+
 #### TTM VC SVS Pipeline
 
 - **SVS Isolation for TTM VC** — TTM VC (both standard and overdose) now isolates TTM output vocals via SVS before feeding them to the VC model, and mixes converted vocals back with TTM instrumental after conversion.
@@ -213,6 +217,8 @@
 - VibeVoice ASR `transcribe_with_overlaps()` method added for overlap-aware transcription
 - SpeakerDiarization `diarize_full()` method added for exclusive diarization access
 - New function: `ss_extract_speakers()` for SS pipe extraction of per-speaker audio clips (reusable pipe, same pattern as `svs_extract_vocals()`/`svs_extract_music()`)
+- `oneline_sts()` target parameter now supports multi-reference `(path1)(path2)(path3)` format via `_parse_multi_refs()`/`_resolve_multi_refs()`
+- `oneline_ttm()` clone parameter now supports multi-reference `(path1)(path2)(path3)` format via `_parse_multi_refs()`/`_resolve_multi_refs()`
 
 ---
 

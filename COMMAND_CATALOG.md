@@ -301,7 +301,7 @@ Convert voice from a base audio to match a target voice. Source vocals are autom
 | Keyword | Value | Description |
 |---------|-------|-------------|
 | `base` | `"<path>"` | Source audio/video file path or YouTube/TikTok/Bilibili URL. The audio whose content will be preserved. |
-| `target` | `"<path>"` | Reference voice audio. The voice characteristics to apply. Auto-extracts clean vocals. |
+| `target` | `"<path>"` | Reference voice audio. The voice characteristics to apply. Auto-extracts clean vocals. **Multi-reference**: `(path1)(path2)(path3)` wraps multiple references in parentheses — each is resolved, SVS-cleaned, and concatenated into a composite for richer voice extraction. |
 | `music` | (flag) | Use Seed-VC v1 (44.1kHz music model) instead of v2 (22.05kHz speech model). Input must be audio (not video). Auto-extracts vocals from source and target. |
 | `mimic` | (flag) | Convert style + voice (not just voice). Uses Seed-VC v2 with `convert_style=True`. Cannot be combined with `music`. Input must be audio (not video). |
 | `nomusic` | (flag) | Output converted voice only without mixing back source music. Cannot be combined with `music`. |
@@ -331,6 +331,9 @@ python voder.py sts base "input.wav" target "voice.wav" nomusic
 
 # Video input (extracts audio, converts, merges back)
 python voder.py sts base "input.mp4" target "voice.wav"
+
+# Multi-reference target (oneline only, concatenates multiple voice references)
+python voder.py sts base "input.wav" target "(voice1.wav)(voice2.wav)(voice3.wav)"
 ```
 
 ---
@@ -391,7 +394,7 @@ Generate music then convert the vocal to match a clone voice via Seed-VC v1.
 | Keyword | Value | Description |
 |---------|-------|-------------|
 | `vc` | (flag) | Enable voice cloning mode. |
-| `clone` | `"<path>"` | Source voice audio for cloning. Auto-extracts clean vocals. |
+| `clone` | `"<path>"` | Source voice audio for cloning. Auto-extracts clean vocals. **Multi-reference**: `(path1)(path2)(path3)` wraps multiple references in parentheses — each is resolved, SVS-cleaned, and concatenated into a composite for richer voice extraction. |
 | `target` | `"<path>"` | Optional reference audio for music generation (as-is). |
 | `target voice` | `"<path>"` | Optional reference — extract vocals via SVS first. |
 | `target music` | `"<path>"` | Optional reference — extract instruments via SVS first. |
@@ -414,6 +417,9 @@ python voder.py ttm vc lyrics "hello world" styling "pop" 30 clone "voice.wav" t
 
 # Voice clone with reference (extract vocals)
 python voder.py ttm vc lyrics "hello world" styling "pop" 30 clone "voice.wav" target voice "vocals.wav"
+
+# Voice clone with multi-reference (oneline only, concatenates multiple voice references)
+python voder.py ttm vc lyrics "hello world" styling "pop" 30 clone "(voice1.wav)(voice2.wav)(voice3.wav)"
 ```
 
 ---
