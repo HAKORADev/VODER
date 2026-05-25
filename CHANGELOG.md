@@ -23,6 +23,15 @@
 
 - **VCv2 SVS Pipeline** — VCv2 (standard STS, mimic) now uses the same SVS voice/music isolation as VCv1 (music STS), making the pre/post-processing universal across all STS modes.
 
+#### TTS Multi-Reference Voice Cloning
+
+- **Multi-Reference Cloning** — TTS voice cloning now supports multiple reference audios per character, concatenated into a single composite for richer voice extraction.
+  - Oneline format: `target "1/path1.wav 2/path2.wav 3/path3.wav"` (single mode) or `target "James:1/clip1.wav 2/clip2.wav"` (dialogue mode)
+  - Each reference is resolved (video/URL supported), cleaned via SVS voice extraction, then concatenated via ffmpeg
+  - The composite reference is fed to Qwen-TTS for a single voice extraction pass
+  - Interactive CLI: keeps asking for additional references per character until user hits Enter (first reference required)
+  - Backward compatible: single path format still works as before
+
 #### TTM VC SVS Pipeline
 
 - **SVS Isolation for TTM VC** — TTM VC (both standard and overdose) now isolates TTM output vocals via SVS before feeding them to the VC model, and mixes converted vocals back with TTM instrumental after conversion.
@@ -150,6 +159,9 @@
 - New function: `_resolve_audio_entry()` for voice/music prefixed audio processing
 - New function: `_compose_refs()` for multi-reference composition into 30s composite
 - New function: `_compose_sources()` for multi-source composition into single audio
+- New function: `_parse_multi_refs()` for parsing TTS multi-reference target format (`1/path 2/path 3/path`)
+- New function: `_concat_audio_files()` for concatenating multiple audio files via ffmpeg
+- New function: `_resolve_multi_refs()` for resolving, SVS-cleaning, and concatenating multiple voice references
 - Added `random` import for composite reference/source composition randomization
 - `remix_entries` parameter renamed to `source_entries` for consistency
 - VibeVoice ASR `transcribe_with_overlaps()` method added for overlap-aware transcription

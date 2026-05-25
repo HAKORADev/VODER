@@ -422,7 +422,7 @@ When `language` is not specified, VODER uses `"Auto"` which lets the model detec
 
 **Auto Vocal Extraction from Target:**
 
-When a `target` reference audio is provided, VODER automatically runs BS‑RoFormer vocal isolation to extract clean vocals before voice cloning. This means you can use a song clip, a video snippet, or any audio with background elements as your voice reference — VODER handles the cleanup internally. If SVS extraction fails for any reason, the original target audio is used as a fallback.
+When a `target` reference audio is provided, VODER automatically runs BS‑RoFormer vocal isolation to extract clean vocals before voice cloning. This means you can use a song clip, a video snippet, or any audio with background elements as your voice reference — VODER handles the cleanup internally. For multi-reference cloning (`1/path1 2/path2 3/path3`), each reference is cleaned individually via SVS and then concatenated into a single composite before voice extraction. If SVS extraction fails for any reason, the original target audio is used as a fallback.
 
 **Voice Clip Extraction Integration:**
 
@@ -465,7 +465,7 @@ python src/voder.py tts overdose script "James: Hello" script "Sarah: Hi" target
 
 **Voice Cloning (via target parameter):**
 
-The voice cloning functionality is accessed by providing a `target` parameter with a reference audio file. In single mode, one reference file provides the voice for the entire script. In dialogue mode, each character can be assigned a different reference audio file.
+The voice cloning functionality is accessed by providing a `target` parameter with a reference audio file. In single mode, one reference file provides the voice for the entire script. In dialogue mode, each character can be assigned a different reference audio file. **Multi-reference cloning** is supported — provide multiple reference audios using the numbered prefix format `1/path1 2/path2 3/path3`, and they will be concatenated into a single composite reference for richer voice extraction.
 
 **Reference Audio Requirements:**
 
@@ -1202,7 +1202,7 @@ SVS is called automatically by several other VODER modes:
 | Mode | How SVS Is Used |
 |------|-----------------|
 | **STS** | Extracts vocals and music from the source (vocals for conversion, music for recombination), and clean vocals from the target reference |
-| **TTS** (voice clone) | Extracts clean vocals from target references before cloning |
+| **TTS** (voice clone) | Extracts clean vocals from target references before cloning; multi-reference targets are SVS-cleaned individually then concatenated |
 | **STT** | Pre‑cleanup to isolate vocals from music before transcription |
 | **STT+TTS** | Vocal isolation before transcription for better accuracy |
 | **SS** | Stage 1 voice isolation for speaker separation |
@@ -2253,7 +2253,7 @@ python src/voder.py sts "non_english_speech.wav" "target_voice.wav" mimic
 SVS (BS‑RoFormer vocal isolation) now runs automatically in several modes:
 
 - **STS**: Vocals and music are extracted from the source (vocals for conversion, music recombined afterward), and clean vocals from the target reference
-- **TTS (voice clone)**: Clean vocals are extracted from target references before cloning
+- **TTS (voice clone)**: Clean vocals are extracted from target references before cloning; multi-reference targets (`1/path 2/path`) are individually cleaned and concatenated
 - **STT+TTS**: Vocals are isolated from the input before transcription
 
 You don't need to manually isolate vocals before using them as references. Just provide the mixed audio directly — VODER handles the separation internally. This means you can use song clips, video snippets, or any audio with background elements as voice references without pre‑processing.

@@ -777,6 +777,54 @@ def _compose_sources(source_entries, results_dir):
     cleanup.append(out_path)
     return out_path, cleanup
 
+def _parse_multi_refs(text):
+    import re
+    matches = list(re.finditer(r'(?<!\S)(\d+)/', text))
+    if not matches:
+        return None
+    refs = []
+    for i, match in enumerate(matches):
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        path = text[start:end].strip()
+        if path:
+            refs.append(path)
+    return refs if refs else None
+
+def _concat_audio_files(file_list, output_path):
+    if len(file_list) == 1:
+        shutil.copy(file_list[0], output_path)
+        return True
+    inputs = ' '.join(f'-i "{f}"' for f in file_list)
+    filter_parts = ''.join(f'[{i}:a]' for i in range(len(file_list)))
+    filter_str = f'{filter_parts}concat=n={len(file_list)}:v=0:a=1[out]'
+    cmd = f'ffmpeg -y {inputs} -filter_complex "{filter_str}" -map "[out]" "{output_path}" 2>/dev/null'
+    ret = os.system(cmd)
+    return ret == 0 and os.path.exists(output_path)
+
+def _resolve_multi_refs(ref_paths, cleanup_list):
+    clean_vocals = []
+    for ref_path in ref_paths:
+        resolved_audio, _cl = resolve_target_to_audio(ref_path.strip())
+        if not resolved_audio:
+            return None
+        cleanup_list.extend(_cl)
+        cv = svs_extract_vocals(resolved_audio)
+        if cv and cv != resolved_audio:
+            cleanup_list.append(cv)
+        else:
+            cv = resolved_audio
+        if resolved_audio not in cleanup_list:
+            cleanup_list.append(resolved_audio)
+        clean_vocals.append(cv)
+    if len(clean_vocals) == 1:
+        return clean_vocals[0]
+    concat_path = os.path.join(tempfile.gettempdir(), f"voder_multi_ref_{int(time.time())}.wav")
+    if _concat_audio_files(clean_vocals, concat_path):
+        cleanup_list.append(concat_path)
+        return concat_path
+    return clean_vocals[0]
+
 def _parse_repaint_pass_spec(spec):
     parts = []
     current = ''
@@ -3357,15 +3405,31 @@ def cli_tts_mode():
                 print("Error: No voice prompt provided")
                 return False
             if os.path.exists(voice_prompt) or is_youtube_url(voice_prompt):
-                resolved_audio, _cleanup = resolve_target_to_audio(voice_prompt)
-                if not resolved_audio:
-                    return False
+                ref_paths = [voice_prompt]
+                while True:
+                    more = input("Additional reference? (path/URL, or Enter to finish): ").strip()
+                    if not more:
+                        break
+                    if os.path.exists(more) or is_youtube_url(more):
+                        ref_paths.append(more)
+                    else:
+                        print(f"Warning: File not found: {more}, skipping")
+                _cleanup = []
                 try:
-                    clean_vocal = svs_extract_vocals(resolved_audio)
-                    if clean_vocal and clean_vocal != resolved_audio:
-                        _cleanup.append(clean_vocal)
-                    if resolved_audio not in _cleanup and resolved_audio != clean_vocal:
-                        _cleanup.append(resolved_audio)
+                    if len(ref_paths) > 1:
+                        clean_vocal = _resolve_multi_refs(ref_paths, _cleanup)
+                        if not clean_vocal:
+                            return False
+                    else:
+                        resolved_audio, _cl = resolve_target_to_audio(voice_prompt)
+                        if not resolved_audio:
+                            return False
+                        _cleanup.extend(_cl)
+                        clean_vocal = svs_extract_vocals(resolved_audio)
+                        if clean_vocal and clean_vocal != resolved_audio:
+                            _cleanup.append(clean_vocal)
+                        if resolved_audio not in _cleanup and resolved_audio != clean_vocal:
+                            _cleanup.append(resolved_audio)
                     print("Loading Qwen-TTS model...")
                     tts = QwenTTS()
                     print("Extracting voice characteristics...")
@@ -3548,19 +3612,37 @@ def cli_tts_mode():
                             target_assignments[char_lower] = clip_path
                             print(f"  {orig_char} -> speaker {clip_keys[i]} (auto)")
                         else:
-                            path = input(f"{orig_char} (need more): ").strip()
-                            if not path:
-                                print(f"Error: No audio path provided for {orig_char}")
-                                return False
-                            resolved_audio, _cl = resolve_target_to_audio(path)
-                            if not resolved_audio:
-                                return False
-                            _dialogue_cleanup.extend(_cl)
-                            clean_vocal = svs_extract_vocals(resolved_audio)
-                            if clean_vocal and clean_vocal != resolved_audio:
-                                _dialogue_cleanup.append(clean_vocal)
+                            first_path = None
+                            while True:
+                                label = f"{orig_char} reference 1" if first_path is None else f"{orig_char} reference (Enter to finish)"
+                                path = input(f"{label}: ").strip()
+                                if not path:
+                                    if first_path is None:
+                                        print(f"Warning: At least one reference required for {orig_char}")
+                                        continue
+                                    break
+                                if not os.path.exists(path) and not is_youtube_url(path):
+                                    print(f"Warning: File not found: {path}, skipping")
+                                    continue
+                                if first_path is None:
+                                    first_path = path
+                                    ref_paths = [path]
+                                else:
+                                    ref_paths.append(path)
+                            if len(ref_paths) > 1:
+                                clean_vocal = _resolve_multi_refs(ref_paths, _dialogue_cleanup)
+                                if not clean_vocal:
+                                    return False
+                            else:
+                                resolved_audio, _cl = resolve_target_to_audio(ref_paths[0])
+                                if not resolved_audio:
+                                    return False
+                                _dialogue_cleanup.extend(_cl)
+                                clean_vocal = svs_extract_vocals(resolved_audio)
+                                if clean_vocal and clean_vocal != resolved_audio:
+                                    _dialogue_cleanup.append(clean_vocal)
                             target_assignments[char_lower] = clean_vocal
-                            print(f"  {orig_char} -> manual")
+                            print(f"  {orig_char} -> manual ({len(ref_paths)} ref{'s' if len(ref_paths) > 1 else ''})")
 
                     temp_clip_dir = os.path.dirname(list(clips_dict.values())[0]) if clips_dict else None
                     break
@@ -3574,15 +3656,31 @@ def cli_tts_mode():
                         print(f"Error: No voice prompt or audio path provided for {orig_char}")
                         return False
                     if os.path.exists(prompt) or is_youtube_url(prompt):
-                        resolved_audio, _cl = resolve_target_to_audio(prompt)
-                        if not resolved_audio:
-                            return False
-                        _dialogue_cleanup.extend(_cl)
-                        clean_vocal = svs_extract_vocals(resolved_audio)
-                        if clean_vocal and clean_vocal != resolved_audio:
-                            _dialogue_cleanup.append(clean_vocal)
+                        ref_paths = [prompt]
+                        ref_num = 2
+                        while True:
+                            more = input(f"{orig_char} reference {ref_num} (Enter to finish): ").strip()
+                            if not more:
+                                break
+                            if os.path.exists(more) or is_youtube_url(more):
+                                ref_paths.append(more)
+                                ref_num += 1
+                            else:
+                                print(f"Warning: File not found: {more}, skipping")
+                        if len(ref_paths) > 1:
+                            clean_vocal = _resolve_multi_refs(ref_paths, _dialogue_cleanup)
+                            if not clean_vocal:
+                                return False
+                        else:
+                            resolved_audio, _cl = resolve_target_to_audio(prompt)
+                            if not resolved_audio:
+                                return False
+                            _dialogue_cleanup.extend(_cl)
+                            clean_vocal = svs_extract_vocals(resolved_audio)
+                            if clean_vocal and clean_vocal != resolved_audio:
+                                _dialogue_cleanup.append(clean_vocal)
                         target_assignments[char_lower] = clean_vocal
-                        print(f"  {orig_char} -> voice clone")
+                        print(f"  {orig_char} -> voice clone ({len(ref_paths)} ref{'s' if len(ref_paths) > 1 else ''})")
                     else:
                         voice_prompts[char_lower] = prompt
                     print(f"Progress: {i+1}/{len(chars)} completed")
@@ -5818,16 +5916,24 @@ def oneline_tts(params):
             print(f"✓ Success! Output saved to: {output_path}")
             return True
         else:
-            target_path = targets[0]
-            resolved_audio, _cleanup = resolve_target_to_audio(target_path)
-            if not resolved_audio:
-                return False
+            target_value = targets[0]
+            multi = _parse_multi_refs(target_value)
+            _cleanup = []
             try:
-                clean_vocal = svs_extract_vocals(resolved_audio)
-                if clean_vocal and clean_vocal != resolved_audio:
-                    _cleanup.append(clean_vocal)
-                if resolved_audio not in _cleanup and resolved_audio != clean_vocal:
-                    _cleanup.append(resolved_audio)
+                if multi:
+                    clean_vocal = _resolve_multi_refs(multi, _cleanup)
+                    if not clean_vocal:
+                        return False
+                else:
+                    resolved_audio, _cl = resolve_target_to_audio(target_value)
+                    if not resolved_audio:
+                        return False
+                    _cleanup.extend(_cl)
+                    clean_vocal = svs_extract_vocals(resolved_audio)
+                    if clean_vocal and clean_vocal != resolved_audio:
+                        _cleanup.append(clean_vocal)
+                    if resolved_audio not in _cleanup and resolved_audio != clean_vocal:
+                        _cleanup.append(resolved_audio)
                 print("Loading Qwen-TTS model...")
                 tts = QwenTTS()
                 print("Extracting voice characteristics...")
@@ -5911,14 +6017,21 @@ def oneline_tts(params):
                 if not char or not path:
                     print(f"Error: Empty character or path in target: {t}")
                     return False
-                resolved_audio, _cleanup = resolve_target_to_audio(path)
-                if not resolved_audio:
-                    return False
-                all_target_cleanup.extend(_cleanup)
-                clean_vocal = svs_extract_vocals(resolved_audio)
-                if clean_vocal and clean_vocal != resolved_audio:
-                    all_target_cleanup.append(clean_vocal)
-                target_assignments[char.lower()] = clean_vocal
+                multi = _parse_multi_refs(path)
+                if multi:
+                    clean_vocal = _resolve_multi_refs(multi, all_target_cleanup)
+                    if not clean_vocal:
+                        return False
+                    target_assignments[char.lower()] = clean_vocal
+                else:
+                    resolved_audio, _cleanup = resolve_target_to_audio(path)
+                    if not resolved_audio:
+                        return False
+                    all_target_cleanup.extend(_cleanup)
+                    clean_vocal = svs_extract_vocals(resolved_audio)
+                    if clean_vocal and clean_vocal != resolved_audio:
+                        all_target_cleanup.append(clean_vocal)
+                    target_assignments[char.lower()] = clean_vocal
 
             overlap = set(voice_prompts.keys()) & set(target_assignments.keys())
             if overlap:

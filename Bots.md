@@ -364,7 +364,7 @@ python src/voder.py <mode> [parameters]
 
 Generate speech from text using Qwen3‑TTS VoiceDesign model.  
 **Supports both single and dialogue modes. Dialogue mode supports optional background music and SFX lines.**  
-**Voice cloning is available via the `target` parameter — supply a voice reference audio path to clone that voice.**
+**Voice cloning is available via the `target` parameter — supply a voice reference audio path to clone that voice. Multi-reference cloning is supported using numbered prefix format: `1/path1 2/path2 3/path3`.**
 
 **Single mode (voice design):**
 ```bash
@@ -374,6 +374,11 @@ python src/voder.py tts script "text here" voice "voice description"
 **Single mode (voice cloning via target):**
 ```bash
 python src/voder.py tts script "text here" target "voice_reference.wav"
+```
+
+**Single mode (multi-reference cloning):**
+```bash
+python src/voder.py tts script "text here" target "1/voice1.wav 2/voice2.wav 3/voice3.wav"
 ```
 
 **Single mode with language parameter:**
@@ -438,7 +443,7 @@ When `overdose` is used:
 |-----------|-------------|----------|
 | `script` | Text to synthesize (single mode) OR `Character: text` (dialogue mode) OR `sfx: description /duration:nn` (SFX lines) | Yes |
 | `voice` | Voice prompt (single mode) OR `Character: prompt` (dialogue mode) for generated voices | Yes (unless all scripts are SFX lines or using target) |
-| `target` | Path to voice reference (single) OR `Character: path` (dialogue) for cloned voices — can mix with `voice` | No (but required if no `voice` for non-SFX lines) |
+| `target` | Path to voice reference (single) OR `Character: path` (dialogue) for cloned voices — can mix with `voice`. Multi-reference format: `1/path1 2/path2 3/path3` concatenates multiple references into one | No (but required if no `voice` for non-SFX lines) |
 | `music` | Description for automatically generated background music (dialogue only) | No |
 | `level` | Music volume levels e.g. `"10:20-50 30:60-80"` (dialogue modes, default: 35%) | No |
 | `reference` | Reference audio/video/URL for dialogue background music style guidance (processed via SVS music pipe to extract clean instrumental) | No |
@@ -482,6 +487,9 @@ python src/voder.py tts script "James: Hello!" "Sarah: Hi there!" voice "James: 
 
 # TTS mode with mixed voices: James uses cloned, Sarah uses generated
 python src/voder.py tts script "James: Welcome!" "Sarah: Thanks!" target "James: /path/to/james_voice.wav" voice "Sarah: bright female voice"
+
+# TTS mode with multi-reference cloning per character
+python src/voder.py tts script "James: Hello!" target "James:1/voice1.wav 2/voice2.wav 3/voice3.wav"
 ```
 
 **Important:** A character cannot have both `voice` and `target` assignments — each character must use either generated or cloned voice, not both.
