@@ -17,7 +17,7 @@
 
 ---
 
-VODER brings together **10 processing modes** under one interface — speech-to-text, text-to-speech, voice conversion, music generation, speech enhancement, sound effects, vocal separation, language dubbing, speaker diarization, and multi-speaker separation. It runs entirely on your machine, needs no subscription, and works with or without a GPU.
+VODER brings together **8 processing modes** under one interface — speech-to-text, text-to-speech, voice conversion, music generation, speech enhancement, sound effects, vocal separation, and speaker diarization — plus language dubbing (TTS sub-task) and transcribe-edit-resynthesize (built into TTS interactive). It runs entirely on your machine, needs no subscription, and works with or without a GPU.
 
 ---
 
@@ -101,7 +101,7 @@ python src/voder.py sts base "input.wav" target "voice.wav"
 python src/voder.py ttm lyrics "Walking down the street" styling "upbeat pop" 30
 python src/voder.py svs "song.mp3" voice
 python src/voder.py ss "meeting.wav"
-python src/voder.py slc "spanish_speech.wav"
+python src/voder.py tts slc "spanish_speech.wav"
 python src/voder.py se "noisy_recording.wav"
 python src/voder.py sfx sound "thunder rumbling" duration 10
 ```
@@ -123,9 +123,9 @@ python src/voder.py sfx sound "thunder rumbling" duration 10
 | **SE** | Denoise, dereverb, restore speech | Audio / Video | Audio / Video |
 | **SFX** | Generate sound effects from text | Text | Audio |
 | **SVS** | Isolate vocals from music | Audio / Video / URL | Audio |
-| **SLC** | Dub speech to another language, keep voice | Audio / URL | Audio |
+| **SLC** | *Now a TTS sub-task* — `tts slc` / `tts slc translate` | — | — |
 | **SS** | Extract individual speakers | Audio / Video | Audio per speaker |
-| **STT+TTS** | Transcribe, edit, resynthesize (interactive) | Audio | Audio |
+| **STT+TTS** | *Built into TTS interactive* — "modify speech?" prompt | — | — |
 
 ---
 

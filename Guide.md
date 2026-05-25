@@ -12,14 +12,14 @@
 - [Processing Modes Deep Dive](#processing-modes-deep-dive)
   - [STT: Speech-to-Text](#stt-speech-to-text)
   - [TTS: Text-to-Speech](#tts-text-to-speech)
+    - [TTS SLC: Speaker Language Conversion](#tts-slc-speaker-language-conversion)
+    - [TTS Modify Speech (STT+TTS)](#tts-modify-speech-stttts)
   - [Voice Training](#voice-training)
   - [STS: Speech-to-Speech Voice Conversion](#sts-speech-to-speech-voice-conversion)
   - [TTM: Text-to-Music](#ttm-text-to-music)
-  - [STT+TTS: Speech-to-Text + Synthesis](#stttts-speech-to-text--synthesis)
   - [SE: Speech Enhancement](#se-speech-enhancement)
   - [SFX: Sound Effects Generation](#sfx-sound-effects-generation)
   - [SVS: Song Voice Separate](#svs-song-voice-separate)
-  - [SLC: Speaker Language Conversion](#slc-speaker-language-conversion)
   - [SS: Speakers Separator](#ss-speakers-separator)
 - [Speaker Diarization](#speaker-diarization)
   - [What It Is](#what-it-is)
@@ -91,7 +91,7 @@
 
 ## Introduction & Vision
 
-VODER is a professional‑grade voice processing tool that brings together **ten distinct audio transformation capabilities** in a single, unified interface. Unlike tools that force you to jump between multiple applications for different voice‑related tasks, VODER provides everything from standalone transcription to text‑to‑speech synthesis with voice cloning to music generation with multi‑track control to sound effects to speech enhancement to voice separation to speaker language conversion to speaker identification under one roof.
+VODER is a professional‑grade voice processing tool that brings together **eight distinct audio transformation capabilities** in a single, unified interface. Unlike tools that force you to jump between multiple applications for different voice‑related tasks, VODER provides everything from standalone transcription to text‑to‑speech synthesis with voice cloning (including speaker language conversion and speech modification) to music generation with multi‑track control to sound effects to speech enhancement to voice separation to speaker identification under one roof.
 
 **What VODER Actually Does:**
 
@@ -99,7 +99,7 @@ At its core, VODER orchestrates state‑of‑the‑art AI models to perform voic
 
 **Why VODER Exists:**
 
-The voice synthesis market is dominated by expensive commercial platforms that charge per character or per month. ElevenLabs, OpenAI, and others offer powerful capabilities, but at costs that add up quickly for creators, developers, and businesses alike. More importantly, no existing open‑source solution offered all ten processing capabilities in a unified interface. You could find separate tools for TTS, voice conversion, music generation, voice separation, and speaker identification, but none that worked together seamlessly — and certainly none that could pull a video from YouTube, separate the vocals, identify the speakers, extract voice references, translate between languages while preserving voice, and generate a complete dialogue with background music and sound effects.
+The voice synthesis market is dominated by expensive commercial platforms that charge per character or per month. ElevenLabs, OpenAI, and others offer powerful capabilities, but at costs that add up quickly for creators, developers, and businesses alike. More importantly, no existing open‑source solution offered all eight processing capabilities in a unified interface. You could find separate tools for TTS, voice conversion, music generation, voice separation, and speaker identification, but none that worked together seamlessly — and certainly none that could pull a video from YouTube, separate the vocals, identify the speakers, extract voice references, translate between languages while preserving voice, and generate a complete dialogue with background music and sound effects.
 
 VODER was built to fill this gap. The goal from day one was to create a local, free, open‑source alternative that doesn't compromise on quality. Is it perfect? No software is. But it works, it keeps improving, and it provides genuine utility without subscription fees or usage limits.
 
@@ -142,7 +142,9 @@ When we list minimum requirements, we're being honest about what actually works.
 | TTS (Voice Clone, no music) | 8GB | +4GB (Qwen Base) +~3GB (SVS) | 15GB | Optional | 4GB |
 | TTS (Voice Clone, with music) | 8GB | +15GB (ACE) +~3GB (SVS) | 26GB | Optional | 15GB |
 | TTS + Overdose | 8GB | +~40GB (VibeVoice ASR) + 15GB (ACE XL, if music) | 48GB | Optional | 24GB VRAM or 48GB RAM |
-| STT+TTS | 8GB | +4GB (Whisper) +4GB (Qwen) | 16GB | Optional | 4GB (GTX 1060) |
+| TTS (SLC) | 8GB | +4GB (Whisper) +4GB (Qwen) +~3GB (SVS) | 19GB | Optional | 4GB |
+| TTS (SLC Overdose) | 8GB | +4GB (Whisper) +4GB (Qwen) +~3GB (SVS) +5GB (Seed-VC v2) | 24GB | Optional | 14GB |
+| TTS (Modify Speech) | 8GB | +4GB (Whisper) +4GB (Qwen) +~3GB (SVS) | 19GB | Optional | 4GB |
 | STS | 8GB | +5GB (Seed-VC) +~3GB (SVS) | 16GB | Optional | 14GB |
 | TTM (standard) | 8GB | +15GB (ACE) | 23GB | Optional | 15GB (RTX 3080/16GB GPU) |
 | TTM (overdose) | 8GB | +~24GB (ACE-Step XL-Turbo) | 32GB | Optional | 32GB (RTX 4090) |
@@ -155,7 +157,6 @@ When we list minimum requirements, we're being honest about what actually works.
 | SE | 8GB | +2-3GB (UniSE) | 11GB | Optional | 4GB |
 | SFX | 8GB | +3-4GB (TangoFlux) | 12GB | Optional | 4GB |
 | SVS | 8GB | +~3-4GB (BS-RoFormer) | 12GB | Optional | 4GB |
-| SLC | 8GB | +4GB (Whisper) +4GB (Qwen) | 16GB | Optional | 4GB |
 | SS (standard) | 8GB | +4GB (Whisper) +2-3GB (Pyannote) +2-3GB (UniSE TSE) +~3GB (SVS) | 20GB | Optional | 4GB |
 | SS (overdose) | 8GB | +~8GB (VibeVoice ASR) +2-3GB (UniSE TSE) +~3GB (SVS) | 24GB | Optional | 24GB (recommended) |
 
@@ -170,8 +171,8 @@ When we list minimum requirements, we're being honest about what actually works.
 | VRAM | Performance Level | Suitable Modes |
 |------|-------------------|----------------|
 | No GPU (CPU only) | Slow | All modes (STT, STT+diarization, OCR, SE, SFX, SVS included) |
-| 4GB | Usable | TTS (VoiceDesign), STT+TTS, SE, SFX, SVS, SLC |
-| 6GB | Minimum | TTS (VoiceDesign), STT+TTS, SE, SFX, SVS, SLC |
+| 4GB | Usable | TTS (VoiceDesign), TTS (SLC), TTS (Modify Speech), SE, SFX, SVS |
+| 6GB | Minimum | TTS (VoiceDesign), TTS (SLC), TTS (Modify Speech), SE, SFX, SVS |
 | 14GB | Mid-range | STS, all TTS modes, SE, SFX |
 | 15-16GB | Recommended | TTS with music, TTM (standard), TTM+VC, all modes |
 | 24GB | High | All standard modes at full speed, SS (overdose), STT (overdose) |
@@ -594,7 +595,170 @@ python src/voder.py tts ocr "script_screenshot.jpg" target "voice_ref.wav"
 
 This is useful for converting screenshots of scripts, slides, or documents into spoken narration without manual text entry.
 
-**Memory Requirements:** TTS (VoiceDesign, no music) requires approximately 12GB RAM (8GB base + 4GB for Qwen model). TTS (Voice Clone, no music) requires approximately 15GB RAM (8GB base + 4GB for Qwen + ~3GB for BS‑RoFormer SVS). With background music, add approximately 15GB for the ACE model.
+**Memory Requirements:** TTS (VoiceDesign, no music) requires approximately 12GB RAM (8GB base + 4GB for Qwen model). TTS (Voice Clone, no music) requires approximately 15GB RAM (8GB base + 4GB for Qwen + ~3GB for BS‑RoFormer SVS). With background music, add approximately 15GB for the ACE model. TTS (SLC) requires approximately 19GB RAM (8GB base + 4GB for Whisper + 4GB for Qwen + ~3GB for SVS). TTS (Modify Speech) requires approximately 19GB RAM (8GB base + 4GB for Whisper + 4GB for Qwen + ~3GB for SVS).
+
+#### TTS SLC: Speaker Language Conversion
+
+**What It Does:**
+
+SLC (Speaker Language Conversion) translates speech from one language to another while preserving the original speaker's voice identity. It is now a TTS oneline sub‑task, invoked with `tts slc`. It combines Whisper transcription (or translation) with Qwen3‑TTS resynthesis to create output that sounds like the original speaker speaking in a different language. SLC now supports video and YouTube URLs as source input and runs SVS voice isolation on the source audio before transcription.
+
+**How It Works:**
+
+1. **Source Handling**: Accepts audio files, video files, and YouTube URLs as source input
+2. **SVS Voice Isolation**: BS‑RoFormer isolates the vocal track from the source audio, removing background music and noise
+3. **Transcription**: Whisper transcribes the cleaned source audio, detecting the language and extracting the text content
+4. **Translation** (optional): If the source language is not already English and `translate` is specified, Whisper large‑v3 translates the text to English
+5. **Resynthesis**: Qwen3‑TTS Base generates speech from the text using the original audio (or a provided target) as the voice reference
+6. **Output**: The synthesized audio preserves the speaker's vocal characteristics while speaking the (translated) text
+
+**Two Key Behaviors:**
+
+SLC has two fundamentally different modes depending on whether a `target` parameter is provided:
+
+| Mode | Target Parameter | Voice Used | Use Case |
+|------|-----------------|------------|----------|
+| Self‑Reference | Not provided (or empty) | Original input audio | Same‑voice language translation |
+| Cross‑Reference | Provided | Target reference audio | Voice transfer across languages |
+
+**Self‑Reference Mode (No Target):**
+
+When no `target` is provided, SLC uses the original input audio as the voice reference. This enables a powerful workflow: the content of a speaker's audio is translated from any of the 99 languages supported by Whisper large‑v3 to English, while preserving the original tone and feeling. In some cases, this can produce better quality than STS workarounds for language transfer.
+
+```bash
+# Translate French speaker to English, keeping their voice
+python src/voder.py tts slc translate "french_speech.wav"
+
+# Auto-detect language and resynthesize in original language with original voice
+python src/voder.py tts slc "japanese_speech.wav"
+```
+
+**Cross‑Reference Mode (With Target):**
+
+When a `target` reference is provided, SLC uses that reference for the voice. Combined with language preservation (when the detected language is one of the 10 supported TTS languages), this can change the speaker's voice while keeping the content in the original language — a form of voice transfer that can sometimes match or even surpass STS mode quality.
+
+```bash
+# Translate to English with a different voice reference
+python src/voder.py tts slc translate "german_speech.wav" target "english_voice_ref.wav"
+
+# Keep original language (if supported) but change to target voice
+python src/voder.py tts slc "spanish_speech.wav" target "different_speaker.wav"
+
+# Translate and change voice simultaneously
+python src/voder.py tts slc translate "chinese_speech.wav" target "target_voice.wav"
+```
+
+**SLC Overdose Mode:**
+
+When the `overdose` flag is used with SLC (`tts overdose slc`), an additional STS v2 non‑mimic pass runs after the TTS output. This applies Seed‑VC v2 voice conversion without mimic mode to further refine the output voice toward the original speaker's characteristics, providing better voice preservation for demanding use cases.
+
+```bash
+# SLC with overdose for better voice preservation
+python src/voder.py tts overdose slc translate "french_speech.wav"
+
+# SLC with overdose + custom target
+python src/voder.py tts overdose slc translate "german_speech.wav" target "voice_ref.wav"
+```
+
+**Why It's Like That:**
+
+SLC exists because traditional voice conversion (STS) doesn't change language — it changes voice. Traditional TTS doesn't preserve voice — it generates new speech. SLC bridges this gap by decomposing the problem: first understand what was said (transcription), then say it in a different voice and/or language (resynthesis). This approach is more flexible than trying to do both simultaneously in a single model, and it produces higher quality results because each stage can use the best available model for its specific task. SLC is now a TTS sub‑task rather than a standalone mode because its pipeline is fundamentally a TTS operation with STT front‑end — it generates speech from text, which is the core definition of TTS.
+
+**Best For:**
+
+- Translating speech while preserving speaker identity
+- Content localization for video and podcasts
+- Creating dubbed content that sounds like the original speaker
+- Voice transfer across languages
+- Processing multi‑language content
+- Video and YouTube URL support for direct video dubbing
+
+**Language Support:**
+
+| Stage | Languages |
+|-------|----------|
+| Input (Whisper transcription) | 99 languages |
+| Translation target | English (via Whisper large‑v3) |
+| Output (Qwen3‑TTS) | Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian |
+
+**CLI Usage:**
+
+```bash
+# Basic: resynthesize in same language with original voice
+python src/voder.py tts slc "path/to/audio.wav"
+
+# Translate to English with original voice
+python src/voder.py tts slc translate "path/to/audio.wav"
+
+# Translate to English with different voice
+python src/voder.py tts slc translate "path/to/audio.wav" target "voice_ref.wav"
+
+# Same language, different voice (voice transfer)
+python src/voder.py tts slc "path/to/audio.wav" target "different_voice.wav"
+
+# From YouTube URL
+python src/voder.py tts slc translate "https://www.youtube.com/watch?v=VIDEO_ID"
+
+# From video file
+python src/voder.py tts slc translate "presentation.mp4"
+
+# SLC with overdose for better voice preservation
+python src/voder.py tts overdose slc translate "path/to/audio.wav"
+
+# Interactive CLI
+python src/voder.py cli
+# Select mode 2 (TTS), then choose SLC sub-task
+```
+
+**Technical Notes:**
+
+SLC works on CPU without GPU acceleration. The pipeline is sequential: SVS voice isolation, transcription, model offloading, then synthesis. This ensures memory requirements stay manageable — you don't need both Whisper and Qwen3‑TTS loaded simultaneously. Video files and YouTube URLs are now supported as source input. In overdose mode, the additional STS v2 pass requires loading Seed‑VC v2 after the TTS output, which increases peak memory requirements.
+
+**Memory Requirements:** TTS (SLC) requires approximately 19GB RAM (8GB base + 4GB for Whisper + 4GB for Qwen3‑TTS + ~3GB for SVS). Models are loaded and offloaded sequentially, so peak memory depends on the larger individual model. TTS (SLC Overdose) requires approximately 24GB RAM due to the additional Seed‑VC v2 pass.
+
+#### TTS Modify Speech (STT+TTS)
+
+**What It Does:**
+
+The Modify Speech feature transcribes audio to text using Whisper, allows you to edit the transcribed content, and then synthesizes the edited text with a chosen voice. This enables voice modification while preserving the original delivery characteristics. This feature was previously a standalone STT+TTS mode — it is now integrated into TTS interactive mode as a "modify speech? (Y/N)" prompt at the very start.
+
+**How It Works:**
+
+1. **Input**: Provide an audio file, video file, or YouTube URL
+2. **SVS Voice Isolation**: BS‑RoFormer isolates the vocal track from the input, removing background music and noise
+3. **Whisper Transcription**: Whisper converts speech to text with word‑level timestamps
+4. **Text Editing**: Review and modify the transcribed text before synthesis
+5. **Voice Selection**: Choose whether to use the source audio as the voice reference or provide a custom target path
+6. **Qwen-TTS Synthesis**: The edited text is synthesized using the chosen voice via Qwen3‑TTS
+
+This preserves the timing and delivery structure from the original audio if you don't modify the text significantly.
+
+**Why It's Like That:**
+
+This feature is for when you have existing audio content that needs voice transformation. By transcribing, editing, and resynthesizing, you can change what someone says while keeping the general timing and delivery. It's not a simple voice conversion — it's a reconstructive process that allows complete content modification. The SVS voice isolation stage ensures that background music in the original audio doesn't interfere with transcription quality. Moving this into TTS interactive mode makes it more discoverable — it's a natural extension of the TTS workflow (generate speech from text), where the text happens to come from existing audio rather than manual entry.
+
+**Best For:**
+
+- Changing content in existing audio
+- Fixing transcription errors automatically
+- Localizing content into different languages
+- Creating fictional dialogue from real voice samples
+- Voice modification with full control over content
+- Processing songs with vocal isolation
+
+**Availability:**
+
+Modify Speech is available in the TTS interactive CLI mode (prompted at the start) and the GUI. When you select TTS in the interactive CLI, you'll be asked "modify speech? (Y/N)" — answer Y to enter the modify speech workflow where you provide audio, edit the transcription, and choose a voice.
+
+**Multi‑Speaker Note:**
+
+If your base audio contains multiple speakers, Whisper will transcribe all of them. The synthesis will use a single voice for the entire text. If you need per‑speaker voice cloning, use the dialogue system with speaker diarization instead (see [Dialogue Source Analysis](#dialogue-source-analysis)).
+
+**Technical Notes:**
+
+Modify Speech works on CPU without GPU for the Whisper transcription stage. Voice cloning in the synthesis stage also works on CPU. This makes it accessible for users without NVIDIA graphics hardware.
+
+**Memory Requirements:** TTS (Modify Speech) requires approximately 19GB RAM (8GB base + 4GB for Whisper + 4GB for Qwen + ~3GB for BS‑RoFormer SVS).
 
 ---
 
@@ -1103,50 +1267,6 @@ This prevents memory accumulation when performing multiple operations in a singl
 
 ---
 
-### STT+TTS: Speech-to-Text + Synthesis
-
-**What It Does:**
-
-STT+TTS transcribes audio to text using Whisper, allows you to edit the transcribed content, and then synthesizes the edited text with a target voice. This enables voice modification while preserving the original delivery characteristics. STT+TTS now includes SVS pre‑cleanup to isolate vocals before transcription, improving accuracy for songs or recordings with background music.
-
-**How It Works:**
-
-1. **SVS Pre‑Cleanup**: BS‑RoFormer isolates the vocal track from the input audio, removing background music and noise
-2. **Transcription**: Whisper converts speech to text with word‑level timestamps
-3. **Editing**: You can review and modify the transcribed text before synthesis
-4. **Synthesis**: The synthesis stage reads your (possibly edited) text and produces audio in the target voice
-
-This preserves the timing and delivery structure from the original audio if you don't modify the text significantly.
-
-**Why It's Like That:**
-
-This mode is for when you have existing audio content that needs voice transformation. By transcribing, editing, and resynthesizing, you can change what someone says while keeping the general timing and delivery. It's not a simple voice conversion — it's a reconstructive process that allows complete content modification. The SVS pre‑cleanup stage ensures that background music in the original audio doesn't interfere with transcription quality.
-
-**Best For:**
-
-- Changing content in existing audio
-- Fixing transcription errors automatically
-- Localizing content into different languages
-- Creating fictional dialogue from real voice samples
-- Voice modification with full control over content
-- Processing songs with vocal isolation
-
-**Interactive Nature:**
-
-STT+TTS requires user interaction for text editing, which is why it's only available in interactive CLI mode and GUI mode. The one‑liner mode cannot accommodate this workflow. You must either use `python src/voder.py cli` and select the STT+TTS option, or use the GUI for full visual feedback.
-
-**Multi‑Speaker Note:**
-
-If your base audio contains multiple speakers, Whisper will transcribe all of them. The synthesis will use a single target voice for the entire text. If you need per‑speaker voice cloning, use the dialogue system with speaker diarization instead (see [Dialogue Source Analysis](#dialogue-source-analysis)).
-
-**Technical Notes:**
-
-STT+TTS works on CPU without GPU for the Whisper transcription stage. Voice cloning in the synthesis stage also works on CPU. This makes it accessible for users without NVIDIA graphics hardware.
-
-**Memory Requirements:** STT+TTS requires approximately 16GB RAM (8GB base + 4GB for Whisper + 4GB for Qwen model + ~3GB for BS‑RoFormer SVS).
-
----
-
 ### SE: Speech Enhancement
 
 **What It Does:**
@@ -1207,7 +1327,7 @@ python src/voder.py se "audio.wav" result "/path/to/enhanced.wav"
 
 # Interactive CLI
 python src/voder.py cli
-# Select mode 7 (SE)
+# Select mode 5 (SE)
 ```
 
 **Memory Requirements:** SE requires approximately 11GB RAM (8GB base + 2-3GB for UniSE model).
@@ -1294,7 +1414,7 @@ python src/voder.py sfx sound "footsteps on gravel" duration 8 result "/output/f
 
 # Interactive CLI
 python src/voder.py cli
-# Select mode 8 (SFX)
+# Select mode 6 (SFX)
 ```
 
 **Memory Requirements:** SFX requires approximately 12GB RAM (8GB base + 3-4GB for TangoFlux model).
@@ -1305,7 +1425,7 @@ python src/voder.py cli
 
 **What It Does:**
 
-SVS (Song Voice Separate) isolates vocals from music (or music from vocals) in any audio file using BS‑RoFormer Resurrection. It produces two possible output stems — voice (vocals only) or music (instrumental only) — or both stems sequentially when the `both` parameter is used. SVS is also used internally by STS, TTS, STT, STT+TTS, SS, and TTM for automatic vocal extraction from reference audio.
+SVS (Song Voice Separate) isolates vocals from music (or music from vocals) in any audio file using BS‑RoFormer Resurrection. It produces two possible output stems — voice (vocals only) or music (instrumental only) — or both stems sequentially when the `both` parameter is used. SVS is also used internally by STS, TTS, STT, SS, and TTM for automatic vocal extraction from reference audio.
 
 **How It Works:**
 
@@ -1331,7 +1451,8 @@ SVS is called automatically by several other VODER modes:
 | **STS** | Extracts vocals and music from the source (vocals for conversion, music for recombination), and clean vocals from the target reference |
 | **TTS** (voice clone) | Extracts clean vocals from target references before cloning; multi-reference targets (`(path1)(path2)`) are SVS-cleaned individually then concatenated |
 | **STT** | Pre‑cleanup to isolate vocals from music before transcription |
-| **STT+TTS** | Vocal isolation before transcription for better accuracy |
+| **TTS** (SLC) | Vocal isolation from source audio before transcription for language conversion |
+| **TTS** (Modify Speech) | Vocal isolation before transcription for better accuracy |
 | **SS** | Stage 1 voice isolation for speaker separation |
 | **TTM** | Extracts vocals or music from source/reference audio for remix/complete/lego tasks; remix also accepts optional `lyrics` |
 
@@ -1356,7 +1477,7 @@ python src/voder.py svs both "path/to/song.mp3" result "output/"
 
 # Interactive CLI
 python src/voder.py cli
-# Select SVS mode, then follow prompts
+# Select mode 7 (SVS), then follow prompts
 ```
 
 **Best For:**
@@ -1373,107 +1494,6 @@ python src/voder.py cli
 SVS works on both CPU and GPU. GPU acceleration significantly speeds up separation for longer audio files. The BS‑RoFormer model is loaded on-demand from the `src/models/svs/` directory and offloaded after processing to prevent memory accumulation.
 
 **Memory Requirements:** SVS requires approximately 12GB RAM (8GB base + 3-4GB for BS‑RoFormer model).
-
----
-
-### SLC: Speaker Language Conversion
-
-**What It Does:**
-
-SLC (Speaker Language Conversion) translates speech from one language to another while preserving the original speaker's voice identity. It combines Whisper transcription (or translation) with Qwen3‑TTS resynthesis to create output that sounds like the original speaker speaking in a different language.
-
-**How It Works:**
-
-1. **Transcription**: Whisper transcribes the source audio, detecting the language and extracting the text content
-2. **Translation** (optional): If the source language is not already English and translation is requested, Whisper large‑v3 translates the text to English
-3. **Resynthesis**: Qwen3‑TTS Base generates speech from the text using the original audio (or a provided target) as the voice reference
-4. **Output**: The synthesized audio preserves the speaker's vocal characteristics while speaking the (translated) text
-
-**Two Key Behaviors:**
-
-SLC has two fundamentally different modes depending on whether a `target` parameter is provided:
-
-| Mode | Target Parameter | Voice Used | Use Case |
-|------|-----------------|------------|----------|
-| Self‑Reference | Not provided (or empty) | Original input audio | Same‑voice language translation |
-| Cross‑Reference | Provided | Target reference audio | Voice transfer across languages |
-
-**Self‑Reference Mode (No Target):**
-
-When no `target` is provided, SLC uses the original input audio as the voice reference. This enables a powerful workflow: the content of a speaker's audio is translated from any of the 99 languages supported by Whisper large‑v3 to English, while preserving the original tone and feeling. In some cases, this can produce better quality than STS workarounds for language transfer.
-
-```bash
-# Translate French speaker to English, keeping their voice
-python src/voder.py slc translate "french_speech.wav"
-
-# Auto-detect language and resynthesize in original language with original voice
-python src/voder.py slc "japanese_speech.wav"
-```
-
-**Cross‑Reference Mode (With Target):**
-
-When a `target` reference is provided, SLC uses that reference for the voice. Combined with language preservation (when the detected language is one of the 10 supported TTS languages), this can change the speaker's voice while keeping the content in the original language — a form of voice transfer that can sometimes match or even surpass STS mode quality.
-
-```bash
-# Translate to English with a different voice reference
-python src/voder.py slc translate "german_speech.wav" target "english_voice_ref.wav"
-
-# Keep original language (if supported) but change to target voice
-python src/voder.py slc "spanish_speech.wav" target "different_speaker.wav"
-
-# Translate and change voice simultaneously
-python src/voder.py slc translate "chinese_speech.wav" target "target_voice.wav"
-```
-
-**Why It's Like That:**
-
-SLC exists because traditional voice conversion (STS) doesn't change language — it changes voice. Traditional TTS doesn't preserve voice — it generates new speech. SLC bridges this gap by decomposing the problem: first understand what was said (transcription), then say it in a different voice and/or language (resynthesis). This approach is more flexible than trying to do both simultaneously in a single model, and it produces higher quality results because each stage can use the best available model for its specific task.
-
-**Best For:**
-
-- Translating speech while preserving speaker identity
-- Content localization for video and podcasts
-- Creating dubbed content that sounds like the original speaker
-- Voice transfer across languages
-- Processing multi‑language content
-- YouTube URL support for direct video dubbing
-
-**Language Support:**
-
-| Stage | Languages |
-|-------|----------|
-| Input (Whisper transcription) | 99 languages |
-| Translation target | English (via Whisper large‑v3) |
-| Output (Qwen3‑TTS) | Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian |
-
-**CLI Usage:**
-
-```bash
-# Basic: resynthesize in same language with original voice
-python src/voder.py slc "path/to/audio.wav"
-
-# Translate to English with original voice
-python src/voder.py slc translate "path/to/audio.wav"
-
-# Translate to English with different voice
-python src/voder.py slc translate "path/to/audio.wav" target "voice_ref.wav"
-
-# Same language, different voice (voice transfer)
-python src/voder.py slc "path/to/audio.wav" target "different_voice.wav"
-
-# From YouTube URL
-python src/voder.py slc translate "https://www.youtube.com/watch?v=VIDEO_ID"
-
-# Interactive CLI
-python src/voder.py cli
-# Select SLC mode, then follow prompts
-```
-
-**Technical Notes:**
-
-SLC works on CPU without GPU acceleration. The pipeline is sequential: transcription, model offloading, then synthesis. This ensures memory requirements stay manageable — you don't need both Whisper and Qwen3‑TTS loaded simultaneously. YouTube URLs are supported for direct processing of video content. Audio input only is supported (not video files directly).
-
-**Memory Requirements:** SLC requires approximately 16GB RAM (8GB base + 4GB for Whisper + 4GB for Qwen3‑TTS). Models are loaded and offloaded sequentially, so peak memory depends on the larger individual model.
 
 ---
 
@@ -1548,7 +1568,7 @@ python src/voder.py ss "https://www.youtube.com/watch?v=VIDEO_ID" target "refere
 
 # Interactive CLI
 python src/voder.py cli
-# Select SS mode, then follow prompts
+# Select mode 8 (SS), then follow prompts
 ```
 
 **Best For:**
@@ -1737,7 +1757,7 @@ YouTube/video support works across multiple VODER modes:
 | TTS (dialogue source) | Use video as dialogue source |
 | Voice clip extraction | Extract clips from YouTube video |
 | STS | YouTube video as target voice reference |
-| SLC | Direct language conversion from YouTube URL |
+| TTS (SLC) | Direct language conversion from YouTube URL |
 | SS | Direct speaker separation from YouTube URL |
 
 ### Error Handling & Fallbacks
@@ -2343,7 +2363,7 @@ If you use the **same input file** for both dialogue source and auto-clone, the 
 
 ### SLC Tricks: Translation & Voice Transfer
 
-SLC has two powerful but non‑obvious tricks:
+SLC (now a TTS sub‑task: `tts slc`) has two powerful but non‑obvious tricks:
 
 **Trick 1: Translation with Original Voice (Self-Reference):**
 
@@ -2351,7 +2371,7 @@ Run SLC with `translate` and no `target` parameter. The original speaker's audio
 
 ```bash
 # French speaker → English, keeping their voice
-python src/voder.py slc translate "french_audio.wav"
+python src/voder.py tts slc translate "french_audio.wav"
 ```
 
 **Trick 2: Language Preservation with Voice Change (Cross-Reference):**
@@ -2360,7 +2380,7 @@ Run SLC without `translate` but with a `target` parameter that's a different spe
 
 ```bash
 # Spanish speaker speaks Spanish, but with a different voice
-python src/voder.py slc "spanish_audio.wav" target "different_speaker.wav"
+python src/voder.py tts slc "spanish_audio.wav" target "different_speaker.wav"
 ```
 
 ### STS Mimic Language Warning
@@ -2381,7 +2401,7 @@ SVS (BS‑RoFormer vocal isolation) now runs automatically in several modes:
 
 - **STS**: Vocals and music are extracted from the source (vocals for conversion, music recombined afterward), and clean vocals from the target reference
 - **TTS (voice clone)**: Clean vocals are extracted from target references before cloning; multi-reference targets (`(path1)(path2)`) are individually cleaned and concatenated
-- **STT+TTS**: Vocals are isolated from the input before transcription
+- **TTS (Modify Speech)**: Vocals are isolated from the input before transcription
 
 You don't need to manually isolate vocals before using them as references. Just provide the mixed audio directly — VODER handles the separation internally. This means you can use song clips, video snippets, or any audio with background elements as voice references without pre‑processing.
 
@@ -2515,17 +2535,17 @@ python src/voder.py ttm lego source "drums_only.wav" make "bass guitar" styling 
 **Current Version:** 04/18/2026 (voder_bleed/3)
 
 **Major Features:**
-- 12 processing modes (STT, TTS, STS, TTM, STT+TTS, SE, SFX, SVS, SLC, SS, plus dialogue and sub-task modes)
+- 8 processing modes (STT, TTS, STS, TTM, SE, SFX, SVS, SS) plus TTS sub-tasks (SLC, Modify Speech) and dialogue/sub-task modes
 - Unified TTS mode (VoiceDesign + voice cloning via target parameter)
 - Unified TTM mode (generation + voice conversion + sub-tasks)
 - SVS: Song Voice Separate with BS-RoFormer Resurrection
-- SLC: Speaker Language Conversion with voice preservation
+- SLC: Speaker Language Conversion (now a TTS sub‑task) with voice preservation
 - SS: Speakers Separator with multi-stage pipeline
 - STT translation support (Whisper large-v3, 99 languages)
 - STT overdose mode (VibeVoice ASR)
 - STT SVS pre-cleanup for song transcription
 - TTS 10-language support via SUPPORTED_TTS_LANGUAGES
-- Auto vocal extraction via BS-RoFormer in STS, TTS, STT+TTS
+- Auto vocal extraction via BS-RoFormer in STS, TTS, TTS (SLC), TTS (Modify Speech)
 - Video I/O support for STS (MP4 input → MP4 output)
 - TTM three-tier system (standard, overdose, complete)
 - TTM sub-tasks: complete, lego, extract, remix, repaint
@@ -2665,14 +2685,21 @@ python src/voder.py ttm lego source "drums_only.wav" make "bass guitar" styling 
 
 ### SLC Issues
 
+Note: SLC is now a TTS sub‑task (`tts slc`), not a standalone mode. These issues apply to the SLC sub‑task within TTS.
+
 **Issue: Output doesn't sound like the original speaker**
 - Solution: Ensure the reference audio is clean and contains sufficient speech (10+ seconds)
 - Solution: Self-reference mode uses the original audio; ensure it's not too noisy
 - Solution: For cross-reference mode, use a target that's close in vocal characteristics
+- Solution: Try SLC overdose mode (`tts overdose slc`) which adds an STS v2 pass for better voice preservation
 
 **Issue: Language not preserved**
 - Solution: The output language depends on Qwen3-TTS language detection and the `language` parameter
 - Solution: Explicitly set the language parameter if auto-detection is incorrect
+
+**Issue: Source audio has background music**
+- Solution: SVS voice isolation now runs automatically on the source audio before transcription
+- Solution: For heavily mixed sources, the auto-isolation should handle it; if quality is poor, try pre-cleaning with standalone SVS first
 
 ### SS Issues
 

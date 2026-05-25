@@ -165,6 +165,23 @@
   - Reference audio for BGM now accepts video files (audio extracted before use)
   - Output format matches input format (video in, video out)
 
+#### TTS SLC Sub-Task (Speaker Language Conversion)
+
+- **`tts slc` Oneline Command** — SLC (Speaker Language Conversion) is now a TTS oneline sub-task instead of a standalone mode. Transcribes source audio, clones voice from source, resynthesizes in same or translated language.
+  - `tts slc "path.wav"` — transcribe and resynthesize in detected language
+  - `tts slc translate "path.wav"` — transcribe, translate to English, resynthesize
+  - `tts overdose slc translate "path.wav"` — after TTS output, runs STS v2 non-mimic pass with source vocals for enhanced voice preservation
+  - Supports video files, YouTube URLs, and audio files (modernized from standalone SLC which was audio-only)
+  - SVS voice isolation on source before transcription for cleaner results
+
+#### TTS Interactive Speech Modification (STT+TTS Integration)
+
+- **"Modify Speech?" Prompt** — STT+TTS functionality is now integrated into TTS interactive mode as the first prompt, instead of being a standalone mode.
+  - When entering TTS interactive mode, user is asked "Want to modify speech? (Y/N)"
+  - If yes: provide audio/video/URL → SVS voice isolation → Whisper transcription → edit text → choose voice (source audio or custom path) → Qwen-TTS synthesis
+  - Modernized: supports video files and YouTube URLs (old STT+TTS mode only supported audio)
+  - SVS voice isolation before transcription for cleaner results
+
 ### Fixed
 
 - **TSE Enrollment Cap (5s) + Peak Normalize** — Fixed enrollment tensor dimensions.
@@ -191,6 +208,16 @@
   - Pipeline files kept in temp until SE completes, then exported to results
 
 - **Case-insensitive character names** — `.tts` voice file naming and lookup now normalize to lowercase, so `JAMes`, `jamES`, and `james` all resolve to the same voice file.
+
+### Changed
+
+- **Interactive CLI Menu Renumbered** — Menu reduced from 10 options to 8 (removed STT+TTS and SLC as standalone modes).
+
+### Removed
+
+- **SLC Mode Removed** — Standalone `slc` mode removed from oneline and interactive CLI. Now available as `tts slc` sub-task with modernized features (video/URL support, SVS isolation, overdose pass).
+
+- **STT+TTS Mode Removed** — Standalone STT+TTS mode removed from interactive CLI menu. Now integrated into TTS interactive mode as "modify speech?" prompt with modernized features (video/URL support, SVS isolation).
 
 ### Technical Notes
 
@@ -222,6 +249,12 @@
 - `oneline_sts()` target parameter now supports multi-reference `(path1)(path2)(path3)` format via `_parse_multi_refs()`/`_resolve_multi_refs()`
 - `oneline_ttm()` clone parameter now supports multi-reference `(path1)(path2)(path3)` format via `_parse_multi_refs()`/`_resolve_multi_refs()`
 - Removed dead function `extract_voice_clips_from_multispeaker()` — replaced by `ss_extract_speakers()` SS pipe (longest-segment cut logic superseded by TSE extraction)
+- Standalone SLC mode refactored into `tts slc` oneline sub-task — SLC oneline handler and interactive SLC menu option removed; logic relocated to TTS oneline parser as `slc` sub-task keyword
+- Standalone STT+TTS interactive mode refactored into TTS interactive "modify speech?" prompt — STT+TTS menu option removed; speech modification flow now gated behind first prompt in TTS interactive mode
+- Interactive CLI menu renumbered from 10 options to 8 (STT+TTS and SLC removed as top-level modes)
+- `slc` removed from valid oneline modes list; `stt+tts` removed from interactive mode map
+- TTS oneline parser now recognizes `slc` as a sub-task keyword (similar to existing TTM sub-task pattern)
+- TTS interactive mode entry point now includes speech modification gate before normal TTS flow
 
 ---
 

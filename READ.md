@@ -1,6 +1,6 @@
 # VODER — Detailed Reference
 
-> This document contains detailed mode descriptions, CLI examples, technical notes, and usage guides for each of VODER's ten processing modes. For a quick overview, see [README.md](README.md).
+> This document contains detailed mode descriptions, CLI examples, technical notes, and usage guides for each of VODER's eight processing modes. For a quick overview, see [README.md](README.md).
 
 ---
 
@@ -40,32 +40,34 @@ VODER downloads and caches models automatically on first use. Models are stored 
 ### Mode History
 
 > `tts+vc` and `ttm+vc` are no longer standalone modes. Voice cloning in TTS is handled via the `target` parameter, and voice conversion in TTM is handled via the `vc` flag. Use `tts` and `ttm` respectively.
+>
+> `stt+tts` and `slc` are no longer standalone modes. STT+TTS is now integrated into TTS interactive mode as a "modify speech?" prompt. SLC is now a TTS oneline sub-task. Use `tts` for both.
 
 ---
 
 ## Table of Contents
 
-- [1. STT+TTS Mode](#1-stttts-mode)
-- [2. TTS Mode](#2-tts-mode)
-  - [2.1 Voice Design & Cloning](#21-voice-design--cloning)
-  - [2.2 Dialogue System](#22-dialogue-system)
-  - [2.3 Cross-Use Feature](#23-cross-use-feature)
-  - [2.4 Background Music](#24-background-music)
-- [3. STS Mode](#3-sts-mode)
-  - [3.1 MSTS (Music-STS)](#31-msts-music-sts)
-- [4. TTM Mode](#4-ttm-mode)
-  - [4.1 Sub-Tasks](#41-sub-tasks)
-  - [4.2 Quality Tiers](#42-quality-tiers)
-  - [4.3 Voice Conversion in TTM](#43-voice-conversion-in-ttm)
-  - [4.4 Instrument Tracks](#44-instrument-tracks)
-- [5. STT Mode](#5-stt-mode)
-  - [5.1 Features](#51-features)
-  - [5.2 CLI Examples](#52-cli-examples)
-- [6. SE Mode](#6-se-mode)
-- [7. SFX Mode](#7-sfx-mode)
-- [8. SVS Mode](#8-svs-mode)
-- [9. SLC Mode](#9-slc-mode)
-- [10. SS Mode](#10-ss-mode)
+- [1. TTS Mode](#1-tts-mode)
+  - [1.1 Voice Design & Cloning](#11-voice-design--cloning)
+  - [1.2 Dialogue System](#12-dialogue-system)
+  - [1.3 Cross-Use Feature](#13-cross-use-feature)
+  - [1.4 Background Music](#14-background-music)
+  - [1.5 SLC (Speech Language Conversion)](#15-slc-speech-language-conversion)
+  - [1.6 Modify Speech (STT+TTS)](#16-modify-speech-stttts)
+- [2. STS Mode](#2-sts-mode)
+  - [2.1 MSTS (Music-STS)](#21-msts-music-sts)
+- [3. TTM Mode](#3-ttm-mode)
+  - [3.1 Sub-Tasks](#31-sub-tasks)
+  - [3.2 Quality Tiers](#32-quality-tiers)
+  - [3.3 Voice Conversion in TTM](#33-voice-conversion-in-ttm)
+  - [3.4 Instrument Tracks](#34-instrument-tracks)
+- [4. STT Mode](#4-stt-mode)
+  - [4.1 Features](#41-features)
+  - [4.2 CLI Examples](#42-cli-examples)
+- [5. SE Mode](#5-se-mode)
+- [6. SFX Mode](#6-sfx-mode)
+- [7. SVS Mode](#7-svs-mode)
+- [8. SS Mode](#8-ss-mode)
 - [Intelligent Source Analysis](#intelligent-source-analysis)
 - [AI Model Integration](#ai-model-integration)
 - [Usage Guide](#usage-guide)
@@ -76,26 +78,9 @@ VODER downloads and caches models automatically on first use. Models are stored 
 
 ---
 
-## 1. STT+TTS Mode
+## 1. TTS Mode
 
-Speech-to-Text then Text-to-Speech — a two-step pipeline that transcribes audio and then re-synthesizes it. This mode is available only in GUI and interactive CLI because it involves interactive text editing between the transcription and synthesis steps.
-
-**Workflow:**
-1. Load base audio file
-2. VODER transcribes the audio to text
-3. Edit the transcribed text as needed
-4. Load a target voice reference (optional, for voice cloning)
-5. VODER synthesizes the edited text into speech
-
-**GUI Steps:** Load base audio (content), then load target audio (voice). Click **"Patch"** to start.
-
-**Note:** STT+TTS mode is not available in one-line CLI because it requires interactive text editing between the transcription and synthesis steps.
-
----
-
-## 2. TTS Mode
-
-Text-to-Speech with Voice Design and Cloning. TTS is VODER's most feature-rich mode, supporting single-line synthesis, multi-character dialogue, voice cloning, cross-use mixing, embedded sound effects, script directives, and optional background music.
+Text-to-Speech with Voice Design and Cloning. TTS is VODER's most feature-rich mode, supporting single-line synthesis, multi-character dialogue, voice cloning, cross-use mixing, embedded sound effects, script directives, optional background music, speech language conversion (SLC), and an integrated modify-speech pipeline.
 
 **Supported Inputs:**
 - Text (single line or multi-line dialogue script)
@@ -111,7 +96,7 @@ Text-to-Speech with Voice Design and Cloning. TTS is VODER's most feature-rich m
 - `level` — Background music volume control (dialogue only)
 - `ocr` — Image file path to extract text from via EasyOCR
 
-### 2.1 Voice Design & Cloning
+### 1.1 Voice Design & Cloning
 
 TTS supports two approaches for voice creation, and they can be mixed in the same dialogue:
 
@@ -131,7 +116,7 @@ python src/voder.py tts script "Hello" target "https://youtube.com/watch?v=..."
 
 **Note:** A character cannot have both `voice` and `target` assignments — each character must use either generated or cloned voice, not both.
 
-### 2.2 Dialogue System
+### 1.2 Dialogue System
 
 VODER features a powerful **row-based dialogue editor** designed for creating multi-speaker audio content such as podcasts, AI news broadcasts, audiobooks, and conversational content. This system enables script-based generation where multiple characters speak with distinct voices in a cohesive narrative flow.
 
@@ -171,7 +156,7 @@ James: Let's dive into today's topic.
 - `/duration:nn` directive is **required** (1-30 seconds)
 - Optional `/level:0-100` to control volume
 
-### 2.3 Cross-Use Feature
+### 1.3 Cross-Use Feature
 
 TTS one-line mode supports mixing generated and cloned voices in the same dialogue. Use `voice` for generated voices and `target` for cloned voices:
 
@@ -183,7 +168,7 @@ python src/voder.py tts script "James: Hello!" "Sarah: Hi there!" voice "James: 
 python src/voder.py tts script "James: Welcome!" "Sarah: Thanks!" target "James: /path/to/james_voice.wav" voice "Sarah: bright female voice"
 ```
 
-### 2.4 Background Music
+### 1.4 Background Music
 
 When generating dialogue (TTS mode), VODER can automatically **add ambient background music** that matches the length of the spoken audio.
 
@@ -234,9 +219,47 @@ James: Let's dive in. First, tell us about neural networks.
 
 This feature is available in both **GUI** and **CLI** modes (interactive and one‑line). It is **only triggered for dialogue scripts** (i.e., more than one line, or a single line containing a colon).
 
+### 1.5 SLC (Speech Language Conversion)
+
+SLC translates speech from one language to another while preserving the speaker's voice identity. It is now a TTS oneline sub-task, leveraging Whisper's translation capability (supporting 99 languages) and Qwen3-TTS for resynthesis.
+
+**Supported Inputs:**
+- Audio files (WAV, MP3, FLAC, OGG, etc.)
+- YouTube URLs — downloaded and processed automatically
+
+**Features:**
+- Same-language resynthesis — re-synthesize speech preserving the original voice and language
+- Translation to English — translate from any of Whisper's 99 supported languages while preserving the speaker's voice, tone, and delivery style
+- Optional overdose mode — runs an STS v2 non-mimic pass after TTS output for better voice preservation
+
+**CLI Examples:**
+```bash
+# Same-language resynthesis (preserve voice, same language)
+python src/voder.py tts slc "speech.wav"
+
+# Translate to English preserving speaker voice
+python src/voder.py tts slc translate "spanish_speech.wav"
+
+# Overdose mode: STS v2 non-mimic pass after TTS for better voice preservation
+python src/voder.py tts overdose slc translate "speech.wav"
+```
+
+### 1.6 Modify Speech (STT+TTS)
+
+TTS interactive mode includes an integrated modify-speech pipeline. When launching TTS interactively, the first prompt asks **"modify speech? (Y/N)"** — answering yes initiates the following workflow:
+
+1. Provide an audio file, video file, or URL
+2. SVS voice isolation — extracts clean vocals from the source
+3. Whisper transcription — transcribes the isolated speech to text
+4. Edit the transcribed text as needed
+5. Choose a voice — use the source voice or specify a custom voice reference
+6. Qwen-TTS synthesis — generates the final audio from the edited text
+
+This feature is available only in GUI and interactive CLI because it involves interactive text editing between the transcription and synthesis steps.
+
 ---
 
-## 3. STS Mode
+## 2. STS Mode
 
 Speech-to-Speech (Voice Conversion). STS transforms the voice in an audio or video file to match a target speaker's voice using Seed-VC.
 
@@ -256,7 +279,7 @@ python src/voder.py sts base "input.wav" target "voice.wav"
 python src/voder.py sts base "source.wav" target "reference.wav" mimic
 ```
 
-### 3.1 MSTS (Music-STS)
+### 2.1 MSTS (Music-STS)
 
 STS mode now supports musical inputs. When processing songs or musical audio, select "musical inputs?" to use the Seed-VC v1 model (44.1kHz) instead of the standard v2 model (22.05kHz), providing better voice conversion quality for music content.
 
@@ -266,7 +289,7 @@ STS mode now supports musical inputs. When processing songs or musical audio, se
 
 ---
 
-## 4. TTM Mode
+## 3. TTM Mode
 
 Text-to-Music Generation & Manipulation. TTM synthesizes music from lyrics and style descriptions using ACE-Step, with support for voice conversion, sub-tasks, and a three-tier quality system.
 
@@ -317,7 +340,7 @@ python src/voder.py ttm overdose bgm "video.mp4" music "cinematic orchestral" le
 python src/voder.py ttm bgm "recording.wav" music "jazz lounge" level 35 reference "style_ref.wav"
 ```
 
-### 4.1 Sub-Tasks
+### 3.1 Sub-Tasks
 
 TTM supports six sub-tasks for different music manipulation workflows:
 
@@ -330,7 +353,7 @@ TTM supports six sub-tasks for different music manipulation workflows:
 | **repaint** | Re-style or regenerate elements of an existing track (supports `reference` for additional guidance) |
 | **bgm** | Replace background music in existing audio/video — strips current music, generates new bgm, mixes at configurable volume |
 
-### 4.2 Quality Tiers
+### 3.2 Quality Tiers
 
 TTM uses a three-tier ACE-Step quality system:
 
@@ -342,7 +365,7 @@ TTM uses a three-tier ACE-Step quality system:
 
 Use the `overdose` keyword before `lyrics` to activate overdose quality, or `complete` for maximum quality.
 
-### 4.3 Voice Conversion in TTM
+### 3.3 Voice Conversion in TTM
 
 TTM supports voice conversion through the `vc` flag. When enabled, you can clone a singer's voice from a reference audio file and apply it to the generated music:
 
@@ -354,17 +377,17 @@ python src/voder.py ttm vc lyrics "..." styling "pop" duration 30 clone "voice.w
 python src/voder.py ttm overdose vc lyrics "content" styling "prompt" duration 20 clone "path/link" target music "path/link" result "path"
 ```
 
-### 4.4 Instrument Tracks
+### 3.4 Instrument Tracks
 
 TTM can output up to **12 individual instrument tracks** in addition to the mixed audio, allowing for fine-grained post-production control over each instrument in the generated music.
 
 ---
 
-## 5. STT Mode
+## 4. STT Mode
 
 STT is a **standalone transcription mode** available as a one-line CLI command. It transcribes audio, video, images, or YouTube URLs into plain text with optional enhancements.
 
-### 5.1 Features
+### 4.1 Features
 
 **Supported Inputs:**
 - Audio files (WAV, MP3, FLAC, OGG, etc.)
@@ -383,7 +406,7 @@ STT is a **standalone transcription mode** available as a one-line CLI command. 
 - **Batch processing** — pass multiple files/URLs in a single command to process them all at once
 - Results saved to a specified output file or printed to the terminal
 
-### 5.2 CLI Examples
+### 4.2 CLI Examples
 
 ```bash
 # Basic transcription
@@ -413,7 +436,7 @@ python src/voder.py stt "audio.wav" result "/path/to/output.txt"
 
 ---
 
-## 6. SE Mode
+## 5. SE Mode
 
 SE (Speech Enhancement) is a standalone mode for improving audio quality by removing noise, reducing reverberation, and restoring speech clarity.
 
@@ -444,7 +467,7 @@ python src/voder.py se "audio.wav" result "/path/to/enhanced.wav"
 ```bash
 # Interactive mode
 python src/voder.py cli
-# Select option 7 (SE)
+# Select option 5 (SE)
 
 # One-liner mode
 python src/voder.py se "audio_file.wav" result "/output/enhanced.wav"
@@ -452,7 +475,7 @@ python src/voder.py se "audio_file.wav" result "/output/enhanced.wav"
 
 ---
 
-## 7. SFX Mode
+## 6. SFX Mode
 
 SFX (Sound Effects) is a standalone mode for generating custom sound effects from text descriptions.
 
@@ -495,7 +518,7 @@ python src/voder.py sfx sound "footsteps on gravel" duration 8 result "/output/f
 
 ---
 
-## 8. SVS Mode
+## 7. SVS Mode
 
 SVS isolates vocals from music or extracts instrumental tracks from songs using BS-RoFormer Resurrection.
 
@@ -541,33 +564,7 @@ python src/voder.py svs "audio_file.wav" voice result "/output/vocals.wav"
 
 ---
 
-## 9. SLC Mode
-
-SLC translates speech from one language to another while preserving the speaker's voice identity. It leverages Whisper's translation capability (supporting 99 languages) and Qwen3-TTS for resynthesis.
-
-**Supported Inputs:**
-- Audio files (WAV, MP3, FLAC, OGG, etc.)
-- YouTube URLs — downloaded and processed automatically
-
-**Features:**
-- Translates to English from any of Whisper's 99 supported languages
-- Preserves original speaker's voice, tone, and delivery style
-- Without target parameter: translates to English with same original voice
-- With target reference: can change speaker voice while translating
-- Preserving original language (if TTS-supported) with different target: voice change that can match or surpass STS quality
-
-**Quick Examples:**
-```bash
-# Translate to English preserving speaker voice
-python src/voder.py slc "spanish_speech.wav" result "/output/english.wav"
-
-# Translate with different voice reference
-python src/voder.py slc "speech.wav" target "voice_ref.wav" result "/output.wav"
-```
-
----
-
-## 10. SS Mode
+## 8. SS Mode
 
 SS extracts individual speaker audio from multi-speaker recordings using VibeVoice ASR for speaker identification and segmentation.
 
@@ -594,7 +591,7 @@ python src/voder.py ss "meeting.wav"
 
 VODER supports **cross-platform source input** — a unified input pipeline that accepts audio, video, images, and URLs across multiple processing modes. This enables powerful new workflows:
 
-- **YouTube / Bilibili / TikTok URL Support:** Paste a video URL directly as input in STT, STT+TTS, SVS, SLC, and dialogue modes. VODER automatically downloads the audio track and processes it — no manual downloading or conversion required.
+- **YouTube / Bilibili / TikTok URL Support:** Paste a video URL directly as input in STT, SVS, SLC (via TTS), and dialogue modes. VODER automatically downloads the audio track and processes it — no manual downloading or conversion required.
 - **Image Text Extraction (OCR):** Feed image files (PNG, JPG, etc.) as input. VODER uses EasyOCR to extract embedded text, which is then processed as dialogue script content. This works in STT, TTS, and TTS modes — enabling workflows like "photo of a script → spoken audio."
 - **Automatic Voice Clip Extraction:** When processing multi-speaker audio (e.g., a podcast recording), VODER can automatically identify and extract individual speaker segments. This replaces the previous manual approach of splitting audio files.
 - **Speaker Diarization:** Powered by pyannote, VODER identifies who spoke when in multi-speaker audio. Each speaker is labeled consistently, and the diarization output can be combined with transcription for fully annotated results.
@@ -625,20 +622,19 @@ VODER leverages state-of-the-art open-source models for professional-grade audio
 ### GUI Mode
 
 1. Launch: `python src/voder.py`
-2. Select mode from dropdown (10 available modes)
+2. Select mode from dropdown (8 available modes)
 3. Load input files based on mode:
-   - **STT+TTS:** Load base audio (content), then load target audio (voice)
-   - **STT:** Load audio, video, image, or enter a URL for transcription
    - **TTS:** Enter dialogue row‑by‑row in the script area, and fill the automatically generated voice prompts for each character. Use the `target` field for voice cloning from a reference audio file, or leave blank for voice design from a text prompt. Optionally set a `language` parameter for TTS output language. YouTube URLs are accepted as voice prompts for cloning.
      **Optional:** Before generation, a dialog will ask if you want background music; enter a description or press Skip.
+     **Modify Speech:** At the start, a prompt asks "modify speech? (Y/N)" — answer yes to load audio/video/URL, transcribe, edit text, choose voice, and re-synthesize.
    - **STS:** Load base audio/video and target voice audio. Video input is accepted and video output is produced automatically. When a target contains mixed audio, vocals are extracted via BS-RoFormer.
    - **TTM:** Enter lyrics and style prompt. Supports sub-tasks (complete, lego, extract, remix, repaint) and a three-tier ACE-Step quality system (standard, overdose, complete). Use the `vc` flag for voice conversion with a clone audio reference. Outputs up to 12 instrument tracks.
+   - **STT:** Load audio, video, image, or enter a URL for transcription
    - **SE:** Load audio or video file for enhancement
    - **SFX:** Enter a text description of the desired sound effect
    - **SVS:** Load audio, video, or enter a YouTube URL for vocal/music isolation
-   - **SLC:** Load audio or enter a YouTube URL for language conversion
    - **SS:** Load audio or video for speaker separation
-4. Click **"Generate"** (TTS/TTM) or **"Patch"** (STT+TTS/STS) or **"Transcribe"** (STT) or **"Enhance"** (SE) or **"Separate"** (SVS/SS) or **"Convert"** (SLC)
+4. Click **"Generate"** (TTS/TTM) or **"Patch"** (STS) or **"Transcribe"** (STT) or **"Enhance"** (SE) or **"Separate"** (SVS/SS)
 5. Listen to output and save results
 
 ### CLI Mode (Interactive)
@@ -647,7 +643,9 @@ VODER leverages state-of-the-art open-source models for professional-grade audio
 python src/voder.py cli
 ```
 
-The interactive CLI now supports full dialogue creation:
+The interactive CLI presents 8 options (1–8). When TTS is selected:
+
+- **First prompt:** `modify speech? (Y/N):` — answer `y` or `yes` to load audio/video/URL, transcribe with Whisper (after SVS voice isolation), edit text, choose voice (source or custom), and synthesize with Qwen-TTS. Answer `n` or press Enter to proceed with normal TTS input.
 - Enter multiple lines (empty line to finish).
 - Lines without a colon → **single mode** (one text, one voice prompt/audio).
 - Lines with colon (`Character: text`) → **dialogue mode**.
@@ -681,6 +679,18 @@ python src/voder.py tts script "James: Hello" "sfx: door bell /duration:3" voice
 ```bash
 python src/voder.py tts script "James: Let's start with AI." "Sarah: I've been working on this for years." target "James: /path/to/james_voice.wav" "Sarah: /path/to/sarah_voice.wav"
 python src/voder.py tts script "James: Let's start with AI." "Sarah: I've been working on this for years." target "James: /path/to/james_voice.wav" "Sarah: /path/to/sarah_voice.wav" music "ambient electronic, chill" level "40"
+```
+
+**TTS — SLC (Speech Language Conversion):**
+```bash
+# Same-language resynthesis
+python src/voder.py tts slc "speech.wav"
+
+# Translate to English preserving speaker voice
+python src/voder.py tts slc translate "spanish_speech.wav"
+
+# Overdose mode for better voice preservation
+python src/voder.py tts overdose slc translate "speech.wav"
 ```
 
 **STS mode:**
@@ -733,12 +743,6 @@ python src/voder.py svs "https://youtube.com/watch?v=..." voice
 python src/voder.py svs "audio_file.wav" voice result "/output/vocals.wav"
 ```
 
-**SLC mode:**
-```bash
-python src/voder.py slc "spanish_speech.wav" result "/output/english.wav"
-python src/voder.py slc "speech.wav" target "voice_ref.wav" result "/output.wav"
-```
-
 **SS mode:**
 ```bash
 python src/voder.py ss "meeting.wav"
@@ -759,7 +763,6 @@ python src/voder.py sfx sound "footsteps on gravel" duration 8 result "/output/f
 ```
 
 **Notes:**
-- STT+TTS mode is not available in one-line CLI because it requires interactive text editing.
 - If the `music` parameter is supplied in single‑mode (plain text without colon), it is ignored with a warning.
 - A character cannot have both `voice` and `target` assignments — each character must use either generated or cloned voice, not both.
 
@@ -767,7 +770,7 @@ python src/voder.py sfx sound "footsteps on gravel" duration 8 result "/output/f
 
 ## Technical Highlights
 
-- **Unified Audio Pipeline:** Ten processing modes in a single interface eliminates the need for multiple tools
+- **Unified Audio Pipeline:** Eight processing modes in a single interface eliminates the need for multiple tools
 - **Centralized Model Management:** A unified model management system handles loading, caching, and offloading of all AI models — ensuring efficient resource usage and preventing memory accumulation across multi-step workflows
 - **Intelligent Dialogue Editor:** Row‑based script input with automatic character tracking and per‑voice assignment
 - **Script Directives:** Per-line control over timing, volume, and duration for precise audio production
@@ -778,13 +781,15 @@ python src/voder.py sfx sound "footsteps on gravel" duration 8 result "/output/f
 - **Sound Effects Generation:** Text-to-audio synthesis for custom sound design
 - **Speech Enhancement:** Denoise, dereverberate, and restore speech audio
 - **Vocal/Music Separation:** BS-RoFormer integration for automatic vocal extraction — used internally by STS (target cleanup), STT (pre-cleanup isolation), TTS (voice cloning target cleanup), and available as a standalone SVS mode
-- **Cross-Modal Transformation:** Speech-to-speech, text-to-speech, speech-to-text, text-to-text, and speaker language conversion
+- **Speech Language Conversion (SLC):** Integrated into TTS as an oneline sub-task — translate speech to English or re-synthesize in the same language while preserving the speaker's voice, with optional overdose mode for enhanced voice fidelity
+- **Modify Speech (STT+TTS):** Integrated into TTS interactive mode — transcribe, edit, and re-synthesize speech with source or custom voice selection
+- **Cross-Modal Transformation:** Speech-to-speech, text-to-speech, speech-to-text, text-to-text, and speech language conversion
 - **Cross-Platform Source Input:** Unified input pipeline accepts audio files, video files, images, and URLs (YouTube, Bilibili, TikTok) across multiple modes — no manual format conversion required
 - **VibeVoice ASR:** Microsoft VibeVoice for overdose transcription, speaker diarization, and speaker separation with automatic fallback to Whisper + pyannote
 - **Language Parameter in TTS:** Specify output language for TTS synthesis
 - **Translation Capability in STT:** Translate audio to English from any of Whisper's 99 supported languages
 - **Video I/O for STS Mode:** Feed video files directly into STS and receive video output with converted voice audio
-- **YouTube URL Expansion:** YouTube/Bilibili/TikTok URL support expanded across STT, STT+TTS, SVS, and SLC modes
+- **YouTube URL Expansion:** YouTube/Bilibili/TikTok URL support expanded across STT, SVS, SLC (via TTS), and dialogue modes
 - **Automatic Speaker Identification:** Multi-speaker audio is automatically segmented and labeled using pyannote speaker diarization, with individual voice clips extracted for downstream processing
 - **Speaker Diarization with Word-Level Alignment:** Combines Whisper transcription with pyannote diarization to produce speaker-labeled, timestamped transcripts with per-word speaker attribution
 - **MSTS (Music-STS):** STS mode supports musical inputs using Seed-VC v1 at 44.1kHz for better music voice conversion

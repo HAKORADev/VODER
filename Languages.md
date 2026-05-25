@@ -8,9 +8,9 @@ VODER is not an English‑only tool. The AI models it orchestrates collectively 
 
 | Component | Modes | Languages | Auto‑Detect | Notes |
 |-----------|-------|-----------|-------------|-------|
-| **Whisper** (`large-v3-turbo` / `large-v3`) | STT, STT+TTS, Dialogue Source | 99 | Yes | Detects spoken language from audio; dual‑model architecture |
+| **Whisper** (`large-v3-turbo` / `large-v3`) | STT, TTS (modify speech), Dialogue Source | 99 | Yes | Detects spoken language from audio; dual‑model architecture |
 | **Qwen3‑TTS VoiceDesign** | TTS | 10 + 2 dialects | Yes | Detects language from input text |
-| **Qwen3‑TTS Base** | TTS+VC, STT+TTS | 10 + 2 dialects | Yes | Detects language from input text |
+| **Qwen3‑TTS Base** | TTS+VC, TTS (modify speech) | 10 + 2 dialects | Yes | Detects language from input text |
 | **ACE‑Step 1.5** | TTM, TTM+VC, Background Music | 50 | Yes | Detects language from lyrics/caption |
 | **EasyOCR** | STT, TTS, TTS+VC (image input) | 85 | No | Hardcoded to English in VODER |
 | **TangoFlux** | SFX | 1 (English) | No | Text encoder trained on English only |
@@ -28,7 +28,7 @@ VODER is not an English‑only tool. The AI models it orchestrates collectively 
 - `large-v3-turbo` — used for standard transcription (fast, efficient)
 - `large-v3` — used for translation tasks (supports the `translate` task which turbo does not)
 
-**Modes:** STT, STT+TTS, Dialogue Source Analysis
+**Modes:** STT, TTS (modify speech), Dialogue Source Analysis
 **Language handling:** Auto‑detects spoken language from the first 30 seconds of audio. No user configuration required. Language can be manually overridden via the `language` parameter in Whisper's API, but VODER uses auto‑detection by default.
 
 **Supported languages (99 total):**
@@ -144,7 +144,7 @@ Mongolian         Armenian           Javanese
 ## Qwen3‑TTS Base — Text‑to‑Speech with Voice Cloning
 
 **Model:** `Qwen/Qwen3-TTS-12Hz-1.7B-Base`
-**Modes:** TTS+VC, STT+TTS
+**Modes:** TTS+VC, TTS (modify speech)
 **Language handling:** Auto‑detects language from the input text. Set to `"Auto"` by default in VODER. This is the same language detection system used by VoiceDesign — the Base model variant supports it identically. The language parameter is now exposed via the `SUPPORTED_TTS_LANGUAGES` constant, which maps ISO 639‑1 codes to full English names.
 
 **Supported languages:** Same 10 languages + 2 dialects as VoiceDesign (see above).
@@ -368,14 +368,14 @@ Audio (mixed English/Japanese) → Whisper + Pyannote → Dialogue text → Qwen
 Lyrics (Spanish) + style prompt (English) → ACE‑Step TTM → Spanish vocal music
 ```
 
-**Translate speech to English with original voice (SLC mode):**
+**Translate speech to English with original voice (TTS SLC):**
 ```
 Audio (any language) → Whisper translate → English text → Qwen3‑TTS TTS with original voice reference → English speech with original voice
 ```
 
-**Change speaker voice across languages (SLC mode):**
+**Change speaker voice across languages (TTS SLC):**
 ```
-Audio (Spanish) + target reference (English speaker) → SLC → English speech with English speaker voice
+Audio (Spanish) + target reference (English speaker) → TTS SLC → English speech with English speaker voice
 ```
 
 These workflows work because each component handles language independently. Whisper auto‑detects the input language, Qwen3‑TTS auto‑detects the output language, and voice cloning operates on speaker identity rather than language. The components don't need to agree on a language — each one handles its own detection.

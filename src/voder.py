@@ -3100,6 +3100,162 @@ def cli_tts_mode():
 
     print("\n--- TTS Mode ---")
 
+    modify_speech = input("Want to modify speech? (Y/N): ").strip().lower()
+    if modify_speech in ['y', 'yes']:
+        while True:
+            print("\nEnter the path to your audio/video source (file path or YouTube URL):")
+            source_path = input("> ").strip()
+            if not source_path:
+                print("Error: No path provided")
+                continue
+            break
+
+        _ms_cleanup = []
+        audio_path = source_path
+        needs_youtube = is_youtube_url(source_path)
+
+        if needs_youtube:
+            print("Downloading audio from YouTube...")
+            ok, err, dl_path = download_youtube_audio(source_path)
+            if not ok:
+                print(f"Error: {err}")
+                return False
+            audio_path = dl_path
+            _ms_cleanup.append(dl_path)
+        elif source_path.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+            print("Extracting audio from video...")
+            audio_path = extract_audio_from_video_cli(source_path)
+            if not audio_path:
+                print("Error: Failed to extract audio from video")
+                return False
+            _ms_cleanup.append(audio_path)
+        elif not os.path.exists(source_path):
+            print(f"Error: File not found: {source_path}")
+            return False
+
+        print("Isolating vocals via SVS...")
+        clean_vocal = svs_extract_vocals(audio_path)
+        if clean_vocal and clean_vocal != audio_path:
+            _ms_cleanup.append(clean_vocal)
+        else:
+            clean_vocal = audio_path
+
+        print("\nLoading Whisper model...")
+        stt = WhisperSTT()
+        if stt.model is None:
+            print("Error: Failed to load Whisper model")
+            for f in _ms_cleanup:
+                if f and os.path.exists(f):
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+            return False
+
+        print("Transcribing audio...")
+        result = stt.transcribe(clean_vocal)
+        del stt
+        stt = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        if not result:
+            print("Error: Transcription failed")
+            for f in _ms_cleanup:
+                if f and os.path.exists(f):
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+            return False
+
+        text = result.get("text", "").strip()
+        if not text:
+            print("Error: No speech detected")
+            for f in _ms_cleanup:
+                if f and os.path.exists(f):
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+            return False
+
+        print(f"\nTranscribed text ({len(text)} chars):")
+        display_text = text.replace('\n', '\\n').replace('\r', '\\r')
+        print(display_text)
+        print()
+
+        edited_text = input("Edit text (or press Enter to keep as is): ").strip()
+        if edited_text:
+            text = edited_text.replace('\\n', '\n')
+        if not text:
+            print("Error: No text to synthesize")
+            for f in _ms_cleanup:
+                if f and os.path.exists(f):
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+            return False
+
+        use_source = input("Want to use source audio as voice reference? (Y/N): ").strip().lower()
+        voice_ref = None
+        if use_source in ['y', 'yes']:
+            voice_ref = clean_vocal
+        else:
+            while True:
+                ref_path = input("Enter voice reference path (audio/video/URL): ").strip()
+                if not ref_path:
+                    print("Error: No path provided")
+                    continue
+                break
+            resolved_ref, _ref_cl = resolve_target_to_audio(ref_path)
+            if not resolved_ref:
+                for f in _ms_cleanup:
+                    if f and os.path.exists(f):
+                        try:
+                            os.unlink(f)
+                        except:
+                            pass
+                return False
+            _ms_cleanup.extend(_ref_cl)
+            voice_ref = svs_extract_vocals(resolved_ref)
+            if voice_ref and voice_ref != resolved_ref:
+                _ms_cleanup.append(voice_ref)
+            if resolved_ref not in _ms_cleanup and resolved_ref != voice_ref:
+                _ms_cleanup.append(resolved_ref)
+
+        try:
+            print("\nLoading Qwen-TTS model...")
+            tts = QwenTTS()
+            print("Extracting voice characteristics...")
+            success = tts.extract_voice(voice_ref)
+            if not success:
+                print("Error: Voice extraction failed")
+                return False
+            print("Synthesizing speech...")
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            output_path = os.path.join(results_dir, f"voder_tts_{timestamp}.wav")
+            success = tts.synthesize(text, output_path)
+            if not success:
+                print("Error: Synthesis failed")
+                return False
+            print(f"\n✓ Success! Output saved to: {output_path}")
+            del tts
+            tts = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            return True
+        finally:
+            for f in _ms_cleanup:
+                if f and os.path.exists(f):
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+
     use_overdose = False
     overdose_input = input("Enable overdose? (Y/N): ").strip().lower()
     if overdose_input in ['y', 'yes']:
@@ -3721,111 +3877,6 @@ def cli_tts_mode():
                     os.unlink(dialogue_temp.name)
                 except:
                     pass
-
-def cli_stt_tts_mode():
-    original_cwd = os.getcwd()
-    results_dir = os.path.join(original_cwd, "results")
-    os.makedirs(results_dir, exist_ok=True)
-
-    print("\n--- STT+TTS Mode ---")
-    print("Convert speech from base audio to target voice")
-    print()
-    base_path = input("Enter base audio/video path: ").strip()
-    if not validate_file_exists(base_path):
-        return False
-    if base_path.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
-        print("Extracting audio from video...")
-        audio_path = extract_audio_from_video_cli(base_path)
-        if not audio_path:
-            print("Error: Could not extract audio from video")
-            return False
-        base_path = audio_path
-
-    bs_roformer_lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bs_roformer', 'lib')
-    if bs_roformer_lib not in sys.path:
-        sys.path.insert(0, bs_roformer_lib)
-    bs_roformer_pkg = os.path.dirname(os.path.abspath(__file__))
-    if bs_roformer_pkg not in sys.path:
-        sys.path.insert(0, bs_roformer_pkg)
-
-    print("Stage 1: SVS voice isolation (BS-RoFormer)...")
-    from bs_roformer import BSRoformerSeparator
-    svs_separator = BSRoformerSeparator(SVS_DIR)
-    svs_separator.ensure_model(stem='voice')
-    if svs_separator.vocals_model is None:
-        print("Error: Failed to load BS-RoFormer vocals model")
-        svs_separator.cleanup()
-        del svs_separator
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        return False
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    svs_temp_dir = tempfile.mkdtemp()
-    svs_temp = os.path.join(svs_temp_dir, f'_stt_tts_svs_{timestamp}.wav')
-    svs_ok = svs_separator.separate(base_path, 'voice', svs_temp)
-    svs_separator.cleanup()
-    del svs_separator
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    if svs_ok and os.path.exists(svs_temp):
-        base_path = svs_temp
-    else:
-        print("Warning: SVS voice isolation failed, using original audio")
-        shutil.rmtree(svs_temp_dir, ignore_errors=True)
-
-    print("\nLoading Whisper model...")
-    stt = WhisperSTT()
-    print("Transcribing base audio...")
-    result = stt.transcribe(base_path)
-    if not result:
-        print("Error: Transcription failed")
-        return False
-    text = result.get("text", "").strip()
-    print(f"\nExtracted text ({len(text)} chars):")
-    display_text = text.replace('\n', '\\n').replace('\r', '\\r')
-    print(display_text)
-    print()
-
-    print("Offloading Whisper model...")
-    del stt
-    stt = None
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
-    edited_text = input("Edit text (or press Enter to keep as is): ").strip()
-    if edited_text:
-        text = edited_text.replace('\\n', '\n')
-    if not text:
-        print("Error: No text to synthesize")
-        return False
-    print()
-    target_path = input("Enter target voice audio path: ").strip()
-    if not validate_file_exists(target_path):
-        return False
-    print("\nLoading Qwen-TTS model...")
-    tts = QwenTTS()
-    print("Extracting voice characteristics...")
-    success = tts.extract_voice(target_path)
-    if not success:
-        print("Error: Voice extraction failed")
-        return False
-    print("\nSynthesizing speech with target voice...")
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    output_path = os.path.join(results_dir, f"voder_stt_tts_{timestamp}.wav")
-    success = tts.synthesize(text, output_path)
-    if not success:
-        print("Error: Synthesis failed")
-        return False
-    print(f"\n✓ Success! Output saved to: {output_path}")
-    del tts
-    tts = None
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    return True
 
 def cli_stt_mode():
     original_cwd = os.getcwd()
@@ -5079,42 +5130,6 @@ def parse_oneline_args(args):
         result['params']['result_path'] = result_path
         return result
 
-    if mode == 'slc':
-        file_path = None
-        enable_translate = False
-        target_path = None
-        while i < len(args):
-            arg = args[i]
-            arg_lower = arg.lower()
-            if arg_lower == 'translate':
-                enable_translate = True
-                i += 1
-            elif arg_lower == 'target':
-                if i + 1 < len(args):
-                    target_path = args[i + 1]
-                    i += 2
-                else:
-                    result['error'] = 'target keyword requires a path argument'
-                    return result
-            elif arg_lower == 'result':
-                if i + 1 < len(args):
-                    result_path = args[i + 1]
-                    i += 2
-                else:
-                    result['error'] = 'result keyword requires a path argument'
-                    return result
-            elif file_path is None:
-                file_path = arg
-                i += 1
-            else:
-                result['error'] = f'Unknown parameter: {arg}'
-                return result
-        result['params']['file_path'] = file_path or ''
-        result['params']['translate'] = enable_translate
-        result['params']['target_path'] = target_path
-        result['params']['result_path'] = result_path
-        return result
-
     if mode == 'train':
         sub_type = None
         voice_name = None
@@ -5363,6 +5378,20 @@ def parse_oneline_args(args):
             result['nomusic'] = True
             current_keyword = None
             i += 1
+        elif mode == 'tts' and arg_lower == 'slc':
+            result['params']['slc'] = True
+            if i + 1 < len(args):
+                peek = args[i + 1]
+                if peek.lower() != 'translate' and peek.lower() != 'overdose' and peek.lower() not in valid_keywords:
+                    result['params']['slc_path'] = peek
+                    i += 2
+                else:
+                    i += 1
+            else:
+                i += 1
+        elif mode == 'tts' and arg_lower == 'translate' and result['params'].get('slc'):
+            result['params']['slc_translate'] = True
+            i += 1
         elif mode == 'ttm' and arg_lower == 'vc':
             result['params']['vc'] = True
             i += 1
@@ -5601,9 +5630,7 @@ def _is_trained_voice_ref(value):
     return False
 
 def validate_oneline_mode(mode_name):
-    valid_modes = ['tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'slc', 'ss', 'train']
-    if mode_name.lower() in ['stt+tts', 'stt_tts', 'stttts']:
-        return 'stt+tts_rejected'
+    valid_modes = ['tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'ss', 'train']
     if mode_name.lower() in valid_modes:
         return mode_name.lower()
     return None
@@ -5620,7 +5647,6 @@ def show_oneline_usage():
     print("  se       - Speech Enhancement (denoise, dereverb, restore)")
     print("  sfx      - Sound Effects (text prompt + duration → audio)")
     print("  svs      - Song Voice Separate (extract vocals/music from song)")
-    print("  slc      - Speaker Language Conversion (STT + TTS+VC)")
     print("  ss       - Speakers Separator (extract all speakers one by one)")
     print("  train    - Train and save voice clones")
     print()
@@ -5635,20 +5661,11 @@ def show_oneline_usage():
     print('  python voder.py svs voice "path/to/song.mp3" result "output.wav"')
     print('  python voder.py svs music "path/to/song.mp3" result "output.wav"')
     print()
-    print("SLC examples (Speaker Language Conversion):")
-    print('  python voder.py slc "path/to/audio.wav"')
-    print('  python voder.py slc translate "path/to/audio.wav"')
-    print('  python voder.py slc "path/to/audio.wav" target "voice_ref.wav"')
-    print('  python voder.py slc translate "path/to/audio.wav" target "voice_ref.wav"')
-    print()
     print("SS examples (Speakers Separator):")
     print('  python voder.py ss "path/to/audio.wav"')
     print('  python voder.py ss "path/to/video.mp4"')
     print('  python voder.py ss "https://youtube.com/watch?v=..."')
     print('  python voder.py ss se "path/to/audio.wav"')
-    print()
-    print("Note: STT+TTS mode is not available in one-line mode.")
-    print("      Use 'tts' mode with your text, or use interactive CLI.")
     print()
     print("Single mode examples:")
     print('  python voder.py tts script "hello world" voice "male voice"')
@@ -5721,9 +5738,11 @@ def show_oneline_usage():
     print('  "sfx:"   - Sound effect spec for bgm/complete tasks: "sfx:prompt/duration-position/level"')
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
     print()
-    print("SLC parameters:")
-    print("  translate - Force translate to English (SLC mode)")
-    print("  target   - Target voice reference audio (SLC mode, default: same as input)")
+    print("TTS SLC examples (Speaker Language Conversion):")
+    print('  python voder.py tts slc "path/to/audio.wav"')
+    print('  python voder.py tts slc translate "path/to/audio.wav"')
+    print('  python voder.py tts slc "path/to/audio.wav" target "voice_ref.wav"')
+    print('  python voder.py tts overdose slc translate "path/to/audio.wav"')
     print()
     print("BGM examples (add/replace background music on audio or video):")
     print('  python voder.py ttm bgm "path/to/audio.wav" music "soft piano"')
@@ -5839,8 +5858,6 @@ def execute_oneline_command(parsed):
         success = oneline_sfx(params)
     elif mode == 'svs':
         success = oneline_svs(params)
-    elif mode == 'slc':
-        success = oneline_slc(params)
     elif mode == 'ss':
         success = oneline_ss(params)
     elif mode == 'train':
@@ -5980,6 +5997,239 @@ def oneline_tts(params):
     reference_source = reference_params[0] if reference_params else None
     ocr_param = params.get('ocr', [])
     use_overdose = params.get('overdose', False)
+
+    if params.get('slc'):
+        slc_path = params.get('slc_path')
+        if not slc_path:
+            for t in targets:
+                if t:
+                    slc_path = t
+                    break
+        if not slc_path and voices:
+            for v in voices:
+                if os.path.exists(v) or is_youtube_url(v):
+                    slc_path = v
+                    break
+        if not slc_path:
+            for s in scripts:
+                if os.path.exists(s) or is_youtube_url(s):
+                    slc_path = s
+                    break
+        if not slc_path:
+            print("Error: TTS SLC requires an audio/video source path")
+            return False
+
+        _slc_cleanup = []
+        audio_path = slc_path
+        needs_youtube_dl = is_youtube_url(slc_path)
+
+        if needs_youtube_dl:
+            print("Downloading audio from YouTube...")
+            ok, err, dl_path = download_youtube_audio(slc_path)
+            if not ok:
+                print(f"Error: {err}")
+                return False
+            audio_path = dl_path
+            _slc_cleanup.append(dl_path)
+        elif slc_path.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+            print("Extracting audio from video...")
+            audio_path = extract_audio_from_video_cli(slc_path)
+            if not audio_path:
+                print("Error: Failed to extract audio from video")
+                return False
+            _slc_cleanup.append(audio_path)
+        elif not os.path.exists(slc_path):
+            print(f"Error: File not found: {slc_path}")
+            return False
+
+        print("Isolating vocals via SVS...")
+        clean_vocal = svs_extract_vocals(audio_path)
+        if clean_vocal and clean_vocal != audio_path:
+            _slc_cleanup.append(clean_vocal)
+        else:
+            clean_vocal = audio_path
+
+        print("Loading Whisper model...")
+        stt = WhisperSTT()
+        if stt.model is None:
+            print("Error: Failed to load Whisper model")
+            for f in _slc_cleanup:
+                if f and os.path.exists(f):
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+            return False
+
+        print("Transcribing audio...")
+        result = stt.transcribe(clean_vocal)
+        if not result:
+            print("Error: Transcription failed")
+            del stt
+            stt = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            for f in _slc_cleanup:
+                if f and os.path.exists(f):
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+            return False
+
+        detected_lang = result.get("language", "en")
+        transcribed_text = result.get("text", "").strip()
+        if not transcribed_text:
+            print("Error: No speech detected in audio")
+            del stt
+            stt = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            for f in _slc_cleanup:
+                if f and os.path.exists(f):
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+            return False
+
+        print(f"Detected language: {detected_lang}")
+        print(f"Transcribed text ({len(transcribed_text)} chars): {transcribed_text[:100]}{'...' if len(transcribed_text) > 100 else ''}")
+
+        del stt
+        stt = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        tts_lang = "Auto"
+        final_text = transcribed_text
+        enable_translate = params.get('slc_translate', False)
+
+        if enable_translate:
+            if detected_lang == "en":
+                print("Audio is already in English, skipping translation")
+                tts_lang = "English"
+            else:
+                print("Translating to English...")
+                stt2 = WhisperSTT(skip_turbo=True)
+                trans_result = stt2.translate(clean_vocal)
+                if trans_result and trans_result.get("text", "").strip():
+                    final_text = trans_result["text"].strip()
+                    tts_lang = "English"
+                    print(f"Translated text: {final_text[:100]}{'...' if len(final_text) > 100 else ''}")
+                else:
+                    print("Warning: Translation failed, using original transcription")
+                    tts_lang = SUPPORTED_TTS_LANGUAGES.get(detected_lang, "Auto")
+                del stt2
+                stt2 = None
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+        else:
+            if detected_lang in SUPPORTED_TTS_LANGUAGES:
+                tts_lang = SUPPORTED_TTS_LANGUAGES[detected_lang]
+            else:
+                print(f"Unsupported language ({detected_lang}), auto-translating to English...")
+                stt2 = WhisperSTT(skip_turbo=True)
+                trans_result = stt2.translate(clean_vocal)
+                if trans_result and trans_result.get("text", "").strip():
+                    final_text = trans_result["text"].strip()
+                    tts_lang = "English"
+                    print(f"Translated text: {final_text[:100]}{'...' if len(final_text) > 100 else ''}")
+                else:
+                    print("Warning: Auto-translation failed, using original transcription")
+                    tts_lang = "Auto"
+                del stt2
+                stt2 = None
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+        print(f"TTS language: {tts_lang}")
+        print("Loading Qwen-TTS model...")
+        tts = QwenTTS()
+        print("Extracting voice characteristics...")
+        success = tts.extract_voice(clean_vocal)
+        if not success:
+            print("Error: Voice extraction failed")
+            del tts
+            tts = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            for f in _slc_cleanup:
+                if f and os.path.exists(f):
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+            return False
+
+        print("Generating speech...")
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        output_path = os.path.join(results_dir, f"voder_tts_slc_{timestamp}.wav")
+        success = tts.synthesize(final_text, output_path, language=tts_lang)
+        if not success:
+            print("Error: Synthesis failed")
+            del tts
+            tts = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            for f in _slc_cleanup:
+                if f and os.path.exists(f):
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+            return False
+
+        del tts
+        tts = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        print(f"✓ SLC output saved to: {output_path}")
+
+        if use_overdose:
+            print("\nRunning overdose pass (STS v2 non-mimic)...")
+            vc = SeedVCV2()
+            if vc.model is None:
+                print("Warning: Seed-VC v2 model failed to load, skipping overdose pass")
+            else:
+                svs_out = svs_extract_vocals(output_path)
+                if svs_out and svs_out != output_path:
+                    _slc_cleanup.append(svs_out)
+                    vc_input = svs_out
+                else:
+                    vc_input = output_path
+                try:
+                    od_timestamp = time.strftime("%Y%m%d_%H%M%S")
+                    od_output = os.path.join(results_dir, f"voder_tts_slc_od_{od_timestamp}.wav")
+                    od_success = vc.convert(clean_vocal, vc_input, od_output)
+                    if od_success:
+                        print(f"✓ Overdose output saved to: {od_output}")
+                        output_path = od_output
+                    else:
+                        print("Warning: Overdose STS pass failed, using standard SLC output")
+                finally:
+                    del vc
+                    vc = None
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+        for f in _slc_cleanup:
+            if f and os.path.exists(f):
+                try:
+                    os.unlink(f)
+                except:
+                    pass
+        return True
 
     if ocr_param:
         ocr_path = ocr_param[0]
@@ -8739,186 +8989,6 @@ def oneline_stt(params):
     print(f"Processing complete: {success_count}/{len(files)} files successful")
     return success_count > 0
 
-def oneline_slc(params):
-    original_cwd = os.getcwd()
-    results_dir = os.path.join(original_cwd, "results")
-    os.makedirs(results_dir, exist_ok=True)
-
-    file_path = params.get('file_path', '')
-    target_path = params.get('target_path')
-    enable_translate = params.get('translate', False)
-
-    if not file_path:
-        print("Error: SLC mode requires an audio file path")
-        return False
-
-    if not os.path.exists(file_path) and not is_youtube_url(file_path):
-        print(f"Error: File not found: {file_path}")
-        return False
-
-    audio_path = file_path
-    needs_youtube_download = is_youtube_url(file_path)
-
-    if needs_youtube_download:
-        print("Downloading audio from YouTube...")
-        success_dl, error_msg, audio_path = download_youtube_audio(file_path)
-        if not success_dl:
-            print(f"Error: {error_msg}")
-            return False
-    else:
-        valid, msg = validate_audio_file(file_path)
-        if not valid:
-            print(f"Error: {msg}")
-            return False
-        if msg == "video":
-            print("Error: SLC mode requires audio input only (not video)")
-            return False
-
-    use_base_as_target = not target_path or target_path.strip() == ''
-    _slc_target_cleanup = []
-    if use_base_as_target:
-        actual_target = audio_path
-    else:
-        resolved_target, _slc_target_cleanup = resolve_target_to_audio(target_path)
-        if not resolved_target:
-            return False
-        actual_target = resolved_target
-
-    try:
-        print("Loading Whisper model...")
-        stt = WhisperSTT()
-        if stt.model is None:
-            print("Error: Failed to load Whisper model")
-            return False
-
-        print("Transcribing audio...")
-        result = stt.transcribe(audio_path)
-        if not result:
-            print("Error: Transcription failed")
-            return False
-
-        detected_lang = result.get("language", "en")
-        transcribed_text = result.get("text", "").strip()
-        if not transcribed_text:
-            print("Error: No speech detected in audio")
-            return False
-
-        print(f"Detected language: {detected_lang}")
-        print(f"Transcribed text ({len(transcribed_text)} chars): {transcribed_text[:100]}{'...' if len(transcribed_text) > 100 else ''}")
-
-        del stt
-        stt = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        tts_lang = "Auto"
-        final_text = transcribed_text
-
-        if enable_translate:
-            if detected_lang == "en":
-                print("Audio is already in English, skipping translation")
-                tts_lang = "English"
-            else:
-                print("Translating to English...")
-                stt2 = WhisperSTT(skip_turbo=True)
-                trans_result = stt2.translate(audio_path)
-                if trans_result and trans_result.get("text", "").strip():
-                    final_text = trans_result["text"].strip()
-                    tts_lang = "English"
-                    print(f"Translated text: {final_text[:100]}{'...' if len(final_text) > 100 else ''}")
-                else:
-                    print("Warning: Translation failed, using original transcription")
-                    tts_lang = SUPPORTED_TTS_LANGUAGES.get(detected_lang, "Auto")
-                del stt2
-                stt2 = None
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-        else:
-            if detected_lang in SUPPORTED_TTS_LANGUAGES:
-                tts_lang = SUPPORTED_TTS_LANGUAGES[detected_lang]
-            else:
-                print(f"Unsupported language ({detected_lang}), auto-translating to English...")
-                stt2 = WhisperSTT(skip_turbo=True)
-                trans_result = stt2.translate(audio_path)
-                if trans_result and trans_result.get("text", "").strip():
-                    final_text = trans_result["text"].strip()
-                    tts_lang = "English"
-                    print(f"Translated text: {final_text[:100]}{'...' if len(final_text) > 100 else ''}")
-                else:
-                    print("Warning: Auto-translation failed, using original transcription")
-                    tts_lang = "Auto"
-                del stt2
-                stt2 = None
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-
-        print(f"TTS language: {tts_lang}")
-        print("Loading Qwen-TTS model...")
-        tts = QwenTTS()
-        print("Extracting voice characteristics...")
-        clean_voice_ref = svs_extract_vocals(actual_target)
-        if clean_voice_ref and clean_voice_ref != actual_target:
-            _slc_target_cleanup.append(clean_voice_ref)
-        success = tts.extract_voice(clean_voice_ref)
-        if not success:
-            print("Error: Voice extraction failed")
-            del tts
-            tts = None
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            return False
-
-        print("Generating speech...")
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join(results_dir, f"voder_slc_{timestamp}.wav")
-        success = tts.synthesize(final_text, output_path, language=tts_lang)
-        if not success:
-            print("Error: Synthesis failed")
-            del tts
-            tts = None
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            return False
-
-        print(f"\n\u2713 Success! Output saved to: {output_path}")
-
-        del tts
-        tts = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        return True
-
-    except Exception as e:
-        print(f"Error: {e}")
-        try:
-            del tts
-        except NameError:
-            pass
-        tts = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        return False
-
-    finally:
-        if needs_youtube_download and os.path.exists(audio_path):
-            try:
-                os.unlink(audio_path)
-            except:
-                pass
-        for f in _slc_target_cleanup:
-            if f and os.path.exists(f):
-                try:
-                    os.unlink(f)
-                except:
-                    pass
-
 def oneline_se(params):
     original_cwd = os.getcwd()
     results_dir = os.path.join(original_cwd, "results")
@@ -10405,236 +10475,38 @@ def cli_svs_mode():
             torch.cuda.empty_cache()
 
 
-def cli_slc_mode():
-    original_cwd = os.getcwd()
-    results_dir = os.path.join(original_cwd, "results")
-    os.makedirs(results_dir, exist_ok=True)
-
-    print("\n--- SLC Mode ---")
-    print("Speaker Language Conversion")
-    print()
-
-    while True:
-        file_path = input("Enter audio file path or URL: ").strip()
-        if not file_path:
-            print("Error: No path provided")
-            continue
-        if is_youtube_url(file_path):
-            break
-        valid, msg = validate_audio_file(file_path)
-        if not valid:
-            print(f"Error: {msg}")
-            continue
-        if msg == "video":
-            print("Error: SLC mode requires audio input only (not video)")
-            continue
-        break
-
-    audio_path = file_path
-    needs_youtube_download = is_youtube_url(file_path)
-
-    if needs_youtube_download:
-        print("Downloading audio from URL...")
-        success_dl, error_msg, audio_path = download_youtube_audio(file_path)
-        if not success_dl:
-            print(f"Error: {error_msg}")
-            return False
-
-    while True:
-        translate_input = input("Translate to English? (Y/N): ").strip().lower()
-        if translate_input in ['y', 'yes']:
-            enable_translate = True
-            break
-        elif translate_input in ['n', 'no']:
-            enable_translate = False
-            break
-        else:
-            print("Please enter Y or N")
-
-    target_input = input("Enter target voice reference path or URL (Enter to use input as reference): ").strip()
-    use_base_as_target = not target_input
-    _slc_cli_cleanup = []
-    if use_base_as_target:
-        actual_target = audio_path
-    else:
-        resolved_target, _slc_cli_cleanup = resolve_target_to_audio(target_input)
-        if not resolved_target:
-            return False
-        actual_target = resolved_target
-
-    try:
-        print("\nLoading Whisper model...")
-        stt = WhisperSTT()
-        if stt.model is None:
-            print("Error: Failed to load Whisper model")
-            return False
-
-        print("Transcribing audio...")
-        result = stt.transcribe(audio_path)
-        if not result:
-            print("Error: Transcription failed")
-            return False
-
-        detected_lang = result.get("language", "en")
-        transcribed_text = result.get("text", "").strip()
-        if not transcribed_text:
-            print("Error: No speech detected in audio")
-            return False
-
-        print(f"Detected language: {detected_lang}")
-        print(f"Transcribed text ({len(transcribed_text)} chars): {transcribed_text[:100]}{'...' if len(transcribed_text) > 100 else ''}")
-
-        del stt
-        stt = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        tts_lang = "Auto"
-        final_text = transcribed_text
-
-        if enable_translate:
-            if detected_lang == "en":
-                print("Audio is already in English, skipping translation")
-                tts_lang = "English"
-            else:
-                print("Translating to English...")
-                stt2 = WhisperSTT(skip_turbo=True)
-                trans_result = stt2.translate(audio_path)
-                if trans_result and trans_result.get("text", "").strip():
-                    final_text = trans_result["text"].strip()
-                    tts_lang = "English"
-                    print(f"Translated text: {final_text[:100]}{'...' if len(final_text) > 100 else ''}")
-                else:
-                    print("Warning: Translation failed, using original transcription")
-                    tts_lang = SUPPORTED_TTS_LANGUAGES.get(detected_lang, "Auto")
-                del stt2
-                stt2 = None
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-        else:
-            if detected_lang in SUPPORTED_TTS_LANGUAGES:
-                tts_lang = SUPPORTED_TTS_LANGUAGES[detected_lang]
-            else:
-                print(f"Unsupported language ({detected_lang}), auto-translating to English...")
-                stt2 = WhisperSTT(skip_turbo=True)
-                trans_result = stt2.translate(audio_path)
-                if trans_result and trans_result.get("text", "").strip():
-                    final_text = trans_result["text"].strip()
-                    tts_lang = "English"
-                    print(f"Translated text: {final_text[:100]}{'...' if len(final_text) > 100 else ''}")
-                else:
-                    print("Warning: Auto-translation failed, using original transcription")
-                    tts_lang = "Auto"
-                del stt2
-                stt2 = None
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-
-        print(f"TTS language: {tts_lang}")
-        print("\nLoading Qwen-TTS model...")
-        tts = QwenTTS()
-        print("Extracting voice characteristics...")
-        clean_voice_ref = svs_extract_vocals(actual_target)
-        if clean_voice_ref and clean_voice_ref != actual_target:
-            _slc_cli_cleanup.append(clean_voice_ref)
-        success = tts.extract_voice(clean_voice_ref)
-        if not success:
-            print("Error: Voice extraction failed")
-            del tts
-            tts = None
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            return False
-
-        print("Generating speech...")
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join(results_dir, f"voder_slc_{timestamp}.wav")
-        success = tts.synthesize(final_text, output_path, language=tts_lang)
-        if not success:
-            print("Error: Synthesis failed")
-            del tts
-            tts = None
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            return False
-
-        print(f"\n✓ Success! Output saved to: {output_path}")
-
-        del tts
-        tts = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        return True
-
-    except Exception as e:
-        print(f"Error: {e}")
-        try:
-            del tts
-        except NameError:
-            pass
-        tts = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        return False
-    finally:
-        if needs_youtube_download and os.path.exists(audio_path):
-            try:
-                os.unlink(audio_path)
-            except:
-                pass
-        for f in _slc_cli_cleanup:
-            if f and os.path.exists(f):
-                try:
-                    os.unlink(f)
-                except:
-                    pass
-
-
 def interactive_cli_mode():
     while True:
         print_banner()
         print("\nSelect Mode:")
-        print("1. STT+TTS (Speech-to-Text + Text-to-Speech)")
-        print("2. TTS (Text-to-Speech)")
-        print("3. STS (Speech-to-Speech / Voice Conversion)")
-        print("4. TTM (Text-to-Music)")
-        print("5. SE (Speech Enhancement)")
-        print("6. SFX (Sound Effects Generation)")
-        print("7. SVS (Song Voice Separate)")
-        print("8. STT (Speech-to-Text)")
-        print("9. SLC (Speaker Language Conversion)")
-        print("10. SS (Speakers Separator)")
-        choice = input("\nEnter your choice (1-10): ").strip()
+        print("1. TTS (Text-to-Speech)")
+        print("2. STS (Speech-to-Speech / Voice Conversion)")
+        print("3. TTM (Text-to-Music)")
+        print("4. SE (Speech Enhancement)")
+        print("5. SFX (Sound Effects Generation)")
+        print("6. SVS (Song Voice Separate)")
+        print("7. STT (Speech-to-Text)")
+        print("8. SS (Speakers Separator)")
+        choice = input("\nEnter your choice (1-8): ").strip()
         success = False
         if choice == '1':
-            success = cli_stt_tts_mode()
-        elif choice == '2':
             success = cli_tts_mode()
-        elif choice == '3':
+        elif choice == '2':
             success = cli_sts_mode()
-        elif choice == '4':
+        elif choice == '3':
             success = cli_ttm_mode()
-        elif choice == '5':
+        elif choice == '4':
             success = cli_se_mode()
-        elif choice == '6':
+        elif choice == '5':
             success = cli_sfx_mode()
-        elif choice == '7':
+        elif choice == '6':
             success = cli_svs_mode()
-        elif choice == '8':
+        elif choice == '7':
             success = cli_stt_mode()
-        elif choice == '9':
-            success = cli_slc_mode()
-        elif choice == '10':
+        elif choice == '8':
             success = cli_ss_mode()
         else:
-            print("Invalid choice. Please enter 1-10.")
+            print("Invalid choice. Please enter 1-8.")
             continue
         print("\n--- What's Next? ---")
         print("1. Blend Again")
@@ -10658,14 +10530,6 @@ def parse_and_execute_oneline(args):
         show_oneline_usage()
         return False
     mode = validate_oneline_mode(parsed['mode'])
-    if mode == 'stt+tts_rejected':
-        print("Error: STT+TTS mode is not available in one-line mode.")
-        print("Reason: This mode requires interactive text editing.")
-        print("Solutions:")
-        print("  - Use 'tts' mode with your text directly")
-        print("  - Use 'sts' mode to convert speech to target voice")
-        print("  - Use interactive CLI: python voder.py cli")
-        return False
     if mode is None:
         print(f"Error: Invalid mode '{parsed['mode']}'")
         show_oneline_usage()

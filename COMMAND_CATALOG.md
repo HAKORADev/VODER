@@ -27,7 +27,6 @@ python voder.py                  # launch GUI (no commands)
 | `se` | Speech Enhancement |
 | `sfx` | Sound Effects Generation |
 | `svs` | Song Voice Separate |
-| `slc` | Speaker Language Conversion |
 | `ss` | Speakers Separator |
 
 ### Quick Jump
@@ -36,7 +35,7 @@ python voder.py                  # launch GUI (no commands)
 |------|---------|
 | [Invocation](#invocation) | General syntax & modes |
 | [Global Keywords](#global-keywords-available-in-all-modes) | `result` |
-| [1. TTS](#1-tts--text-to-speech) | Text-to-Speech, dialogue, directives, trained voices, newline support |
+| [1. TTS](#1-tts--text-to-speech) | Text-to-Speech, dialogue, SLC, directives, trained voices, newline support |
 | [1a. Voice Training](#1a-voice-training--train-voice) | Train voice clones as .tts files |
 | [2. STS](#2-sts--speech-to-speech-voice-conversion) | Voice Conversion |
 | [3. TTM](#3-ttm--text-to-music) | Generate, VC, Remix, Repaint, Complete, Lego, Extract |
@@ -44,11 +43,9 @@ python voder.py                  # launch GUI (no commands)
 | [5. SE](#5-se--speech-enhancement) | Denoise, dereverb |
 | [6. SFX](#6-sfx--sound-effects-generation) | Sound effects |
 | [7. SVS](#7-svs--song-voice-separate) | Vocal/instrument separation |
-| [8. SLC](#8-slc--speaker-language-conversion) | Language conversion |
-| [9. SS](#9-ss--speakers-separator) | Speaker extraction & separation |
+| [8. SS](#8-ss--speakers-separator) | Speaker extraction & separation |
 | [Input Types](#input-types) | Supported file & URL formats |
 | [Output](#output) | Output directory & naming |
-| [Rejected Modes](#rejected-modes) | `stt+tts` etc. |
 
 ---
 
@@ -67,7 +64,7 @@ python voder.py stt "audio.wav" result "./transcript.txt"
 
 ## 1. `tts` — Text-to-Speech
 
-Generate speech from text using voice descriptions (VoiceDesign) or voice clone targets.
+Generate speech from text using voice descriptions (VoiceDesign) or voice clone targets. Also includes the SLC sub-task (Speaker Language Conversion) for transcribing and re-synthesizing speech in another language.
 
 ### Keywords
 
@@ -81,7 +78,8 @@ Generate speech from text using voice descriptions (VoiceDesign) or voice clone 
 | `reference` | `"<path>"` | Optional reference audio/video/URL for dialogue background music style guidance. Processed through SVS music pipe to extract clean instrumental before use. Accepts audio files, video files, and YouTube/TikTok/Bilibili URLs. Dialogue mode only. |
 | `ocr` | `"<image_path>"` | Extract text from an image via EasyOCR, then use that text as the script. Supported formats: PNG, JPG, JPEG, BMP, GIF, TIFF, WebP. |
 | `<number>` | `10-300` | Duration in seconds (TTM only, ignored in pure TTS). |
-| `overdose` | (flag) | Use VibeVoice ASR for dialogue source analysis and voice clip extraction instead of Whisper + pyannote. When used with `music`, also uses ACE-Step XL turbo for enhanced background music quality. Requires 24GB+ VRAM or 48GB+ RAM. |
+| `slc` | (flag) | Enable SLC (Speaker Language Conversion) sub-task. Transcribe source, clone voice, re-synthesize. See SLC Sub-Task below. |
+| `overdose` | (flag) | Use VibeVoice ASR for dialogue source analysis and voice clip extraction instead of Whisper + pyannote. When used with `music`, also uses ACE-Step XL turbo for enhanced background music quality. With `slc`, runs an additional STS v2 pass for better voice preservation. Requires 24GB+ VRAM or 48GB+ RAM. |
 
 ### Single Mode
 
@@ -158,6 +156,42 @@ python voder.py tts overdose script "James: Hello" script "Sarah: Hi" target "Ja
 - When `overdose` is used with audio as dialogue source, VibeVoice ASR replaces Whisper + pyannote for transcription and diarization.
 - Voice clip extraction with overdose automatically trims 2s from start and 3s from end of longest segment to avoid cross-speaker overlap.
 - `music` parameter with `overdose` uses ACE-Step XL turbo instead of the standard model for enhanced background music quality.
+
+### SLC Sub-Task
+
+Speaker Language Conversion: transcribe speech from an audio/video source, clone the speaker's voice, and re-synthesize in the detected language (or translated to English). SVS voice isolation is automatically run on the source before transcription.
+
+| Keyword | Value | Description |
+|---------|-------|-------------|
+| `slc` | (flag) | Enable SLC sub-task. |
+| `translate` | (flag) | Force translation to English regardless of detected language. |
+| `"<path>"` | file | Audio/video file path or YouTube/TikTok/Bilibili URL. |
+| `result` | `"<path>"` | Copy output to custom path. |
+
+#### Rules
+
+- Pipeline: SVS voice isolation → Whisper STT → (optional translate) → Qwen-TTS with voice cloning.
+- If audio is already English and `translate` is specified, translation is skipped.
+- If the detected language is not supported by Qwen-TTS, auto-translates to English.
+- Supports audio files, video files, and YouTube/TikTok/Bilibili URLs.
+- `overdose slc` runs an additional STS v2 pass after TTS for better voice preservation.
+
+```
+# Convert language (auto-detect, resynthesize in same language)
+python voder.py tts slc "french_speech.wav"
+
+# Translate to English and resynthesize
+python voder.py tts slc translate "french_speech.wav"
+
+# SLC from video
+python voder.py tts slc "interview.mp4"
+
+# SLC from YouTube
+python voder.py tts slc "https://youtube.com/watch?v=..."
+
+# SLC with overdose (additional STS v2 pass for better voice preservation)
+python voder.py tts overdose slc translate "french_speech.wav"
+```
 
 ### Newline Support
 
@@ -1096,46 +1130,7 @@ python voder.py svs music "https://youtube.com/watch?v=..."
 
 ---
 
-## 8. `slc` — Speaker Language Conversion
-
-Transcribe speech, translate (optional), then re-speak in the detected/target language while preserving the speaker's voice.
-
-### Keywords
-
-| Keyword | Value | Description |
-|---------|-------|-------------|
-| `translate` | (flag) | Force translation to English regardless of detected language. |
-| `target` | `"<path>"` | Target voice reference audio. If omitted, the input audio itself is used as the voice reference. |
-| `"<path>"` | file | Audio file path or YouTube/TikTok/Bilibili URL. |
-| `result` | `"<path>"` | Copy output to custom path. |
-
-### Rules
-
-- Input must be audio (video not supported).
-- Pipeline: Whisper STT -> (optional translate) -> Qwen-TTS with voice cloning.
-- If audio is already English and `translate` is specified, translation is skipped.
-- If the detected language is not supported by Qwen-TTS, auto-translates to English.
-
-```
-# Convert language (auto-detect, keep voice)
-python voder.py slc "french_speech.wav"
-
-# Translate to English
-python voder.py slc translate "french_speech.wav"
-
-# With custom voice target
-python voder.py slc "french_speech.wav" target "voice_ref.wav"
-
-# Translate with custom voice
-python voder.py slc translate "french_speech.wav" target "voice_ref.wav"
-
-# From YouTube
-python voder.py slc "https://youtube.com/watch?v=..."
-```
-
----
-
-## 9. `ss` — Speakers Separator
+## 8. `ss` — Speakers Separator
 
 Extract all individual speakers from an audio source one by one, or extract a specific target speaker.
 
@@ -1185,14 +1180,6 @@ python voder.py ss overdose se "noisy_conversation.wav"
 
 ---
 
-## Rejected Modes
-
-| Input | Result |
-|-------|--------|
-| `stt+tts` / `stt_tts` / `stttts` | Rejected — requires interactive text editing. Use `tts` mode with your text, or `python voder.py cli` for interactive CLI. |
-
----
-
 ## Input Types
 
 Most modes that accept file paths also support (see exceptions below):
@@ -1206,8 +1193,6 @@ Most modes that accept file paths also support (see exceptions below):
 | Bilibili URL | Auto-downloads audio/video |
 
 > **Note:** Internally, all three URL types are handled by the same URL detection function. YouTube Shorts and Bilibili links are also supported.
-
-**Exceptions:** `slc` does not support video input (audio only).
 
 Video files are automatically handled: audio is extracted for processing, then merged back with the original video track for output (where applicable).
 
