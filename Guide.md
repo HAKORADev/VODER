@@ -468,7 +468,7 @@ python src/voder.py tts overdose script "James: Hello" script "Sarah: Hi" target
 
 **Voice Cloning (via target parameter):**
 
-The voice cloning functionality is accessed by providing a `target` parameter with a reference audio file. In single mode, one reference file provides the voice for the entire script. In dialogue mode, each character can be assigned a different reference audio file. **Multi-reference cloning** is supported — provide multiple reference audios using the parenthesized format `(path1)(path2)(path3)`, and they will be concatenated into a single composite reference for richer voice extraction.
+The voice cloning functionality is accessed by providing a `target` parameter with a reference audio file. In single mode, one reference file provides the voice for the entire script. In dialogue mode, each character can be assigned a different reference audio file. **Multi-reference cloning** is supported — provide multiple reference audios using the parenthesized format `(path1)(path2)(path3)`, and they will be concatenated into a single composite reference for richer voice extraction. Add the `first` keyword before the references (`target first "(path1)(path2)(path3)"`) to extract only the first reference's speaker from all other references via TSE before compiling them — useful when references contain multiple speakers and you only want the first reference's voice.
 
 **Reference Audio Requirements:**
 
@@ -615,6 +615,7 @@ python src/voder.py train voice:character-name "path1" "path2" ...
 - `character-name` is the name used to reference the trained voice later
 - One or more audio file paths provide the reference audio for training
 - Multiple paths are SVS-cleaned individually and concatenated into a composite before voice extraction
+- Add the `first` keyword before the paths to extract only the first reference's speaker from all other references: `train voice:name first "ref1.wav" "ref2.wav"` — the first reference identifies the target speaker, and TSE extraction pulls that speaker's voice from the remaining references before compiling
 - The trained voice is saved as `voder_tts_character-name_timestamp.tts` in the `voices/` directory
 
 **Optional Test Sample:**
@@ -706,9 +707,10 @@ VODER automatically runs BS‑RoFormer vocal isolation on both the source and ta
 
 **Multi-Reference Target (Oneline Only):**
 
-The `target` parameter accepts multiple voice references using the parenthesized format `(path1)(path2)(path3)`. Each reference is resolved, SVS-cleaned individually, then concatenated into a single composite for richer voice cloning. This works for all STS sub-modes (standard, music, mimic).
+The `target` parameter accepts multiple voice references using the parenthesized format `(path1)(path2)(path3)`. Each reference is resolved, SVS-cleaned individually, then concatenated into a single composite for richer voice cloning. This works for all STS sub-modes (standard, music, mimic). Add the `first` keyword before the references (`target first "(path1)(path2)(path3)"`) to extract only the first reference's speaker from all other references via TSE before compiling — useful when references contain multiple speakers and you only want the first reference's voice.
 
 - CLI: `voder.py sts base "source.wav" target "(voice1.wav)(voice2.wav)(voice3.wav)"`
+- With `first`: `voder.py sts base "source.wav" target first "(voice1.wav)(voice2.wav)(voice3.wav)"`
 - YouTube URLs are supported within parentheses: `target "(voice1.wav)(https://youtube.com/...)"`
 - Single path format still works as before: `target "voice.wav"`
 
@@ -782,9 +784,10 @@ This replaces the previous separate TTM+VC mode. The entire pipeline runs in seq
 
 **Multi-Reference Clone (Oneline Only):**
 
-The `clone` parameter accepts multiple voice references using the parenthesized format `(path1)(path2)(path3)`. Each reference is resolved, SVS-cleaned individually, then concatenated into a single composite for richer voice cloning. This provides the VC model with a more complete voice profile from multiple samples.
+The `clone` parameter accepts multiple voice references using the parenthesized format `(path1)(path2)(path3)`. Each reference is resolved, SVS-cleaned individually, then concatenated into a single composite for richer voice cloning. This provides the VC model with a more complete voice profile from multiple samples. Add the `first` keyword before the references (`clone first "(path1)(path2)(path3)"`) to extract only the first reference's speaker from all other references via TSE before compiling — useful when references contain multiple speakers and you only want the first reference's voice.
 
 - CLI: `voder.py ttm vc lyrics "..." styling "..." duration 30 clone "(voice1.wav)(voice2.wav)"`
+- With `first`: `voder.py ttm vc lyrics "..." styling "..." duration 30 clone first "(voice1.wav)(voice2.wav)"`
 - YouTube URLs are supported within parentheses: `clone "(voice1.wav)(https://youtube.com/...)"`
 - Single path format still works as before: `clone "voice.wav"`
 

@@ -75,7 +75,7 @@ Generate speech from text using voice descriptions (VoiceDesign) or voice clone 
 |---------|-------|-------------|
 | `script` | `"<text>"` or `"CharName: text"` | Dialogue line (plain text for single mode, `Character: text` for dialogue mode). Can appear multiple times. |
 | `voice` | `"<description>"` or `"CharName: description"` or `"<trained-name>"` or `"CharName: <trained-name>"` | Voice prompt for VoiceDesign TTS, or a trained voice reference. Single mode: one prompt or trained name. Dialogue mode: `"CharName: description"` or `"CharName: trained-name"` per character. Trained voice syntax: `"character-name"` (latest .tts from voices/), `"character-name:path/to/file.tts"` (specific file), `"character-name:another-name"` (latest .tts for another-name). When a trained voice is used, Qwen3-TTS Base (voice cloning) is used instead of VoiceDesign. Can appear multiple times. |
-| `target` | `"<path>"` or `"CharName: path"` | Audio path for voice cloning. Single mode: one path. Dialogue mode: `"CharName: path"` per character. **Multi-reference**: `(path1)(path2)(path3)` wraps multiple references in parentheses — each is resolved, SVS-cleaned, and concatenated into a composite for richer voice extraction. Can appear multiple times. |
+| `target` | `"<path>"` or `"CharName: path"` | Audio path for voice cloning. Single mode: one path. Dialogue mode: `"CharName: path"` per character. **Multi-reference**: `(path1)(path2)(path3)` wraps multiple references in parentheses — each is resolved, SVS-cleaned, and concatenated into a composite for richer voice extraction. **`first` keyword**: add `first` before the references (`target first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling. Can appear multiple times. |
 | `music` | `"<description>"` | Background music description (dialogue mode only). Generated via ACE-Step and mixed under speech. |
 | `level` | `"<spec>"` | Music volume levels per dialogue segment, e.g. `"10:20-50 30:60-80"`. Format: `<volume%>:<start_sec>-<end_sec>`. Default: 35%. Dialogue mode only. |
 | `reference` | `"<path>"` | Optional reference audio/video/URL for dialogue background music style guidance. Processed through SVS music pipe to extract clean instrumental before use. Accepts audio files, video files, and YouTube/TikTok/Bilibili URLs. Dialogue mode only. |
@@ -96,6 +96,9 @@ python voder.py tts script "hello" target "voice.wav"
 
 # Multi-reference clone: concatenate multiple references
 python voder.py tts script "hello" target "(voice1.wav)(voice2.wav)(voice3.wav)"
+
+# Multi-reference clone with first keyword: extract only first ref's speaker from all others
+python voder.py tts script "hello" target first "(voice1.wav)(voice2.wav)(voice3.wav)"
 
 # OCR: extract text from image then speak it
 python voder.py tts ocr "path/to/image.png" voice "text: female voice"
@@ -124,6 +127,9 @@ python voder.py tts script "James: Hello" voice "James:voices/voder_tts_hero_202
 
 # Multi-reference cloning per character
 python voder.py tts script "James: Hello" target "James:(clip1.wav)(clip2.wav)"
+
+# Multi-reference cloning per character with first keyword
+python voder.py tts script "James: Hello" target first "James:(clip1.wav)(clip2.wav)"
 
 # Dialogue with background music
 python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: cheerful female" music "soft piano"
@@ -266,6 +272,7 @@ Train a Qwen3-TTS Base voice clone from reference audio and save it as a `.tts` 
 |---------|-------|-------------|
 | `voice:name` | `"<name>"` | Character name for the trained voice (used to reference it later via `voice` in TTS). Required. |
 | `"path1" "path2" ...` | `"<path>"` | One or more audio file paths for reference audio. Multiple paths are SVS-cleaned individually and concatenated into a composite before voice extraction. Required (at least one). |
+| `first` | (flag) | Extract only the first reference's speaker from all others via TSE before compiling. Only meaningful with multiple references. Optional. |
 | `test` | (flag) | Generate a test sample after training using a hardcoded 30+ second script. Optional. |
 | `test "script"` | `"<text>"` | Generate a test sample using a custom test script. Optional. |
 
@@ -275,6 +282,7 @@ Train a Qwen3-TTS Base voice clone from reference audio and save it as a `.tts` 
 - Output is saved as `voder_tts_<name>_<timestamp>.tts` in the `voices/` directory.
 - The `test` keyword can appear at the end of the command (no custom script) or with a quoted custom script.
 - Multiple reference paths are supported — each is SVS-cleaned before concatenation.
+- The `first` keyword uses TSE (Target Speaker Extraction) to isolate only the first reference's speaker voice from all other references before compiling them into the composite.
 
 ```
 # Train a voice from a single reference
@@ -282,6 +290,9 @@ python voder.py train voice:narrator "narrator_ref.wav"
 
 # Train from multiple references
 python voder.py train voice:hero "hero_clip1.wav" "hero_clip2.wav" "hero_clip3.wav"
+
+# Train with first keyword (extract only first ref's speaker from all others via TSE)
+python voder.py train voice:hero first "hero_clip1.wav" "hero_clip2.wav" "hero_clip3.wav"
 
 # Train with test sample (hardcoded script)
 python voder.py train voice:my-character "ref1.wav" "ref2.wav" test
@@ -301,7 +312,7 @@ Convert voice from a base audio to match a target voice. Source vocals are autom
 | Keyword | Value | Description |
 |---------|-------|-------------|
 | `base` | `"<path>"` | Source audio/video file path or YouTube/TikTok/Bilibili URL. The audio whose content will be preserved. |
-| `target` | `"<path>"` | Reference voice audio. The voice characteristics to apply. Auto-extracts clean vocals. **Multi-reference**: `(path1)(path2)(path3)` wraps multiple references in parentheses — each is resolved, SVS-cleaned, and concatenated into a composite for richer voice extraction. |
+| `target` | `"<path>"` | Reference voice audio. The voice characteristics to apply. Auto-extracts clean vocals. **Multi-reference**: `(path1)(path2)(path3)` wraps multiple references in parentheses — each is resolved, SVS-cleaned, and concatenated into a composite for richer voice extraction. **`first` keyword**: add `first` before the references (`target first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling. |
 | `music` | (flag) | Use Seed-VC v1 (44.1kHz music model) instead of v2 (22.05kHz speech model). Input must be audio (not video). Auto-extracts vocals from source and target. |
 | `mimic` | (flag) | Convert style + voice (not just voice). Uses Seed-VC v2 with `convert_style=True`. Cannot be combined with `music`. Input must be audio (not video). |
 | `nomusic` | (flag) | Output converted voice only without mixing back source music. Cannot be combined with `music`. |
@@ -334,6 +345,9 @@ python voder.py sts base "input.mp4" target "voice.wav"
 
 # Multi-reference target (oneline only, concatenates multiple voice references)
 python voder.py sts base "input.wav" target "(voice1.wav)(voice2.wav)(voice3.wav)"
+
+# Multi-reference target with first keyword (extract only first ref's speaker from all others)
+python voder.py sts base "input.wav" target first "(voice1.wav)(voice2.wav)(voice3.wav)"
 ```
 
 ---
@@ -394,7 +408,7 @@ Generate music then convert the vocal to match a clone voice via Seed-VC v1.
 | Keyword | Value | Description |
 |---------|-------|-------------|
 | `vc` | (flag) | Enable voice cloning mode. |
-| `clone` | `"<path>"` | Source voice audio for cloning. Auto-extracts clean vocals. **Multi-reference**: `(path1)(path2)(path3)` wraps multiple references in parentheses — each is resolved, SVS-cleaned, and concatenated into a composite for richer voice extraction. |
+| `clone` | `"<path>"` | Source voice audio for cloning. Auto-extracts clean vocals. **Multi-reference**: `(path1)(path2)(path3)` wraps multiple references in parentheses — each is resolved, SVS-cleaned, and concatenated into a composite for richer voice extraction. **`first` keyword**: add `first` before the references (`clone first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling. |
 | `target` | `"<path>"` | Optional reference audio for music generation (as-is). |
 | `target voice` | `"<path>"` | Optional reference — extract vocals via SVS first. |
 | `target music` | `"<path>"` | Optional reference — extract instruments via SVS first. |
@@ -420,6 +434,9 @@ python voder.py ttm vc lyrics "hello world" styling "pop" 30 clone "voice.wav" t
 
 # Voice clone with multi-reference (oneline only, concatenates multiple voice references)
 python voder.py ttm vc lyrics "hello world" styling "pop" 30 clone "(voice1.wav)(voice2.wav)(voice3.wav)"
+
+# Voice clone with multi-reference + first keyword (extract only first ref's speaker from all others)
+python voder.py ttm vc lyrics "hello world" styling "pop" 30 clone first "(voice1.wav)(voice2.wav)(voice3.wav)"
 ```
 
 ---

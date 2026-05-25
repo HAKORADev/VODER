@@ -261,6 +261,9 @@ python src/voder.py tts script "Your text here" target "voice_reference.wav"
 # Multi-reference cloning (concatenates references into composite)
 python src/voder.py tts script "Your text here" target "(voice1.wav)(voice2.wav)(voice3.wav)"
 
+# Multi-reference cloning with first keyword (extract only first ref's speaker from all others via TSE)
+python src/voder.py tts script "Your text here" target first "(voice1.wav)(voice2.wav)(voice3.wav)"
+
 # With output routing
 python src/voder.py tts script "Your text here" target "voice_reference.wav" result "/output/file.wav"
 
@@ -404,6 +407,7 @@ python src/voder.py train voice:character-name "path1" "path2" ...
 - `character-name` is the name used to reference the trained voice later
 - One or more audio file paths provide the reference audio for training
 - Multiple paths are SVS-cleaned individually and concatenated into a composite before voice extraction
+- Add the `first` keyword before the paths to extract only the first reference's speaker from all others via TSE: `train voice:name first "ref1.wav" "ref2.wav"` — the first reference identifies the target speaker, and TSE extraction pulls that speaker's voice from the remaining references before compiling
 - The trained voice is saved as `voder_tts_character-name_timestamp.tts` in the `voices/` directory
 
 **Optional Test Sample:**
@@ -565,6 +569,9 @@ python src/voder.py sts base "source.wav" target "(voice1.wav)(voice2.wav)(voice
 
 # Multi-reference with MSTS
 python src/voder.py sts base "song.wav" target "(singer1.wav)(singer2.wav)" music
+
+# Multi-reference with first keyword (extract only first ref's speaker from all others via TSE)
+python src/voder.py sts base "source.wav" target first "(voice1.wav)(voice2.wav)(voice3.wav)"
 ```
 
 ### Model Selection
@@ -794,6 +801,9 @@ python src/voder.py ttm vc lyrics "Chorus:\nThis is our moment" styling "pop" du
 
 # With multi-reference clone (oneline only)
 python src/voder.py ttm vc lyrics "Chorus:\nThis is our moment" styling "pop" duration 30 clone "(voice1.wav)(voice2.wav)(voice3.wav)"
+
+# With multi-reference clone + first keyword (extract only first ref's speaker from all others via TSE)
+python src/voder.py ttm vc lyrics "Chorus:\nThis is our moment" styling "pop" duration 30 clone first "(voice1.wav)(voice2.wav)(voice3.wav)"
 ```
 
 #### Maximum TTM VC Command
@@ -931,7 +941,7 @@ The automatic model offloading between ACE-Step and Seed-VC stages means voice c
 | `lyrics` | Yes* | Song lyrics or `"..."` for instrumental; also optional for `remix` to guide new vocal content | — |
 | `styling` | Yes** | Musical style description (optional for `complete`/`lego` sub-tasks) | — |
 | `duration` | Yes** | Target duration in seconds | — |
-| `clone` | No* | Voice clone source path (required when `vc` is set). Multi-reference format: `(path1)(path2)` concatenates multiple references into one | — |
+| `clone` | No* | Voice clone source path (required when `vc` is set). Multi-reference format: `(path1)(path2)` concatenates multiple references into one. Add `first` keyword (`clone first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling | — |
 | `target` | No | Music reference audio (optional, with type prefix: `target voice "path"` or `target music "path"`) | — |
 | `remix` | No | Source audio for remix style transfer | — |
 | `repaint` | No | Source audio for section repaint; optional `voice`/`music` prefix for SVS isolation | — |

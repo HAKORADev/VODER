@@ -67,6 +67,8 @@
 
 - **TTM VC Multi-Reference Clone** — TTM VC oneline mode now supports multiple voice references via `clone "(path1)(path2)(path3)"`, same parenthesized format as TTS target. Each reference is resolved, SVS-cleaned, then concatenated into a composite for richer voice cloning.
 
+- **`first` Keyword for Multi-Reference** — Oneline mode supports the `first` keyword before multi-reference paths to extract only the first reference's speaker from all other references via TSE before compiling. Works with: `train voice:name first "ref1" "ref2"`, `target first "(path1)(path2)"` (TTS/STS), `clone first "(path1)(path2)"` (TTM VC). Warns and ignores if only one reference is provided.
+
 #### TTM VC SVS Pipeline
 
 - **SVS Isolation for TTM VC** — TTM VC (both standard and overdose) now isolates TTM output vocals via SVS before feeding them to the VC model, and mixes converted vocals back with TTM instrumental after conversion.

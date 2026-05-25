@@ -795,7 +795,36 @@ def _concat_audio_files(file_list, output_path):
     ret = os.system(cmd)
     return ret == 0 and os.path.exists(output_path)
 
-def _resolve_multi_refs(ref_paths, cleanup_list):
+def _extract_target_speaker_from_audio(source_path, target_voice_path, cleanup_list):
+    try:
+        from unise import UniSEEnhancer
+        tse = UniSEEnhancer(UNISE_DIR)
+        tse.ensure_model()
+        if tse.model is None:
+            print("Warning: Could not load TSE model for 'first' pipe, using original audio")
+            tse.cleanup()
+            del tse
+            return source_path
+        temp_out = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        temp_out.close()
+        ok = tse.tse_extract(source_path, target_voice_path, temp_out.name)
+        tse.cleanup()
+        del tse
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        if ok and os.path.exists(temp_out.name):
+            cleanup_list.append(temp_out.name)
+            return temp_out.name
+        return source_path
+    except Exception as _e:
+        print(f"Warning: Target speaker extraction failed: {_e}")
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        return source_path
+
+def _resolve_multi_refs(ref_paths, cleanup_list, use_first=False):
     clean_vocals = []
     for ref_path in ref_paths:
         resolved_audio, _cl = resolve_target_to_audio(ref_path.strip())
@@ -810,6 +839,13 @@ def _resolve_multi_refs(ref_paths, cleanup_list):
         if resolved_audio not in cleanup_list:
             cleanup_list.append(resolved_audio)
         clean_vocals.append(cv)
+    if len(clean_vocals) > 1 and use_first:
+        print("Applying 'first' pipe: extracting target speaker from additional references...")
+        target_voice = clean_vocals[0]
+        for idx in range(1, len(clean_vocals)):
+            print(f"  Extracting target speaker from reference {idx + 1}...")
+            extracted = _extract_target_speaker_from_audio(clean_vocals[idx], target_voice, cleanup_list)
+            clean_vocals[idx] = extracted
     if len(clean_vocals) == 1:
         return clean_vocals[0]
     concat_path = os.path.join(tempfile.gettempdir(), f"voder_multi_ref_{int(time.time())}.wav")
@@ -5355,6 +5391,7 @@ def parse_oneline_args(args):
         ref_paths = []
         test_script = None
         has_test = False
+        use_first = False
         while i < len(args):
             arg = args[i]
             arg_lower = arg.lower()
@@ -5362,9 +5399,12 @@ def parse_oneline_args(args):
                 sub_type = 'voice'
                 voice_name = arg[6:].strip()
                 i += 1
+            elif arg_lower == 'first':
+                use_first = True
+                i += 1
             elif arg_lower == 'test':
                 has_test = True
-                if i + 1 < len(args) and not args[i + 1].lower().startswith('voice:') and not args[i + 1].lower() == 'test':
+                if i + 1 < len(args) and not args[i + 1].lower().startswith('voice:') and not args[i + 1].lower() == 'test' and args[i + 1].lower() != 'first':
                     test_script = args[i + 1]
                     i += 2
                 else:
@@ -5390,6 +5430,7 @@ def parse_oneline_args(args):
         result['params']['ref_paths'] = ref_paths
         result['params']['has_test'] = has_test
         result['params']['test_script'] = test_script
+        result['params']['use_first'] = use_first
         return result
 
     while i < len(args):
@@ -5599,8 +5640,15 @@ def parse_oneline_args(args):
             if i + 1 >= len(args):
                 result['error'] = 'clone requires a source path'
                 return result
-            result['clone_path'] = args[i + 1]
-            i += 2
+            _ci = i + 1
+            if args[_ci].lower() == 'first':
+                result['clone_first'] = True
+                _ci += 1
+                if _ci >= len(args):
+                    result['error'] = 'clone requires a source path after first'
+                    return result
+            result['clone_path'] = args[_ci]
+            i = _ci + 1
             current_keyword = None
         elif mode == 'ttm' and arg_lower == 'remix':
             result['is_remix'] = True
@@ -5664,6 +5712,9 @@ def parse_oneline_args(args):
             current_keyword = None
         elif mode == 'ttm' and arg.startswith('time:'):
             result['time_range'] = arg[5:]
+            i += 1
+        elif current_keyword is not None and arg_lower == 'first':
+            result['use_first'] = True
             i += 1
         elif current_keyword is not None:
             try:
@@ -6029,6 +6080,10 @@ def execute_oneline_command(parsed):
         params['time_range'] = parsed['time_range']
     if 'clone_path' in parsed:
         params['clone_path'] = parsed['clone_path']
+    if 'use_first' in parsed:
+        params['use_first'] = parsed['use_first']
+    if 'clone_first' in parsed:
+        params['clone_first'] = parsed['clone_first']
 
     success = False
     if mode == 'tts':
@@ -6105,6 +6160,7 @@ def oneline_train(params):
     ref_paths = params.get('ref_paths', [])
     has_test = params.get('has_test', False)
     test_script = params.get('test_script')
+    use_first = params.get('use_first', False)
 
     if sub_type != 'voice':
         print("Error: Only 'voice' training is supported")
@@ -6115,11 +6171,13 @@ def oneline_train(params):
         print(f"Training voice '{voice_name}' from {len(ref_paths)} reference(s)...")
         clean_vocal = None
         if len(ref_paths) > 1:
-            clean_vocal = _resolve_multi_refs(ref_paths, _cleanup)
+            clean_vocal = _resolve_multi_refs(ref_paths, _cleanup, use_first=use_first)
             if not clean_vocal:
                 print("Error: Failed to resolve reference audios")
                 return False
         else:
+            if use_first:
+                print("Warning: 'first' keyword ignored (only one reference provided)")
             resolved_audio, _cl = resolve_target_to_audio(ref_paths[0])
             if not resolved_audio:
                 print(f"Error: Failed to resolve reference: {ref_paths[0]}")
@@ -6287,14 +6345,17 @@ def oneline_tts(params):
             return True
         else:
             target_value = targets[0]
+            use_first = params.get('use_first', False)
             multi = _parse_multi_refs(target_value)
             _cleanup = []
             try:
                 if multi:
-                    clean_vocal = _resolve_multi_refs(multi, _cleanup)
+                    clean_vocal = _resolve_multi_refs(multi, _cleanup, use_first=use_first)
                     if not clean_vocal:
                         return False
                 else:
+                    if use_first:
+                        print("Warning: 'first' keyword ignored (only one reference provided)")
                     resolved_audio, _cl = resolve_target_to_audio(target_value)
                     if not resolved_audio:
                         return False
@@ -6382,6 +6443,7 @@ def oneline_tts(params):
         try:
             target_assignments = {}
             all_target_cleanup = []
+            use_first = params.get('use_first', False)
             for t in targets:
                 if ':' not in t:
                     print(f"Error: Target assignment must be in format 'Character: path', got: {t}")
@@ -6394,7 +6456,7 @@ def oneline_tts(params):
                     return False
                 multi = _parse_multi_refs(path)
                 if multi:
-                    clean_vocal = _resolve_multi_refs(multi, all_target_cleanup)
+                    clean_vocal = _resolve_multi_refs(multi, all_target_cleanup, use_first=use_first)
                     if not clean_vocal:
                         return False
                     target_assignments[char.lower()] = clean_vocal
@@ -6589,14 +6651,17 @@ def oneline_sts(params):
         print(f"Error: Base file not found: {base_path}")
         return False
     _target_cleanup = []
+    use_first = params.get('use_first', False)
     target_multi = _parse_multi_refs(target_value)
     target_pre_cleaned = False
     if target_multi:
-        resolved_target = _resolve_multi_refs(target_multi, _target_cleanup)
+        resolved_target = _resolve_multi_refs(target_multi, _target_cleanup, use_first=use_first)
         if not resolved_target:
             return False
         target_pre_cleaned = True
     else:
+        if use_first:
+            print("Warning: 'first' keyword ignored (only one reference provided)")
         resolved_target, _cl = resolve_target_to_audio(target_value)
         if not resolved_target:
             return False
@@ -6832,14 +6897,17 @@ def oneline_ttm(params):
         lyrics = params['lyrics'][0].replace('\\n', '\n')
         style = params['styling'][0].replace('\\n', '\n')
         _vc_cleanup = []
+        use_first = params.get('clone_first', False)
         clone_multi = _parse_multi_refs(clone_path)
         clone_pre_cleaned = False
         if clone_multi:
-            clean_vocal = _resolve_multi_refs(clone_multi, _vc_cleanup)
+            clean_vocal = _resolve_multi_refs(clone_multi, _vc_cleanup, use_first=use_first)
             if not clean_vocal:
                 return False
             clone_pre_cleaned = True
         else:
+            if use_first:
+                print("Warning: 'first' keyword ignored (only one reference provided)")
             if not os.path.exists(clone_path) and not is_youtube_url(clone_path):
                 print(f"Error: Clone source not found: {clone_path}")
                 return False

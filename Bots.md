@@ -364,7 +364,7 @@ python src/voder.py <mode> [parameters]
 
 Generate speech from text using Qwen3‑TTS VoiceDesign model.  
 **Supports both single and dialogue modes. Dialogue mode supports optional background music and SFX lines.**  
-**Voice cloning is available via the `target` parameter — supply a voice reference audio path to clone that voice. Multi-reference cloning is supported using parenthesized format: `(path1)(path2)(path3)`.**
+**Voice cloning is available via the `target` parameter — supply a voice reference audio path to clone that voice. Multi-reference cloning is supported using parenthesized format: `(path1)(path2)(path3)`. Add the `first` keyword before the references (`target first "(path1)(path2)(path3)"`) to extract only the first reference's speaker from all others via TSE before compiling.**
 
 **Single mode (voice design):**
 ```bash
@@ -379,6 +379,11 @@ python src/voder.py tts script "text here" target "voice_reference.wav"
 **Single mode (multi-reference cloning):**
 ```bash
 python src/voder.py tts script "text here" target "(voice1.wav)(voice2.wav)(voice3.wav)"
+```
+
+**Single mode (multi-reference cloning with `first` — extract only first reference's speaker from all others):**
+```bash
+python src/voder.py tts script "text here" target first "(voice1.wav)(voice2.wav)(voice3.wav)"
 ```
 
 **Single mode with language parameter:**
@@ -474,7 +479,7 @@ VoiceDesign characters in dialogue mode automatically get their voice stabilized
 |-----------|-------------|----------|
 | `script` | Text to synthesize (single mode) OR `Character: text` (dialogue mode) OR `sfx: description /duration:nn` (SFX lines) | Yes |
 | `voice` | Voice prompt (single mode) OR `Character: prompt` (dialogue mode) for generated voices. Also accepts trained voice names/paths: `"character-name"`, `"character-name:path/to/file.tts"`, or `"character-name:another-name"` | Yes (unless all scripts are SFX lines or using target) |
-| `target` | Path to voice reference (single) OR `Character: path` (dialogue) for cloned voices — can mix with `voice`. Multi-reference format: `(path1)(path2)(path3)` concatenates multiple references into one | No (but required if no `voice` for non-SFX lines) |
+| `target` | Path to voice reference (single) OR `Character: path` (dialogue) for cloned voices — can mix with `voice`. Multi-reference format: `(path1)(path2)(path3)` concatenates multiple references into one. Add `first` keyword before the refs (`target first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling | No (but required if no `voice` for non-SFX lines) |
 | `music` | Description for automatically generated background music (dialogue only) | No |
 | `level` | Music volume levels e.g. `"10:20-50 30:60-80"` (dialogue modes, default: 35%) | No |
 | `reference` | Reference audio/video/URL for dialogue background music style guidance (processed via SVS music pipe to extract clean instrumental) | No |
@@ -521,6 +526,9 @@ python src/voder.py tts script "James: Welcome!" "Sarah: Thanks!" target "James:
 
 # TTS mode with multi-reference cloning per character
 python src/voder.py tts script "James: Hello!" target "James:(voice1.wav)(voice2.wav)(voice3.wav)"
+
+# TTS mode with multi-reference cloning + first keyword (extract only first ref's speaker from all others)
+python src/voder.py tts script "James: Hello!" target first "James:(voice1.wav)(voice2.wav)(voice3.wav)"
 ```
 
 **Important:** A character cannot have both `voice` and `target` assignments — each character must use either generated or cloned voice, not both.
@@ -538,6 +546,9 @@ python src/voder.py train voice:character-name "path/to/reference.wav"
 # Train from multiple references (SVS-cleaned and concatenated)
 python src/voder.py train voice:character-name "ref1.wav" "ref2.wav" "ref3.wav"
 
+# Train with first keyword (extract only first ref's speaker from all others via TSE)
+python src/voder.py train voice:character-name first "ref1.wav" "ref2.wav" "ref3.wav"
+
 # Train with test sample (hardcoded 30+ second script)
 python src/voder.py train voice:character-name "ref.wav" test
 
@@ -551,6 +562,7 @@ python src/voder.py train voice:character-name "ref.wav" test "Custom test scrip
 |-----------|-------------|----------|
 | `voice:name` | Character name for the trained voice (used to reference it later) | Yes |
 | `"path1" "path2" ...` | One or more audio file paths for reference audio | Yes |
+| `first` | Extract only the first reference's speaker from all others via TSE before compiling (oneline only) | No |
 | `test` | Generate a test sample using a hardcoded 30+ second script | No |
 | `test "script"` | Generate a test sample using a custom test script | No |
 
@@ -622,7 +634,7 @@ python src/voder.py sts base "song.wav" target "voice_reference.wav" nomusic
 | Parameter | Description | Required |
 |-----------|-------------|----------|
 | `base` | Path to source audio or video | Yes |
-| `target` | Path to target voice reference audio. Multi-reference format: `(path1)(path2)(path3)` concatenates multiple references into one | Yes |
+| `target` | Path to target voice reference audio. Multi-reference format: `(path1)(path2)(path3)` concatenates multiple references into one. Add `first` keyword before the refs (`target first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling | Yes |
 | `music` | Use Seed-VC v1 (44.1kHz) for musical inputs | No |
 | `mimic` | Transfer accent and speaking style from target voice | No |
 | `nomusic` | Output converted voice only (no music recombination) | No |
@@ -650,6 +662,11 @@ python src/voder.py sts base "source_audio.wav" target "character_voice.wav" mim
 **Multi-Reference Target Example:**
 ```bash
 python src/voder.py sts base "source.wav" target "(voice1.wav)(voice2.wav)(voice3.wav)"
+```
+
+**Multi-Reference Target with `first` (extract only first ref's speaker from all others):**
+```bash
+python src/voder.py sts base "source.wav" target first "(voice1.wav)(voice2.wav)(voice3.wav)"
 ```
 **Note:** `mimic` and `music` cannot be used together. `nomusic` cannot be used with `music`.
 
@@ -681,6 +698,11 @@ python src/voder.py ttm vc lyrics "song lyrics" styling "pop" duration 30 clone 
 **TTM VC with multi-reference clone:**
 ```bash
 python src/voder.py ttm vc lyrics "song lyrics" styling "pop" duration 30 clone "(voice1.wav)(voice2.wav)(voice3.wav)"
+```
+
+**TTM VC with multi-reference clone + `first` (extract only first ref's speaker from all others):**
+```bash
+python src/voder.py ttm vc lyrics "song lyrics" styling "pop" duration 30 clone first "(voice1.wav)(voice2.wav)(voice3.wav)"
 ```
 
 **Maximum TTM VC command (with overdose, target music ref, and result):**
@@ -932,7 +954,7 @@ python src/voder.py ttm bgm "podcast.wav" sfx "doorbell/5-12/50" result "/output
 | `duration` | Duration in seconds (10‑300) | Yes (generate mode) |
 | `sfx "prompt/duration-position/level"` | SFX overlay spec for `bgm`/`complete` only: prompt (required), duration 5-30s (auto-clamped), position in seconds (required, non-negative, cannot exceed source duration), level 1-100% (optional, default: 50). Minus signs stripped from duration/level, invalid values = error, level clamped with warnings. Multiple `sfx:` specs allowed. SFX generated by TangoFlux; ACE-Step offloaded first. | No |
 | `vc` | Enable voice conversion (place **before** lyrics/styling/duration) | No |
-| `clone` | Voice reference audio path (required when `vc` is set). Multi-reference format: `(path1)(path2)(path3)` concatenates multiple references into one | Yes (when vc is set) |
+| `clone` | Voice reference audio path (required when `vc` is set). Multi-reference format: `(path1)(path2)(path3)` concatenates multiple references into one. Add `first` keyword before the refs (`clone first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling | Yes (when vc is set) |
 | `target` | Optional music reference (`target voice "ref.wav"` or `target music "ref.wav"`) | No |
 | `bias` | Style transfer strength for `remix`/`repaint` (0‑100, default 40) | No |
 | `reference` | Reference audio for `remix`/`repaint`/`bgm`/`complete`/`lego` guidance (up to 3 entries with `voice`/`music` prefix; `reference voice "path"`, `reference music "path"`, or `reference "path"` for as-is; accepts audio, video, and URLs; multiple refs composed into 30s composite) | No |
