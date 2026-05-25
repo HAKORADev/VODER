@@ -5675,6 +5675,7 @@ def _ensure_voices_dir():
 
 def _save_voice_prompt(voice_prompt_items, character_name):
     _ensure_voices_dir()
+    character_name = character_name.lower()
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     filename = f"voder_tts_{character_name}_{timestamp}.tts"
     filepath = os.path.join(VOICES_DIR, filename)
@@ -5720,6 +5721,7 @@ def _find_voice_file(name):
     _ensure_voices_dir()
     if os.path.exists(name) and name.endswith('.tts'):
         return name
+    name = name.lower()
     matches = []
     for f in os.listdir(VOICES_DIR):
         if not f.endswith('.tts'):
@@ -5733,13 +5735,13 @@ def _find_voice_file(name):
 
 def _resolve_voice_ref(value):
     if ':' not in value:
-        voice_file = _find_voice_file(value)
+        voice_file = _find_voice_file(value.lower())
         if voice_file:
             return voice_file
         return None
     parts = value.split(':', 1)
     first = parts[0].strip()
-    second = parts[1].strip()
+    second = parts[1].strip().lower()
     if second.endswith('.tts'):
         if os.path.exists(second):
             return second
@@ -5755,14 +5757,17 @@ def _resolve_voice_ref(value):
 def _is_trained_voice_ref(value):
     if os.path.exists(value) and value.endswith('.tts'):
         return True
-    if _find_voice_file(value) is not None:
+    if _find_voice_file(value.lower()) is not None:
         return True
     if ':' in value:
         parts = value.split(':', 1)
         second = parts[1].strip()
-        if second.endswith('.tts') or _find_voice_file(second) is not None:
-            return True
-        if os.path.exists(second) and second.endswith('.tts'):
+        if second.endswith('.tts'):
+            if os.path.exists(second):
+                return True
+            if _find_voice_file(second.lower()) is not None:
+                return True
+        if _find_voice_file(second.lower()) is not None:
             return True
     return False
 
@@ -6048,7 +6053,7 @@ TRAIN_TEST_SCRIPT = "The quick brown fox jumps over the lazy dog. She sells seas
 
 def oneline_train(params):
     sub_type = params.get('sub_type')
-    voice_name = params.get('voice_name', '')
+    voice_name = params.get('voice_name', '').lower()
     ref_paths = params.get('ref_paths', [])
     has_test = params.get('has_test', False)
     test_script = params.get('test_script')
