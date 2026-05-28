@@ -43,6 +43,7 @@ VODER is a professional‑grade voice processing tool that enables seamless conv
 - **Result Routing**: Copy results to any filesystem path using the `result` parameter
 - **Song Voice Separation (SVS)**: Separate vocals from music using BS‑RoFormer
 - **Speaker Language Conversion (SLC)**: Translate speech to English while preserving speaker voice (TTS sub‑task: `tts slc`, `tts slc music` for music preservation)
+- **Speaker Voice Change (SVC)**: Transcribe single-speaker audio and re-synthesize with a different voice (TTS sub-task: `tts svc "path" target "voice_ref"`)
 - **Speakers Separator (SS)**: Extract individual speakers from multi‑speaker audio
 - **Translation in STT**: Translate transcribed speech to English automatically
 - **Overdose Quality Mode**: Enhanced transcription, dialogue source analysis, and music generation using VibeVoice ASR
@@ -81,6 +82,9 @@ python src/voder.py svs "song.mp3" voice result "/output/vocals.wav"
 
 # Translate speech to English (SLC via TTS)
 python src/voder.py tts slc "spanish_audio.wav" result "/output/english.wav"
+
+# Re-synthesize speech with a different voice (SVC via TTS)
+python src/voder.py tts svc "speech.wav" target "voice_ref.wav" result "/output/new_voice.wav"
 
 # Separate speakers (SS)
 python src/voder.py ss "meeting.wav"
@@ -347,7 +351,7 @@ python src/voder.py <mode> [parameters]
 
 | Mode | Description | GPU Required | One‑Liner |
 |------|-------------|--------------|-----------|
-| `tts` | Text‑to‑Speech with Voice Design & Voice Cloning (via `target`), SLC sub‑task (`tts slc`), optional `overdose` for VibeVoice ASR and enhanced music | No | ✅ Yes (single & dialogue + optional music + SFX + overdose + SLC support) |
+| `tts` | Text‑to‑Speech with Voice Design & Voice Cloning (via `target`), SLC sub‑task (`tts slc`), SVC sub‑task (`tts svc`), optional `overdose` for VibeVoice ASR and enhanced music | No | ✅ Yes (single & dialogue + optional music + SFX + overdose + SLC + SVC support) |
 | `tts+vc` | Text‑to‑Speech + Voice Cloning — **REMOVED** (use `tts` with `target`) | No | ❌ No longer accepted |
 | `sts` | Speech‑to‑Speech (Voice Conversion) with video I/O & auto vocal extraction | No | ✅ Yes (single only) |
 | `ttm` | Text‑to‑Music Generation with sub‑tasks (`complete`, `lego`, `extract`, `remix`, `repaint`, `bgm`), `vc` flag, SFX overlay (`bgm`/`complete`), three‑tier ACE‑Step | No | ✅ Yes (single only) |
@@ -364,6 +368,8 @@ Generate speech from text using Qwen3‑TTS VoiceDesign model.
 **Supports both single and dialogue modes. Dialogue mode supports optional background music and SFX lines.**
 **Voice cloning is available via the `target` parameter — supply a voice reference audio path to clone that voice. Multi-reference cloning is supported using parenthesized format: `(path1)(path2)(path3)`. Add the `first` keyword before the references (`target first "(path1)(path2)(path3)"`) to extract only the first reference's speaker from all others via TSE before compiling.**
 **SLC (Speaker Language Conversion) is available as a sub‑task: `tts slc "path.wav"`, `tts slc music "path.wav"`, `tts overdose slc "path.wav"`, `tts overdose slc music "path.wav"`. Always translates to English using Whisper large-v3. Supports audio files, video files, and YouTube/URL input with automatic SVS voice isolation on source. The `music` flag preserves non-vocals by extracting and blending the instrumental track.**
+**SVC (Speaker Voice Change) is available as a sub‑task: `tts svc "path.wav" target "voice_ref.wav"`. Transcribes single-speaker audio and re-synthesizes it with a different target voice. The pipeline runs SVS voice isolation → Whisper/VibeVoice transcription → Qwen‑TTS synthesis with the specified target voice. Add the `overdose` flag to use VibeVoice ASR instead of Whisper. Supports the `sts:` prefix on `target` to route through STS v2 (Seed‑VC) for voice conversion instead of Qwen‑TTS, preserving more of the original prosody.**
+
 **In interactive CLI mode, providing audio/video/URL as input triggers a "modify speech? (Y/N)" prompt that runs the STT+TTS flow: SVS voice isolation → Whisper transcription → edit text → choose voice (source or custom) → Qwen‑TTS synthesis.**
 
 **Single mode (voice design):**
@@ -514,6 +520,70 @@ python src/voder.py tts slc "https://youtube.com/watch?v=..." result "/output/en
 
 > **Note:** The standalone `slc` mode has been merged into TTS. The old `slc` command is no longer accepted — use `tts slc` instead. The `translate` keyword is no longer needed; SLC always translates to English.
 
+#### SVC (Speaker Voice Change)
+
+Transcribe single-speaker audio and re-synthesize it with a different voice. SVC is a TTS sub‑task accessed via `tts svc`. The pipeline isolates vocals via SVS, transcribes with Whisper (or VibeVoice with `overdose`), then synthesizes new speech using Qwen‑TTS with the specified target voice. When the `sts:` prefix is used on `target`, the pipeline routes through STS v2 (Seed‑VC) instead of Qwen‑TTS for voice conversion, better preserving the original prosody and timing.
+
+**SVC Parameters:**
+
+| Parameter | Description | Required |
+|-----------|-------------|----------|
+| `svc` | Invoke SVC sub‑task within TTS mode (positional path after `svc`) | Yes (for SVC) |
+| `target` / `voice` | Voice reference for re-synthesis. Use `target "path"` for a voice clone reference or `voice "description"` for a generated voice | Yes |
+| `overdose` | Use VibeVoice ASR instead of Whisper for transcription | No |
+
+**SVC Pipeline:**
+1. SVS voice isolation on source audio
+2. Whisper / VibeVoice transcription of isolated vocals
+3. Qwen‑TTS synthesis with the specified target voice
+4. (Optional) If `target` uses `sts:` prefix → STS v2 (Seed‑VC) voice conversion instead of step 3
+
+**Basic SVC:**
+```bash
+python src/voder.py tts svc "speech.wav" target "voice_ref.wav" result "/output/new_voice.wav"
+```
+
+**SVC with overdose quality:**
+```bash
+python src/voder.py tts overdose svc "speech.wav" target "voice_ref.wav" result "/output/new_voice.wav"
+```
+
+**SVC with sts: prefix (STS v2 voice conversion):**
+```bash
+python src/voder.py tts svc "speech.wav" target "sts:voice_ref.wav" result "/output/new_voice.wav"
+```
+
+**SVC with generated voice:**
+```bash
+python src/voder.py tts svc "speech.wav" voice "deep male voice, authoritative" result "/output/new_voice.wav"
+```
+
+**Output naming:** SVC outputs are saved as `voder_tts_svc_*.wav` (or the path specified by `result`).
+
+#### STS Voice Pass (`sts:` Prefix)
+
+The `sts:` prefix on a `target` reference routes voice conversion through STS v2 (Seed‑VC) instead of Qwen‑TTS. This preserves more of the original prosody, timing, and emotional quality of the source audio while applying the target voice characteristics. The `sts:` prefix works in single mode, dialogue mode, and SVC sub‑task.
+
+**Where `sts:` works:**
+- **Single TTS**: `target "sts:voice_ref.wav"` — clones via STS v2 after Qwen‑TTS synthesis
+- **Dialogue TTS**: `target "Character:sts:voice_ref.wav"` — each character's lines are synthesized then converted via STS v2
+- **SVC**: `tts svc "source.wav" target "sts:voice_ref.wav"` — transcribe then apply STS v2 voice conversion
+
+**Single mode with sts: prefix:**
+```bash
+python src/voder.py tts script "Hello world" target "sts:voice_ref.wav"
+```
+
+**Dialogue mode with sts: prefix:**
+```bash
+python src/voder.py tts script "James: Hello" "Sarah: Hi" target "James:sts:james_ref.wav" "Sarah:sarah_ref.wav"
+```
+
+**SVC with sts: prefix:**
+```bash
+python src/voder.py tts svc "speech.wav" target "sts:voice_ref.wav" result "/output/new_voice.wav"
+```
+
 **Voice Stabilization:**
 
 VoiceDesign characters in dialogue mode automatically get their voice stabilized. After 3 script lines, the outputs are concatenated, SVS-cleaned, and fed to Qwen3-TTS Base for voice extraction. All subsequent lines use the cloned voice instead of VoiceDesign, eliminating vocal drift in long dialogues. This happens automatically with no configuration needed.
@@ -524,13 +594,14 @@ VoiceDesign characters in dialogue mode automatically get their voice stabilized
 |-----------|-------------|----------|
 | `script` | Text to synthesize (single mode) OR `Character: text` (dialogue mode) OR `sfx: description /duration:nn` (SFX lines) | Yes |
 | `voice` | Voice prompt (single mode) OR `Character: prompt` (dialogue mode) for generated voices. Also accepts trained voice names/paths: `"character-name"`, `"character-name:path/to/file.tts"`, or `"character-name:another-name"` | Yes (unless all scripts are SFX lines or using target) |
-| `target` | Path to voice reference (single) OR `Character: path` (dialogue) for cloned voices — can mix with `voice`. Multi-reference format: `(path1)(path2)(path3)` concatenates multiple references into one. Add `first` keyword before the refs (`target first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling | No (but required if no `voice` for non-SFX lines) |
+| `target` | Path to voice reference (single) OR `Character: path` (dialogue) for cloned voices — can mix with `voice`. Supports `sts:` prefix (e.g. `"sts:voice_ref.wav"`) to route through STS v2 (Seed‑VC) for voice conversion instead of Qwen‑TTS. Multi-reference format: `(path1)(path2)(path3)` concatenates multiple references into one. Add `first` keyword before the refs (`target first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling | No (but required if no `voice` for non-SFX lines) |
 | `music` | Description for automatically generated background music (dialogue only) | No |
 | `level` | Music volume levels e.g. `"10:20-50 30:60-80"` (dialogue modes, default: 35%) | No |
 | `reference` | Reference audio/video/URL for dialogue background music style guidance (processed via SVS music pipe to extract clean instrumental) | No |
 | `overdose` | Use VibeVoice ASR for dialogue source/voice clip extraction and ACE-Step XL turbo for background music (TTS mode) | No |
 | `language` | Output language for speech synthesis (e.g., `"Spanish"`, `"English"`) | No |
 | `slc` | Invoke SLC sub‑task for speech translation to English (use `tts slc "path.wav"`, `tts slc music "path.wav"` for music preservation) | No |
+| `svc` | Invoke SVC sub‑task for speaker voice change (use `tts svc "path.wav" target "voice_ref.wav"`) | No |
 
 **Voice Prompt Examples:**
 

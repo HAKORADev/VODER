@@ -35,7 +35,7 @@ python voder.py                  # launch GUI (no commands)
 |------|---------|
 | [Invocation](#invocation) | General syntax & modes |
 | [Global Keywords](#global-keywords-available-in-all-modes) | `result` |
-| [1. TTS](#1-tts--text-to-speech) | Text-to-Speech, dialogue, SLC, directives, trained voices, newline support |
+| [1. TTS](#1-tts--text-to-speech) | Text-to-Speech, dialogue, SLC, SVC, STS pass, directives, trained voices, newline support |
 | [1a. Voice Training](#1a-voice-training--train-voice) | Train voice clones as .tts files |
 | [2. STS](#2-sts--speech-to-speech-voice-conversion) | Voice Conversion |
 | [3. TTM](#3-ttm--text-to-music) | Generate, VC, Remix, Repaint, Complete, Lego, Extract |
@@ -64,7 +64,7 @@ python voder.py stt "audio.wav" result "./transcript.txt"
 
 ## 1. `tts` — Text-to-Speech
 
-Generate speech from text using voice descriptions (VoiceDesign) or voice clone targets. Also includes the SLC sub-task (Speaker Language Conversion) for transcribing and re-synthesizing speech in another language.
+Generate speech from text using voice descriptions (VoiceDesign) or voice clone targets. Also includes the SLC sub-task (Speaker Language Conversion) and SVC sub-task (Speaker Voice Change) for transcribing and re-synthesizing speech.
 
 ### Keywords
 
@@ -72,13 +72,14 @@ Generate speech from text using voice descriptions (VoiceDesign) or voice clone 
 |---------|-------|-------------|
 | `script` | `"<text>"` or `"CharName: text"` | Dialogue line (plain text for single mode, `Character: text` for dialogue mode). Can appear multiple times. |
 | `voice` | `"<description>"` or `"CharName: description"` or `"<trained-name>"` or `"CharName: <trained-name>"` | Voice prompt for VoiceDesign TTS, or a trained voice reference. Single mode: one prompt or trained name. Dialogue mode: `"CharName: description"` or `"CharName: trained-name"` per character. Trained voice syntax: `"character-name"` (latest .tts from voices/), `"character-name:path/to/file.tts"` (specific file), `"character-name:another-name"` (latest .tts for another-name). When a trained voice is used, Qwen3-TTS Base (voice cloning) is used instead of VoiceDesign. Can appear multiple times. |
-| `target` | `"<path>"` or `"CharName: path"` | Audio path for voice cloning. Single mode: one path. Dialogue mode: `"CharName: path"` per character. **Multi-reference**: `(path1)(path2)(path3)` wraps multiple references in parentheses — each is resolved, SVS-cleaned, and concatenated into a composite for richer voice extraction. **`first` keyword**: add `first` before the references (`target first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling. Can appear multiple times. |
+| `target` | `"<path>"` or `"CharName: path"` | Audio path for voice cloning. Single mode: one path. Dialogue mode: `"CharName: path"` per character. **Multi-reference**: `(path1)(path2)(path3)` wraps multiple references in parentheses — each is resolved, SVS-cleaned, and concatenated into a composite for richer voice extraction. **`first` keyword**: add `first` before the references (`target first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling. **`sts:` prefix**: `target "sts:path"` triggers an additional Seed-VC v2 non-mimic voice conversion pass after cloning. Can appear multiple times. |
 | `music` | `"<description>"` | Background music description (dialogue mode only). Generated via ACE-Step and mixed under speech. |
 | `level` | `"<spec>"` | Music volume levels per dialogue segment, e.g. `"10:20-50 30:60-80"`. Format: `<volume%>:<start_sec>-<end_sec>`. Default: 35%. Dialogue mode only. |
 | `reference` | `"<path>"` | Optional reference audio/video/URL for dialogue background music style guidance. Processed through SVS music pipe to extract clean instrumental before use. Accepts audio files, video files, and YouTube/TikTok/Bilibili URLs. Dialogue mode only. |
 | `ocr` | `"<image_path>"` | Extract text from an image via EasyOCR, then use that text as the script. Supported formats: PNG, JPG, JPEG, BMP, GIF, TIFF, WebP. |
 | `<number>` | `10-300` | Duration in seconds (TTM only, ignored in pure TTS). |
 | `slc` | (flag) | Enable SLC (Speaker Language Conversion) sub-task. Transcribe source, clone voice, re-synthesize. See SLC Sub-Task below. |
+| `svc` | `"path"` | SVC sub-task: transcribe single-speaker audio and re-synthesize with a target voice. Must be paired with `target` or `voice` for the output voice |
 | `overdose` | (flag) | Use VibeVoice ASR for dialogue source analysis and voice clip extraction instead of Whisper + pyannote. When used with `music`, also uses ACE-Step XL turbo for enhanced background music quality. With `slc`, runs an additional STS v2 pass for better voice preservation. Requires 24GB+ VRAM or 48GB+ RAM. |
 
 ### Single Mode
@@ -197,6 +198,53 @@ python voder.py tts overdose slc "french_speech.wav"
 # SLC with overdose + music preservation
 python voder.py tts overdose slc music "french_speech.wav"
 ```
+
+### SVC Sub-Task
+
+Speaker Voice Change: transcribe single-speaker audio and re-synthesize with a different target voice. Unlike SLC (which preserves the original voice and changes language), SVC preserves the content/language but changes the speaker's voice.
+
+**Command format:** `voder.py tts [overdose] svc "source_path" target "voice_ref"`
+
+**Pipeline:** SVS voice isolation → Whisper/VibeVoice transcription → Qwen-TTS synthesis with target voice → optional STS v2 pass (if `sts:` prefix on target)
+
+```
+# Basic SVC
+python src/voder.py tts svc "speech.wav" target "voice_ref.wav"
+
+# SVC with voice description
+python src/voder.py tts svc "speech.wav" voice "deep male, authoritative"
+
+# Overdose mode (VibeVoice + Seed-VC v2)
+python src/voder.py tts overdose svc "speech.wav" target "voice.wav"
+
+# SVC with STS voice pass
+python src/voder.py tts svc "speech.wav" target "sts:voice.wav"
+```
+
+| Output Pattern | Mode |
+|----------------|------|
+| `voder_tts_svc_*.wav` | Standard SVC |
+| `voder_tts_svc_od_*.wav` | Overdose SVC |
+| `voder_tts_svc_sts_*.wav` | SVC with STS voice pass |
+
+### STS Voice Pass (`sts:` Prefix)
+
+Prefix `sts:` on any `target` reference triggers an additional Seed-VC v2 non-mimic voice conversion pass after the standard cloning synthesis. This applies an extra voice conversion layer for enhanced voice matching fidelity.
+
+**Where it works:** Single TTS, Dialogue TTS, SVC sub-task.
+
+```
+# Single TTS with STS pass
+python src/voder.py tts script "Hello" target "sts:ref.wav"
+
+# Dialogue TTS with STS pass
+python src/voder.py tts script "Alice: Hi" voice "Alice: cheerful" target "Alice: sts:ref.wav"
+
+# SVC with STS pass
+python src/voder.py tts svc "input.wav" target "sts:ref.wav"
+```
+
+**Output naming:** `voder_tts_sts_*.wav` (single mode)
 
 ### Newline Support
 

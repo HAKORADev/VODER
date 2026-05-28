@@ -30,6 +30,7 @@ VODER brings together **8 processing modes** under one interface — speech-to-t
 - **Music Generation & Manipulation** — Generate full songs from lyrics and style descriptions. Remix, repaint, complete, extract stems, build individual instrument tracks, or replace background music in existing audio/video. Output up to 12 separate instrument tracks.
 - **Speech-to-Text with Intelligence** — Transcribe audio, video, images, or direct URLs. Translate to English from 99 languages. Identify who spoke when with speaker diarization. Batch process multiple files.
 - **Language Dubbing** — Translate speech from one language to another while preserving the original speaker's voice identity.
+- **Voice Re-Synthesis** — Transcribe speech and re-read it in a different voice using `tts svc`, with an optional `sts:` prefix for high-fidelity voice conversion via Seed-VC v2.
 - **Smart Input Pipeline** — Paste a YouTube, Bilibili, or TikTok URL directly as input. Feed an image and VODER extracts text via OCR. Automatically extract voice clips from multi-speaker audio for one-click voice cloning.
 
 ---
@@ -102,6 +103,7 @@ python src/voder.py ttm lyrics "Walking down the street" styling "upbeat pop" 30
 python src/voder.py svs "song.mp3" voice
 python src/voder.py ss "meeting.wav"
 python src/voder.py tts slc "foreign_speech.wav"
+python src/voder.py tts svc "speech.wav" target "voice_ref.wav"
 python src/voder.py se "noisy_recording.wav"
 python src/voder.py sfx sound "thunder rumbling" duration 10
 ```

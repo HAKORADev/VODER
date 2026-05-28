@@ -4,9 +4,9 @@
 
 VODER is a professional-grade voice processing tool that provides **8 distinct audio transformation modes** in a unified CLI interface. This skill enables AI agents to leverage VODER's full potential for complex audio processing workflows that would be impossible or extremely difficult without this knowledge.
 
-The eight modes are: **TTS** (Text-to-Speech with optional voice cloning, SLC sub-task, and interactive modify-speech), **STS** (Speech-to-Speech voice conversion), **TTM** (Text-to-Music with optional voice cloning), **STT** (Speech-to-Text transcription), **SE** (Speech Enhancement), **SFX** (Sound Effects generation), **SVS** (Source/Track Vocal Separation), and **SS** (Speaker Separation).
+The eight modes are: **TTS** (Text-to-Speech with optional voice cloning, SLC sub-task, SVC sub-task, and interactive modify-speech), **STS** (Speech-to-Speech voice conversion), **TTM** (Text-to-Music with optional voice cloning), **STT** (Speech-to-Text transcription), **SE** (Speech Enhancement), **SFX** (Sound Effects generation), **SVS** (Source/Track Vocal Separation), and **SS** (Speaker Separation).
 
-> **Note**: SLC (Spoken Language Conversion / Dubbing) is now a TTS oneline sub-task (`tts slc`), not a standalone mode. STT+TTS (transcribe → edit → resynthesize) is now integrated into TTS interactive mode as a "modify speech?" prompt, not a standalone mode.
+> **Note**: SLC (Spoken Language Conversion / Dubbing) is now a TTS oneline sub-task (`tts slc`), not a standalone mode. SVC (Speaker Voice Change) is another TTS oneline sub-task (`tts svc`). STT+TTS (transcribe → edit → resynthesize) is now integrated into TTS interactive mode as a "modify speech?" prompt, not a standalone mode.
 
 **Core Philosophy**: VODER prioritizes **quality over speed**. There are no "fast" or "degraded" model options. The tool uses the best available models (Whisper large-v3-turbo / large-v3, Qwen3-TTS, Seed-VC, ACE-Step XL-Turbo / XL-Base / 1.5, BS-RoFormer Resurrection, VibeVoice ASR, Pyannote, UniSE, TangoFlux) to produce professional-quality output.
 
@@ -23,15 +23,15 @@ VODER is not a single AI model — it is an **orchestration layer** that coordin
 | Model | Purpose | Used In Modes |
 |-------|---------|---------------|
 | **Whisper large-v3-turbo** | Fast speech-to-text transcription | STT, Dialogue Source Analysis |
-| **Whisper large-v3** | High-accuracy transcription + translation to English | STT with `translate` flag, TTS `slc` sub-task (translation step) |
+| **Whisper large-v3** | High-accuracy transcription + translation to English | STT with `translate` flag, TTS `slc` sub-task (translation step), TTS `svc` sub-task (transcription step) |
 | **Qwen3-TTS VoiceDesign** | Generate speech from voice descriptions | TTS (voice design path) |
-| **Qwen3-TTS Base** | Text-to-speech with built-in voice cloning | TTS (voice clone path via `target`), TTS `slc` sub-task (resynthesis step), TTS interactive modify-speech |
-| **Seed-VC v2** | Voice conversion (22.05kHz speech) | STS, TTM with `vc` flag, TTS `slc overdose` (non-mimic pass) |
+| **Qwen3-TTS Base** | Text-to-speech with built-in voice cloning | TTS (voice clone path via `target`), TTS `slc` sub-task (resynthesis step), TTS `svc` sub-task (re-synthesis step), TTS interactive modify-speech |
+| **Seed-VC v2** | Voice conversion (22.05kHz speech) | STS, TTM with `vc` flag, TTS `slc overdose` (non-mimic pass), TTS `svc` sub-task (voice change pass) |
 | **Seed-VC v1** | Voice conversion (44.1kHz music) | MSTS (music voice conversion) |
 | **ACE-Step XL-Turbo** | Enhanced music generation (highest quality) | TTM with `overdose` flag, TTS with `overdose` + `music` |
 | **ACE-Step XL-Base** | Music generation (complete-mode sub-tasks) | TTM (`complete`, `extract`, `lego`) |
 | **ACE-Step 1.5** | Music generation (legacy / background music) | TTM (default), Background Music (dialogue `music` param) |
-| **BS-RoFormer Resurrection** | Vocal/music separation (stem extraction) | SVS, STS (auto vocal extraction), STT (pre-cleanup), TTS (voice clone cleanup, SLC voice isolation), TTM `bgm` (strip music + reference cleanup) |
+| **BS-RoFormer Resurrection** | Vocal/music separation (stem extraction) | SVS, STS (auto vocal extraction), STT (pre-cleanup), TTS (voice clone cleanup, SLC voice isolation, SVC voice isolation), TTM `bgm` (strip music + reference cleanup) |
 | **VibeVoice ASR** | Advanced ASR with native speaker diarization | STT with `overdose` flag, TTS with `overdose` flag, SS |
 | **Pyannote** | Speaker diarization (who spoke when) | STT with `dialogue` flag |
 | **EasyOCR** | Text extraction from images | STT with image input |
@@ -45,7 +45,8 @@ INPUT TYPES:
 ┌──────────────────────────────────────────────────────────────────┐
 │ Text ──────────────────► TTS, TTM, SFX                            │
 │ Audio ─────────────────► STS, STT, SE, SVS, SS                  │
-│ Audio/Video/URL ───────► TTS slc (language conversion sub-task) │
+│ Audio/Video/URL ───────► TTS slc (language conversion sub-task)  │
+│ Audio + Audio ref ─────► TTS svc (speaker voice change sub-task) │
 │ Video ─────────────────► STS, STT, SE, SVS, SS (auto-extract)   │
 │ Image ─────────────────► STT (OCR text extraction)              │
 │ YouTube/URL ───────────► STT, STS, TTM, SVS (auto-dl)          │
@@ -105,6 +106,9 @@ Source Audio/Video/URL → SVS Voice Isolation → Whisper large-v3 (Transcribe 
                                                                                                           SVS Music Extraction → Blend with Voice Output
 [With overdose: → Seed-VC v2 non-mimic pass for better voice preservation]
 
+SPEAKER VOICE CHANGE PATH (TTS SVC Sub-Task):
+Source Audio → SVS Voice Isolation → Whisper large-v3 (Transcribe in original language) → Qwen3-TTS (with voice ref) → Seed-VC v2 (voice change pass using target reference) → [Audio with changed voice, same language]
+
 SPEAKER SEPARATION PATH (SS):
 Multi-Speaker Audio → VibeVoice ASR → Speaker Segments → Individual Audio Files
 
@@ -127,7 +131,7 @@ VODER uses three types of parameters:
 |------|-------------|----------|
 | **Positional** | Mode name comes first, input files follow | `stt "audio.wav"` |
 | **Named** | Key-value pairs with space separation | `voice "male"` `duration 30` |
-| **Flags** | Standalone keywords that enable features | `timestamp` `dialogue` `music` `translate` `overdose` `mimic` `vc` `nomusic` `slc` |
+| **Flags** | Standalone keywords that enable features | `timestamp` `dialogue` `music` `translate` `overdose` `mimic` `vc` `nomusic` `slc` `svc` |
 
 ### Parameter Multiplicity
 
@@ -151,7 +155,7 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 
 ### Parameter Order Rules
 
-1. **Mode comes first**: `tts`, `stt`, `sts`, `ttm`, `svs`, `ss`, etc. Sub-tasks follow mode: `tts slc`, `tts overdose slc`, `tts slc music`
+1. **Mode comes first**: `tts`, `stt`, `sts`, `ttm`, `svs`, `ss`, etc. Sub-tasks follow mode: `tts slc`, `tts overdose slc`, `tts slc music`, `tts svc`, `tts overdose svc`
 2. **Required parameters follow**: `script`, `voice`, `target`, `base`, `lyrics`, `styling`, etc.
 3. **Optional parameters come after**: `music`, `level`, `result`, `vc`, `stem`, `task`, etc.
 4. **Flags can appear anywhere after mode**: `timestamp`, `dialogue`, `music` (STS), `mimic` (STS), `nomusic` (STS), `translate` (STT), `overdose` (STT, TTM, TTS), `vc` (TTM)
@@ -164,7 +168,7 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 
 | Mode | Section | Input Type | Output Type | One-Liner Support |
 |------|---------|------------|-------------|-------------------|
-| TTS | 2.1 | Text [ + Audio ] | Audio | ✅ Full (single + dialogue, voice cloning via `target`, trained voices via `voice`, SLC sub-task via `slc`) |
+| TTS | 2.1 | Text [ + Audio ] | Audio | ✅ Full (single + dialogue, voice cloning via `target`, trained voices via `voice`, SLC sub-task via `slc`, SVC sub-task via `svc`) |
 | Voice Training | 2.1a | Audio | .tts file | ✅ Full (oneline only) |
 | STS | 2.2 | Audio/Video + Audio | Audio/Video | ✅ Single only |
 | TTM | 2.3 | Text [ + Audio ] | Audio | ✅ Single only (voice cloning via `vc` + `clone`) |
@@ -444,6 +448,103 @@ python src/voder.py tts overdose slc music "foreign_speech.wav"
 - Same-voice quality depends on how distinct the source voice features are
 - Very short audio segments (< 3 seconds) may produce lower quality voice matching
 - Heavy background noise reduces voice extraction accuracy
+
+### SVC Sub-Task (Speaker Voice Change)
+
+SVC (Speaker Voice Change) is a TTS oneline sub-task that transcribes single-speaker audio and re-synthesizes it with a **target voice**, keeping the original language intact. Unlike SLC (which translates to English), SVC only changes **who** is speaking — the words and language remain the same.
+
+**Command Format:**
+```bash
+python src/voder.py tts [overdose] svc "source_path" target "voice_ref"
+```
+
+**How It Works:**
+1. **Source Input**: Accepts audio files (single-speaker source)
+2. **SVS Voice Isolation**: BS-RoFormer isolates the voice from the source (handles mixed audio)
+3. **Transcription**: Whisper large-v3 transcribes the isolated voice in the original language (no translation)
+4. **Re-Synthesis with Target Voice**: Qwen3-TTS Base synthesizes the transcribed text using the target voice reference
+5. **Seed-VC v2 Voice Change Pass**: An additional Seed-VC v2 non-mimic pass is applied using the target reference to further refine the voice match
+6. **Overdose Post-Processing** (optional): When `tts overdose svc` is used, enhanced processing is applied for better quality
+
+**Command Catalog:**
+
+```bash
+# Basic SVC — change voice in source audio to target voice
+python src/voder.py tts svc "source_audio.wav" target "target_voice.wav"
+
+# SVC with overdose — enhanced processing
+python src/voder.py tts overdose svc "source_audio.wav" target "target_voice.wav"
+
+# SVC with sts: prefix — apply additional STS voice pass after synthesis
+python src/voder.py tts svc "source_audio.wav" target "sts:target_voice.wav"
+
+# SVC with voice description instead of file reference
+python src/voder.py tts svc "source_audio.wav" voice "deep male narrator"
+
+# With output routing
+python src/voder.py tts svc "podcast_clip.wav" target "new_speaker.wav" result "/output/changed_voice.wav"
+```
+
+**SVC Parameter Reference:**
+
+| Parameter | Required | Purpose | Default |
+|-----------|----------|---------|----------|
+| `target` | Yes* | Target voice reference file for voice change | — |
+| `voice` | No* | Voice description for designed voice change | — |
+| `overdose` | No | Enhanced processing pipeline | Off |
+| `result` | No | Output destination | Auto-generated |
+
+*Either `target` or `voice` required. Use `target` for voice cloning from a reference file, or `voice` for voice design from a description.
+
+**Output Naming Conventions:**
+- Default: `voder_tts_svc_{source_name}_{target_name}.wav`
+- With `result`: uses the specified path
+- With `overdose`: `voder_tts_svc_overdose_{source_name}_{target_name}.wav`
+
+**Key Differences from SLC:**
+
+| Aspect | SLC | SVC |
+|--------|-----|-----|
+| Language | Translates to English | Keeps original language |
+| Purpose | Dubbing / language conversion | Voice swapping |
+| Translation step | Whisper large-v3 translates | Whisper large-v3 transcribes only |
+| Target voice | Optional (defaults to source speaker) | Required |
+| Music flag | Supported (`tts slc music`) | Not applicable |
+
+### STS Voice Pass (`sts:` Prefix)
+
+The `sts:` prefix can be applied to any `target` parameter value to request an **additional Seed-VC v2 non-mimic voice pass** after the initial Qwen-TTS cloning synthesis. This produces a more faithful voice match by running the TTS output through Seed-VC v2 using the `sts:` target as the reference audio.
+
+**Where It Works:**
+
+| Mode | Syntax | Effect |
+|------|--------|--------|
+| **Single TTS** | `target "sts:voice.wav"` | After Qwen-TTS cloning synthesis, Seed-VC v2 runs a non-mimic pass using `voice.wav` as reference |
+| **Dialogue TTS** | `target "Alice: sts:alice.wav" "Bob: bob.wav"` | Per-character: Alice gets STS pass, Bob gets standard Qwen-TTS cloning |
+| **TTS SVC** | `target "sts:target_voice.wav"` | After SVC re-synthesis, an additional Seed-VC v2 pass refines the voice match further |
+
+**Examples:**
+
+```bash
+# Single TTS with STS voice pass
+python src/voder.py tts script "Hello world" target "sts:narrator_ref.wav"
+
+# Dialogue TTS — one character with STS pass, one without
+python src/voder.py tts script "Alice: Hello" "Bob: Hi" target "Alice: sts:alice.wav" "Bob: bob.wav"
+
+# SVC with STS pass for maximum voice fidelity
+python src/voder.py tts svc "source_audio.wav" target "sts:target_voice.wav"
+
+# Overdose SVC with STS pass
+python src/voder.py tts overdose svc "source_audio.wav" target "sts:target_voice.wav"
+```
+
+**How It Works:**
+1. **Qwen-TTS Cloning Synthesis**: The standard TTS pipeline runs first — Qwen3-TTS Base synthesizes text with the target voice characteristics extracted from the reference audio
+2. **Seed-VC v2 Non-Mimic Pass**: The TTS output is then passed through Seed-VC v2 in non-mimic mode, using the `sts:` reference audio as the target. This additional pass refines the voice characteristics, producing a closer match to the reference voice
+3. **Output**: The final audio has both the natural prosody of Qwen-TTS synthesis and the improved voice fidelity of the Seed-VC v2 conversion
+
+> **When to use `sts:`**: Use it when standard Qwen-TTS voice cloning doesn't produce a close enough voice match. The additional Seed-VC v2 pass adds processing time but significantly improves voice similarity to the target reference.
 
 ### Interactive Modify-Speech (formerly STT+TTS)
 
@@ -1368,7 +1469,7 @@ python src/voder.py svs "song1.wav" "song2.mp3" "song3.flac" result "/output/ste
 |------|-----------------|
 | STS | Extracts vocals and music from source (vocals for conversion, music for recombination), and clean vocals from target |
 | STT | Pre-cleanup: separates vocals for cleaner transcription of music-heavy audio |
-| TTS | When `target` reference contains background noise/music, extracts clean voice. Multi-reference targets (`(path1)(path2)`) are individually cleaned then concatenated. SLC sub-task: isolates voice from source audio/video/URL before translation |
+| TTS | When `target` reference contains background noise/music, extracts clean voice. Multi-reference targets (`(path1)(path2)`) are individually cleaned then concatenated. SLC sub-task: isolates voice from source audio/video/URL before translation. SVC sub-task: isolates voice from source audio before re-synthesis |
 
 ### Best Use Cases
 - Creating karaoke tracks (extract instrumental from songs)
@@ -1837,6 +1938,8 @@ Not all features work together. This section maps out exactly what combinations 
 | Single mode | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Dialogue mode | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | SLC sub-task | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| SVC sub-task | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `sts:` prefix (target) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `voice` param | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `target` param | ✅ | ✅ | ✅† | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Cross-use | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -1879,6 +1982,8 @@ Not all features work together. This section maps out exactly what combinations 
 python src/voder.py tts [overdose] script "text" [script "text2" ...] [voice "prompt" [voice "prompt2" ...]] [target "path" [target "Char: path2" ...]] [music "description"] [level "spec"] [result "path"]
 python src/voder.py tts slc [music] "source_audio.wav" [result "path"]
 python src/voder.py tts overdose slc [music] "source_audio.wav" [result "path"]
+python src/voder.py tts svc "source_audio.wav" target "voice_ref" [result "path"]
+python src/voder.py tts overdose svc "source_audio.wav" target "voice_ref" [result "path"]
 ```
 
 ### STS Mode
@@ -2071,7 +2176,21 @@ python src/voder.py tts overdose slc "foreign_speech.wav"
 python src/voder.py tts overdose slc music "foreign_speech.wav"
 ```
 
-### Combo 17: Image-to-Audio Pipeline
+### Combo 17: SVC (Voice Swap)
+**Mode**: TTS SVC sub-task
+**Features**: Single-speaker audio → same language, different voice
+```bash
+# Basic voice swap
+python src/voder.py tts svc "source_audio.wav" target "target_voice.wav" result "/output/swapped.wav"
+
+# SVC with sts: prefix for maximum voice fidelity
+python src/voder.py tts svc "source_audio.wav" target "sts:target_voice.wav" result "/output/swapped_enhanced.wav"
+
+# Overdose SVC
+python src/voder.py tts overdose svc "source_audio.wav" target "target_voice.wav"
+```
+
+### Combo 18: Image-to-Audio Pipeline
 **Mode**: STT then TTS (two commands)
 **Features**: Image OCR + text-to-speech
 ```bash
@@ -2137,6 +2256,8 @@ python src/voder.py tts overdose script "Host: Let's dive in" "Guest: Absolutely
 | SVS | 14GB | 8GB | BS-RoFormer |
 | TTS slc | 16GB | 4GB | Whisper large-v3 + Qwen3-TTS (+ SVS for voice isolation + music) |
 | TTS slc overdose | 20GB | 12GB | Whisper large-v3 + Qwen3-TTS + Seed-VC v2 (non-mimic) |
+| TTS svc | 18GB | 8GB | Whisper large-v3 + Qwen3-TTS + Seed-VC v2 (+ SVS for voice isolation) |
+| TTS svc overdose | 22GB | 12GB | Whisper large-v3 + Qwen3-TTS + Seed-VC v2 (enhanced) |
 | SS | 14GB | N/A (CPU) | VibeVoice ASR |
 
 ## Planning Complex Workflows
@@ -2200,6 +2321,7 @@ Total memory needed: 14GB
 | `overdose` + `translate` error | Mutually exclusive flags | Use one or the other, not both |
 | SS fallback to Pyannote | VibeVoice unavailable | Install VibeVoice model; or set up HF_TOKEN for fallback |
 | TTS slc poor voice match | Noisy source audio | Run SE or SVS on source before tts slc |
+| TTS svc poor voice match | Weak target reference or noisy source | Use `sts:` prefix for additional Seed-VC v2 pass; ensure clear target reference |
 | SVS incomplete separation | Very mixed audio | Try SE first to clean up, then SVS |
 | TTM overdose too slow | XL-Turbo is resource-intensive | Use standard TTM (1.5) for faster results |
 | Video output has no audio | FFmpeg muxing issue | Ensure FFmpeg is installed and in PATH |
@@ -2233,6 +2355,8 @@ Total memory needed: 14GB
 22. **Overdose XOR translate**: Remember these STT flags are mutually exclusive — pick based on whether you need translation or enhanced transcription
 23. **TTS overdose for cleaner cloning**: Use `overdose` flag with TTS when doing voice cloning from dialogue sources — the 2s/3s trim on extracted voice clips avoids cross-speaker contamination and produces cleaner reference audio
 24. **TTS overdose + music for premium output**: Combining `overdose` with `music` in TTS gives you both superior voice clip extraction (VibeVoice ASR) and higher quality background music (ACE-Step XL Turbo)
+25. **TTS svc for voice swapping**: Use `tts svc "source.wav" target "target.wav"` when you want to change who is speaking without changing the language or content. Unlike SLC, SVC keeps the original language intact
+26. **sts: prefix for better voice fidelity**: When standard Qwen-TTS voice cloning doesn't produce a close enough match, prefix the target reference with `sts:` (e.g., `target "sts:ref.wav"`) to run an additional Seed-VC v2 non-mimic pass after synthesis
 
 ---
 

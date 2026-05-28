@@ -13,6 +13,7 @@
   - [STT: Speech-to-Text](#stt-speech-to-text)
   - [TTS: Text-to-Speech](#tts-text-to-speech)
     - [TTS SLC: Speaker Language Conversion](#tts-slc-speaker-language-conversion)
+    - [TTS SVC: Speaker Voice Change](#tts-svc-speaker-voice-change)
     - [TTS Modify Speech (STT+TTS)](#tts-modify-speech-stttts)
   - [Voice Training](#voice-training)
   - [STS: Speech-to-Speech Voice Conversion](#sts-speech-to-speech-voice-conversion)
@@ -144,6 +145,8 @@ When we list minimum requirements, we're being honest about what actually works.
 | TTS + Overdose | 8GB | +~40GB (VibeVoice ASR) + 15GB (ACE XL, if music) | 48GB | Optional | 24GB VRAM or 48GB RAM |
 | TTS (SLC) | 8GB | +~3GB (Whisper large-v3) +4GB (Qwen) +~3GB (SVS) | 18GB | Optional | 4GB |
 | TTS (SLC Overdose) | 8GB | +~3GB (Whisper large-v3) +4GB (Qwen) +~3GB (SVS) +5GB (Seed-VC v2) | 23GB | Optional | 14GB |
+| TTS (SVC) | 8GB | +~3GB (Whisper turbo) +4GB (Qwen) +~3GB (SVS) | 18GB | Optional | 4GB |
+| TTS (SVC Overdose) | 8GB | +~8GB (VibeVoice ASR) +4GB (Qwen) +~3GB (SVS) +5GB (Seed-VC v2) | 22GB | Optional | 14GB |
 | TTS (Modify Speech) | 8GB | +4GB (Whisper) +4GB (Qwen) +~3GB (SVS) | 19GB | Optional | 4GB |
 | STS | 8GB | +5GB (Seed-VC) +~3GB (SVS) | 16GB | Optional | 14GB |
 | TTM (standard) | 8GB | +15GB (ACE) | 23GB | Optional | 15GB (RTX 3080/16GB GPU) |
@@ -171,8 +174,8 @@ When we list minimum requirements, we're being honest about what actually works.
 | VRAM | Performance Level | Suitable Modes |
 |------|-------------------|----------------|
 | No GPU (CPU only) | Slow | All modes (STT, STT+diarization, OCR, SE, SFX, SVS included) |
-| 4GB | Usable | TTS (VoiceDesign), TTS (SLC), TTS (Modify Speech), SE, SFX, SVS |
-| 6GB | Minimum | TTS (VoiceDesign), TTS (SLC), TTS (Modify Speech), SE, SFX, SVS |
+| 4GB | Usable | TTS (VoiceDesign), TTS (SLC), TTS (SVC), TTS (Modify Speech), SE, SFX, SVS |
+| 6GB | Minimum | TTS (VoiceDesign), TTS (SLC), TTS (SVC), TTS (Modify Speech), SE, SFX, SVS |
 | 14GB | Mid-range | STS, all TTS modes, SE, SFX |
 | 15-16GB | Recommended | TTS with music, TTM (standard), TTM+VC, all modes |
 | 24GB | High | All standard modes at full speed, SS (overdose), STT (overdose) |
@@ -471,6 +474,8 @@ python src/voder.py tts overdose script "James: Hello" script "Sarah: Hi" target
 
 The voice cloning functionality is accessed by providing a `target` parameter with a reference audio file. In single mode, one reference file provides the voice for the entire script. In dialogue mode, each character can be assigned a different reference audio file. **Multi-reference cloning** is supported — provide multiple reference audios using the parenthesized format `(path1)(path2)(path3)`, and they will be concatenated into a single composite reference for richer voice extraction. Add the `first` keyword before the references (`target first "(path1)(path2)(path3)"`) to extract only the first reference's speaker from all other references via TSE before compiling them — useful when references contain multiple speakers and you only want the first reference's voice.
 
+**`sts:` Prefix for Voice References:** When using `target` in SVC mode, you can prefix the reference path with `sts:` (e.g., `target "sts:voice_ref.wav"`) to apply an additional Seed‑VC v2 non‑mimic pass after synthesis. This improves voice fidelity to the target reference, making the output closer to true voice conversion while still preserving text‑level control over the content. The `sts:` prefix is only applicable in SVC mode.
+
 **Reference Audio Requirements:**
 
 | Factor | Recommendation |
@@ -685,6 +690,70 @@ python src/voder.py cli
 SLC works on CPU without GPU acceleration. The pipeline is sequential: SVS voice isolation (and optional music extraction), Whisper large-v3 transcription and translation, model offloading, then Qwen3-TTS synthesis. This ensures memory requirements stay manageable — you don't need both Whisper large-v3 and Qwen3‑TTS loaded simultaneously. Video files and YouTube URLs are supported as source input. When the `music` flag is used, the instrumental track is extracted and blended with the voice output after synthesis; note that voice-music synchronization may vary as the translated speech duration may differ from the original. In overdose mode, the additional STS v2 pass requires loading Seed‑VC v2 after the TTS output, which increases peak memory requirements.
 
 **Memory Requirements:** TTS (SLC) requires approximately 18GB RAM (8GB base + ~3GB for Whisper large-v3 + 4GB for Qwen3‑TTS + ~3GB for SVS). Models are loaded and offloaded sequentially, so peak memory depends on the larger individual model. TTS (SLC Overdose) requires approximately 23GB RAM due to the additional Seed‑VC v2 pass. With the `music` flag, SVS processes both voice and music stems, but this does not significantly increase peak memory as they are processed sequentially.
+
+#### TTS SVC: Speaker Voice Change
+
+**What It Does:**
+
+SVC (Speaker Voice Change) transcribes single‑speaker audio and re‑synthesizes the same speech with a different voice. Unlike SLC which translates language, SVC preserves the original language and content — it only changes the voice.
+
+**How It Works:**
+
+1. **Input**: Provide an audio/video source path
+2. **SVS Voice Isolation**: BS‑RoFormer isolates vocals from the source
+3. **Transcription**: Whisper (or VibeVoice ASR with overdose) transcribes the speech
+4. **Voice Selection**: Target voice via audio path, trained voice, or text description
+5. **SVS Voice on Target**: If target is audio, it's cleaned through SVS
+6. **Qwen-TTS Synthesis**: The transcribed text is synthesized using the target voice
+7. **Optional STS Pass**: If `sts:` prefix is used on the target, an additional Seed‑VC v2 non‑mimic pass is applied
+8. **Optional Overdose**: If overdose flag is used, VibeVoice ASR transcribes + Seed‑VC v2 non‑mimic pass after synthesis
+
+**CLI Usage:**
+
+```bash
+# Change speaker voice using a reference audio
+python src/voder.py tts svc "speech.wav" target "voice_ref.wav"
+
+# Change speaker voice using a text description
+python src/voder.py tts svc "speech.wav" voice "deep male, authoritative"
+
+# SVC with overdose for better transcription and voice preservation
+python src/voder.py tts overdose svc "speech.wav" target "voice.wav"
+
+# SVC with STS pass for improved voice fidelity
+python src/voder.py tts svc "speech.wav" target "sts:voice_ref.wav"
+```
+
+**Why It's Like That:**
+
+SVC is a convenience sub‑task that chains STT + TTS into a single command. It's not voice conversion (STS) — it's transcription followed by re‑synthesis. This means the output preserves the words but may differ in timing and prosody from the original. The `sts:` prefix adds a Seed‑VC v2 pass to improve voice fidelity to the target, making it closer to true voice conversion while still allowing text‑level control.
+
+**Best For:**
+
+- Changing a speaker's voice while keeping the content
+- Re‑voicing recordings with a different character
+- Creating voice demos from existing speech
+- Prototyping voice changes before committing to STS voice conversion
+
+**Availability:**
+
+Oneline mode only. `tts svc "path" target "voice_ref"`. Supports `overdose` flag and `sts:` prefix.
+
+**Key Differences from SLC:**
+
+| Aspect | SLC | SVC |
+|--------|-----|-----|
+| Purpose | Translate to English + keep source voice | Change voice + keep original language |
+| Language | Any → English only | Preserves original language |
+| Voice | Clones source speaker's voice | Uses a different target voice |
+| Transcription model | Whisper large‑v3 | Whisper turbo (or VibeVoice ASR with overdose) |
+| Translation | Always (to English) | Never (preserves language) |
+
+**Technical Notes:**
+
+SVC uses Whisper turbo for transcription (not large‑v3 like SLC), since it doesn't need translation. With overdose, VibeVoice ASR is used instead. The Qwen‑TTS models support 10 languages (see Languages.md), so SVC output quality depends on the detected language. Single‑speaker assumption — no speaker diarization is performed.
+
+**Memory Requirements:** TTS (SVC) requires approximately 18GB RAM. TTS (SVC Overdose) requires approximately 22GB RAM.
 
 #### TTS Modify Speech (STT+TTS)
 
