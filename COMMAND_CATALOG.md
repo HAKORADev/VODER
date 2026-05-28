@@ -214,24 +214,29 @@ python src/voder.py tts svc "speech.wav" target "voice_ref.wav"
 # SVC with voice description
 python src/voder.py tts svc "speech.wav" voice "deep male, authoritative"
 
-# Overdose mode (VibeVoice + Seed-VC v2)
+# Overdose mode (VibeVoice ASR transcription)
 python src/voder.py tts overdose svc "speech.wav" target "voice.wav"
 
 # SVC with STS voice pass
 python src/voder.py tts svc "speech.wav" target "sts:voice.wav"
+
+# SVC with multi-reference target
+python src/voder.py tts svc "speech.wav" target "(ref1.wav)(ref2.wav)(ref3.wav)"
+
+# SVC with STS pass and multi-reference
+python src/voder.py tts svc "speech.wav" target "sts:(ref1.wav)(ref2.wav)"
 ```
 
 | Output Pattern | Mode |
 |----------------|------|
 | `voder_tts_svc_*.wav` | Standard SVC |
-| `voder_tts_svc_od_*.wav` | Overdose SVC |
 | `voder_tts_svc_sts_*.wav` | SVC with STS voice pass |
 
 ### STS Voice Pass (`sts:` Prefix)
 
-Prefix `sts:` on any `target` reference triggers an additional Seed-VC v2 non-mimic voice conversion pass after the standard cloning synthesis. This applies an extra voice conversion layer for enhanced voice matching fidelity.
+Prefix `sts:` on any `target` reference triggers an additional Seed-VC v2 non-mimic voice conversion pass after the standard Qwen-TTS cloning synthesis. This applies an extra voice conversion layer for enhanced voice matching fidelity. The `sts:` prefix works with multi-reference format: `target "sts:(ref1)(ref2)(ref3)"`.
 
-**Where it works:** Single TTS, Dialogue TTS, SVC sub-task.
+**Where it works:** Single TTS, Dialogue TTS, SVC sub-task, Interactive Modify Speech.
 
 ```
 # Single TTS with STS pass

@@ -1375,7 +1375,7 @@ def _assemble_enhanced_dialogue(dialogue_items, voice_data, tts_design_obj=None,
                         try:
                             svs_raw = svs_extract_vocals(raw_file)
                             vc_source = svs_raw if svs_raw and svs_raw != raw_file else raw_file
-                            sts_ok = sts_vc_obj.convert(sts_ref_path, vc_source, sts_out_file)
+                            sts_ok = sts_vc_obj.convert(vc_source, sts_ref_path, sts_out_file)
                             if sts_ok and os.path.exists(sts_out_file):
                                 try:
                                     os.unlink(raw_file)
@@ -3237,35 +3237,50 @@ def cli_tts_mode():
 
         use_source = input("Want to use source audio as voice reference? (Y/N): ").strip().lower()
         voice_ref = None
+        ms_sts = False
+        ms_sts_ref = None
         if use_source in ['y', 'yes']:
             voice_ref = clean_vocal
         else:
             while True:
-                ref_path = input("Enter voice reference path (audio/video/URL): ").strip()
+                print("Enter voice reference path (prefix with sts: for enhanced voice conversion, use (path1)(path2) for multi-ref):")
+                ref_path = input("> ").strip()
                 if not ref_path:
                     print("Error: No path provided")
                     continue
                 break
-            resolved_ref, _ref_cl = resolve_target_to_audio(ref_path)
-            if not resolved_ref:
-                for f in _ms_cleanup:
-                    if f and os.path.exists(f):
-                        try:
-                            os.unlink(f)
-                        except:
-                            pass
-                return False
-            _ms_cleanup.extend(_ref_cl)
-            voice_ref = svs_extract_vocals(resolved_ref)
-            if voice_ref and voice_ref != resolved_ref:
-                _ms_cleanup.append(voice_ref)
-            if resolved_ref not in _ms_cleanup and resolved_ref != voice_ref:
-                _ms_cleanup.append(resolved_ref)
-
-        ms_overdose = False
-        overdose_input = input("Enable overdose? (Y/N): ").strip().lower()
-        if overdose_input in ['y', 'yes']:
-            ms_overdose = True
+            if ref_path.lower().startswith('sts:'):
+                ms_sts = True
+                ref_path = ref_path[4:]
+            multi = _parse_multi_refs(ref_path)
+            if multi:
+                voice_ref = _resolve_multi_refs(multi, _ms_cleanup)
+                if not voice_ref:
+                    for f in _ms_cleanup:
+                        if f and os.path.exists(f):
+                            try:
+                                os.unlink(f)
+                            except:
+                                pass
+                    return False
+            else:
+                resolved_ref, _ref_cl = resolve_target_to_audio(ref_path)
+                if not resolved_ref:
+                    for f in _ms_cleanup:
+                        if f and os.path.exists(f):
+                            try:
+                                os.unlink(f)
+                            except:
+                                pass
+                    return False
+                _ms_cleanup.extend(_ref_cl)
+                voice_ref = svs_extract_vocals(resolved_ref)
+                if voice_ref and voice_ref != resolved_ref:
+                    _ms_cleanup.append(voice_ref)
+                if resolved_ref not in _ms_cleanup and resolved_ref != voice_ref:
+                    _ms_cleanup.append(resolved_ref)
+            if ms_sts and voice_ref:
+                ms_sts_ref = voice_ref
 
         preserve_nonvocals = False
         preserve_input = input("Preserve non-vocals? (Y/N): ").strip().lower()
@@ -3302,11 +3317,11 @@ def cli_tts_mode():
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-            if ms_overdose:
-                print("\nRunning overdose pass (STS v2 non-mimic)...")
+            if ms_sts and ms_sts_ref and os.path.exists(ms_sts_ref):
+                print("\nRunning STS voice conversion pass (Seed-VC v2 non-mimic)...")
                 vc = SeedVCV2()
                 if vc.model is None:
-                    print("Warning: Seed-VC v2 model failed to load, skipping overdose pass")
+                    print("Warning: Seed-VC v2 model failed to load, skipping STS pass")
                 else:
                     svs_out = svs_extract_vocals(output_path)
                     if svs_out and svs_out != output_path:
@@ -3315,14 +3330,14 @@ def cli_tts_mode():
                     else:
                         vc_input = output_path
                     try:
-                        od_timestamp = time.strftime("%Y%m%d_%H%M%S")
-                        od_output = os.path.join(results_dir, f"voder_tts_ms_od_{od_timestamp}.wav")
-                        od_success = vc.convert(clean_vocal, vc_input, od_output)
-                        if od_success:
-                            print(f"✓ Overdose output saved to: {od_output}")
-                            output_path = od_output
+                        sts_timestamp = time.strftime("%Y%m%d_%H%M%S")
+                        sts_output = os.path.join(results_dir, f"voder_tts_ms_sts_{sts_timestamp}.wav")
+                        sts_success = vc.convert(vc_input, ms_sts_ref, sts_output)
+                        if sts_success:
+                            print(f"✓ STS-converted output saved to: {sts_output}")
+                            output_path = sts_output
                         else:
-                            print("Warning: Overdose STS pass failed, using standard output")
+                            print("Warning: STS pass failed, using standard output")
                     finally:
                         del vc
                         vc = None
@@ -5866,6 +5881,14 @@ def show_oneline_usage():
     print('  python voder.py tts overdose slc "path/to/audio.wav"')
     print('  python voder.py tts overdose slc music "path/to/audio.wav"')
     print()
+    print("TTS SVC examples (Speaker Voice Change):")
+    print('  python voder.py tts svc "speech.wav" target "voice_ref.wav"')
+    print('  python voder.py tts svc "speech.wav" voice "deep male, authoritative"')
+    print('  python voder.py tts overdose svc "speech.wav" target "voice.wav"')
+    print('  python voder.py tts svc "speech.wav" target "sts:voice_ref.wav"')
+    print('  python voder.py tts svc "speech.wav" target "(ref1.wav)(ref2.wav)(ref3.wav)"')
+    print('  python voder.py tts svc "speech.wav" target "sts:(ref1.wav)(ref2.wav)"')
+    print()
     print("BGM examples (add/replace background music on audio or video):")
     print('  python voder.py ttm bgm "path/to/audio.wav" music "soft piano"')
     print('  python voder.py ttm bgm "path/to/video.mp4" music "epic orchestral" level 50')
@@ -6545,22 +6568,35 @@ def oneline_tts(params):
                 tts = QwenTTS()
                 tts.voice_prompt = voice_items
             else:
-                resolved_audio, _cl = resolve_target_to_audio(sts_ref_raw)
-                if not resolved_audio:
-                    print("Error: Could not resolve STS target reference")
-                    for f in _svc_cleanup:
-                        if f and os.path.exists(f):
-                            try:
-                                os.unlink(f)
-                            except:
-                                pass
-                    return False
-                _svc_cleanup.extend(_cl)
-                target_voice_path = svs_extract_vocals(resolved_audio)
-                if target_voice_path and target_voice_path != resolved_audio:
-                    _svc_cleanup.append(target_voice_path)
-                if resolved_audio not in _svc_cleanup and resolved_audio != target_voice_path:
-                    _svc_cleanup.append(resolved_audio)
+                multi = _parse_multi_refs(sts_ref_raw)
+                if multi:
+                    target_voice_path = _resolve_multi_refs(multi, _svc_cleanup)
+                    if not target_voice_path:
+                        print("Error: Could not resolve STS target multi-reference")
+                        for f in _svc_cleanup:
+                            if f and os.path.exists(f):
+                                try:
+                                    os.unlink(f)
+                                except:
+                                    pass
+                        return False
+                else:
+                    resolved_audio, _cl = resolve_target_to_audio(sts_ref_raw)
+                    if not resolved_audio:
+                        print("Error: Could not resolve STS target reference")
+                        for f in _svc_cleanup:
+                            if f and os.path.exists(f):
+                                try:
+                                    os.unlink(f)
+                                except:
+                                    pass
+                        return False
+                    _svc_cleanup.extend(_cl)
+                    target_voice_path = svs_extract_vocals(resolved_audio)
+                    if target_voice_path and target_voice_path != resolved_audio:
+                        _svc_cleanup.append(target_voice_path)
+                    if resolved_audio not in _svc_cleanup and resolved_audio != target_voice_path:
+                        _svc_cleanup.append(resolved_audio)
                 print("Loading Qwen-TTS model...")
                 tts = QwenTTS()
                 print("Extracting voice characteristics from STS target...")
@@ -6596,76 +6632,107 @@ def oneline_tts(params):
                 print("Loading Qwen-TTS model...")
                 tts = QwenTTS()
                 tts.voice_prompt = voice_items
-            elif os.path.exists(svc_target) or is_youtube_url(svc_target):
-                resolved_audio, _cl = resolve_target_to_audio(svc_target)
-                if not resolved_audio:
-                    print("Error: Could not resolve target audio reference")
-                    for f in _svc_cleanup:
-                        if f and os.path.exists(f):
-                            try:
-                                os.unlink(f)
-                            except:
-                                pass
-                    return False
-                _svc_cleanup.extend(_cl)
-                target_voice_path = svs_extract_vocals(resolved_audio)
-                if target_voice_path and target_voice_path != resolved_audio:
-                    _svc_cleanup.append(target_voice_path)
-                if resolved_audio not in _svc_cleanup and resolved_audio != target_voice_path:
-                    _svc_cleanup.append(resolved_audio)
-                print("Loading Qwen-TTS model...")
-                tts = QwenTTS()
-                print("Extracting voice characteristics...")
-                success = tts.extract_voice(target_voice_path)
-                if not success:
-                    print("Error: Voice extraction failed")
-                    del tts
-                    tts = None
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    for f in _svc_cleanup:
-                        if f and os.path.exists(f):
-                            try:
-                                os.unlink(f)
-                            except:
-                                pass
-                    return False
             else:
-                print(f"Loading Qwen-TTS VoiceDesign model...")
-                tts_design = QwenTTSVoiceDesign()
-                if tts_design.model is None:
-                    print("Error: Failed to load VoiceDesign model")
-                    for f in _svc_cleanup:
-                        if f and os.path.exists(f):
-                            try:
-                                os.unlink(f)
-                            except:
-                                pass
-                    return False
-                print("Generating speech with voice design...")
-                timestamp = time.strftime("%Y%m%d_%H%M%S")
-                output_path = os.path.join(results_dir, f"voder_tts_svc_{timestamp}.wav")
-                success = tts_design.synthesize(final_text, svc_target, output_path, language=tts_lang)
-                if not success:
-                    print("Error: VoiceDesign synthesis failed")
+                multi = _parse_multi_refs(svc_target)
+                if multi:
+                    target_voice_path = _resolve_multi_refs(multi, _svc_cleanup)
+                    if not target_voice_path:
+                        print("Error: Could not resolve target multi-reference")
+                        for f in _svc_cleanup:
+                            if f and os.path.exists(f):
+                                try:
+                                    os.unlink(f)
+                                except:
+                                    pass
+                        return False
+                    print("Loading Qwen-TTS model...")
+                    tts = QwenTTS()
+                    print("Extracting voice characteristics...")
+                    success = tts.extract_voice(target_voice_path)
+                    if not success:
+                        print("Error: Voice extraction failed")
+                        del tts
+                        tts = None
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        for f in _svc_cleanup:
+                            if f and os.path.exists(f):
+                                try:
+                                    os.unlink(f)
+                                except:
+                                    pass
+                        return False
+                elif os.path.exists(svc_target) or is_youtube_url(svc_target):
+                    resolved_audio, _cl = resolve_target_to_audio(svc_target)
+                    if not resolved_audio:
+                        print("Error: Could not resolve target audio reference")
+                        for f in _svc_cleanup:
+                            if f and os.path.exists(f):
+                                try:
+                                    os.unlink(f)
+                                except:
+                                    pass
+                        return False
+                    _svc_cleanup.extend(_cl)
+                    target_voice_path = svs_extract_vocals(resolved_audio)
+                    if target_voice_path and target_voice_path != resolved_audio:
+                        _svc_cleanup.append(target_voice_path)
+                    if resolved_audio not in _svc_cleanup and resolved_audio != target_voice_path:
+                        _svc_cleanup.append(resolved_audio)
+                    print("Loading Qwen-TTS model...")
+                    tts = QwenTTS()
+                    print("Extracting voice characteristics...")
+                    success = tts.extract_voice(target_voice_path)
+                    if not success:
+                        print("Error: Voice extraction failed")
+                        del tts
+                        tts = None
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        for f in _svc_cleanup:
+                            if f and os.path.exists(f):
+                                try:
+                                    os.unlink(f)
+                                except:
+                                    pass
+                        return False
+                else:
+                    print(f"Loading Qwen-TTS VoiceDesign model...")
+                    tts_design = QwenTTSVoiceDesign()
+                    if tts_design.model is None:
+                        print("Error: Failed to load VoiceDesign model")
+                        for f in _svc_cleanup:
+                            if f and os.path.exists(f):
+                                try:
+                                    os.unlink(f)
+                                except:
+                                    pass
+                        return False
+                    print("Generating speech with voice design...")
+                    timestamp = time.strftime("%Y%m%d_%H%M%S")
+                    output_path = os.path.join(results_dir, f"voder_tts_svc_{timestamp}.wav")
+                    success = tts_design.synthesize(final_text, svc_target, output_path, language=tts_lang)
+                    if not success:
+                        print("Error: VoiceDesign synthesis failed")
+                        del tts_design
+                        for f in _svc_cleanup:
+                            if f and os.path.exists(f):
+                                try:
+                                    os.unlink(f)
+                                except:
+                                    pass
+                        return False
                     del tts_design
+                    print(f"✓ SVC output saved to: {output_path}")
                     for f in _svc_cleanup:
                         if f and os.path.exists(f):
                             try:
                                 os.unlink(f)
                             except:
                                 pass
-                    return False
-                del tts_design
-                print(f"✓ SVC output saved to: {output_path}")
-                for f in _svc_cleanup:
-                    if f and os.path.exists(f):
-                        try:
-                            os.unlink(f)
-                        except:
-                            pass
-                return True
+                    return True
 
         print("Generating speech...")
         timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -6694,34 +6761,6 @@ def oneline_tts(params):
 
         print(f"✓ SVC output saved to: {output_path}")
 
-        if use_overdose:
-            print("\nRunning overdose pass (STS v2 non-mimic)...")
-            vc = SeedVCV2()
-            if vc.model is None:
-                print("Warning: Seed-VC v2 model failed to load, skipping overdose pass")
-            else:
-                svs_out = svs_extract_vocals(output_path)
-                if svs_out and svs_out != output_path:
-                    _svc_cleanup.append(svs_out)
-                    vc_input = svs_out
-                else:
-                    vc_input = output_path
-                try:
-                    od_timestamp = time.strftime("%Y%m%d_%H%M%S")
-                    od_output = os.path.join(results_dir, f"voder_tts_svc_od_{od_timestamp}.wav")
-                    od_success = vc.convert(clean_vocal, vc_input, od_output)
-                    if od_success:
-                        print(f"✓ Overdose output saved to: {od_output}")
-                        output_path = od_output
-                    else:
-                        print("Warning: Overdose STS pass failed, using standard SVC output")
-                finally:
-                    del vc
-                    vc = None
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-
         if sts_target:
             print("\nRunning STS voice conversion pass (Seed-VC v2 non-mimic)...")
             if target_voice_path and os.path.exists(target_voice_path):
@@ -6738,7 +6777,7 @@ def oneline_tts(params):
                     try:
                         sts_timestamp = time.strftime("%Y%m%d_%H%M%S")
                         sts_output = os.path.join(results_dir, f"voder_tts_svc_sts_{sts_timestamp}.wav")
-                        sts_success = vc.convert(target_voice_path, vc_input, sts_output)
+                        sts_success = vc.convert(vc_input, target_voice_path, sts_output)
                         if sts_success:
                             print(f"✓ STS-converted output saved to: {sts_output}")
                             output_path = sts_output
@@ -6912,7 +6951,7 @@ def oneline_tts(params):
                         try:
                             sts_timestamp = time.strftime("%Y%m%d_%H%M%S")
                             sts_output = os.path.join(results_dir, f"voder_tts_sts_{sts_timestamp}.wav")
-                            sts_success = vc.convert(clean_vocal, vc_input, sts_output)
+                            sts_success = vc.convert(vc_input, clean_vocal, sts_output)
                             if sts_success:
                                 print(f"✓ STS-converted output saved to: {sts_output}")
                                 output_path = sts_output

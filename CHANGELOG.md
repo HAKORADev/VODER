@@ -182,9 +182,10 @@
 
 - **`tts svc` Oneline Command** — SVC (Speaker Voice Conversion) is a new TTS oneline sub-task that transcribes single-speaker audio and re-synthesizes it with a different voice.
   - `tts svc "input_path" target "voice_ref"` — Transcribe single-speaker audio and re-synthesize with a different voice. Pipeline: SVS voice isolation → Whisper transcription (or VibeVoice ASR with `overdose`) → Qwen-TTS synthesis with target voice
-  - Supports `overdose` flag: `tts overdose svc "path" target "ref"` uses VibeVoice ASR for transcription + Seed-VC v2 non-mimic pass after synthesis
+  - Supports `overdose` flag: `tts overdose svc "path" target "ref"` uses VibeVoice ASR for transcription
   - Target can be an audio path, trained voice name, or text description (VoiceDesign)
-  - Output naming: `voder_tts_svc_*.wav`, `voder_tts_svc_od_*.wav`, `voder_tts_svc_sts_*.wav`
+  - Multi-reference targets supported: `target "(ref1.wav)(ref2.wav)(ref3.wav)"` concatenates multiple references for richer voice extraction
+  - Output naming: `voder_tts_svc_*.wav`, `voder_tts_svc_sts_*.wav`
 
 #### STS Voice Pass (sts: Prefix)
 
@@ -192,16 +193,18 @@
   - Works in single TTS mode: `tts script "text" target "sts:voice.wav"`
   - Works in dialogue mode: `target "Character: sts:voice.wav"` — each line for that character gets the STS pass applied individually before mixing
   - Works in SVC sub-task: `tts svc "input.wav" target "sts:ref.wav"`
-  - The STS pass takes the SVS-cleaned target as the reference voice and the TTS output as the source, producing higher voice fidelity to the target
-  - Output naming: `voder_tts_sts_*.wav` (single), per-line in dialogue (temporary)
+  - Works in interactive modify speech: prefix the custom voice reference with `sts:` to apply the pass
+  - Multi-reference format supported: `target "sts:(ref1)(ref2)(ref3)"`
+  - The STS pass takes the TTS output as the source (speech content to preserve) and the `sts:` reference as the target voice, producing higher voice fidelity
+  - Output naming: `voder_tts_sts_*.wav` (single), `voder_tts_svc_sts_*.wav` (SVC), per-line in dialogue (temporary)
 
 #### TTS Interactive Speech Modification (STT+TTS Integration)
 
 - **"Modify Speech?" Prompt** — STT+TTS functionality is now integrated into TTS interactive mode as the first prompt, instead of being a standalone mode.
   - When entering TTS interactive mode, user is asked "Want to modify speech? (Y/N)"
-  - If yes: provide audio/video/URL → SVS voice isolation → Whisper transcription → edit text → choose voice (source audio or custom path)
-  - After voice selection: "Enable overdose? (Y/N)" — if yes, runs STS v2 non-mimic pass after TTS output for better voice preservation
-  - Then: "Preserve non-vocals? (Y/N)" — if yes, extracts instrumental via SVS music and blends with voice output
+  - If yes: provide audio/video/URL → SVS voice isolation → Whisper transcription → edit text → choose voice (source audio or custom path with optional `sts:` prefix and multi-reference support)
+  - After voice selection: "Preserve non-vocals? (Y/N)" — if yes, extracts instrumental via SVS music and blends with voice output
+  - If `sts:` prefix used on voice reference: additional Seed-VC v2 non-mimic pass after Qwen-TTS synthesis for enhanced voice fidelity
   - Modernized: supports video files and YouTube URLs (old STT+TTS mode only supported audio)
   - SVS voice isolation before transcription for cleaner results
 
@@ -278,9 +281,12 @@
 - `slc` removed from valid oneline modes list; `stt+tts` removed from interactive mode map
 - TTS oneline parser now recognizes `slc` as a sub-task keyword (similar to existing TTM sub-task pattern)
 - TTS interactive mode entry point now includes speech modification gate before normal TTS flow
-- SVC uses the standard Whisper model (turbo) for transcription by default, VibeVoice ASR when overdose is enabled
-- The `sts:` prefix triggers Seed-VC v2 non-mimic conversion — this is separate from the overdose pass and can be combined with it
+- SVC uses the standard Whisper model (turbo) for transcription by default, VibeVoice ASR when overdose is enabled; the `overdose` flag in SVC only controls which STT engine is used (it does not trigger a Seed-VC v2 pass)
+- The `sts:` prefix on target references triggers Seed-VC v2 non-mimic conversion — this is the explicit opt-in mechanism for enhanced voice fidelity, replacing the previous automatic overdose VC pass in SVC and modify speech
 - In dialogue mode, STS passes are applied per-line before the final mix, ensuring each character's voice is individually converted
+- SVC target parameter now supports multi-reference format `(path1)(path2)(path3)` via `_parse_multi_refs()`/`_resolve_multi_refs()` for richer voice extraction
+- Modify speech interactive mode now supports `sts:` prefix and multi-reference format on the voice reference input, replacing the old automatic overdose VC pass
+- Fixed STS pass parameter order in `SeedVCV2.convert()` calls — source (speech content) is now correctly passed as the first argument and reference (voice to mimic) as the second in all three locations: SVC STS pass, TTS oneline STS pass, and dialogue STS pass
 - Modify Speech interactive output naming now uses `voder_tts_ms_` prefix (was `voder_tts_`), matching the sub-task naming convention used by SLC and SVC
 
 ---

@@ -461,10 +461,9 @@ python src/voder.py tts [overdose] svc "source_path" target "voice_ref"
 **How It Works:**
 1. **Source Input**: Accepts audio files (single-speaker source)
 2. **SVS Voice Isolation**: BS-RoFormer isolates the voice from the source (handles mixed audio)
-3. **Transcription**: Whisper large-v3 transcribes the isolated voice in the original language (no translation)
+3. **Transcription**: Whisper turbo transcribes the isolated voice in the original language (no translation; VibeVoice ASR is used when `overdose` is specified)
 4. **Re-Synthesis with Target Voice**: Qwen3-TTS Base synthesizes the transcribed text using the target voice reference
-5. **Seed-VC v2 Voice Change Pass**: An additional Seed-VC v2 non-mimic pass is applied using the target reference to further refine the voice match
-6. **Overdose Post-Processing** (optional): When `tts overdose svc` is used, enhanced processing is applied for better quality
+5. **Optional STS Pass** (if `sts:` prefix on target): An additional Seed‑VC v2 non‑mimic pass is applied after Qwen‑TTS synthesis for enhanced voice fidelity to the target reference
 
 **Command Catalog:**
 
@@ -480,6 +479,12 @@ python src/voder.py tts svc "source_audio.wav" target "sts:target_voice.wav"
 
 # SVC with voice description instead of file reference
 python src/voder.py tts svc "source_audio.wav" voice "deep male narrator"
+
+# SVC with multi-reference target (concatenated for richer voice extraction)
+python src/voder.py tts svc "source_audio.wav" target "(ref1.wav)(ref2.wav)(ref3.wav)"
+
+# SVC with STS pass and multi-reference
+python src/voder.py tts svc "source_audio.wav" target "sts:(ref1.wav)(ref2.wav)"
 
 # With output routing
 python src/voder.py tts svc "podcast_clip.wav" target "new_speaker.wav" result "/output/changed_voice.wav"
@@ -497,9 +502,9 @@ python src/voder.py tts svc "podcast_clip.wav" target "new_speaker.wav" result "
 *Either `target` or `voice` required. Use `target` for voice cloning from a reference file, or `voice` for voice design from a description.
 
 **Output Naming Conventions:**
-- Default: `voder_tts_svc_{source_name}_{target_name}.wav`
+- Default: `voder_tts_svc_*.wav`
+- With STS pass: `voder_tts_svc_sts_*.wav`
 - With `result`: uses the specified path
-- With `overdose`: `voder_tts_svc_overdose_{source_name}_{target_name}.wav`
 
 **Key Differences from SLC:**
 
@@ -522,6 +527,7 @@ The `sts:` prefix can be applied to any `target` parameter value to request an *
 | **Single TTS** | `target "sts:voice.wav"` | After Qwen-TTS cloning synthesis, Seed-VC v2 runs a non-mimic pass using `voice.wav` as reference |
 | **Dialogue TTS** | `target "Alice: sts:alice.wav" "Bob: bob.wav"` | Per-character: Alice gets STS pass, Bob gets standard Qwen-TTS cloning |
 | **TTS SVC** | `target "sts:target_voice.wav"` | After SVC re-synthesis, an additional Seed-VC v2 pass refines the voice match further |
+| **Modify Speech** | Custom voice ref prefixed with `sts:` | After Qwen-TTS synthesis, Seed-VC v2 pass enhances voice fidelity |
 
 **Examples:**
 
@@ -554,8 +560,9 @@ In TTS interactive mode (via `python src/voder.py cli`), you can provide audio, 
 2. **SVS Isolation**: BS-RoFormer isolates the voice from the source
 3. **Whisper Transcription**: The isolated voice is transcribed to text
 4. **Edit Text**: You review and edit the transcription (fix errors, change words, modify content)
-5. **Choose Voice**: Use the source speaker's voice or provide a custom voice reference
+5. **Choose Voice**: Use the source speaker's voice or provide a custom voice reference. Custom references support `sts:` prefix for an additional Seed‑VC v2 pass, and multi‑reference format `(path1)(path2)(path3)` for richer voice extraction
 6. **Qwen-TTS Synthesis**: The edited text is synthesized with the chosen voice
+7. **Optional STS Pass**: If `sts:` prefix was used on the voice reference, an additional Seed‑VC v2 non‑mimic pass is applied after Qwen‑TTS synthesis
 
 ```bash
 # Interactive mode

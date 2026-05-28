@@ -474,7 +474,7 @@ python src/voder.py tts overdose script "James: Hello" script "Sarah: Hi" target
 
 The voice cloning functionality is accessed by providing a `target` parameter with a reference audio file. In single mode, one reference file provides the voice for the entire script. In dialogue mode, each character can be assigned a different reference audio file. **Multi-reference cloning** is supported — provide multiple reference audios using the parenthesized format `(path1)(path2)(path3)`, and they will be concatenated into a single composite reference for richer voice extraction. Add the `first` keyword before the references (`target first "(path1)(path2)(path3)"`) to extract only the first reference's speaker from all other references via TSE before compiling them — useful when references contain multiple speakers and you only want the first reference's voice.
 
-**`sts:` Prefix for Voice References:** When using `target` in SVC mode, you can prefix the reference path with `sts:` (e.g., `target "sts:voice_ref.wav"`) to apply an additional Seed‑VC v2 non‑mimic pass after synthesis. This improves voice fidelity to the target reference, making the output closer to true voice conversion while still preserving text‑level control over the content. The `sts:` prefix is only applicable in SVC mode.
+**`sts:` Prefix for Voice References:** When using `target` or a voice reference, you can prefix the path with `sts:` (e.g., `target "sts:voice_ref.wav"`) to apply an additional Seed‑VC v2 non‑mimic pass after synthesis. This improves voice fidelity to the target reference, making the output closer to true voice conversion while still preserving text‑level control over the content. The `sts:` prefix works in single TTS mode, dialogue TTS mode, SVC sub‑task, and interactive modify speech. Multi-reference format is also supported: `target "sts:(path1)(path2)(path3)"`.
 
 **Reference Audio Requirements:**
 
@@ -706,7 +706,6 @@ SVC (Speaker Voice Change) transcribes single‑speaker audio and re‑synthesiz
 5. **SVS Voice on Target**: If target is audio, it's cleaned through SVS
 6. **Qwen-TTS Synthesis**: The transcribed text is synthesized using the target voice
 7. **Optional STS Pass**: If `sts:` prefix is used on the target, an additional Seed‑VC v2 non‑mimic pass is applied
-8. **Optional Overdose**: If overdose flag is used, VibeVoice ASR transcribes + Seed‑VC v2 non‑mimic pass after synthesis
 
 **CLI Usage:**
 
@@ -717,11 +716,17 @@ python src/voder.py tts svc "speech.wav" target "voice_ref.wav"
 # Change speaker voice using a text description
 python src/voder.py tts svc "speech.wav" voice "deep male, authoritative"
 
-# SVC with overdose for better transcription and voice preservation
+# SVC with overdose for better transcription (VibeVoice ASR)
 python src/voder.py tts overdose svc "speech.wav" target "voice.wav"
 
 # SVC with STS pass for improved voice fidelity
 python src/voder.py tts svc "speech.wav" target "sts:voice_ref.wav"
+
+# SVC with multi-reference target (concatenated for richer voice extraction)
+python src/voder.py tts svc "speech.wav" target "(ref1.wav)(ref2.wav)(ref3.wav)"
+
+# SVC with STS pass and multi-reference
+python src/voder.py tts svc "speech.wav" target "sts:(ref1.wav)(ref2.wav)"
 ```
 
 **Why It's Like That:**
@@ -737,7 +742,7 @@ SVC is a convenience sub‑task that chains STT + TTS into a single command. It'
 
 **Availability:**
 
-Oneline mode only. `tts svc "path" target "voice_ref"`. Supports `overdose` flag and `sts:` prefix.
+Oneline mode only. `tts svc "path" target "voice_ref"`. Supports `overdose` flag (switches STT engine to VibeVoice ASR), `sts:` prefix (additional Seed‑VC v2 pass), and multi‑reference targets `(path1)(path2)(path3)`.
 
 **Key Differences from SLC:**
 
@@ -767,12 +772,12 @@ The Modify Speech feature transcribes audio to text using Whisper, allows you to
 2. **SVS Voice Isolation**: BS‑RoFormer isolates the vocal track from the input, removing background music and noise
 3. **Whisper Transcription**: Whisper converts speech to text with word‑level timestamps
 4. **Text Editing**: Review and modify the transcribed text before synthesis
-5. **Voice Selection**: Choose whether to use the source audio as the voice reference or provide a custom target path
-6. **Enable Overdose? (Y/N)**: If yes, an additional Seed‑VC v2 non‑mimic pass is applied to the synthesized output for maximum voice fidelity
-7. **Preserve Non‑Vocals? (Y/N)**: If yes, SVS music extraction is run on the original source to isolate instrumentals, then the synthesized voice (with or without overdose) is blended with the instrumental track via ffmpeg — preserving background music and instrumentals in the final output
+5. **Voice Selection**: Choose whether to use the source audio as the voice reference or provide a custom target path. Custom paths support `sts:` prefix for an additional Seed‑VC v2 non‑mimic pass, and multi‑reference format `(path1)(path2)(path3)` for richer voice extraction
+6. **Preserve Non‑Vocals? (Y/N)**: If yes, SVS music extraction is run on the original source to isolate instrumentals, then the synthesized voice is blended with the instrumental track via ffmpeg — preserving background music and instrumentals in the final output
+7. **Optional STS Pass**: If `sts:` prefix was used on the voice reference, an additional Seed‑VC v2 non‑mimic pass is applied after Qwen‑TTS synthesis for enhanced voice fidelity
 8. **Qwen-TTS Synthesis**: The edited text is synthesized using the chosen voice via Qwen3‑TTS
 
-The overdose and preserve non‑vocals prompts appear in that order right after voice selection. When preserve non‑vocals is enabled, voice‑music synchronization may vary as the synthesized speech duration may differ from the original.
+The voice reference input accepts the `sts:` prefix and multi‑reference format. When preserve non‑vocals is enabled, voice‑music synchronization may vary as the synthesized speech duration may differ from the original.
 
 **Why It's Like That:**
 
@@ -797,9 +802,9 @@ If your base audio contains multiple speakers, Whisper will transcribe all of th
 
 **Technical Notes:**
 
-Modify Speech works on CPU without GPU for the Whisper transcription stage. Voice cloning in the synthesis stage also works on CPU. This makes it accessible for users without NVIDIA graphics hardware. When overdose is enabled, the Seed‑VC v2 pass adds roughly 5GB to peak memory. When preserve non‑vocals is enabled, SVS processes both voice and music stems sequentially (no additional peak memory), and the final blend uses ffmpeg `amix` with the duration of the first input (the voice track).
+Modify Speech works on CPU without GPU for the Whisper transcription stage. Voice cloning in the synthesis stage also works on CPU. This makes it accessible for users without NVIDIA graphics hardware. When `sts:` prefix is used on the voice reference, the additional Seed‑VC v2 pass adds roughly 5GB to peak memory. When preserve non‑vocals is enabled, SVS processes both voice and music stems sequentially (no additional peak memory), and the final blend uses ffmpeg `amix` with the duration of the first input (the voice track).
 
-**Memory Requirements:** TTS (Modify Speech) requires approximately 19GB RAM (8GB base + 4GB for Whisper + 4GB for Qwen + ~3GB for BS‑RoFormer SVS). TTS (Modify Speech + Overdose) requires approximately 24GB RAM. With preserve non‑vocals, SVS processes both stems but peak memory does not significantly increase since they are processed sequentially.
+**Memory Requirements:** TTS (Modify Speech) requires approximately 19GB RAM (8GB base + 4GB for Whisper + 4GB for Qwen + ~3GB for BS‑RoFormer SVS). TTS (Modify Speech + STS pass) requires approximately 24GB RAM. With preserve non‑vocals, SVS processes both stems but peak memory does not significantly increase since they are processed sequentially.
 
 ---
 

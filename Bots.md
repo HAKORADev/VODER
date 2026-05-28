@@ -522,7 +522,7 @@ python src/voder.py tts slc "https://youtube.com/watch?v=..." result "/output/en
 
 #### SVC (Speaker Voice Change)
 
-Transcribe single-speaker audio and re-synthesize it with a different voice. SVC is a TTS sub‑task accessed via `tts svc`. The pipeline isolates vocals via SVS, transcribes with Whisper (or VibeVoice with `overdose`), then synthesizes new speech using Qwen‑TTS with the specified target voice. When the `sts:` prefix is used on `target`, the pipeline routes through STS v2 (Seed‑VC) instead of Qwen‑TTS for voice conversion, better preserving the original prosody and timing.
+Transcribe single-speaker audio and re-synthesize it with a different voice. SVC is a TTS sub‑task accessed via `tts svc`. The pipeline isolates vocals via SVS, transcribes with Whisper (or VibeVoice with `overdose`), then synthesizes new speech using Qwen‑TTS with the specified target voice. When the `sts:` prefix is used on `target`, an additional Seed‑VC v2 non‑mimic pass is applied after Qwen‑TTS synthesis for higher voice fidelity to the target reference. Multi-reference targets are supported: `target "(ref1.wav)(ref2.wav)(ref3.wav)"` concatenates multiple references for richer voice extraction.
 
 **SVC Parameters:**
 
@@ -536,7 +536,7 @@ Transcribe single-speaker audio and re-synthesize it with a different voice. SVC
 1. SVS voice isolation on source audio
 2. Whisper / VibeVoice transcription of isolated vocals
 3. Qwen‑TTS synthesis with the specified target voice
-4. (Optional) If `target` uses `sts:` prefix → STS v2 (Seed‑VC) voice conversion instead of step 3
+4. (Optional) If `target` uses `sts:` prefix → additional Seed‑VC v2 non‑mimic pass after Qwen‑TTS synthesis for enhanced voice fidelity
 
 **Basic SVC:**
 ```bash
@@ -558,16 +558,27 @@ python src/voder.py tts svc "speech.wav" target "sts:voice_ref.wav" result "/out
 python src/voder.py tts svc "speech.wav" voice "deep male voice, authoritative" result "/output/new_voice.wav"
 ```
 
+**SVC with multi-reference target:**
+```bash
+python src/voder.py tts svc "speech.wav" target "(ref1.wav)(ref2.wav)(ref3.wav)" result "/output/new_voice.wav"
+```
+
+**SVC with STS pass and multi-reference:**
+```bash
+python src/voder.py tts svc "speech.wav" target "sts:(ref1.wav)(ref2.wav)" result "/output/new_voice.wav"
+```
+
 **Output naming:** SVC outputs are saved as `voder_tts_svc_*.wav` (or the path specified by `result`).
 
 #### STS Voice Pass (`sts:` Prefix)
 
-The `sts:` prefix on a `target` reference routes voice conversion through STS v2 (Seed‑VC) instead of Qwen‑TTS. This preserves more of the original prosody, timing, and emotional quality of the source audio while applying the target voice characteristics. The `sts:` prefix works in single mode, dialogue mode, and SVC sub‑task.
+The `sts:` prefix on a `target` reference applies an additional Seed‑VC v2 non‑mimic voice conversion pass after the standard Qwen‑TTS cloning synthesis. This produces a more faithful voice match by running the TTS output through Seed‑VC v2 using the `sts:` reference as the target voice, preserving more of the target's voice characteristics while keeping the speech content intact. The `sts:` prefix works in single mode, dialogue mode, SVC sub‑task, and interactive modify speech.
 
 **Where `sts:` works:**
-- **Single TTS**: `target "sts:voice_ref.wav"` — clones via STS v2 after Qwen‑TTS synthesis
-- **Dialogue TTS**: `target "Character:sts:voice_ref.wav"` — each character's lines are synthesized then converted via STS v2
-- **SVC**: `tts svc "source.wav" target "sts:voice_ref.wav"` — transcribe then apply STS v2 voice conversion
+- **Single TTS**: `target "sts:voice_ref.wav"` — clones via Qwen‑TTS then Seed‑VC v2 pass for enhanced fidelity
+- **Dialogue TTS**: `target "Character:sts:voice_ref.wav"` — each character's lines are synthesized then converted via Seed‑VC v2
+- **SVC**: `tts svc "source.wav" target "sts:voice_ref.wav"` — transcribe then apply Seed‑VC v2 pass after synthesis
+- **Modify Speech**: When entering a custom voice reference, prefix with `sts:` to apply the Seed‑VC v2 pass after Qwen‑TTS synthesis
 
 **Single mode with sts: prefix:**
 ```bash
