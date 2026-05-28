@@ -3176,51 +3176,99 @@ def cli_tts_mode():
         else:
             clean_vocal = audio_path
 
-        print("\nLoading Whisper model...")
-        stt = WhisperSTT()
-        if stt.model is None:
-            print("Error: Failed to load Whisper model")
-            for f in _ms_cleanup:
-                if f and os.path.exists(f):
-                    try:
-                        os.unlink(f)
-                    except:
-                        pass
-            return False
+        ms_overdose = False
+        while True:
+            overdose_input = input("Enable overdose? (Y/N): ").strip().lower()
+            if overdose_input in ['y', 'yes']:
+                ms_overdose = True
+                break
+            elif overdose_input in ['n', 'no']:
+                ms_overdose = False
+                break
+            else:
+                print("Please enter Y or N")
 
-        print("Transcribing audio...")
-        result = stt.transcribe(clean_vocal)
-        del stt
-        stt = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        if ms_overdose:
+            print("Loading VibeVoice ASR (overdose mode)...")
+            asr = VibeVoiceASR()
+            asr.ensure_model()
+            if asr.model is None:
+                print("Warning: VibeVoice ASR failed to load, falling back to Whisper")
+                asr.cleanup()
+                del asr
+                ms_overdose = False
+            else:
+                try:
+                    text = asr.transcribe_plain_text(clean_vocal)
+                except Exception as e:
+                    print(f"VibeVoice transcription error: {e}")
+                    text = ""
+                del asr
+                asr = None
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                if not text or not text.strip():
+                    print("Error: No speech detected (VibeVoice)")
+                    for f in _ms_cleanup:
+                        if f and os.path.exists(f):
+                            try:
+                                os.unlink(f)
+                            except:
+                                pass
+                    return False
+                text = text.strip()
+                print(f"\nTranscribed text ({len(text)} chars):")
+                display_text = text.replace('\n', '\\n').replace('\r', '\\r')
+                print(display_text)
+                print()
 
-        if not result:
-            print("Error: Transcription failed")
-            for f in _ms_cleanup:
-                if f and os.path.exists(f):
-                    try:
-                        os.unlink(f)
-                    except:
-                        pass
-            return False
+        if not ms_overdose:
+            print("\nLoading Whisper model...")
+            stt = WhisperSTT()
+            if stt.model is None:
+                print("Error: Failed to load Whisper model")
+                for f in _ms_cleanup:
+                    if f and os.path.exists(f):
+                        try:
+                            os.unlink(f)
+                        except:
+                            pass
+                return False
 
-        text = result.get("text", "").strip()
-        if not text:
-            print("Error: No speech detected")
-            for f in _ms_cleanup:
-                if f and os.path.exists(f):
-                    try:
-                        os.unlink(f)
-                    except:
-                        pass
-            return False
+            print("Transcribing audio...")
+            result = stt.transcribe(clean_vocal)
+            del stt
+            stt = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
-        print(f"\nTranscribed text ({len(text)} chars):")
-        display_text = text.replace('\n', '\\n').replace('\r', '\\r')
-        print(display_text)
-        print()
+            if not result:
+                print("Error: Transcription failed")
+                for f in _ms_cleanup:
+                    if f and os.path.exists(f):
+                        try:
+                            os.unlink(f)
+                        except:
+                            pass
+                return False
+
+            text = result.get("text", "").strip()
+            if not text:
+                print("Error: No speech detected")
+                for f in _ms_cleanup:
+                    if f and os.path.exists(f):
+                        try:
+                            os.unlink(f)
+                        except:
+                            pass
+                return False
+
+            print(f"\nTranscribed text ({len(text)} chars):")
+            display_text = text.replace('\n', '\\n').replace('\r', '\\r')
+            print(display_text)
+            print()
 
         edited_text = input("Edit text (or press Enter to keep as is): ").strip()
         if edited_text:
@@ -6349,7 +6397,7 @@ def oneline_tts(params):
                 try:
                     od_timestamp = time.strftime("%Y%m%d_%H%M%S")
                     od_output = os.path.join(results_dir, f"voder_tts_slc_od_{od_timestamp}.wav")
-                    od_success = vc.convert(clean_vocal, vc_input, od_output)
+                    od_success = vc.convert(vc_input, clean_vocal, od_output)
                     if od_success:
                         print(f"✓ Overdose output saved to: {od_output}")
                         output_path = od_output
