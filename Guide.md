@@ -83,6 +83,7 @@
   - [STS Mimic Language Warning](#sts-mimic-language-warning)
   - [Auto Vocal Extraction Trick](#auto-vocal-extraction-trick)
   - [Overdose STT Trick](#overdose-stt-trick)
+  - [Extreme TTS Trick](#extreme-tts-trick)
   - [Video STS Trick](#video-sts-trick)
   - [TTM Sub-Task Tricks](#ttm-sub-task-tricks)
 - [Version Information](#version-information)
@@ -148,6 +149,9 @@ When we list minimum requirements, we're being honest about what actually works.
 | TTS (SVC) | 8GB | +~3GB (Whisper turbo) +4GB (Qwen) +~3GB (SVS) | 18GB | Optional | 4GB |
 | TTS (SVC Overdose) | 8GB | +~8GB (VibeVoice ASR) +4GB (Qwen) +~3GB (SVS) +5GB (Seed-VC v2) | 22GB | Optional | 14GB |
 | TTS (Modify Speech) | 8GB | +4GB (Whisper) +4GB (Qwen) +~3GB (SVS) | 19GB | Optional | 4GB |
+| TTS (Extreme, no music) | 8GB | +~10GB (Fish S2-Pro) +~3GB (SVS) | 21GB | Optional | 8GB |
+| TTS (Extreme + Overdose) | 8GB | +~8GB (VibeVoice ASR) +~10GB (Fish S2-Pro) +~3GB (SVS) | 29GB | Optional | 24GB |
+| TTS (Extreme + music) | 8GB | +~10GB (Fish S2-Pro) +15GB (ACE) +~3GB (SVS) | 36GB | Optional | 16GB |
 | STS | 8GB | +5GB (Seed-VC) +~3GB (SVS) | 16GB | Optional | 14GB |
 | TTM (standard) | 8GB | +15GB (ACE) | 23GB | Optional | 15GB (RTX 3080/16GB GPU) |
 | TTM (overdose) | 8GB | +~24GB (ACE-Step XL-Turbo) | 32GB | Optional | 32GB (RTX 4090) |
@@ -236,6 +240,7 @@ src/models/
 │   ├── whisper/              # Whisper STT model (whisper-turbo.pt, whisper-large-v3.pt)
 │   ├── qwen_tts_voicedesign/ # Qwen3-TTS VoiceDesign model
 │   ├── qwen_tts_base/        # Qwen3-TTS Base model
+│   ├── fish_s2pro/            # Fish Audio S2-Pro model (extreme TTS)
 │   ├── seed_vc_v1/           # Seed-VC v1 (44.1kHz for music)
 │   ├── seed_vc_v2/           # Seed-VC v2 (22.05kHz for speech)
 │   ├── acestep/              # ACE-Step music generation models (turbo, xl-turbo)
@@ -2486,6 +2491,67 @@ python src/voder.py stt "audio.wav" overdose
 ```
 
 Note: Overdose cannot be combined with the `translate` flag, as VibeVoice ASR does not support translation.
+
+### Extreme TTS Trick
+
+The `extreme` keyword switches the TTS engine from Qwen3-TTS to **Fish Audio S2-Pro**, providing higher quality voice cloning and dramatically broader language support (80+ languages vs 10). This is especially useful when you need voice cloning for languages that Qwen3-TTS doesn't support, or when you want sub-word voice effects like `[whisper]`, `[laughing]`, or `[pause]` embedded directly in your text.
+
+**When to use extreme:**
+- You need TTS in a language beyond Qwen3-TTS's 10 supported languages (Arabic, Hindi, Thai, Turkish, etc.)
+- You want the highest possible voice cloning quality
+- You want to use voice effect tags in your script text
+- You're doing SLC or SVC and want better resynthesis quality
+
+**Voice effects (`[tag]` syntax):**
+Fish S2-Pro supports over 15,000 free-form voice effect tags embedded directly in your text. These tags control prosody, emotion, and vocal characteristics at the sub-word level:
+
+| Tag | Effect |
+|-----|--------|
+| `[whisper]` | Whisper the following text |
+| `[laughing]` | Speak with a laughing quality |
+| `[pause]` | Insert a natural pause |
+| `[short pause]` | Insert a brief pause |
+| `[excited]` | Speak with excitement |
+| `[angry]` | Speak angrily |
+| `[sad]` | Speak sadly |
+| `[surprised]` | Speak with surprise |
+| `[sigh]` | Sigh before speaking |
+| `[inhale]` | Audible inhale |
+| `[exhale]` | Audible exhale |
+| `[low voice]` | Lower volume/tone |
+| `[loud]` | Raise volume |
+| `[screaming]` | Scream the text |
+| `[emphasis]` | Emphasize the following |
+| `[echo]` | Add echo effect |
+| `[chuckle]` | Light chuckle quality |
+| `[professional broadcast tone]` | Formal announcer style |
+| `[pitch up]` | Raise pitch |
+| `[volume up]` | Increase volume |
+| `[volume down]` | Decrease volume |
+
+Since the model accepts free-form descriptions, any natural language text in brackets works — you're not limited to the tags above.
+
+```bash
+# Extreme TTS with voice effects
+python src/voder.py tts extreme script "[whisper] Hello there [pause] how are you?" target "voice.wav"
+
+# Extreme TTS with voice design for Arabic (auto language trick)
+python src/voder.py tts extreme script "مرحبا بالعالم" voice "deep male"
+
+# Extreme TTS combined with overdose
+python src/voder.py tts overdose extreme script "James: Hello" target "James: james.wav" music "soft piano"
+
+# Extreme voice training (saves .ttse)
+python src/voder.py train extreme voice:narrator "ref.wav"
+```
+
+**Voice Design language trick:** When `extreme` is used with a `voice` prompt (not `target`) and the text language is outside Qwen3-TTS VoiceDesign's 10 supported languages, VODER automatically handles this without any user intervention. It generates ~30 seconds of placeholder English text, has VoiceDesign speak it, feeds that audio to Fish S2-Pro for voice cloning, then Fish speaks the actual foreign-language text. This makes voice design available for 70+ additional languages that VoiceDesign doesn't natively support.
+
+**Multi-speaker note:** Fish S2-Pro natively supports multi-speaker generation in a single pass via `<|speaker:i|>` tokens. However, VODER's dialogue mode is recommended over this feature because it provides better per-character voice control, mixing, and the ability to use different voice references for each character.
+
+**`.ttse` vs `.tts` files:** Extreme mode uses `.ttse` trained voice files (saved via `train extreme voice:name`). Standard mode uses `.tts` files. Using a `.tts` file with extreme or a `.ttse` file without extreme produces a clear error message explaining the mismatch.
+
+**STS voice pass with extreme:** The `sts:` prefix (which applies an additional Seed-VC v2 non-mimic pass) is not applicable with extreme mode. Fish S2-Pro's integrated cloning already produces high-fidelity output that doesn't benefit from an additional STS pass.
 
 ### Video STS Trick
 

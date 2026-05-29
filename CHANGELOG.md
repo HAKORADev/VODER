@@ -3,6 +3,42 @@
 - All notable changes to VODER - Voice Blender will be documented in this file.
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 
+## 05/29/2026
+- Status: Stable, all features work, still developing
+- **Extreme TTS Mode (Fish Audio S2-Pro)**
+
+### Added
+
+#### Extreme TTS Mode
+
+- **`extreme` Keyword** — New keyword for TTS mode and its sub-tasks (TTS, SLC, SVC, Modify Speech) that switches the TTS engine from Qwen3-TTS to Fish Audio S2-Pro for higher quality voice cloning and broader language support. Can be used alongside `overdose` (they serve different purposes: overdose = STT/TTM model selection, extreme = TTS model upgrade). Placed after `overdose` in syntax and prompts.
+
+- **Fish Audio S2-Pro** — New TTS model integrated into VODER. A dual-autoregressive (4B + 400M) model with RVQ-based codec supporting 80+ languages, sub-word level voice effects via `[tag]` syntax, and superior voice cloning quality.
+  - Model: `fishaudio/s2-pro` from HuggingFace, stored at `src/models/checkpoints/fish_s2pro/`
+  - Source code: `src/fish_speech/` (stripped from fish-speech repo, inference-only)
+  - Auto-downloads on first use
+  - Supports `[whisper]`, `[laughing]`, `[pause]`, `[excited]`, and 15,000+ free-form voice effect tags
+  - Supports native multi-speaker in one pass via `<|speaker:i|>` tokens (noted in Guide but dialogue mode recommended instead)
+
+- **Train Extreme** — `voder.py train extreme voice:name "ref.wav"` trains a voice using Fish S2-Pro and saves it as a `.ttse` file (instead of `.tts`). `.tts` files only work without extreme, `.ttse` files only work with extreme — a clear error message is shown if mismatched.
+
+- **Voice Design Language Trick** — When `extreme` is enabled and the text language is outside Qwen3-TTS VoiceDesign's 10 supported languages, VODER automatically generates ~30s placeholder English text, has VoiceDesign speak it, feeds that audio to Fish for cloning, then Fish speaks the actual text. This enables voice design for languages like Arabic, Hindi, Thai, Turkish, and 70+ others that VoiceDesign doesn't natively support.
+
+- **Extreme in SLC** — `tts extreme slc "path.wav"` and `tts overdose extreme slc "path.wav"` use Fish S2-Pro for the resynthesis step. Supports `.ttse` premade voice files.
+
+- **Extreme in SVC** — `tts extreme svc "path.wav" target "ref.wav"` uses Fish S2-Pro for the re-synthesis step. Supports `.ttse` premade voice files.
+
+- **Extreme in Modify Speech** — TTS interactive modify speech now includes an "Enable extreme? (Y/N)" prompt after overdose. When enabled, Fish S2-Pro replaces Qwen3-TTS for voice extraction and synthesis.
+
+### Changed
+
+- Interactive TTS mode now prompts for `extreme` after `overdose` (both in the main flow and in modify speech)
+- Oneline TTS parser accepts `extreme` keyword after `overdose`
+- `_assemble_enhanced_dialogue()` accepts `use_extreme` and `fish_voice_data` parameters for dialogue-level Fish synthesis
+- Voice mismatch check (`.tts` vs `.ttse`) applies across all TTS sub-tasks
+
+---
+
 ## 05/21/2026
 - Status: Stable, all features work, still developing
 - **Major Update & Bug Hunt Activity**

@@ -3565,6 +3565,18 @@ def cli_tts_mode():
             else:
                 print("Please enter Y or N")
 
+        ms_extreme = False
+        while True:
+            extreme_input = input("Enable extreme? (Y/N): ").strip().lower()
+            if extreme_input in ['y', 'yes']:
+                ms_extreme = True
+                break
+            elif extreme_input in ['n', 'no']:
+                ms_extreme = False
+                break
+            else:
+                print("Please enter Y or N")
+
         if ms_overdose:
             print("Loading VibeVoice ASR (overdose mode)...")
             asr = VibeVoiceASR()
@@ -3721,20 +3733,39 @@ def cli_tts_mode():
                 ms_music_track = None
 
         try:
-            print("\nLoading Qwen-TTS model...")
-            tts = QwenTTS()
-            print("Extracting voice characteristics...")
-            success = tts.extract_voice(voice_ref)
-            if not success:
-                print("Error: Voice extraction failed")
-                return False
-            print("Synthesizing speech...")
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            output_path = os.path.join(results_dir, f"voder_tts_ms_{timestamp}.wav")
-            success = tts.synthesize(text, output_path)
-            if not success:
-                print("Error: Synthesis failed")
-                return False
+            if ms_extreme:
+                print("\nLoading Fish-S2Pro model (extreme)...")
+                tts = FishTTS()
+                if not tts.ensure_model():
+                    print("Error: Fish-S2Pro model failed to load")
+                    return False
+                print("Encoding voice (extreme)...")
+                success = tts.encode_voice(voice_ref)
+                if not success:
+                    print("Error: Voice encoding failed")
+                    return False
+                print("Synthesizing speech (extreme)...")
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                output_path = os.path.join(results_dir, f"voder_tts_ms_extreme_{timestamp}.wav")
+                success = tts.synthesize(text, output_path)
+                if not success:
+                    print("Error: Synthesis failed")
+                    return False
+            else:
+                print("\nLoading Qwen-TTS model...")
+                tts = QwenTTS()
+                print("Extracting voice characteristics...")
+                success = tts.extract_voice(voice_ref)
+                if not success:
+                    print("Error: Voice extraction failed")
+                    return False
+                print("Synthesizing speech...")
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                output_path = os.path.join(results_dir, f"voder_tts_ms_{timestamp}.wav")
+                success = tts.synthesize(text, output_path)
+                if not success:
+                    print("Error: Synthesis failed")
+                    return False
 
             del tts
             tts = None
@@ -3742,7 +3773,7 @@ def cli_tts_mode():
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-            if ms_sts and ms_sts_ref and os.path.exists(ms_sts_ref):
+            if not ms_extreme and ms_sts and ms_sts_ref and os.path.exists(ms_sts_ref):
                 print("\nRunning STS voice conversion pass (Seed-VC v2 non-mimic)...")
                 vc = SeedVCV2()
                 if vc.model is None:

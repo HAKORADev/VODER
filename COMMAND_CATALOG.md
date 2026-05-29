@@ -81,6 +81,7 @@ Generate speech from text using voice descriptions (VoiceDesign) or voice clone 
 | `slc` | (flag) | Enable SLC (Speaker Language Conversion) sub-task. Transcribe source, clone voice, re-synthesize. See SLC Sub-Task below. |
 | `svc` | `"path"` | SVC sub-task: transcribe single-speaker audio and re-synthesize with a target voice. Must be paired with `target` or `voice` for the output voice |
 | `overdose` | (flag) | Use VibeVoice ASR for dialogue source analysis and voice clip extraction instead of Whisper + pyannote. When used with `music`, also uses ACE-Step XL turbo for enhanced background music quality. With `slc`, runs an additional STS v2 pass for better voice preservation. Requires 24GB+ VRAM or 48GB+ RAM. |
+| `extreme` | (flag) | Use Fish Audio S2-Pro instead of Qwen3-TTS for TTS synthesis. Provides higher quality voice cloning, 80+ language support (vs 10 for Qwen3-TTS), and sub‑word voice effects via `[tag]` syntax (e.g. `[whisper]`, `[laughing]`, `[pause]`, `[excited]`). Can be combined with `overdose`. Voice design for unsupported languages uses automatic placeholder trick. Trained voices use `.ttse` format (not `.tts`). |
 
 ### Single Mode
 
@@ -150,6 +151,21 @@ python voder.py tts overdose script "James: Hello" script "Sarah: Hi" voice "Jam
 
 # TTS with overdose + voice cloning + background music
 python voder.py tts overdose script "James: Hello" script "Sarah: Hi" target "James: james.wav" target "Sarah: sarah.wav" music "soft piano"
+
+# TTS with extreme (Fish S2-Pro for higher quality TTS)
+python voder.py tts extreme script "Hello world" target "voice.wav"
+
+# TTS with extreme + voice design (auto language trick for non-10 languages)
+python voder.py tts extreme script "Arabic text here" voice "deep male"
+
+# TTS with extreme + voice effects
+python voder.py tts extreme script "[whisper] Hello there [pause] how are you?" target "voice.wav"
+
+# TTS with extreme + overdose (both can be combined)
+python voder.py tts overdose extreme script "James: Hello" target "James: james.wav" music "soft piano"
+
+# TTS extreme with trained .ttse voice
+python voder.py tts extreme script "Hello" voice "my-character"
 ```
 
 ### Overdose Notes
@@ -157,6 +173,16 @@ python voder.py tts overdose script "James: Hello" script "Sarah: Hi" target "Ja
 - When `overdose` is used with audio as dialogue source, VibeVoice ASR replaces Whisper + pyannote for transcription and diarization.
 - Voice clip extraction with overdose automatically trims 2s from start and 3s from end of longest segment to avoid cross-speaker overlap.
 - `music` parameter with `overdose` uses ACE-Step XL turbo instead of the standard model for enhanced background music quality.
+
+### Extreme Notes
+
+- When `extreme` is used, Fish Audio S2-Pro replaces Qwen3-TTS for all TTS synthesis steps.
+- `extreme` and `overdose` can be used together — they affect different parts of the pipeline (overdose = STT/TTM, extreme = TTS).
+- Voice effects are embedded in script text using `[tag]` syntax, e.g. `[whisper]`, `[laughing]`, `[pause]`, `[excited]`, `[sigh]`, `[inhale]`. Over 15,000 free-form tags are supported — any natural language description in brackets works (e.g. `[low voice]`, `[professional broadcast tone]`, `[pitch up]`).
+- When the text language is outside VoiceDesign's 10 supported languages and `extreme` is enabled with a `voice` prompt (not `target`), VODER automatically generates placeholder English speech via VoiceDesign, clones it with Fish, then Fish speaks the actual foreign-language text. No manual workaround needed.
+- Trained voices for extreme mode use `.ttse` files (saved via `train extreme voice:name`). Using `.tts` with extreme or `.ttse` without extreme produces a clear error message.
+- Fish S2-Pro supports 80+ languages natively, far beyond Qwen3-TTS's 10.
+- STS voice pass (`sts:` prefix) is not applicable with extreme mode — Fish's integrated cloning already produces high-fidelity output.
 
 ### SLC Sub-Task
 
@@ -177,6 +203,8 @@ Speaker Language Conversion: transcribe speech from an audio/video source, trans
 - Supports audio files, video files, and YouTube/TikTok/Bilibili URLs.
 - `music` flag extracts the instrumental track from the source and blends it with the voice output, preserving background music.
 - `overdose slc` runs an additional STS v2 pass after TTS for better voice preservation.
+- `extreme slc` uses Fish S2-Pro instead of Qwen3-TTS for the resynthesis step, producing higher quality voice cloning.
+- `overdose extreme slc` combines both: VibeVoice ASR for transcription + Fish S2-Pro for resynthesis.
 - Voice-music sync may vary when using the `music` flag; this is inherent to the approach.
 
 ```
@@ -197,15 +225,21 @@ python voder.py tts overdose slc "french_speech.wav"
 
 # SLC with overdose + music preservation
 python voder.py tts overdose slc music "french_speech.wav"
+
+# SLC with extreme (Fish S2-Pro for resynthesis)
+python voder.py tts extreme slc "french_speech.wav"
+
+# SLC with overdose + extreme
+python voder.py tts overdose extreme slc "french_speech.wav"
 ```
 
 ### SVC Sub-Task
 
 Speaker Voice Change: transcribe single-speaker audio and re-synthesize with a different target voice. Unlike SLC (which preserves the original voice and changes language), SVC preserves the content/language but changes the speaker's voice.
 
-**Command format:** `voder.py tts [overdose] svc "source_path" target "voice_ref"`
+**Command format:** `voder.py tts [overdose] [extreme] svc "source_path" target "voice_ref"`
 
-**Pipeline:** SVS voice isolation → Whisper/VibeVoice transcription → Qwen-TTS synthesis with target voice → optional STS v2 pass (if `sts:` prefix on target)
+**Pipeline:** SVS voice isolation → Whisper/VibeVoice transcription → Qwen-TTS/Fish synthesis with target voice → optional STS v2 pass (if `sts:` prefix on target, not applicable with extreme)
 
 ```
 # Basic SVC
@@ -216,6 +250,12 @@ python src/voder.py tts svc "speech.wav" voice "deep male, authoritative"
 
 # Overdose mode (VibeVoice ASR transcription)
 python src/voder.py tts overdose svc "speech.wav" target "voice.wav"
+
+# Extreme mode (Fish S2-Pro for resynthesis)
+python src/voder.py tts extreme svc "speech.wav" target "voice.wav"
+
+# Overdose + extreme combined
+python src/voder.py tts overdose extreme svc "speech.wav" target "voice.wav"
 
 # SVC with STS voice pass
 python src/voder.py tts svc "speech.wav" target "sts:voice.wav"
@@ -269,15 +309,16 @@ VoiceDesign characters in dialogue mode automatically get their voice stabilized
 
 ### Trained Voice Usage
 
-When using the `voice` parameter, a trained voice name or path can be used instead of a voice description. When a trained voice is used, Qwen3-TTS Base (voice cloning) is used instead of VoiceDesign.
+When using the `voice` parameter, a trained voice name or path can be used instead of a voice description. When a trained voice is used, the corresponding TTS model (Qwen3-TTS Base for `.tts`, Fish S2-Pro for `.ttse`) is used instead of VoiceDesign.
 
 | Syntax | Behavior |
 |--------|----------|
-| `voice "character-name"` | Uses the latest `.tts` file with that name from `voices/` |
-| `voice "character-name:path/to/file.tts"` | Uses a specific `.tts` file |
-| `voice "character-name:another-name"` | Uses the latest `.tts` file for `another-name` from `voices/` |
+| `voice "character-name"` | Uses the latest `.tts` (or `.ttse` with `extreme`) file with that name from `voices/` |
+| `voice "character-name:path/to/file.tts"` | Uses a specific `.tts` file (standard mode only) |
+| `voice "character-name:path/to/file.ttse"` | Uses a specific `.ttse` file (extreme mode only) |
+| `voice "character-name:another-name"` | Uses the latest `.tts` (or `.ttse`) file for `another-name` from `voices/` |
 
-This works in both oneline and interactive CLI modes.
+This works in both oneline and interactive CLI modes. Using a `.tts` file with `extreme` or a `.ttse` file without `extreme` produces an error.
 
 ### Script Directives (per line, at end of text)
 
@@ -354,9 +395,12 @@ python voder.py tts script "sfx: door creak /duration:2" script "sfx: footsteps 
 
 ---
 
-## 1a. Voice Training — `train voice`
+## 1a. Voice Training — `train voice` / `train extreme voice`
 
-Train a Qwen3-TTS Base voice clone from reference audio and save it as a `.tts` file for later reuse. Oneline-only command.
+Train a voice clone from reference audio and save it for later reuse. Oneline-only command.
+
+**Standard mode** (`train voice`) uses Qwen3-TTS Base and saves `.tts` files.
+**Extreme mode** (`train extreme voice`) uses Fish Audio S2-Pro and saves `.ttse` files.
 
 ### Keywords
 
@@ -371,13 +415,15 @@ Train a Qwen3-TTS Base voice clone from reference audio and save it as a `.tts` 
 ### Rules
 
 - Oneline-only command. Not available in interactive CLI or GUI.
-- Output is saved as `voder_tts_<name>_<timestamp>.tts` in the `voices/` directory.
+- Standard output: `voder_tts_<name>_<timestamp>.tts` in the `voices/` directory.
+- Extreme output: `voder_ttse_<name>_<timestamp>.ttse` in the `voices/` directory.
+- `.tts` files can only be used without `extreme`; `.ttse` files can only be used with `extreme`. A clear error is shown on mismatch.
 - The `test` keyword can appear at the end of the command (no custom script) or with a quoted custom script.
 - Multiple reference paths are supported — each is SVS-cleaned before concatenation.
 - The `first` keyword uses TSE (Target Speaker Extraction) to isolate only the first reference's speaker voice from all other references before compiling them into the composite.
 
 ```
-# Train a voice from a single reference
+# Train a voice from a single reference (standard Qwen3-TTS)
 python voder.py train voice:narrator "narrator_ref.wav"
 
 # Train from multiple references
@@ -391,6 +437,15 @@ python voder.py train voice:my-character "ref1.wav" "ref2.wav" test
 
 # Train with custom test script
 python voder.py train voice:my-character "ref1.wav" test "Custom test script for verification"
+
+# Train extreme voice (Fish S2-Pro, saves .ttse)
+python voder.py train extreme voice:narrator "narrator_ref.wav"
+
+# Train extreme from multiple references
+python voder.py train extreme voice:hero "hero_clip1.wav" "hero_clip2.wav"
+
+# Train extreme with test sample
+python voder.py train extreme voice:my-character "ref1.wav" test
 ```
 
 ---

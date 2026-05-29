@@ -136,7 +136,7 @@ VODER orchestrates state-of-the-art open-source models — each selected for qua
 | Capability | Model |
 |-----------|-------|
 | Speech Recognition | [Whisper](https://github.com/openai/whisper) |
-| Voice Synthesis & Cloning | [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) |
+| Voice Synthesis & Cloning | [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [Fish Audio S2-Pro](https://huggingface.co/fishaudio/s2-pro) |
 | Voice Conversion | [Seed-VC](https://github.com/Plachtaa/seed-vc) |
 | Music Generation | [ACE-Step](https://github.com/ace-step/ACE-Step-1.5) |
 | Sound Effects | [TangoFlux](https://github.com/declare-lab/TangoFlux) |

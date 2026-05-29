@@ -11,6 +11,7 @@ VODER is not an English‑only tool. The AI models it orchestrates collectively 
 | **Whisper** (`large-v3-turbo` / `large-v3`) | STT, TTS (modify speech), Dialogue Source | 99 | Yes | Detects spoken language from audio; dual‑model architecture |
 | **Qwen3‑TTS VoiceDesign** | TTS | 10 + 2 dialects | Yes | Detects language from input text |
 | **Qwen3‑TTS Base** | TTS+VC, TTS (modify speech) | 10 + 2 dialects | Yes | Detects language from input text |
+| **Fish Audio S2‑Pro** | TTS (extreme), SLC (extreme), SVC (extreme) | 80+ | Yes | Detects language from input text; sub-word voice effects via [tag] syntax |
 | **ACE‑Step 1.5** | TTM, TTM+VC, Background Music | 50 | Yes | Detects language from lyrics/caption |
 | **EasyOCR** | STT, TTS, TTS+VC (image input) | 85 | No | Hardcoded to English in VODER |
 | **TangoFlux** | SFX | 1 (English) | No | Text encoder trained on English only |
@@ -153,6 +154,40 @@ Mongolian         Armenian           Javanese
 - Voice cloning extracts an x‑vector speaker embedding from the reference audio, which is language‑independent. A Chinese reference audio can be used to clone a voice that speaks English, Japanese, or any other supported language.
 - In dialogue mode, the voice embedding is extracted **once per character** at the start and reused for all their lines, ensuring consistent voice quality regardless of language changes between lines.
 - The `generate_voice_clone()` method supports batch language lists, but VODER passes `"Auto"` for all lines.
+
+---
+
+## Fish Audio S2‑Pro — Text‑to‑Speech (Extreme Mode)
+
+**Model:** `fishaudio/s2-pro` — Dual-Autoregressive architecture (4B Slow AR + 400M Fast AR)
+**Modes:** TTS (with `extreme` flag), SLC (with `extreme` flag), SVC (with `extreme` flag), Modify Speech (with `extreme` prompt)
+**Language handling:** Auto‑detects language from the input text. No phoneme or language‑specific preprocessing is required — the model handles all languages natively through its dual-AR architecture.
+
+**Supported languages (80+ total):**
+
+**Tier 1 (highest quality):**
+- Japanese (ja), English (en), Chinese (zh)
+
+**Tier 2:**
+- Korean (ko), Spanish (es), Portuguese (pt), Arabic (ar), Russian (ru), French (fr), German (de)
+
+**Global coverage (partial list):**
+sv, it, tr, no, nl, cy, eu, ca, da, gl, ta, hu, fi, pl, et, hi, la, ur, th, vi, jw, bn, yo, cs, sw, nn, he, ms, uk, id, kk, bg, lv, my, tl, sk, ne, fa, af, el, bo, hr, ro, sn, mi, yi, am, be, km, is, az, sd, br, sq, ps, mn, ht, ml, sr, sa, te, ka, bs, pa, lt, kn, si, hy, mr, as, gu, fo, and more.
+
+**Voice effects (`[tag]` syntax):**
+S2-Pro supports sub‑word level fine‑grained control of prosody and emotion using `[tag]` syntax embedded in the text. Over 15,000 unique tags are supported — the model accepts free‑form natural language descriptions, not just a fixed set.
+
+Common tags include: `[whisper]`, `[laughing]`, `[pause]`, `[short pause]`, `[excited]`, `[angry]`, `[sad]`, `[surprised]`, `[sigh]`, `[inhale]`, `[exhale]`, `[low voice]`, `[loud]`, `[screaming]`, `[emphasis]`, `[echo]`, `[chuckle]`, `[professional broadcast tone]`, `[pitch up]`, `[volume up]`, `[volume down]`, `[with strong accent]`, `[singing]`, `[clearing throat]`, `[panting]`.
+
+**Voice Design language trick:**
+When `extreme` is enabled with a `voice` prompt (not `target`) and the text language is outside Qwen3‑TTS VoiceDesign's 10 supported languages, VODER automatically generates ~30 seconds of placeholder English speech via VoiceDesign, feeds it to Fish S2‑Pro for voice cloning, then Fish speaks the actual foreign‑language text. This enables voice design for 70+ additional languages that VoiceDesign doesn't natively support — no manual workaround needed.
+
+**Technical notes:**
+- The model uses an RVQ‑based codec with 10 codebooks at ~21 Hz frame rate
+- Voice cloning from reference audio (10–30 seconds) captures timbre, speaking style, and emotional tendencies without fine‑tuning
+- Supports native multi‑speaker in one pass via `<|speaker:i|>` tokens, but VODER's dialogue mode is recommended for better per‑character control
+- Activated with the `extreme` keyword after `overdose` in command syntax
+- Trained voices are saved as `.ttse` files (not `.tts`); using the wrong format produces a clear error message
 
 ---
 
@@ -376,6 +411,16 @@ Audio (any language) → Whisper translate → English text → Qwen3‑TTS TTS 
 **Change speaker voice across languages (TTS SLC):**
 ```
 Audio (Spanish) + target reference (English speaker) → TTS SLC → English speech with English speaker voice
+```
+
+**Voice design for unsupported languages (extreme):**
+```
+Text (Arabic) + voice prompt ("deep male") + extreme flag → VoiceDesign generates English placeholder → Fish S2-Pro clones it → Fish speaks Arabic text
+```
+
+**Extreme voice cloning for 80+ languages:**
+```
+Reference audio (Hindi) + text (Hindi) + extreme flag → Fish S2-Pro → Hindi speech with cloned voice
 ```
 
 These workflows work because each component handles language independently. Whisper auto‑detects the input language, Qwen3‑TTS auto‑detects the output language, and voice cloning operates on speaker identity rather than language. The components don't need to agree on a language — each one handles its own detection.
