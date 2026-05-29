@@ -81,7 +81,7 @@ Generate speech from text using voice descriptions (VoiceDesign) or voice clone 
 | `slc` | (flag) | Enable SLC (Speaker Language Conversion) sub-task. Transcribe source, clone voice, re-synthesize. See SLC Sub-Task below. |
 | `svc` | `"path"` | SVC sub-task: transcribe single-speaker audio and re-synthesize with a target voice. Must be paired with `target` or `voice` for the output voice |
 | `overdose` | (flag) | Use VibeVoice ASR for dialogue source analysis and voice clip extraction instead of Whisper + pyannote. When used with `music`, also uses ACE-Step XL turbo for enhanced background music quality. With `slc`, runs an additional STS v2 pass for better voice preservation. Requires 24GB+ VRAM or 48GB+ RAM. |
-| `extreme` | (flag) | Use Fish Audio S2-Pro instead of Qwen3-TTS for TTS synthesis. Provides higher quality voice cloning, 80+ language support (vs 10 for Qwen3-TTS), and sub‑word voice effects via `[tag]` syntax (e.g. `[whisper]`, `[laughing]`, `[pause]`, `[excited]`). Can be combined with `overdose`. Voice design for unsupported languages uses automatic placeholder trick. Trained voices use `.ttse` format (not `.tts`). |
+| `extreme` | (flag) | Use Fish Audio S2-Pro instead of Qwen3-TTS for TTS synthesis. Provides higher quality voice cloning, 80+ language support (vs 10 for Qwen3-TTS), and emotion/tone/effect tags via `[tag]` syntax (e.g. `[whispering]`, `[laughing]`, `[pause]`, `[excited]`, `[angry]`). Can be combined with `overdose`. Voice design for unsupported languages uses automatic placeholder trick. Trained voices use `.ttse` format (not `.tts`). |
 
 ### Single Mode
 
@@ -158,8 +158,8 @@ python voder.py tts extreme script "Hello world" target "voice.wav"
 # TTS with extreme + voice design (auto language trick for non-10 languages)
 python voder.py tts extreme script "Arabic text here" voice "deep male"
 
-# TTS with extreme + voice effects
-python voder.py tts extreme script "[whisper] Hello there [pause] how are you?" target "voice.wav"
+# TTS with extreme + emotion and tone tags
+python voder.py tts extreme script "[whispering] Hello there [pause] how are you?" target "voice.wav"
 
 # TTS with extreme + overdose (both can be combined)
 python voder.py tts overdose extreme script "James: Hello" target "James: james.wav" music "soft piano"
@@ -178,7 +178,16 @@ python voder.py tts extreme script "Hello" voice "my-character"
 
 - When `extreme` is used, Fish Audio S2-Pro replaces Qwen3-TTS for all TTS synthesis steps.
 - `extreme` and `overdose` can be used together — they affect different parts of the pipeline (overdose = STT/TTM, extreme = TTS).
-- Voice effects are embedded in script text using `[tag]` syntax, e.g. `[whisper]`, `[laughing]`, `[pause]`, `[excited]`, `[sigh]`, `[inhale]`. Over 15,000 free-form tags are supported — any natural language description in brackets works (e.g. `[low voice]`, `[professional broadcast tone]`, `[pitch up]`).
+- Emotion, tone, and effect tags are embedded in script text using `[tag]` syntax. Over 15,000 free-form tags are supported — any natural language description in brackets works.
+  - **Emotions**: `[excited]`, `[angry]`, `[sad]`
+  - **Tones / Voice Style**: `[whispering]`, `[soft voice]`, `[low voice]`, `[loud voice]`, `[shouting]`
+  - **Breathing & Reactions**: `[sigh]`, `[inhale]`, `[exhale]`, `[gasp]`, `[panting]`, `[clears throat]`
+  - **Vocal Sounds**: `[laughing]`, `[chuckling]`, `[giggle]`, `[sobbing]`, `[crying]`, `[groan]`
+  - **Pacing**: `[pause]`, `[short pause]`, `[long pause]`
+  - **Special**: `[emphasis]`, `[rustling sound]`
+  - **Free-form examples**: `[professional broadcast tone]`, `[pitch up]`, `[voice rough from crying, trying to sound normal]`, `[dead tired, end of a very long shift]`
+  - **Multi-language tags**: Supported (e.g. `[低声说]` for Chinese, `[囁き声で]` for Japanese)
+  - Tags affect text from their position onward. Placement matters: `[whispering] I didn't want to go inside.` whispers the whole line, while `I didn't want to go [whispering] inside.` whispers from "inside" onward.
 - When the text language is outside VoiceDesign's 10 supported languages and `extreme` is enabled with a `voice` prompt (not `target`), VODER automatically generates placeholder English speech via VoiceDesign, clones it with Fish, then Fish speaks the actual foreign-language text. No manual workaround needed.
 - Trained voices for extreme mode use `.ttse` files (saved via `train extreme voice:name`). Using `.tts` with extreme or `.ttse` without extreme produces a clear error message.
 - Fish S2-Pro supports 80+ languages natively, far beyond Qwen3-TTS's 10.

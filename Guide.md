@@ -2494,46 +2494,77 @@ Note: Overdose cannot be combined with the `translate` flag, as VibeVoice ASR do
 
 ### Extreme TTS Trick
 
-The `extreme` keyword switches the TTS engine from Qwen3-TTS to **Fish Audio S2-Pro**, providing higher quality voice cloning and dramatically broader language support (80+ languages vs 10). This is especially useful when you need voice cloning for languages that Qwen3-TTS doesn't support, or when you want sub-word voice effects like `[whisper]`, `[laughing]`, or `[pause]` embedded directly in your text.
+The `extreme` keyword switches the TTS engine from Qwen3-TTS to **Fish Audio S2-Pro**, providing higher quality voice cloning and dramatically broader language support (80+ languages vs 10). This is especially useful when you need voice cloning for languages that Qwen3-TTS doesn't support, or when you want emotion, tone, or vocal effect tags like `[whispering]`, `[laughing]`, `[excited]`, or `[pause]` embedded directly in your text.
 
 **When to use extreme:**
 - You need TTS in a language beyond Qwen3-TTS's 10 supported languages (Arabic, Hindi, Thai, Turkish, etc.)
 - You want the highest possible voice cloning quality
-- You want to use voice effect tags in your script text
+- You want to use emotion, tone, or vocal effect tags in your script text
 - You're doing SLC or SVC and want better resynthesis quality
 
-**Voice effects (`[tag]` syntax):**
-Fish S2-Pro supports over 15,000 free-form voice effect tags embedded directly in your text. These tags control prosody, emotion, and vocal characteristics at the sub-word level:
+**Emotion, tone, and effect tags (`[tag]` syntax):**
+Fish S2-Pro supports over 15,000 free-form tags embedded directly in your text. These tags control emotions, tones, vocal sounds, pacing, and special effects at the sub-word level. Tags are placed in `[brackets]` and affect the text from their position onward:
+
+**Emotions:**
 
 | Tag | Effect |
 |-----|--------|
-| `[whisper]` | Whisper the following text |
-| `[laughing]` | Speak with a laughing quality |
-| `[pause]` | Insert a natural pause |
-| `[short pause]` | Insert a brief pause |
-| `[excited]` | Speak with excitement |
-| `[angry]` | Speak angrily |
-| `[sad]` | Speak sadly |
-| `[surprised]` | Speak with surprise |
-| `[sigh]` | Sigh before speaking |
-| `[inhale]` | Audible inhale |
-| `[exhale]` | Audible exhale |
-| `[low voice]` | Lower volume/tone |
-| `[loud]` | Raise volume |
-| `[screaming]` | Scream the text |
-| `[emphasis]` | Emphasize the following |
-| `[echo]` | Add echo effect |
-| `[chuckle]` | Light chuckle quality |
-| `[professional broadcast tone]` | Formal announcer style |
-| `[pitch up]` | Raise pitch |
-| `[volume up]` | Increase volume |
-| `[volume down]` | Decrease volume |
+| `[excited]` | High energy, upbeat |
+| `[angry]` | Harsh, forceful |
+| `[sad]` | Heavy, downcast |
 
-Since the model accepts free-form descriptions, any natural language text in brackets works — you're not limited to the tags above.
+**Tones / Voice Style:**
+
+| Tag | Effect |
+|-----|--------|
+| `[whispering]` | Hushed, breathy |
+| `[soft voice]` | Quiet and gentle |
+| `[low voice]` | Deeper register |
+| `[loud voice]` | Raised volume |
+| `[shouting]` | Full-volume |
+
+**Breathing & Reactions:**
+
+| Tag | Effect |
+|-----|--------|
+| `[sigh]` | Expressive exhale |
+| `[inhale]` | Audible breath in |
+| `[exhale]` | Audible breath out |
+| `[gasp]` | Sharp intake of breath |
+| `[panting]` | Heavy, rapid breathing |
+| `[clears throat]` | Throat-clearing before speaking |
+
+**Vocal Sounds:**
+
+| Tag | Effect |
+|-----|--------|
+| `[laughing]` | Full laughter |
+| `[chuckling]` | Quiet, contained laugh |
+| `[giggle]` | Light, high-pitched laugh |
+| `[sobbing]` | Crying with breath |
+| `[crying]` | Tears audible in voice |
+| `[groan]` | Discomfort or exasperation |
+
+**Pacing:**
+
+| Tag | Effect |
+|-----|--------|
+| `[pause]` | Brief silence |
+| `[short pause]` | Shorter beat |
+| `[long pause]` | Extended silence |
+
+**Special:**
+
+| Tag | Effect |
+|-----|--------|
+| `[emphasis]` | Stress on the following word |
+| `[rustling sound]` | Background rustling |
+
+Since the model accepts free-form descriptions, any natural language text in brackets works — you're not limited to the tags above. Examples of free-form descriptions: `[professional broadcast tone]`, `[pitch up]`, `[voice rough from crying, trying to sound normal]`, `[dead tired, end of a very long shift]`, `[calm, almost bored]`. Multi-language tags are also supported (e.g., `[低声说]` for Chinese "speak softly", `[囁き声で]` for Japanese "whisper voice").
 
 ```bash
-# Extreme TTS with voice effects
-python src/voder.py tts extreme script "[whisper] Hello there [pause] how are you?" target "voice.wav"
+# Extreme TTS with emotion and tone tags
+python src/voder.py tts extreme script "[whispering] Hello there [pause] how are you?" target "voice.wav"
 
 # Extreme TTS with voice design for Arabic (auto language trick)
 python src/voder.py tts extreme script "مرحبا بالعالم" voice "deep male"
@@ -2547,7 +2578,7 @@ python src/voder.py train extreme voice:narrator "ref.wav"
 
 **Voice Design language trick:** When `extreme` is used with a `voice` prompt (not `target`) and the text language is outside Qwen3-TTS VoiceDesign's 10 supported languages, VODER automatically handles this without any user intervention. It generates ~30 seconds of placeholder English text, has VoiceDesign speak it, feeds that audio to Fish S2-Pro for voice cloning, then Fish speaks the actual foreign-language text. This makes voice design available for 70+ additional languages that VoiceDesign doesn't natively support.
 
-**Multi-speaker note:** Fish S2-Pro natively supports multi-speaker generation in a single pass via `<|speaker:i|>` tokens. However, VODER's dialogue mode is recommended over this feature because it provides better per-character voice control, mixing, and the ability to use different voice references for each character.
+**Multi-speaker note:** Fish S2-Pro natively supports multi-speaker generation in a single pass using `Name: text` syntax (e.g., `SARAH: [sigh] I made coffee. DANIEL: [long pause] Yeah. Thanks.`) or via internal `<|speaker:i|>` tokens. However, VODER's dialogue mode is recommended over this feature because it provides better per-character voice control, mixing, and the ability to use different voice references for each character.
 
 **`.ttse` vs `.tts` files:** Extreme mode uses `.ttse` trained voice files (saved via `train extreme voice:name`). Standard mode uses `.tts` files. Using a `.tts` file with extreme or a `.ttse` file without extreme produces a clear error message explaining the mismatch.
 

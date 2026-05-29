@@ -33,7 +33,7 @@ VODER is not a single AI model — it is an **orchestration layer** that coordin
 | **ACE-Step 1.5** | Music generation (legacy / background music) | TTM (default), Background Music (dialogue `music` param) |
 | **BS-RoFormer Resurrection** | Vocal/music separation (stem extraction) | SVS, STS (auto vocal extraction), STT (pre-cleanup), TTS (voice clone cleanup, SLC voice isolation, SVC voice isolation), TTM `bgm` (strip music + reference cleanup) |
 | **VibeVoice ASR** | Advanced ASR with native speaker diarization | STT with `overdose` flag, TTS with `overdose` flag, SS |
-| **Fish Audio S2-Pro** | High quality TTS with 80+ language support | TTS with `extreme` flag, SLC/SVC with `extreme`, `train extreme` |
+| **Fish Audio S2-Pro** | High quality TTS with 80+ language support | TTS with `extreme` flag, SLC/SVC/Modify Speech with `extreme`, `train extreme` |
 | **Pyannote** | Speaker diarization (who spoke when) | STT with `dialogue` flag |
 | **EasyOCR** | Text extraction from images | STT with image input |
 | **UniSE** | Speech enhancement/denoising | SE |
@@ -234,11 +234,11 @@ python src/voder.py tts overdose script "A: line" "B: line" target "A: ref.wav" 
 
 ### TTS Extreme Mode
 
-When the `extreme` flag is added to TTS, it switches the TTS engine from Qwen3-TTS to **Fish Audio S2-Pro**, providing higher quality voice cloning, 80+ language support, and sub-word voice effects:
+When the `extreme` flag is added to TTS, it switches the TTS engine from Qwen3-TTS to **Fish Audio S2-Pro**, providing higher quality voice cloning, 80+ language support, and emotion/tone/effect tags:
 
 - **Fish Audio S2-Pro instead of Qwen3-TTS**: All TTS synthesis steps use Fish S2-Pro's dual-autoregressive architecture (4B + 400M parameters) for superior voice cloning quality and natural prosody
 - **80+ languages**: Fish S2-Pro supports over 80 languages natively, compared to Qwen3-TTS's 10. This enables voice design for Arabic, Hindi, Thai, Turkish, and 70+ additional languages
-- **Voice effects via `[tag]` syntax**: Embed voice control tags directly in script text — `[whisper]`, `[laughing]`, `[pause]`, `[excited]`, `[sigh]`, `[inhale]`, `[low voice]`, `[professional broadcast tone]`, `[pitch up]`. Over 15,000 free-form tags are supported
+- **Emotion, tone, and effect tags via `[tag]` syntax**: Embed tags directly in script text to control emotions (`[excited]`, `[angry]`, `[sad]`), tones (`[whispering]`, `[soft voice]`, `[low voice]`, `[loud voice]`, `[shouting]`), breathing (`[sigh]`, `[inhale]`, `[exhale]`, `[gasp]`, `[panting]`, `[clears throat]`), vocal sounds (`[laughing]`, `[chuckling]`, `[giggle]`, `[sobbing]`, `[crying]`, `[groan]`), pacing (`[pause]`, `[short pause]`, `[long pause]`), and special effects (`[emphasis]`, `[rustling sound]`). Over 15,000 free-form tags are supported including multi-language tags (e.g., `[低声说]` for Chinese). Tags affect text from their position onward
 - **Voice Design language trick**: When `extreme` is used with a `voice` prompt (not `target`) and the text language is outside Qwen3-TTS's 10 supported languages, VODER automatically generates placeholder English speech via VoiceDesign, clones it with Fish, then Fish speaks the actual text
 - **Can combine with overdose**: `extreme` and `overdose` affect different parts of the pipeline (overdose = STT/TTM, extreme = TTS) and can be used simultaneously
 - **`.ttse` trained voices**: Extreme mode uses `.ttse` files (from `train extreme voice:name`) instead of `.tts` files. A clear error is shown on mismatch
@@ -247,8 +247,8 @@ When the `extreme` flag is added to TTS, it switches the TTS engine from Qwen3-T
 # TTS extreme with voice cloning
 python src/voder.py tts extreme script "Hello world" target "voice.wav"
 
-# TTS extreme with voice effects
-python src/voder.py tts extreme script "[whisper] Hello there [pause] how are you?" target "voice.wav"
+# TTS extreme with emotion and tone tags
+python src/voder.py tts extreme script "[whispering] Hello there [pause] how are you?" target "voice.wav"
 
 # TTS extreme + overdose combined
 python src/voder.py tts overdose extreme script "James: Hello" target "James: james.wav" music "soft piano"
@@ -266,7 +266,7 @@ python src/voder.py tts extreme slc "foreign_speech.wav"
 python src/voder.py tts extreme svc "speech.wav" target "voice_ref.wav"
 ```
 
-**Multi-speaker note**: Fish S2-Pro supports native multi-speaker in one pass via `<|speaker:i|>` tokens, but VODER's dialogue mode is recommended over this feature as it provides better per-character voice control and mixing.
+**Multi-speaker note**: Fish S2-Pro supports native multi-speaker in one pass using `Name: text` syntax (e.g., `SARAH: [sigh] I made coffee. DANIEL: [long pause] Yeah. Thanks.`) or via internal `<|speaker:i|>` tokens, but VODER's dialogue mode is recommended over this feature as it provides better per-character voice control and mixing.
 
 ### When to Use Voice Design vs Voice Cloning
 
@@ -391,7 +391,7 @@ python src/voder.py tts script \
 | `level` | No | Music volume | Ignored | Volume specification |
 | `reference` | No | Reference audio/video/URL for bgm style guidance | Ignored | Single path (processed via SVS music pipe to extract clean instrumental) |
 | `overdose` | No | Use VibeVoice ASR for source analysis + safer voice clip extraction; XL Turbo for bgm when `music` is set | Ignored | Flag only |
-| `extreme` | No | Use Fish Audio S2-Pro for TTS synthesis; 80+ languages, `[tag]` voice effects, `.ttse` trained voices | Ignored | Flag only |
+| `extreme` | No | Use Fish Audio S2-Pro for TTS synthesis; 80+ languages, emotion/tone/effect `[tag]` tags, `.ttse` trained voices | Ignored | Flag only |
 | `result` | No | Output destination | Path | Path |
 
 *Either `voice` or `target` required for non-SFX lines. Can mix both using cross-use feature. If `target` is provided without `voice`, voice cloning path is used automatically. The `voice` parameter also accepts trained voice references — see **Trained Voice Usage** below.

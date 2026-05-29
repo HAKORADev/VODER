@@ -606,7 +606,7 @@ VODER leverages state-of-the-art open-source models for professional-grade audio
 
 - **Speech Recognition:** [openai/whisper](https://github.com/openai/whisper) — Whisper for accurate audio transcription and translation
 - **Voice Synthesis:** [QwenLM/Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) — Qwen3-TTS for natural text-to-speech
-- **Voice Synthesis (Extreme):** [FishAudio/S2-Pro](https://huggingface.co/fishaudio/s2-pro) — Fish Audio S2-Pro for higher quality cloning, 80+ language support, and sub-word voice effects via `[tag]` syntax (activated with `extreme` keyword)
+- **Voice Synthesis (Extreme):** [FishAudio/S2-Pro](https://huggingface.co/fishaudio/s2-pro) — Fish Audio S2-Pro for higher quality cloning, 80+ language support, and emotion/tone/effect tags via `[tag]` syntax (activated with `extreme` keyword)
 - **Voice Conversion:** [Plachtaa/seed-vc](https://github.com/Plachtaa/seed-vc) — Seed-VC for speech-to-speech transformation
 - **Music Generation:** [ace-step/ACE-Step-1.5](https://github.com/ace-step/ACE-Step-1.5) — ACE-Step for lyrics-to-music synthesis
 - **Sound Effects:** [declare-lab/TangoFlux](https://github.com/declare-lab/TangoFlux) — TangoFlux for text-to-audio generation
