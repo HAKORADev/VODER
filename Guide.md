@@ -1014,6 +1014,22 @@ Additionally, `remix` and `repaint` sub-tasks now support a `reference` paramete
 
 The `reference` parameter accepts audio files, video files, and URLs (YouTube, Bilibili, TikTok). It works with both standard and overdose quality modes.
 
+**Reference Time Spec:**
+
+The reference path can include an optional time spec to select a specific portion of the reference audio instead of using the entire file. This applies to all TTM sub-tasks that accept references (remix, repaint, complete, lego, bgm).
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| `nn(path)` | `"50(ref.wav)"` | Start at nn seconds, extract up to slot max |
+| `nn-nn(path)` | `"20-30(ref.wav)"` | Use specified range; slides to reach slot max if shorter |
+| `nn-nn/nn-nn/nn-nn(path)` | `"20-30/40-50(ref.wav)"` | Multiple ranges from same audio, combined to reach slot max |
+
+The time spec is optional -- the old format `reference "ref.wav"` still works and uses the entire audio. It works with voice/music prefixes: `reference voice "50(ref.wav)"`, `reference music "20-30/40-50(ref.wav)"`. It also works inside repaint multi-pass specs: `"20-80/styling(jazz)/reference-voice(30-60(vocals.wav))"`.
+
+**Slot max by reference count:** 1 reference = 30s, 2 references = 15s each, 3 references = 10s each.
+
+**Sliding logic:** If the specified range is shorter than the slot max, the start is slid back and/or the end is slid forward until the slot max duration is reached. If the audio is shorter than the slot max, segments loop to fill the slot. If the combined segments exceed the slot max, they are used as-is.
+
 **Sub-Tasks:**
 
 TTM supports advanced music manipulation sub-tasks that go beyond simple generation:

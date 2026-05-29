@@ -95,6 +95,18 @@
   - Multiple references are composed into a 30-second composite for style guidance
   - Works with: remix, repaint, complete, lego sub-tasks
 
+#### TTM Reference Time Spec
+
+- **Optional Time Spec for References** — TTM reference paths now support an optional time specification prefix to select exact audio segments for reference, instead of using the entire audio.
+  - Format: `"nn(path)"` — start at nn seconds, extract up to slot-max seconds (30s/15s/10s depending on ref count)
+  - Format: `"nn-nn(path)"` — use specified range, auto-slides to reach slot-max if shorter
+  - Format: `"nn-nn/nn-nn/nn-nn(path)"` — multiple ranges from same audio, combined to reach slot-max
+  - Works with voice/music prefix: `reference voice "50(ref.wav)"`, `reference music "20-30/40-50(ref.wav)"`
+  - Works in repaint multi-pass specs: `"20-80/styling(jazz)/reference-voice(30-60(vocals.wav))"`
+  - Slot max: 1 reference = 30s, 2 references = 15s each, 3 references = 10s each
+  - Sliding logic: if range is shorter than slot-max, start slides back and/or end slides forward until slot-max reached; if audio is shorter than slot-max, segments loop
+  - Fully optional — old format still works, auto-compose behavior unchanged when no time spec is provided
+
 #### TTM Remix Optional Lyrics
 
 - **Lyrics Parameter** — TTM remix now accepts an optional `lyrics` parameter to provide new vocal text.
@@ -258,6 +270,8 @@
 - New function: `_resolve_multi_refs()` for resolving, SVS-cleaning, and concatenating multiple voice references
 - New function: `_save_voice_prompt()` for saving trained voice prompts as `.tts` files
 - New function: `_load_voice_prompt()` for loading trained voice prompts from `.tts` files
+- New function: `_parse_ref_time_spec()` for parsing TTM reference time spec format (`nn(path)`, `nn-nn/path`, `nn-nn/nn-nn/path`)
+- New function: `_extract_ref_segments()` for extracting and sliding time segments from reference audio
 - New function: `_find_voice_file()` for finding latest trained voice file by character name
 - New function: `_resolve_voice_ref()` for resolving trained voice references (name, name:path, name:othername)
 - New function: `_is_trained_voice_ref()` for checking if a voice value is a trained voice reference

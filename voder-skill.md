@@ -1161,6 +1161,42 @@ The automatic model offloading between ACE-Step and Seed-VC stages means voice c
 ***`add` is required for `complete` unless `sfx:` specs are provided. If only `sfx:` is used (no `add`), ACE-Step is not loaded.
 †Required when using `repaint` sub-task in single-pass mode (not needed for multi-pass mode where time range is embedded in pass specs).
 
+### Reference Time Spec
+
+The `reference` path value can include an optional time spec to select a specific portion of the reference audio instead of using the entire file. This applies to all TTM sub-tasks that accept references (remix, repaint, complete, lego, bgm).
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| `nn(path)` | `"50(ref.wav)"` | Start at nn seconds, extract up to slot max |
+| `nn-nn(path)` | `"20-30(ref.wav)"` | Use specified range; slides to reach slot max if shorter |
+| `nn-nn/nn-nn/nn-nn(path)` | `"20-30/40-50(ref.wav)"` | Multiple ranges from same audio, combined to reach slot max |
+
+The time spec is optional -- the old format `reference "ref.wav"` still works and uses the entire audio.
+
+**Slot max by reference count:** 1 reference = 30s, 2 references = 15s each, 3 references = 10s each.
+
+**Sliding logic:** If the specified range is shorter than the slot max, the start is slid back and/or the end is slid forward until the slot max duration is reached. If the audio is shorter than the slot max, segments loop to fill the slot. If the combined segments exceed the slot max, they are used as-is.
+
+**With voice/music prefix:**
+
+```bash
+# Start at 50 seconds, extract up to 30s (1 ref slot max)
+python src/voder.py ttm remix "song.wav" styling "jazz" reference voice "50(ref.wav)"
+
+# Use 20-30s range from first ref, 40-50s from second; each slides to 15s (2 ref slot max)
+python src/voder.py ttm remix "song.wav" styling "pop" reference "20-30(ref1.wav)" "40-50(ref2.wav)"
+
+# Multiple ranges from same audio, combined to reach slot max
+python src/voder.py ttm remix "song.wav" styling "rock" reference music "20-30/40-50(ref.wav)"
+```
+
+**In repaint multi-pass specs:**
+
+```bash
+# Time spec inside a repaint pass spec
+python src/voder.py ttm repaint "song.wav" "20-80/styling(jazz)/reference-voice(30-60(vocals.wav))"
+```
+
 ---
 
 ## 2.4 STT (Speech-to-Text Transcription)

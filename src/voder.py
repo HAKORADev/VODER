@@ -621,7 +621,99 @@ def _get_audio_duration(path):
         except Exception:
             return 30
 
-def _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup_list):
+def _parse_ref_time_spec(spec):
+    if '(' not in spec or not spec.endswith(')'):
+        return None, spec
+    paren_start = spec.rfind('(')
+    path = spec[paren_start + 1:-1].strip()
+    if not path:
+        return None, spec
+    time_part = spec[:paren_start].strip()
+    if not time_part:
+        return None, spec
+    segments = time_part.split('/')
+    ranges = []
+    for seg in segments:
+        seg = seg.strip()
+        if not seg:
+            continue
+        if '-' in seg:
+            parts = seg.split('-', 1)
+            try:
+                start = float(parts[0])
+                end = float(parts[1])
+                if start < 0 or end < 0 or start >= end:
+                    return None, spec
+                ranges.append((start, end))
+            except (ValueError, IndexError):
+                return None, spec
+        else:
+            try:
+                start = float(seg)
+                if start < 0:
+                    return None, spec
+                ranges.append((start, None))
+            except ValueError:
+                return None, spec
+    if not ranges:
+        return None, spec
+    return ranges, path
+
+def _extract_ref_segments(audio_path, time_ranges, slot_max, cleanup_list):
+    duration = _get_audio_duration(audio_path)
+    if duration <= 0:
+        return audio_path
+    wav, sr = torchaudio.load(audio_path)
+    if wav.shape[0] > 2:
+        wav = wav[:2, :]
+    elif wav.shape[0] == 1:
+        wav = wav.repeat(2, 1)
+    total_samples = wav.shape[-1]
+    if len(time_ranges) == 1:
+        start, end = time_ranges[0]
+        if end is None:
+            end = start + slot_max
+        if end > duration:
+            end = duration
+        if end - start < slot_max:
+            needed = slot_max - (end - start)
+            start = max(0, start - needed)
+            if end - start < slot_max:
+                end = min(duration, start + slot_max)
+        start_sample = int(max(0, start) * sr)
+        end_sample = int(min(end, duration) * sr)
+        start_sample = max(0, min(start_sample, total_samples))
+        end_sample = max(start_sample, min(end_sample, total_samples))
+        combined = wav[:, start_sample:end_sample]
+    else:
+        extracted = []
+        for start, end in time_ranges:
+            if end is None:
+                end = start + slot_max
+            if end > duration:
+                end = duration
+            if start >= duration:
+                continue
+            start_sample = int(max(0, start) * sr)
+            end_sample = int(min(end, duration) * sr)
+            start_sample = max(0, min(start_sample, total_samples))
+            end_sample = max(start_sample, min(end_sample, total_samples))
+            if end_sample > start_sample:
+                extracted.append(wav[:, start_sample:end_sample])
+        if not extracted:
+            return audio_path
+        combined = torch.cat(extracted, dim=-1)
+    target_samples = int(slot_max * sr)
+    if combined.shape[-1] < target_samples:
+        reps = math.ceil(target_samples / combined.shape[-1])
+        combined = combined.repeat(1, reps)
+        combined = combined[:, :target_samples]
+    out_path = os.path.join(tempfile.gettempdir(), f"voder_ref_seg_{int(time.time())}_{len(cleanup_list)}.wav")
+    torchaudio.save(out_path, combined, sr)
+    cleanup_list.append(out_path)
+    return out_path
+
+def _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup_list, time_ranges=None, slot_max=30):
     resolved = None
     if not os.path.exists(raw_path) and not is_youtube_url(raw_path):
         print(f"Warning: Audio path not found: {raw_path}, skipping")
@@ -650,6 +742,8 @@ def _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup_list
                 print(f"Warning: Invalid audio file: {msg}, skipping")
                 return None
             resolved = raw_path
+    if time_ranges:
+        resolved = _extract_ref_segments(resolved, time_ranges, slot_max, cleanup_list)
     if sv_type == 'voice':
         print("Extracting vocals via SVS...")
         processed = svs_extract_vocals(resolved)
@@ -667,9 +761,15 @@ def _compose_refs(ref_entries, results_dir):
         return None, []
     cleanup = []
     timestamp = time.strftime("%Y%m%d_%H%M%S")
+    num_entries = len(ref_entries)
+    slot_max = 30 // max(1, num_entries)
+    has_time_spec = any(len(e) > 2 and e[2] is not None for e in ref_entries)
     processed = []
-    for sv_type, raw_path in ref_entries:
-        audio_path = _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup)
+    for entry in ref_entries:
+        sv_type = entry[0]
+        raw_path = entry[1]
+        tr = entry[2] if len(entry) > 2 else None
+        audio_path = _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup, time_ranges=tr, slot_max=slot_max)
         if audio_path is None:
             continue
         processed.append(audio_path)
@@ -677,6 +777,22 @@ def _compose_refs(ref_entries, results_dir):
         return None, cleanup
     if len(processed) == 1:
         return processed[0], cleanup
+    if has_time_spec:
+        tensors = []
+        for p in processed:
+            wav, sr = torchaudio.load(p)
+            if sr != 48000:
+                wav = torchaudio.transforms.Resample(sr, 48000)(wav)
+            if wav.shape[0] == 1:
+                wav = wav.repeat(2, 1)
+            elif wav.shape[0] > 2:
+                wav = wav[:2, :]
+            tensors.append(wav)
+        composed = torch.cat(tensors, dim=-1)
+        out_path = os.path.join(results_dir, f'_composed_ref_{timestamp}.wav')
+        torchaudio.save(out_path, composed, 48000)
+        cleanup.append(out_path)
+        return out_path, cleanup
     print(f"Composing {len(processed)} references into 30s composite...")
     tensors = []
     for p in processed:
@@ -901,11 +1017,17 @@ def _parse_repaint_pass_spec(spec):
         elif part.startswith('styling(') and part.endswith(')'):
             styling = part[8:-1].replace('\\n', '\n')
         elif part.startswith('reference-voice(') and part.endswith(')'):
-            references.append(('voice', part[16:-1]))
+            inner = part[16:-1]
+            tr, rp = _parse_ref_time_spec(inner)
+            references.append(('voice', rp, tr))
         elif part.startswith('reference-music(') and part.endswith(')'):
-            references.append(('music', part[15:-1]))
+            inner = part[15:-1]
+            tr, rp = _parse_ref_time_spec(inner)
+            references.append(('music', rp, tr))
         elif part.startswith('reference(') and part.endswith(')'):
-            references.append(('asis', part[9:-1]))
+            inner = part[9:-1]
+            tr, rp = _parse_ref_time_spec(inner)
+            references.append(('asis', rp, tr))
         elif part == 'bias' and j + 1 < len(parts):
             bias = parts[j + 1]
             j += 1
@@ -5463,10 +5585,12 @@ def parse_oneline_args(args):
                     if i >= len(args):
                         result['error'] = 'reference requires a path after voice/music'
                         return result
-                    ref_entries.append((sv_type, args[i]))
+                    tr, rp = _parse_ref_time_spec(args[i])
+                    ref_entries.append((sv_type, rp, tr))
                     i += 1
                 else:
-                    ref_entries.append(('asis', args[i]))
+                    tr, rp = _parse_ref_time_spec(args[i])
+                    ref_entries.append(('asis', rp, tr))
                     i += 1
             if not ref_entries:
                 result['error'] = 'reference requires at least one path'
@@ -5914,7 +6038,7 @@ def show_oneline_usage():
     print("  guide    - Guidance scale (1.0-10.0, SFX mode, default: 4.5)")
     print("  music    - Background music description (dialogue/bgm modes)")
     print("  level    - Music volume levels e.g. \"10:20-50 30:60-80\" (dialogue modes) or 0-100 (bgm mode, default: 35)")
-    print("  reference - Music reference audio/video path or URL (up to 3 with voice/music prefix)")
+    print("  reference - Music reference audio/video path or URL (up to 3 with voice/music prefix, optional time spec: \"start(ref)\" or \"start-end/ref2(ref)\")")
     print("  ocr      - Image file path for OCR text extraction (TTS modes)")
     print("  overdose - Use VibeVoice ASR for dialogue source and enhanced music (TTS/TTM modes)")
     print("  bgm      - Add or replace background music on an audio/video (TTM mode)")
@@ -5945,6 +6069,7 @@ def show_oneline_usage():
     print('  python voder.py ttm bgm video "https://youtube.com/watch?v=..." music "cinematic" level 30 reference "ref.mp3"')
     print('  python voder.py ttm bgm "audio.wav" music "piano" "sfx:thunder/10-5/50"')
     print('  python voder.py ttm bgm "audio.wav" "sfx:rain/8-22" "sfx:thunder/10-5/60"')
+    print('  python voder.py ttm bgm "audio.wav" music "piano" reference "30-60(ref.wav)"')
     print()
     print("Complete + SFX examples (add instruments and/or sound effects):")
     print('  python voder.py ttm complete "source.wav" add "drums bass" "sfx:thunder/10-5/50"')
@@ -5968,6 +6093,8 @@ def show_oneline_usage():
     print('  python voder.py ttm remix "song.wav" styling "pop" reference voice "ref1.wav" music "ref2.wav"')
     print('  python voder.py ttm remix voice "vocal.wav" music "inst.wav" styling "funk" reference "ref.wav"')
     print('  python voder.py ttm overdose remix "song.wav" lyrics "dreamy verse" styling "synthwave"')
+    print('  python voder.py ttm remix "song.wav" styling "pop" reference "30-60(ref.wav)"')
+    print('  python voder.py ttm remix "song.wav" styling "pop" reference voice "0-15/40-55(ref.wav)" music "ref2.wav"')
     print()
     print("Repaint examples (restyle a specific time range of a song):")
     print('  python voder.py ttm repaint "song.wav" time:20-80 styling "more energetic"')
@@ -5980,6 +6107,7 @@ def show_oneline_usage():
     print('  python voder.py ttm repaint "song.wav" "20-80/styling(orchestral)" "10-30/styling(jazz)/bias/70"')
     print('  python voder.py ttm repaint "song.wav" "0-30/styling(funk)/lyrics(new words\\nhere)" "15-30/styling(ambient)/reference(ref.wav)"')
     print('  python voder.py ttm overdose repaint "song.wav" "0-15/styling(lo-fi)" "10-25/styling(drum and bass)/bias/80/reference-voice(vocals.wav)"')
+    print('  python voder.py ttm repaint "song.wav" "20-80/styling(jazz)/reference-voice(30-60(vocals.wav))"')
     print('  python voder.py ttm repaint music "song.wav" "0-30/styling(chill)" "20-30/styling(epic)/reference-music(inst.wav)"')
     print()
     print('SFX spec format: "sfx:prompt/duration-position/level"')
@@ -7569,13 +7697,14 @@ def oneline_ttm(params):
         if _target_vals:
             if len(_target_vals) >= 2:
                 ref_type = _target_vals[0].lower()
-                ref_path = _target_vals[1]
+                ref_path_raw = _target_vals[1]
                 if ref_type not in ('voice', 'music'):
                     ref_type = 'asis'
-                    ref_path = _target_vals[0]
+                    ref_path_raw = _target_vals[0]
             else:
                 ref_type = 'asis'
-                ref_path = _target_vals[0]
+                ref_path_raw = _target_vals[0]
+            _vc_tr, ref_path = _parse_ref_time_spec(ref_path_raw)
             if not os.path.exists(ref_path) and not is_youtube_url(ref_path):
                 print(f"Error: Reference target not found: {ref_path}")
                 for f in _vc_cleanup:
@@ -7596,6 +7725,8 @@ def oneline_ttm(params):
                             pass
                 return False
             _vc_cleanup.extend(ref_cleanup)
+            if _vc_tr:
+                resolved_ref = _extract_ref_segments(resolved_ref, _vc_tr, 30, _vc_cleanup)
             if ref_type == 'voice':
                 processed_ref = svs_extract_vocals(resolved_ref)
             elif ref_type == 'music':
@@ -8075,13 +8206,14 @@ def oneline_ttm(params):
     if _target_vals:
         if len(_target_vals) >= 2:
             ref_type = _target_vals[0].lower()
-            ref_path = _target_vals[1]
+            ref_path_raw = _target_vals[1]
             if ref_type not in ('voice', 'music'):
                 ref_type = 'asis'
-                ref_path = _target_vals[0]
+                ref_path_raw = _target_vals[0]
         else:
             ref_type = 'asis'
-            ref_path = _target_vals[0]
+            ref_path_raw = _target_vals[0]
+        _ttm_tr, ref_path = _parse_ref_time_spec(ref_path_raw)
         if not os.path.exists(ref_path) and not is_youtube_url(ref_path):
             print(f"Error: Reference target not found: {ref_path}")
             return False
@@ -8090,6 +8222,8 @@ def oneline_ttm(params):
             print("Error: Could not resolve reference target")
             return False
         _ttm_cleanup.extend(cleanup)
+        if _ttm_tr:
+            resolved_audio = _extract_ref_segments(resolved_audio, _ttm_tr, 30, _ttm_cleanup)
         if ref_type == 'voice':
             processed = svs_extract_vocals(resolved_audio)
         elif ref_type == 'music':
@@ -8489,7 +8623,12 @@ def oneline_ttm_lego(params):
     fallback_ref = None
     if _ref_entries:
         ref_cache = {}
-        for sv_type, raw in _ref_entries:
+        num_ref_entries = len(_ref_entries)
+        lego_slot_max = 30 // max(1, num_ref_entries)
+        for entry in _ref_entries:
+            sv_type = entry[0]
+            raw = entry[1]
+            lego_tr = entry[2] if len(entry) > 2 else None
             stem_name, ref_path = parse_ref_raw(raw)
             cache_key = (ref_path, sv_type)
             if cache_key not in ref_cache:
@@ -8520,6 +8659,8 @@ def oneline_ttm_lego(params):
                             print(f"Warning: Invalid reference file: {msg}")
                             continue
                         ref_audio = ref_path
+                if lego_tr:
+                    ref_audio = _extract_ref_segments(ref_audio, lego_tr, lego_slot_max, _cleanup)
                 if sv_type == 'voice':
                     ref_processed = svs_extract_vocals(ref_audio)
                 elif sv_type == 'music':

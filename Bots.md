@@ -1085,7 +1085,38 @@ python src/voder.py ttm bgm "podcast.wav" sfx "doorbell/5-12/50" result "/output
 | `clone` | Voice reference audio path (required when `vc` is set). Multi-reference format: `(path1)(path2)(path3)` concatenates multiple references into one. Add `first` keyword before the refs (`clone first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling | Yes (when vc is set) |
 | `target` | Optional music reference (`target voice "ref.wav"` or `target music "ref.wav"`) | No |
 | `bias` | Style transfer strength for `remix`/`repaint` (0‑100, default 40) | No |
-| `reference` | Reference audio for `remix`/`repaint`/`bgm`/`complete`/`lego` guidance (up to 3 entries with `voice`/`music` prefix; `reference voice "path"`, `reference music "path"`, or `reference "path"` for as-is; accepts audio, video, and URLs; multiple refs composed into 30s composite) | No |
+| `reference` | Reference audio for `remix`/`repaint`/`bgm`/`complete`/`lego` guidance (up to 3 entries with `voice`/`music` prefix; `reference voice "path"`, `reference music "path"`, or `reference "path"` for as-is; accepts audio, video, and URLs; multiple refs composed into 30s composite; supports optional time spec — see below) | No |
+
+**Reference Time Spec:**
+
+The reference path can include an optional time spec to select a specific portion of the reference audio instead of using the entire file. This applies to all TTM sub-tasks that accept references.
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| `nn(path)` | `"50(ref.wav)"` | Start at nn seconds, extract up to slot max |
+| `nn-nn(path)` | `"20-30(ref.wav)"` | Use specified range; slides to reach slot max if shorter |
+| `nn-nn/nn-nn/nn-nn(path)` | `"20-30/40-50(ref.wav)"` | Multiple ranges from same audio, combined to reach slot max |
+
+The time spec is optional -- `reference "ref.wav"` still works and uses the entire audio.
+
+**Slot max by reference count:** 1 reference = 30s, 2 references = 15s each, 3 references = 10s each.
+
+**Sliding logic:** If the specified range is shorter than the slot max, the start is slid back and/or the end is slid forward until the slot max duration is reached. If the audio is shorter than the slot max, segments loop to fill the slot. If the combined segments exceed the slot max, they are used as-is.
+
+```bash
+# Start at 50 seconds, extract up to 30s (1 ref slot max)
+python src/voder.py ttm remix "song.wav" styling "jazz" reference voice "50(ref.wav)"
+
+# Use 20-30s range from first ref, 40-50s from second; each slides to 15s (2 ref slot max)
+python src/voder.py ttm remix "song.wav" styling "pop" reference "20-30(ref1.wav)" "40-50(ref2.wav)"
+
+# Multiple ranges from same audio, combined to reach slot max
+python src/voder.py ttm remix "song.wav" styling "rock" reference music "20-30/40-50(ref.wav)"
+
+# Time spec inside repaint multi-pass spec
+python src/voder.py ttm repaint "song.wav" "20-80/styling(jazz)/reference-voice(30-60(vocals.wav))"
+```
+
 | `repaint` | Source audio for section repaint; optional `voice`/`music` prefix for SVS isolation (`repaint voice "path"` or `repaint music "path"`) | Required for repaint sub-task |
 | `"start-end/styling(...)/..."` | Multi-pass repaint spec (quoted string): time range `start-end` required; optional `/styling(text)`, `/lyrics(text)`, `/reference-voice(path)`, `/reference-music(path)`, `/reference(path)` (up to 3 per pass), `/bias/nn`. Multiple pass specs = multiple sequential repaint passes, each using previous result as source. | No (multi-pass mode) |
 | `video` | Preserve video output for `complete`/`bgm` (downloads video from URL, merges back to .mp4) | No |
