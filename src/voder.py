@@ -1672,15 +1672,20 @@ class QwenTTSVoiceDesign:
                 import torch
                 device = "cuda:0" if torch.cuda.is_available() else "cpu"
                 dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-                model_path = os.path.join(self.model_dir_full, "model")
-                if os.path.exists(model_path):
-                    self.model = Qwen3TTSModel.from_pretrained(model_path, device_map=device, dtype=dtype)
-                else:
-                    self.model = Qwen3TTSModel.from_pretrained(
-                        "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-                        device_map=device,
-                        dtype=dtype
+                if not os.path.exists(os.path.join(self.model_dir_full, "config.json")):
+                    print("Downloading Qwen-TTS VoiceDesign from HuggingFace...")
+                    from huggingface_hub import snapshot_download
+                    snapshot_download(
+                        repo_id="Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+                        local_dir=self.model_dir_full,
+                        local_dir_use_symlinks=False
                     )
+                print("Loading Qwen-TTS VoiceDesign model...")
+                self.model = Qwen3TTSModel.from_pretrained(
+                    self.model_dir_full,
+                    device_map=device,
+                    dtype=dtype
+                )
             except Exception as e:
                 print(f"Error loading Qwen-TTS VoiceDesign: {e}")
 
@@ -1754,20 +1759,20 @@ class QwenTTS:
                 import torch
                 device = "cuda:0" if torch.cuda.is_available() else "cpu"
                 dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-                if os.path.exists(os.path.join(self.model_dir_base, "config.json")):
-                    print("Loading Qwen-TTS from local cache...")
-                    self.model = Qwen3TTSModel.from_pretrained(
-                        self.model_dir_base,
-                        device_map=device,
-                        dtype=dtype
+                if not os.path.exists(os.path.join(self.model_dir_base, "config.json")):
+                    print("Downloading Qwen-TTS Base from HuggingFace...")
+                    from huggingface_hub import snapshot_download
+                    snapshot_download(
+                        repo_id="Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+                        local_dir=self.model_dir_base,
+                        local_dir_use_symlinks=False
                     )
-                else:
-                    print("Downloading Qwen-TTS from HuggingFace...")
-                    self.model = Qwen3TTSModel.from_pretrained(
-                        "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-                        device_map=device,
-                        dtype=dtype
-                    )
+                print("Loading Qwen-TTS model...")
+                self.model = Qwen3TTSModel.from_pretrained(
+                    self.model_dir_base,
+                    device_map=device,
+                    dtype=dtype
+                )
             except Exception as e:
                 print(f"Error loading Qwen-TTS: {e}")
 
@@ -1809,7 +1814,6 @@ class FishTTS:
         self.model_dir = FISH_S2PRO_DIR if model_dir is None else model_dir
         self.model = None
         self.codec = None
-        self.tokenizer = None
         self.decode_one_token = None
         self.device = None
         self.dtype = None
@@ -1841,11 +1845,7 @@ class FishTTS:
                 compile=False
             )
             codec_path = os.path.join(self.model_dir, "codec.pth")
-            if not os.path.exists(codec_path):
-                codec_path = os.path.join(self.model_dir, "codecs", "codec.pth")
             self.codec = load_codec_model(codec_path, self.device, self.dtype)
-            from fish_speech.tokenizer import FishTokenizer
-            self.tokenizer = FishTokenizer.from_pretrained(self.model_dir)
             return True
         except Exception as e:
             print(f"Error loading Fish-S2Pro: {e}")
@@ -1877,8 +1877,6 @@ class FishTTS:
             import torch
             import soundfile as sf
             from fish_speech.models.text2semantic.inference import generate_long, decode_to_audio
-            from fish_speech.conversation import Conversation, Message
-            from fish_speech.content_sequence import TextPart, VQPart
             prompt_tokens = self.encoded_refs["tokens"].to(self.device)
             prompt_text = self.encoded_refs["text"]
             all_audio = []
@@ -1916,7 +1914,6 @@ class FishTTS:
             del self.codec
             self.codec = None
         self.decode_one_token = None
-        self.tokenizer = None
         self.encoded_refs = None
         import gc
         gc.collect()
@@ -3670,8 +3667,10 @@ def cli_tts_mode():
                 if not tts.ensure_model():
                     print("Error: Fish-S2Pro model failed to load")
                     return False
+                print("Transcribing voice reference...")
+                ref_text = _transcribe_for_fish_ref(voice_ref)
                 print("Encoding voice (extreme)...")
-                success = tts.encode_voice(voice_ref)
+                success = tts.encode_voice(voice_ref, ref_text=ref_text)
                 if not success:
                     print("Error: Voice encoding failed")
                     return False
@@ -6598,8 +6597,10 @@ def oneline_train(params):
             if not fish_tts.ensure_model():
                 print("Error: Failed to load Fish-S2Pro model")
                 return False
+            print("Transcribing voice reference...")
+            ref_text = _transcribe_for_fish_ref(clean_vocal)
             print("Encoding voice reference...")
-            success = fish_tts.encode_voice(clean_vocal)
+            success = fish_tts.encode_voice(clean_vocal, ref_text=ref_text)
             if not success:
                 print("Error: Voice encoding failed")
                 return False
@@ -6664,18 +6665,27 @@ def oneline_train(params):
                 except:
                     pass
 
-def _create_tts_engine(use_extreme=False):
-    if use_extreme:
-        engine = FishTTS()
-        if engine.ensure_model():
-            return engine
-        print("Warning: Fish-S2Pro failed to load, falling back to Qwen-TTS")
-        return QwenTTS()
-    return QwenTTS()
+def _transcribe_for_fish_ref(audio_path):
+    stt = WhisperSTT(skip_turbo=True)
+    stt.ensure_translate_model()
+    if stt.translate_model is None:
+        return ""
+    try:
+        result = stt.translate_model.transcribe(audio_path)
+        text = result.get("text", "").strip() if result else ""
+        return text
+    except Exception:
+        return ""
+    finally:
+        stt.translate_model = None
+        del stt
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
-def _tts_extract_voice(engine, audio_path, use_extreme=False):
+def _tts_extract_voice(engine, audio_path, use_extreme=False, ref_text=None):
     if use_extreme and isinstance(engine, FishTTS):
-        return engine.encode_voice(audio_path)
+        return engine.encode_voice(audio_path, ref_text=ref_text)
     return engine.extract_voice(audio_path)
 
 def _tts_synthesize(engine, text, output_path, language="Auto", use_extreme=False):
@@ -6889,7 +6899,8 @@ def oneline_tts(params):
             print("Loading Qwen-TTS model...")
             tts = QwenTTS()
         print("Extracting voice characteristics...")
-        success = _tts_extract_voice(tts, clean_vocal, use_extreme=use_extreme)
+        ref_text = _transcribe_for_fish_ref(clean_vocal) if use_extreme else None
+        success = _tts_extract_voice(tts, clean_vocal, use_extreme=use_extreme, ref_text=ref_text)
         if not success:
             print("Error: Voice extraction failed")
             del tts
@@ -7212,7 +7223,8 @@ def oneline_tts(params):
                     print("Loading Qwen-TTS model...")
                     tts = QwenTTS()
                 print("Extracting voice characteristics from STS target...")
-                success = _tts_extract_voice(tts, target_voice_path, use_extreme=use_extreme)
+                ref_text = _transcribe_for_fish_ref(target_voice_path) if use_extreme else None
+                success = _tts_extract_voice(tts, target_voice_path, use_extreme=use_extreme, ref_text=ref_text)
                 if not success:
                     print("Error: Voice extraction from STS target failed")
                     del tts
@@ -7277,7 +7289,8 @@ def oneline_tts(params):
                         print("Loading Qwen-TTS model...")
                         tts = QwenTTS()
                     print("Extracting voice characteristics...")
-                    success = _tts_extract_voice(tts, target_voice_path, use_extreme=use_extreme)
+                    ref_text = _transcribe_for_fish_ref(target_voice_path) if use_extreme else None
+                    success = _tts_extract_voice(tts, target_voice_path, use_extreme=use_extreme, ref_text=ref_text)
                     if not success:
                         print("Error: Voice extraction failed")
                         del tts
@@ -7319,7 +7332,8 @@ def oneline_tts(params):
                         print("Loading Qwen-TTS model...")
                         tts = QwenTTS()
                     print("Extracting voice characteristics...")
-                    success = _tts_extract_voice(tts, target_voice_path, use_extreme=use_extreme)
+                    ref_text = _transcribe_for_fish_ref(target_voice_path) if use_extreme else None
+                    success = _tts_extract_voice(tts, target_voice_path, use_extreme=use_extreme, ref_text=ref_text)
                     if not success:
                         print("Error: Voice extraction failed")
                         del tts
@@ -7376,7 +7390,7 @@ def oneline_tts(params):
                                         pass
                             return False
                         print("Encoding voice design audio as Fish reference...")
-                        success = tts.encode_voice(placeholder_path)
+                        success = tts.encode_voice(placeholder_path, ref_text=placeholder_text)
                         if not success:
                             print("Error: Fish voice encoding failed")
                             for f in _svc_cleanup:
@@ -7667,7 +7681,8 @@ def oneline_tts(params):
                     print("Loading Qwen-TTS model...")
                     tts = QwenTTS()
                 print("Extracting voice characteristics...")
-                success = _tts_extract_voice(tts, clean_vocal, use_extreme=use_extreme)
+                ref_text = _transcribe_for_fish_ref(clean_vocal) if use_extreme else None
+                success = _tts_extract_voice(tts, clean_vocal, use_extreme=use_extreme, ref_text=ref_text)
                 if not success:
                     print("Error: Voice extraction failed")
                     return False
@@ -7876,37 +7891,16 @@ def oneline_tts(params):
             tts_obj = None
 
             if use_extreme:
-                print("Loading Fish-S2Pro model (extreme)...")
-                tts_obj = FishTTS()
-                if not tts_obj.ensure_model():
-                    print("Error: Failed to load Fish-S2Pro model")
-                    return False
                 fish_voice_data = {}
-                if has_vc_chars:
-                    for char_lower, audio_path in target_assignments.items():
-                        print(f"Encoding voice for '{char_lower}' (extreme)...")
-                        success = tts_obj.encode_voice(audio_path)
-                        if not success:
-                            print(f"Error: Failed to encode voice from {audio_path}")
-                            return False
-                        fish_voice_data[char_lower] = {
-                            "tokens": tts_obj.encoded_refs["tokens"].clone(),
-                            "text": tts_obj.encoded_refs.get("text", "")
-                        }
-                    for char_lower, trained_file in trained_voice_refs.items():
-                        print(f"Loading trained voice for '{char_lower}' (extreme) from: {trained_file}")
-                        payload = _load_fish_voice(trained_file)
-                        if payload is None:
-                            print(f"Error: Failed to load trained voice: {trained_file}")
-                            return False
-                        fish_voice_data[char_lower] = payload
+                placeholder_text = "The quick brown fox jumps over the lazy dog. She sells seashells by the seashore, while the crystal clear waves gently lap against the warm golden sand. Every morning, the old lighthouse keeper climbs the winding stone stairs to check the beam that guides ships safely through the foggy harbor."
+                _design_cleanup = []
+                _placeholder_paths = {}
                 if has_tts_chars:
+                    print("Loading Qwen-TTS VoiceDesign model (extreme)...")
                     tts_design = QwenTTSVoiceDesign()
                     if tts_design.model is None:
                         print("Error: Failed to load VoiceDesign model")
                         return False
-                    placeholder_text = "The quick brown fox jumps over the lazy dog. She sells seashells by the seashore, while the crystal clear waves gently lap against the warm golden sand. Every morning, the old lighthouse keeper climbs the winding stone stairs to check the beam that guides ships safely through the foggy harbor."
-                    _design_cleanup = []
                     for char_lower, voice_instruct in voice_prompts.items():
                         print(f"Generating voice design placeholder for '{char_lower}' (extreme)...")
                         placeholder_path = os.path.join(tempfile.gettempdir(), f"voder_extreme_placeholder_{char_lower}_{int(time.time())}.wav")
@@ -7921,7 +7915,59 @@ def oneline_tts(params):
                                         pass
                             return False
                         _design_cleanup.append(placeholder_path)
-                        success = tts_obj.encode_voice(placeholder_path)
+                        _placeholder_paths[char_lower] = placeholder_path
+                    del tts_design
+                    tts_design = None
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                print("Loading Fish-S2Pro model (extreme)...")
+                tts_obj = FishTTS()
+                if not tts_obj.ensure_model():
+                    print("Error: Failed to load Fish-S2Pro model")
+                    for f in _design_cleanup:
+                        if f and os.path.exists(f):
+                            try:
+                                os.unlink(f)
+                            except:
+                                pass
+                    return False
+                if has_vc_chars:
+                    for char_lower, audio_path in target_assignments.items():
+                        print(f"Transcribing voice for '{char_lower}' (extreme)...")
+                        ref_text = _transcribe_for_fish_ref(audio_path)
+                        print(f"Encoding voice for '{char_lower}' (extreme)...")
+                        success = tts_obj.encode_voice(audio_path, ref_text=ref_text)
+                        if not success:
+                            print(f"Error: Failed to encode voice from {audio_path}")
+                            for f in _design_cleanup:
+                                if f and os.path.exists(f):
+                                    try:
+                                        os.unlink(f)
+                                    except:
+                                        pass
+                            return False
+                        fish_voice_data[char_lower] = {
+                            "tokens": tts_obj.encoded_refs["tokens"].clone(),
+                            "text": tts_obj.encoded_refs.get("text", "")
+                        }
+                    for char_lower, trained_file in trained_voice_refs.items():
+                        print(f"Loading trained voice for '{char_lower}' (extreme) from: {trained_file}")
+                        payload = _load_fish_voice(trained_file)
+                        if payload is None:
+                            print(f"Error: Failed to load trained voice: {trained_file}")
+                            for f in _design_cleanup:
+                                if f and os.path.exists(f):
+                                    try:
+                                        os.unlink(f)
+                                    except:
+                                        pass
+                            return False
+                        fish_voice_data[char_lower] = payload
+                if has_tts_chars:
+                    for char_lower, placeholder_path in _placeholder_paths.items():
+                        print(f"Encoding voice design for '{char_lower}' (extreme)...")
+                        success = tts_obj.encode_voice(placeholder_path, ref_text=placeholder_text)
                         if not success:
                             print(f"Error: Failed to encode voice design for '{char_lower}'")
                             for f in _design_cleanup:
@@ -7935,17 +7981,12 @@ def oneline_tts(params):
                             "tokens": tts_obj.encoded_refs["tokens"].clone(),
                             "text": tts_obj.encoded_refs.get("text", "")
                         }
-                    del tts_design
-                    tts_design = None
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    for f in _design_cleanup:
-                        if f and os.path.exists(f):
-                            try:
-                                os.unlink(f)
-                            except:
-                                pass
+                for f in _design_cleanup:
+                    if f and os.path.exists(f):
+                        try:
+                            os.unlink(f)
+                        except:
+                            pass
             else:
                 if has_tts_chars:
                     print("Loading Qwen-TTS VoiceDesign model...")
