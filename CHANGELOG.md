@@ -270,7 +270,7 @@
 - New function: `_resolve_multi_refs()` for resolving, SVS-cleaning, and concatenating multiple voice references
 - New function: `_save_voice_prompt()` for saving trained voice prompts as `.tts` files
 - New function: `_load_voice_prompt()` for loading trained voice prompts from `.tts` files
-- New function: `_parse_ref_time_spec()` for parsing TTM reference time spec format (`nn(path)`, `nn-nn/path`, `nn-nn/nn-nn/path`)
+- New function: `_parse_ref_time_spec()` for parsing TTM reference time spec format (`nn(path)`, `nn-nn(path)`, `nn-nn/nn-nn(path)`)
 - New function: `_extract_ref_segments()` for extracting and sliding time segments from reference audio
 - New function: `_find_voice_file()` for finding latest trained voice file by character name
 - New function: `_resolve_voice_ref()` for resolving trained voice references (name, name:path, name:othername)

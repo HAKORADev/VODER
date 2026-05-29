@@ -624,13 +624,29 @@ def _get_audio_duration(path):
 def _parse_ref_time_spec(spec):
     if '(' not in spec or not spec.endswith(')'):
         return None, spec
-    paren_start = spec.rfind('(')
+    paren_start = spec.find('(')
     path = spec[paren_start + 1:-1].strip()
     if not path:
         return None, spec
     time_part = spec[:paren_start].strip()
+    stem_prefix = None
+    if ':' in time_part:
+        colon_idx = time_part.find(':')
+        after_colon = time_part[colon_idx + 1:]
+        if after_colon and after_colon[0].isdigit():
+            stem_prefix = time_part[:colon_idx]
+            time_part = after_colon
+        elif after_colon and after_colon[0] == '/':
+            return None, spec
+        else:
+            before_colon = time_part[:colon_idx]
+            if before_colon:
+                stem_prefix = before_colon
+                time_part = after_colon
     if not time_part:
-        return None, spec
+        if stem_prefix:
+            return None, f"{stem_prefix}:{path}"
+        return None, path
     segments = time_part.split('/')
     ranges = []
     for seg in segments:
@@ -657,6 +673,8 @@ def _parse_ref_time_spec(spec):
                 return None, spec
     if not ranges:
         return None, spec
+    if stem_prefix:
+        path = f"{stem_prefix}:{path}"
     return ranges, path
 
 def _extract_ref_segments(audio_path, time_ranges, slot_max, cleanup_list):
@@ -673,7 +691,12 @@ def _extract_ref_segments(audio_path, time_ranges, slot_max, cleanup_list):
         start, end = time_ranges[0]
         if end is None:
             end = start + slot_max
+        if start > duration:
+            print(f"Warning: Time spec start ({start}s) exceeds audio duration ({duration:.1f}s), adjusting")
+            start = max(0, duration - slot_max)
         if end > duration:
+            if time_ranges[0][1] is not None:
+                print(f"Warning: Time spec end ({time_ranges[0][1]}s) exceeds audio duration ({duration:.1f}s), clamping")
             end = duration
         if end - start < slot_max:
             needed = slot_max - (end - start)
@@ -686,14 +709,41 @@ def _extract_ref_segments(audio_path, time_ranges, slot_max, cleanup_list):
         end_sample = max(start_sample, min(end_sample, total_samples))
         combined = wav[:, start_sample:end_sample]
     else:
-        extracted = []
+        adjusted = []
         for start, end in time_ranges:
             if end is None:
+                if start > duration:
+                    print(f"Warning: Time spec start ({start}s) exceeds audio duration ({duration:.1f}s), adjusting")
+                    start = max(0, duration - slot_max)
                 end = start + slot_max
-            if end > duration:
-                end = duration
-            if start >= duration:
-                continue
+            else:
+                if start > duration:
+                    print(f"Warning: Time spec start ({start}s) exceeds audio duration ({duration:.1f}s), skipping segment")
+                    continue
+                if end > duration:
+                    print(f"Warning: Time spec end ({end}s) exceeds audio duration ({duration:.1f}s), clamping")
+                    end = duration
+            if start < end:
+                adjusted.append((start, end))
+        if not adjusted:
+            return audio_path
+        combined_dur = sum(e - s for s, e in adjusted)
+        if combined_dur < slot_max:
+            scale = slot_max / combined_dur
+            slid = []
+            for s, e in adjusted:
+                seg_dur = e - s
+                new_dur = seg_dur * scale
+                mid = (s + e) / 2.0
+                ns = mid - new_dur / 2.0
+                ne = mid + new_dur / 2.0
+                ns = max(0, ne - new_dur)
+                ne = min(duration, ns + new_dur)
+                ns = max(0, ne - new_dur)
+                slid.append((ns, ne))
+            adjusted = slid
+        extracted = []
+        for start, end in adjusted:
             start_sample = int(max(0, start) * sr)
             end_sample = int(min(end, duration) * sr)
             start_sample = max(0, min(start_sample, total_samples))
@@ -769,6 +819,8 @@ def _compose_refs(ref_entries, results_dir):
         sv_type = entry[0]
         raw_path = entry[1]
         tr = entry[2] if len(entry) > 2 else None
+        if has_time_spec and tr is None:
+            tr = [(0, None)]
         audio_path = _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup, time_ranges=tr, slot_max=slot_max)
         if audio_path is None:
             continue
