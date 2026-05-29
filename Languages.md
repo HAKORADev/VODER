@@ -11,7 +11,7 @@ VODER is not an English‑only tool. The AI models it orchestrates collectively 
 | **Whisper** (`large-v3-turbo` / `large-v3`) | STT, TTS (modify speech), Dialogue Source | 99 | Yes | Detects spoken language from audio; dual‑model architecture |
 | **Qwen3‑TTS VoiceDesign** | TTS | 10 + 2 dialects | Yes | Detects language from input text |
 | **Qwen3‑TTS Base** | TTS+VC, TTS (modify speech) | 10 + 2 dialects | Yes | Detects language from input text |
-| **Fish Audio S2‑Pro** | TTS (extreme), SLC (extreme), SVC (extreme), Modify Speech (extreme) | 80+ | Yes | Detects language from input text; emotion, tone, and effect tags via [tag] syntax |
+| **Fish Audio S2‑Pro** | TTS (extreme), SLC (extreme), SVC (extreme), Modify Speech (extreme) | 80+ | Yes | Detects language from input text; voice effects via [tag] syntax |
 | **ACE‑Step 1.5** | TTM, TTM+VC, Background Music | 50 | Yes | Detects language from lyrics/caption |
 | **EasyOCR** | STT, TTS, TTS+VC (image input) | 85 | No | Hardcoded to English in VODER |
 | **TangoFlux** | SFX | 1 (English) | No | Text encoder trained on English only |
@@ -174,10 +174,10 @@ Mongolian         Armenian           Javanese
 **Global coverage (partial list):**
 sv, it, tr, no, nl, cy, eu, ca, da, gl, ta, hu, fi, pl, et, hi, la, ur, th, vi, jw, bn, yo, cs, sw, nn, he, ms, uk, id, kk, bg, lv, my, tl, sk, ne, fa, af, el, bo, hr, ro, sn, mi, yi, am, be, km, is, az, sd, br, sq, ps, mn, ht, ml, sr, sa, te, ka, bs, pa, lt, kn, si, hy, mr, as, gu, fo, and more.
 
-**Emotion, tone, and effect tags (`[tag]` syntax):**
-S2-Pro supports sub‑word level fine‑grained control of prosody, emotion, and vocal characteristics using `[tag]` syntax embedded in the text. Over 15,000 unique tags are supported — the model accepts free‑form natural language descriptions, not just a fixed set. Tags affect text from their position onward.
+**Voice effects (`[tag]` syntax):**
+S2-Pro supports sub‑word level fine‑grained control of prosody, emotion, and vocal characteristics using `[tag]` syntax embedded in the text. Over 15,000 unique tags are supported — the model accepts free‑form natural language descriptions, not just a fixed set. Tags affect text from their position onward. The model also accepts all S1 Pro tags inside `[brackets]`.
 
-Well-tested tags by category:
+**S2-Pro well-tested tags:**
 
 | Category | Tags |
 |----------|------|
@@ -187,6 +187,16 @@ Well-tested tags by category:
 | **Vocal Sounds** | `[laughing]`, `[chuckling]`, `[giggle]`, `[sobbing]`, `[crying]`, `[groan]` |
 | **Pacing** | `[pause]`, `[short pause]`, `[long pause]` |
 | **Special** | `[emphasis]`, `[rustling sound]` |
+
+**S1 Pro tags (also work in `[brackets]` for S2-Pro):**
+These 64 tags were designed for Fish S1 Pro using `(parenthesis)` syntax, but they also work inside `[brackets]` with S2-Pro:
+
+| Category | Tags |
+|----------|------|
+| **Emotions** | `(angry)` `(sad)` `(disdainful)` `(excited)` `(surprised)` `(satisfied)` `(unhappy)` `(anxious)` `(hysterical)` `(delighted)` `(scared)` `(worried)` `(indifferent)` `(upset)` `(impatient)` `(nervous)` `(guilty)` `(scornful)` `(frustrated)` `(depressed)` `(panicked)` `(furious)` `(empathetic)` `(embarrassed)` `(reluctant)` `(disgusted)` `(keen)` `(moved)` `(proud)` `(relaxed)` `(grateful)` `(confident)` `(interested)` `(curious)` `(confused)` `(joyful)` `(disapproving)` `(negative)` `(denying)` `(astonished)` `(serious)` `(sarcastic)` `(sneering)` `(hesitating)` `(yielding)` `(painful)` `(awkward)` `(amused)` |
+| **Tone Markers** | `(in a hurry tone)` `(shouting)` `(screaming)` `(whispering)` `(soft tone)` |
+| **Vocal Sounds** | `(laughing)` `(chuckling)` `(sobbing)` `(crying loudly)` `(sighing)` `(panting)` `(groaning)` |
+| **Crowd Effects** | `(crowd laughing)` `(background laughter)` `(audience laughing)` |
 
 Free-form examples: `[professional broadcast tone]`, `[pitch up]`, `[voice rough from crying, trying to sound normal]`, `[dead tired, end of a very long shift]`. Multi-language tags are also supported (e.g., `[低声说]` for Chinese "speak softly", `[囁き声で]` for Japanese "whisper voice").
 

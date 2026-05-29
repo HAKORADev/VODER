@@ -1108,14 +1108,38 @@ The same ACE‑Step engine is used to generate background music for dialogue. In
 
 **Lyrics Format:**
 
+ACE-Step uses structural tags in `[brackets]` to mark song sections. Text inside brackets is not sung — it tells the model the song structure. Plain text between tags is the sung lyrics.
+
+**Structural tags:**
+
+| Tag | Purpose |
+|-----|---------|
+| `[Verse]` / `[Verse 1]` / `[Verse 2]` | Verse section |
+| `[Chorus]` / `[Final Chorus]` | Chorus section |
+| `[Pre-Chorus]` | Build-up before chorus |
+| `[Bridge]` | Contrasting section between verses |
+| `[Intro]` / `[Intro: description]` | Song opening |
+| `[Outro]` | Song ending |
+| `[Interlude]` | Instrumental break |
+| `[Instrumental]` / `[inst]` | Entirely instrumental (no vocals) |
+| `[Hook]` / `[Solo]` / `[Break]` | Other structural markers |
+
+**Special lyrics values:**
+
+| Syntax | Meaning |
+|--------|---------|
+| `...` (three dots) | Empty lyrics — instrumental music only |
+| `(text in parens)` | Context/style hint, not sung |
+| `[text in brackets]` | Structural tag, not sung |
+
 ```
-Verse 1:
+[Verse 1]
 Walking down the empty street
 Feeling the rhythm in my feet
 The city lights are shining bright
 Guiding me through the night
 
-Chorus:
+[Chorus]
 This is our moment, this is our time
 Everything's gonna be just fine
 Dancing under the moonlight
@@ -2494,76 +2518,43 @@ Note: Overdose cannot be combined with the `translate` flag, as VibeVoice ASR do
 
 ### Extreme TTS Trick
 
-The `extreme` keyword switches the TTS engine from Qwen3-TTS to **Fish Audio S2-Pro**, providing higher quality voice cloning and dramatically broader language support (80+ languages vs 10). This is especially useful when you need voice cloning for languages that Qwen3-TTS doesn't support, or when you want emotion, tone, or vocal effect tags like `[whispering]`, `[laughing]`, `[excited]`, or `[pause]` embedded directly in your text.
+The `extreme` keyword switches the TTS engine from Qwen3-TTS to **Fish Audio S2-Pro**, providing higher quality voice cloning and dramatically broader language support (80+ languages vs 10). This is especially useful when you need voice cloning for languages that Qwen3-TTS doesn't support, or when you want voice effects like `[whispering]`, `[laughing]`, `[excited]`, or `[pause]` embedded directly in your text.
 
 **When to use extreme:**
 - You need TTS in a language beyond Qwen3-TTS's 10 supported languages (Arabic, Hindi, Thai, Turkish, etc.)
 - You want the highest possible voice cloning quality
-- You want to use emotion, tone, or vocal effect tags in your script text
+- You want to use voice effects in your script text
 - You're doing SLC or SVC and want better resynthesis quality
 
-**Emotion, tone, and effect tags (`[tag]` syntax):**
-Fish S2-Pro supports over 15,000 free-form tags embedded directly in your text. These tags control emotions, tones, vocal sounds, pacing, and special effects at the sub-word level. Tags are placed in `[brackets]` and affect the text from their position onward:
+**Voice effects (`[tag]` syntax):**
+Fish S2-Pro supports over 15,000 free-form voice effect tags embedded directly in your text. These tags control emotions, tones, vocal sounds, pacing, and special effects at the sub-word level. Tags are placed in `[brackets]` and affect the text from their position onward. The model also accepts all S1 Pro tags (listed below) inside `[brackets]`.
 
-**Emotions:**
+**S2-Pro well-tested tags:**
 
-| Tag | Effect |
-|-----|--------|
-| `[excited]` | High energy, upbeat |
-| `[angry]` | Harsh, forceful |
-| `[sad]` | Heavy, downcast |
+| Category | Tags |
+|----------|------|
+| **Emotions** | `[excited]`, `[angry]`, `[sad]` |
+| **Tones / Voice Style** | `[whispering]`, `[soft voice]`, `[low voice]`, `[loud voice]`, `[shouting]` |
+| **Breathing & Reactions** | `[sigh]`, `[inhale]`, `[exhale]`, `[gasp]`, `[panting]`, `[clears throat]` |
+| **Vocal Sounds** | `[laughing]`, `[chuckling]`, `[giggle]`, `[sobbing]`, `[crying]`, `[groan]` |
+| **Pacing** | `[pause]`, `[short pause]`, `[long pause]` |
+| **Special** | `[emphasis]`, `[rustling sound]` |
 
-**Tones / Voice Style:**
+**S1 Pro tags (also work in `[brackets]` for S2-Pro):**
 
-| Tag | Effect |
-|-----|--------|
-| `[whispering]` | Hushed, breathy |
-| `[soft voice]` | Quiet and gentle |
-| `[low voice]` | Deeper register |
-| `[loud voice]` | Raised volume |
-| `[shouting]` | Full-volume |
+These 64 tags were designed for Fish S1 Pro using `(parenthesis)` syntax, but they also work inside `[brackets]` with S2-Pro:
 
-**Breathing & Reactions:**
-
-| Tag | Effect |
-|-----|--------|
-| `[sigh]` | Expressive exhale |
-| `[inhale]` | Audible breath in |
-| `[exhale]` | Audible breath out |
-| `[gasp]` | Sharp intake of breath |
-| `[panting]` | Heavy, rapid breathing |
-| `[clears throat]` | Throat-clearing before speaking |
-
-**Vocal Sounds:**
-
-| Tag | Effect |
-|-----|--------|
-| `[laughing]` | Full laughter |
-| `[chuckling]` | Quiet, contained laugh |
-| `[giggle]` | Light, high-pitched laugh |
-| `[sobbing]` | Crying with breath |
-| `[crying]` | Tears audible in voice |
-| `[groan]` | Discomfort or exasperation |
-
-**Pacing:**
-
-| Tag | Effect |
-|-----|--------|
-| `[pause]` | Brief silence |
-| `[short pause]` | Shorter beat |
-| `[long pause]` | Extended silence |
-
-**Special:**
-
-| Tag | Effect |
-|-----|--------|
-| `[emphasis]` | Stress on the following word |
-| `[rustling sound]` | Background rustling |
+| Category | Tags |
+|----------|------|
+| **Emotions** | `(angry)` `(sad)` `(disdainful)` `(excited)` `(surprised)` `(satisfied)` `(unhappy)` `(anxious)` `(hysterical)` `(delighted)` `(scared)` `(worried)` `(indifferent)` `(upset)` `(impatient)` `(nervous)` `(guilty)` `(scornful)` `(frustrated)` `(depressed)` `(panicked)` `(furious)` `(empathetic)` `(embarrassed)` `(reluctant)` `(disgusted)` `(keen)` `(moved)` `(proud)` `(relaxed)` `(grateful)` `(confident)` `(interested)` `(curious)` `(confused)` `(joyful)` `(disapproving)` `(negative)` `(denying)` `(astonished)` `(serious)` `(sarcastic)` `(sneering)` `(hesitating)` `(yielding)` `(painful)` `(awkward)` `(amused)` |
+| **Tone Markers** | `(in a hurry tone)` `(shouting)` `(screaming)` `(whispering)` `(soft tone)` |
+| **Vocal Sounds** | `(laughing)` `(chuckling)` `(sobbing)` `(crying loudly)` `(sighing)` `(panting)` `(groaning)` |
+| **Crowd Effects** | `(crowd laughing)` `(background laughter)` `(audience laughing)` |
 
 Since the model accepts free-form descriptions, any natural language text in brackets works — you're not limited to the tags above. Examples of free-form descriptions: `[professional broadcast tone]`, `[pitch up]`, `[voice rough from crying, trying to sound normal]`, `[dead tired, end of a very long shift]`, `[calm, almost bored]`. Multi-language tags are also supported (e.g., `[低声说]` for Chinese "speak softly", `[囁き声で]` for Japanese "whisper voice").
 
 ```bash
-# Extreme TTS with emotion and tone tags
+# Extreme TTS with voice effects
 python src/voder.py tts extreme script "[whispering] Hello there [pause] how are you?" target "voice.wav"
 
 # Extreme TTS with voice design for Arabic (auto language trick)

@@ -13,11 +13,12 @@
 
 - **`extreme` Keyword** — New keyword for TTS mode and its sub-tasks (TTS, SLC, SVC, Modify Speech) that switches the TTS engine from Qwen3-TTS to Fish Audio S2-Pro for higher quality voice cloning and broader language support. Can be used alongside `overdose` (they serve different purposes: overdose = STT/TTM model selection, extreme = TTS model upgrade). Placed after `overdose` in syntax and prompts.
 
-- **Fish Audio S2-Pro** — New TTS model integrated into VODER. A dual-autoregressive (4B + 400M) model with RVQ-based codec supporting 80+ languages, emotion/tone/effect tags via `[tag]` syntax, and superior voice cloning quality.
+- **Fish Audio S2-Pro** — New TTS model integrated into VODER. A dual-autoregressive (4B + 400M) model with RVQ-based codec supporting 80+ languages, voice effects via `[tag]` syntax, and superior voice cloning quality.
   - Model: `fishaudio/s2-pro` from HuggingFace, stored at `src/models/checkpoints/fish_s2pro/`
   - Source code: `src/fish_speech/` (stripped from fish-speech repo, inference-only)
   - Auto-downloads on first use
-  - Supports emotion tags (`[excited]`, `[angry]`, `[sad]`), tone tags (`[whispering]`, `[soft voice]`, `[low voice]`, `[loud voice]`, `[shouting]`), breathing tags (`[sigh]`, `[inhale]`, `[exhale]`, `[gasp]`, `[panting]`, `[clears throat]`), vocal sound tags (`[laughing]`, `[chuckling]`, `[giggle]`, `[sobbing]`, `[crying]`, `[groan]`), pacing tags (`[pause]`, `[short pause]`, `[long pause]`), special tags (`[emphasis]`, `[rustling sound]`), and 15,000+ free-form tags including multi-language
+  - S2-Pro well-tested tags: emotions (`[excited]`, `[angry]`, `[sad]`), tones (`[whispering]`, `[soft voice]`, `[low voice]`, `[loud voice]`, `[shouting]`), breathing (`[sigh]`, `[inhale]`, `[exhale]`, `[gasp]`, `[panting]`, `[clears throat]`), vocal sounds (`[laughing]`, `[chuckling]`, `[giggle]`, `[sobbing]`, `[crying]`, `[groan]`), pacing (`[pause]`, `[short pause]`, `[long pause]`), special (`[emphasis]`, `[rustling sound]`), and 15,000+ free-form tags including multi-language
+  - 64 S1 Pro tags also work in `[brackets]` (designed for S1 `(parenthesis)` syntax, compatible with S2-Pro): emotions, tone markers, vocal sounds, crowd effects
   - Supports native multi-speaker in one pass using `Name: text` syntax or via `<|speaker:i|>` tokens (noted in Guide but dialogue mode recommended instead)
 
 - **Train Extreme** — `voder.py train extreme voice:name "ref.wav"` trains a voice using Fish S2-Pro and saves it as a `.ttse` file (instead of `.tts`). `.tts` files only work without extreme, `.ttse` files only work with extreme — a clear error message is shown if mismatched.

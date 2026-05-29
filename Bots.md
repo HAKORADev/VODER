@@ -47,7 +47,7 @@ VODER is a professional‑grade voice processing tool that enables seamless conv
 - **Speakers Separator (SS)**: Extract individual speakers from multi‑speaker audio
 - **Translation in STT**: Translate transcribed speech to English automatically
 - **Overdose Quality Mode**: Enhanced transcription, dialogue source analysis, and music generation using VibeVoice ASR
-- **Extreme TTS Mode**: Higher quality voice cloning and broader language support using Fish Audio S2-Pro (80+ languages, emotion/tone/effect tags via `[tag]` syntax)
+- **Extreme TTS Mode**: Higher quality voice cloning and broader language support using Fish Audio S2-Pro (80+ languages, voice effects via `[tag]` syntax including 64 S1 Pro tags)
 - **Video I/O**: Video input with automatic audio extraction; video output with replaced audio (STS)
 
 ---
@@ -481,7 +481,7 @@ When `overdose` is used:
 # Extreme mode: uses Fish Audio S2-Pro for higher quality TTS
 python src/voder.py tts extreme script "Hello world" target "voice.wav"
 
-# Extreme + emotion and tone tags
+# Extreme + voice effects
 python src/voder.py tts extreme script "[whispering] Hello there [pause] how are you?" target "voice.wav"
 
 # Extreme + overdose combined
@@ -497,7 +497,7 @@ python src/voder.py tts extreme script "Hello" voice "my-character"
 When `extreme` is used:
 - TTS synthesis uses **Fish Audio S2-Pro** instead of Qwen3-TTS for higher quality voice cloning
 - Supports 80+ languages (vs 10 for Qwen3-TTS), enabling voice design for Arabic, Hindi, Thai, Turkish, and many more
-- Emotion, tone, and effect tags via `[tag]` syntax in script text: emotions (`[excited]`, `[angry]`, `[sad]`), tones (`[whispering]`, `[soft voice]`, `[low voice]`, `[loud voice]`, `[shouting]`), breathing (`[sigh]`, `[inhale]`, `[exhale]`, `[gasp]`, `[panting]`, `[clears throat]`), vocal sounds (`[laughing]`, `[chuckling]`, `[giggle]`, `[sobbing]`, `[crying]`, `[groan]`), pacing (`[pause]`, `[short pause]`, `[long pause]`), special (`[emphasis]`, `[rustling sound]`), and 15,000+ free-form descriptions like `[professional broadcast tone]`, `[pitch up]`, `[voice rough from crying, trying to sound normal]`. Multi-language tags also work (e.g., `[低声说]` for Chinese). Tags affect text from their position onward
+- Voice effects via `[tag]` syntax in script text: S2-Pro well-tested tags cover emotions (`[excited]`, `[angry]`, `[sad]`), tones (`[whispering]`, `[soft voice]`, `[low voice]`, `[loud voice]`, `[shouting]`), breathing (`[sigh]`, `[inhale]`, `[exhale]`, `[gasp]`, `[panting]`, `[clears throat]`), vocal sounds (`[laughing]`, `[chuckling]`, `[giggle]`, `[sobbing]`, `[crying]`, `[groan]`), pacing (`[pause]`, `[short pause]`, `[long pause]`), special (`[emphasis]`, `[rustling sound]`). 64 S1 Pro tags also work in `[brackets]` (e.g., `(furious)`, `(sarcastic)`, `(screaming)`, `(audience laughing)`), plus 15,000+ free-form descriptions like `[professional broadcast tone]`, `[pitch up]`, `[voice rough from crying, trying to sound normal]`. Multi-language tags also work (e.g., `[低声说]` for Chinese). Tags affect text from their position onward
 - Can be combined with `overdose` (they affect different pipeline stages)
 - Trained voices use `.ttse` files; using `.tts` with extreme or `.ttse` without extreme produces an error
 
@@ -646,7 +646,7 @@ VoiceDesign characters in dialogue mode automatically get their voice stabilized
 | `level` | Music volume levels e.g. `"10:20-50 30:60-80"` (dialogue modes, default: 35%) | No |
 | `reference` | Reference audio/video/URL for dialogue background music style guidance (processed via SVS music pipe to extract clean instrumental) | No |
 | `overdose` | Use VibeVoice ASR for dialogue source/voice clip extraction and ACE-Step XL turbo for background music (TTS mode) | No |
-| `extreme` | Use Fish Audio S2-Pro instead of Qwen3-TTS for TTS synthesis — higher quality cloning, 80+ languages, emotion/tone/effect `[tag]` tags (e.g. `[whispering]`, `[laughing]`, `[pause]`, `[excited]`, `[angry]`). Can combine with `overdose`. Trained voices use `.ttse` files | No |
+| `extreme` | Use Fish Audio S2-Pro instead of Qwen3-TTS for TTS synthesis — higher quality cloning, 80+ languages, voice effects `[tag]` tags (S2-Pro + 64 S1 Pro tags). Can combine with `overdose`. Trained voices use `.ttse` files | No |
 | `language` | Output language for speech synthesis (e.g., `"Spanish"`, `"English"`) | No |
 | `slc` | Invoke SLC sub‑task for speech translation to English (use `tts slc "path.wav"`, `tts slc music "path.wav"` for music preservation) | No |
 | `svc` | Invoke SVC sub‑task for speaker voice change (use `tts svc "path.wav" target "voice_ref.wav"`) | No |
@@ -785,7 +785,7 @@ python src/voder.py tts script "Character1: line1" "Character2: line2" target "C
 | `level` | Music volume levels (dialogue modes, default: 35%) | No |
 | `reference` | Reference audio/video/URL for dialogue background music style guidance (processed via SVS music pipe to extract clean instrumental) | No |
 | `overdose` | Use VibeVoice ASR for dialogue source/voice clip extraction and ACE-Step XL turbo for background music (TTS mode) | No |
-| `extreme` | Use Fish Audio S2-Pro instead of Qwen3-TTS for TTS synthesis — higher quality cloning, 80+ languages, emotion/tone/effect `[tag]` tags (e.g. `[whispering]`, `[laughing]`, `[pause]`, `[excited]`, `[angry]`). Can combine with `overdose`. Trained voices use `.ttse` files | No |
+| `extreme` | Use Fish Audio S2-Pro instead of Qwen3-TTS for TTS synthesis — higher quality cloning, 80+ languages, voice effects `[tag]` tags (S2-Pro + 64 S1 Pro tags). Can combine with `overdose`. Trained voices use `.ttse` files | No |
 
 **Voice Reference Requirements:**
 - Format: WAV (recommended), MP3 supported
@@ -1124,7 +1124,7 @@ python src/voder.py ttm bgm "podcast.wav" sfx "doorbell/5-12/50" result "/output
 
 | Parameter | Description | Required |
 |-----------|-------------|----------|
-| `lyrics` | Song lyrics (use `"..."` for instrumental only; also optional for `remix` to guide new vocal content) | Yes (generate mode) |
+| `lyrics` | Song lyrics with optional structural tags in `[brackets]` (e.g. `[Verse 1]`, `[Chorus]`, `[Bridge]`, `[Intro]`, `[Outro]`, `[Interlude]`, `[Instrumental]`/`[inst]`, `[Pre-Chorus]`, `[Hook]`, `[Solo]`, `[Break]` — text inside brackets is not sung). Use `"..."` for instrumental only. Also optional for `remix` to guide new vocal content | Yes (generate mode) |
 | `styling` | Style prompt describing the music | Yes (generate mode), optional (`complete`/`lego`) |
 | `noblend` | Output generated instruments only without blending with original audio (`complete` only) | No |
 | `duration` | Duration in seconds (10‑300) | Yes (generate mode) |

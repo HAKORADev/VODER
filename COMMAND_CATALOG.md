@@ -81,7 +81,7 @@ Generate speech from text using voice descriptions (VoiceDesign) or voice clone 
 | `slc` | (flag) | Enable SLC (Speaker Language Conversion) sub-task. Transcribe source, clone voice, re-synthesize. See SLC Sub-Task below. |
 | `svc` | `"path"` | SVC sub-task: transcribe single-speaker audio and re-synthesize with a target voice. Must be paired with `target` or `voice` for the output voice |
 | `overdose` | (flag) | Use VibeVoice ASR for dialogue source analysis and voice clip extraction instead of Whisper + pyannote. When used with `music`, also uses ACE-Step XL turbo for enhanced background music quality. With `slc`, runs an additional STS v2 pass for better voice preservation. Requires 24GB+ VRAM or 48GB+ RAM. |
-| `extreme` | (flag) | Use Fish Audio S2-Pro instead of Qwen3-TTS for TTS synthesis. Provides higher quality voice cloning, 80+ language support (vs 10 for Qwen3-TTS), and emotion/tone/effect tags via `[tag]` syntax (e.g. `[whispering]`, `[laughing]`, `[pause]`, `[excited]`, `[angry]`). Can be combined with `overdose`. Voice design for unsupported languages uses automatic placeholder trick. Trained voices use `.ttse` format (not `.tts`). |
+| `extreme` | (flag) | Use Fish Audio S2-Pro instead of Qwen3-TTS for TTS synthesis. Provides higher quality voice cloning, 80+ language support (vs 10 for Qwen3-TTS), and voice effects via `[tag]` syntax (e.g. `[whispering]`, `[laughing]`, `[pause]`, `[excited]`, `[angry]`). Also supports 64 S1 Pro tags in `[brackets]`. Can be combined with `overdose`. Voice design for unsupported languages uses automatic placeholder trick. Trained voices use `.ttse` format (not `.tts`). |
 
 ### Single Mode
 
@@ -158,7 +158,7 @@ python voder.py tts extreme script "Hello world" target "voice.wav"
 # TTS with extreme + voice design (auto language trick for non-10 languages)
 python voder.py tts extreme script "Arabic text here" voice "deep male"
 
-# TTS with extreme + emotion and tone tags
+# TTS with extreme + voice effects
 python voder.py tts extreme script "[whispering] Hello there [pause] how are you?" target "voice.wav"
 
 # TTS with extreme + overdose (both can be combined)
@@ -178,13 +178,9 @@ python voder.py tts extreme script "Hello" voice "my-character"
 
 - When `extreme` is used, Fish Audio S2-Pro replaces Qwen3-TTS for all TTS synthesis steps.
 - `extreme` and `overdose` can be used together — they affect different parts of the pipeline (overdose = STT/TTM, extreme = TTS).
-- Emotion, tone, and effect tags are embedded in script text using `[tag]` syntax. Over 15,000 free-form tags are supported — any natural language description in brackets works.
-  - **Emotions**: `[excited]`, `[angry]`, `[sad]`
-  - **Tones / Voice Style**: `[whispering]`, `[soft voice]`, `[low voice]`, `[loud voice]`, `[shouting]`
-  - **Breathing & Reactions**: `[sigh]`, `[inhale]`, `[exhale]`, `[gasp]`, `[panting]`, `[clears throat]`
-  - **Vocal Sounds**: `[laughing]`, `[chuckling]`, `[giggle]`, `[sobbing]`, `[crying]`, `[groan]`
-  - **Pacing**: `[pause]`, `[short pause]`, `[long pause]`
-  - **Special**: `[emphasis]`, `[rustling sound]`
+- Voice effects are embedded in script text using `[tag]` syntax. Over 15,000 free-form tags are supported — any natural language description in brackets works.
+  - **S2-Pro well-tested tags**: `[excited]` `[angry]` `[sad]` `[whispering]` `[soft voice]` `[low voice]` `[loud voice]` `[shouting]` `[sigh]` `[inhale]` `[exhale]` `[gasp]` `[panting]` `[clears throat]` `[laughing]` `[chuckling]` `[giggle]` `[sobbing]` `[crying]` `[groan]` `[pause]` `[short pause]` `[long pause]` `[emphasis]` `[rustling sound]`
+  - **S1 Pro tags** (also work in `[brackets]` for S2-Pro): `(angry)` `(sad)` `(disdainful)` `(excited)` `(surprised)` `(satisfied)` `(unhappy)` `(anxious)` `(hysterical)` `(delighted)` `(scared)` `(worried)` `(indifferent)` `(upset)` `(impatient)` `(nervous)` `(guilty)` `(scornful)` `(frustrated)` `(depressed)` `(panicked)` `(furious)` `(empathetic)` `(embarrassed)` `(reluctant)` `(disgusted)` `(keen)` `(moved)` `(proud)` `(relaxed)` `(grateful)` `(confident)` `(interested)` `(curious)` `(confused)` `(joyful)` `(disapproving)` `(negative)` `(denying)` `(astonished)` `(serious)` `(sarcastic)` `(sneering)` `(hesitating)` `(yielding)` `(painful)` `(awkward)` `(amused)` `(in a hurry tone)` `(shouting)` `(screaming)` `(whispering)` `(soft tone)` `(laughing)` `(chuckling)` `(sobbing)` `(crying loudly)` `(sighing)` `(panting)` `(groaning)` `(crowd laughing)` `(background laughter)` `(audience laughing)`
   - **Free-form examples**: `[professional broadcast tone]`, `[pitch up]`, `[voice rough from crying, trying to sound normal]`, `[dead tired, end of a very long shift]`
   - **Multi-language tags**: Supported (e.g. `[低声说]` for Chinese, `[囁き声で]` for Japanese)
   - Tags affect text from their position onward. Placement matters: `[whispering] I didn't want to go inside.` whispers the whole line, while `I didn't want to go [whispering] inside.` whispers from "inside" onward.
@@ -516,7 +512,7 @@ The most feature-rich mode. Supports generation, remix, repaint, voice cloning, 
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `lyrics` | `"<text>"` | Song lyrics text. Write `\n` for line breaks (parsed as actual newlines). |
+| `lyrics` | `"<text>"` | Song lyrics text. Write `\n` for line breaks (parsed as actual newlines). Use structural tags in `[brackets]` (e.g. `[Verse 1]`, `[Chorus]`, `[Bridge]`, `[Intro]`, `[Outro]`, `[Interlude]`, `[Instrumental]`/`[inst]`, `[Pre-Chorus]`, `[Hook]`, `[Solo]`, `[Break]`) — text inside brackets is not sung. Use `...` for empty lyrics (instrumental). Use `(text in parens)` for context/style hints. |
 | `styling` | `"<text>"` | Style/mood prompt for the music. Write `\n` for line breaks (parsed as actual newlines). |
 | `<number>` | `10-300` | Duration in seconds (for generate and VC paths). |
 | `overdose` | (flag) | Use Overdose tier (ACE-Step XL-Turbo + 4B LM + shift 3.0) instead of Standard tier (ACE-Step 1.5 Turbo). |
