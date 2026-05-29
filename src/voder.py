@@ -12,6 +12,7 @@ MODELS_CHECKPOINTS_DIR = os.path.join(MODELS_DIR, "checkpoints")
 
 QWEN_TTS_VOICEDESIGN_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "qwen_tts_voicedesign")
 QWEN_TTS_BASE_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "qwen_tts_base")
+FISH_S2PRO_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "fish_s2pro")
 ACESTEP_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "acestep")
 SEED_VC_V1_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "seed_vc_v1")
 SEED_VC_V2_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "seed_vc_v2")
@@ -33,6 +34,7 @@ os.makedirs(MODELS_TMP_DIR, exist_ok=True)
 os.makedirs(MODELS_CHECKPOINTS_DIR, exist_ok=True)
 os.makedirs(QWEN_TTS_VOICEDESIGN_DIR, exist_ok=True)
 os.makedirs(QWEN_TTS_BASE_DIR, exist_ok=True)
+os.makedirs(FISH_S2PRO_DIR, exist_ok=True)
 os.makedirs(ACESTEP_DIR, exist_ok=True)
 os.makedirs(SEED_VC_V1_DIR, exist_ok=True)
 os.makedirs(SEED_VC_V2_DIR, exist_ok=True)
@@ -1454,7 +1456,7 @@ def _generate_and_overlay_sfx(source_path, sfx_specs, output_path):
         except Exception:
             pass
 
-def _assemble_enhanced_dialogue(dialogue_items, voice_data, tts_design_obj=None, tts_vc_obj=None, vc_voice_data=None, output_path=None, mode='tts', sts_refs=None):
+def _assemble_enhanced_dialogue(dialogue_items, voice_data, tts_design_obj=None, tts_vc_obj=None, vc_voice_data=None, output_path=None, mode='tts', sts_refs=None, use_extreme=False, fish_voice_data=None):
     temp_dir = tempfile.mkdtemp()
     try:
         clips = []
@@ -1505,8 +1507,12 @@ def _assemble_enhanced_dialogue(dialogue_items, voice_data, tts_design_obj=None,
                 if is_vc:
                     if tts_vc_obj is None:
                         return False, "TTS+VC object not provided for cloned voice character"
-                    tts_vc_obj.voice_prompt = vc_voice_data[char_lower]
-                    success = tts_vc_obj.synthesize(text, raw_file)
+                    if use_extreme and isinstance(tts_vc_obj, FishTTS) and fish_voice_data and char_lower in fish_voice_data:
+                        tts_vc_obj.encoded_refs = fish_voice_data[char_lower]
+                        success = tts_vc_obj.synthesize(text, raw_file)
+                    else:
+                        tts_vc_obj.voice_prompt = vc_voice_data[char_lower]
+                        success = tts_vc_obj.synthesize(text, raw_file)
                     if not success:
                         return False, f"Failed to synthesize line {num}"
                 else:
@@ -1792,6 +1798,129 @@ class QwenTTS:
         except Exception as e:
             print(f"Synthesis error: {e}")
             return False
+
+class FishTTS:
+    def __init__(self, model_dir=None):
+        self.model_dir = FISH_S2PRO_DIR if model_dir is None else model_dir
+        self.model = None
+        self.codec = None
+        self.tokenizer = None
+        self.decode_one_token = None
+        self.device = None
+        self.dtype = None
+        self.encoded_refs = None
+        os.makedirs(self.model_dir, exist_ok=True)
+
+    def ensure_model(self):
+        if self.model is not None:
+            return True
+        try:
+            import torch
+            self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+            self.dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+            os.makedirs(self.model_dir, exist_ok=True)
+            if not os.path.exists(os.path.join(self.model_dir, "config.json")):
+                print("Downloading Fish-S2Pro from HuggingFace...")
+                from huggingface_hub import snapshot_download
+                snapshot_download(
+                    repo_id="fishaudio/s2-pro",
+                    local_dir=self.model_dir,
+                    local_dir_use_symlinks=False
+                )
+            print("Loading Fish-S2Pro model...")
+            from fish_speech.models.text2semantic.inference import init_model, load_codec_model
+            self.model, self.decode_one_token = init_model(
+                checkpoint_path=self.model_dir,
+                device=self.device,
+                precision=self.dtype,
+                compile=False
+            )
+            codec_path = os.path.join(self.model_dir, "codec.pth")
+            if not os.path.exists(codec_path):
+                codec_path = os.path.join(self.model_dir, "codecs", "codec.pth")
+            self.codec = load_codec_model(codec_path, self.device, self.dtype)
+            from fish_speech.tokenizer import FishTokenizer
+            self.tokenizer = FishTokenizer.from_pretrained(self.model_dir)
+            return True
+        except Exception as e:
+            print(f"Error loading Fish-S2Pro: {e}")
+            return False
+
+    def encode_voice(self, audio_path, ref_text=None):
+        if not self.ensure_model():
+            return None
+        try:
+            import torch
+            from fish_speech.models.text2semantic.inference import encode_audio
+            prompt_tokens = encode_audio(audio_path, self.codec, self.device)
+            self.encoded_refs = {
+                "tokens": prompt_tokens.cpu(),
+                "text": ref_text or ""
+            }
+            return True
+        except Exception as e:
+            print(f"Voice encoding error: {e}")
+            return None
+
+    def synthesize(self, text, output_path, temperature=1.0, top_p=0.9, top_k=30):
+        if not self.ensure_model():
+            return False
+        if self.encoded_refs is None:
+            print("Error: No voice reference encoded for Fish TTS")
+            return False
+        try:
+            import torch
+            import soundfile as sf
+            from fish_speech.models.text2semantic.inference import generate_long, decode_to_audio
+            from fish_speech.conversation import Conversation, Message
+            from fish_speech.content_sequence import TextPart, VQPart
+            prompt_tokens = self.encoded_refs["tokens"].to(self.device)
+            prompt_text = self.encoded_refs["text"]
+            all_audio = []
+            for response in generate_long(
+                model=self.model,
+                device=self.device,
+                decode_one_token=self.decode_one_token,
+                text=text,
+                prompt_text=[prompt_text],
+                prompt_tokens=[prompt_tokens],
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                max_new_tokens=0,
+            ):
+                if response.action == "sample":
+                    audio = decode_to_audio(response.codes.to(self.device), self.codec)
+                    if audio is not None:
+                        all_audio.append(audio.cpu())
+            if not all_audio:
+                return False
+            final_audio = torch.cat(all_audio, dim=-1)
+            audio_np = final_audio.squeeze().numpy()
+            sf.write(output_path, audio_np, 44100)
+            return True
+        except Exception as e:
+            print(f"Fish TTS synthesis error: {e}")
+            return False
+
+    def cleanup(self):
+        if self.model is not None:
+            del self.model
+            self.model = None
+        if self.codec is not None:
+            del self.codec
+            self.codec = None
+        self.decode_one_token = None
+        self.tokenizer = None
+        self.encoded_refs = None
+        import gc
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
 class SeedVCV2:
     def __init__(self):
@@ -2703,6 +2832,80 @@ SUPPORTED_TTS_LANGUAGES = {
     "es": "Spanish", "it": "Italian"
 }
 
+def _detect_text_language(text):
+    import unicodedata
+    script_counts = {}
+    for ch in text:
+        if ch.isspace() or ch in '.,!?;:\'"()-[]{}<>/\\@#$%^&*+=~`|0123456789':
+            continue
+        try:
+            name = unicodedata.name(ch, '')
+            if not name:
+                continue
+            if any(k in name for k in ('CJK', 'HIRAGANA', 'KATAKANA', 'HIRAGANA-KATAKANA', 'HALFWIDTH AND FULLWIDTH FORMS')):
+                script_counts.setdefault('cjk', 0)
+                script_counts['cjk'] += 1
+            elif 'HANGUL' in name:
+                script_counts.setdefault('hangul', 0)
+                script_counts['hangul'] += 1
+            elif 'CYRILLIC' in name:
+                script_counts.setdefault('cyrillic', 0)
+                script_counts['cyrillic'] += 1
+            elif 'ARABIC' in name:
+                script_counts.setdefault('arabic', 0)
+                script_counts['arabic'] += 1
+            elif 'DEVANAGARI' in name:
+                script_counts.setdefault('devanagari', 0)
+                script_counts['devanagari'] += 1
+            elif 'THAI' in name:
+                script_counts.setdefault('thai', 0)
+                script_counts['thai'] += 1
+            elif 'TAMIL' in name:
+                script_counts.setdefault('tamil', 0)
+                script_counts['tamil'] += 1
+            elif 'TELUGU' in name:
+                script_counts.setdefault('telugu', 0)
+                script_counts['telugu'] += 1
+            elif 'BENGALI' in name:
+                script_counts.setdefault('bengali', 0)
+                script_counts['bengali'] += 1
+            elif 'LATIN' in name or name.startswith('FULLWIDTH LATIN'):
+                script_counts.setdefault('latin', 0)
+                script_counts['latin'] += 1
+            elif 'GREEK' in name:
+                script_counts.setdefault('greek', 0)
+                script_counts['greek'] += 1
+            elif 'HEBREW' in name:
+                script_counts.setdefault('hebrew', 0)
+                script_counts['hebrew'] += 1
+            elif 'GEORGIAN' in name:
+                script_counts.setdefault('georgian', 0)
+                script_counts['georgian'] += 1
+            elif 'ARMENIAN' in name:
+                script_counts.setdefault('armenian', 0)
+                script_counts['armenian'] += 1
+            else:
+                script_counts.setdefault('other', 0)
+                script_counts['other'] += 1
+        except Exception:
+            continue
+    if not script_counts:
+        return "en", True
+    dominant = max(script_counts, key=script_counts.get)
+    qwen_supported_scripts = {'latin', 'cjk', 'hangul', 'cyrillic'}
+    if dominant in qwen_supported_scripts:
+        if dominant == 'cjk':
+            ja_chars = sum(1 for ch in text if any(k in unicodedata.name(ch, '') for k in ('HIRAGANA', 'KATAKANA')))
+            if ja_chars > 0:
+                return "ja", True
+            return "zh", True
+        if dominant == 'hangul':
+            return "ko", True
+        if dominant == 'cyrillic':
+            return "ru", True
+        return "en", True
+    return "other", False
+
 def validate_audio_file(path):
     if not os.path.exists(path):
         return False, "File does not exist."
@@ -3597,6 +3800,11 @@ def cli_tts_mode():
     overdose_input = input("Enable overdose? (Y/N): ").strip().lower()
     if overdose_input in ['y', 'yes']:
         use_overdose = True
+
+    use_extreme = False
+    extreme_input = input("Enable extreme? (Y/N): ").strip().lower()
+    if extreme_input in ['y', 'yes']:
+        use_extreme = True
 
     print("\nDo you have a dialogue source file? (audio/video/txt/image)")
     print("Press Y to provide a file, or N to enter manually")
@@ -5347,6 +5555,9 @@ def parse_oneline_args(args):
             elif arg_lower == 'overdose':
                 use_overdose = True
                 i += 1
+            elif arg_lower == 'extreme':
+                use_extreme = True
+                i += 1
             elif arg_lower == 'target':
                 if i + 1 < len(args):
                     target_path = args[i + 1]
@@ -5476,12 +5687,16 @@ def parse_oneline_args(args):
         test_script = None
         has_test = False
         use_first = False
+        use_extreme = False
         while i < len(args):
             arg = args[i]
             arg_lower = arg.lower()
             if arg_lower.startswith('voice:'):
                 sub_type = 'voice'
                 voice_name = arg[6:].strip()
+                i += 1
+            elif arg_lower == 'extreme':
+                use_extreme = True
                 i += 1
             elif arg_lower == 'first':
                 use_first = True
@@ -5515,6 +5730,7 @@ def parse_oneline_args(args):
         result['params']['has_test'] = has_test
         result['params']['test_script'] = test_script
         result['params']['use_first'] = use_first
+        result['params']['extreme'] = use_extreme
         return result
 
     while i < len(args):
@@ -5529,6 +5745,12 @@ def parse_oneline_args(args):
                 return result
         elif arg_lower == 'overdose':
             result['params']['overdose'] = True
+            i += 1
+        elif arg_lower == 'extreme':
+            if mode in ('tts', 'sts'):
+                result['params']['extreme'] = True
+            else:
+                print("Warning: 'extreme' keyword is only valid in TTS and STS modes, ignoring")
             i += 1
         elif mode == 'ttm' and arg_lower == 'complete':
             result['params']['complete'] = True
@@ -5989,6 +6211,97 @@ def _is_trained_voice_ref(value):
             return True
     return False
 
+def _save_fish_voice(encoded_refs, character_name, ref_text=None):
+    _ensure_voices_dir()
+    character_name = character_name.lower()
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    filename = f"voder_ttse_{character_name}_{timestamp}.ttse"
+    filepath = os.path.join(VOICES_DIR, filename)
+    import torch
+    payload = {
+        "tokens": encoded_refs["tokens"],
+        "text": ref_text or encoded_refs.get("text", ""),
+        "character": character_name,
+        "timestamp": timestamp
+    }
+    torch.save(payload, filepath)
+    return filepath
+
+def _load_fish_voice(filepath):
+    import torch
+    if not os.path.exists(filepath):
+        return None
+    payload = torch.load(filepath, map_location="cpu", weights_only=True)
+    if not isinstance(payload, dict) or "tokens" not in payload:
+        return None
+    return payload
+
+def _find_fish_voice_file(name):
+    _ensure_voices_dir()
+    if os.path.exists(name) and name.endswith('.ttse'):
+        return name
+    name = name.lower()
+    matches = []
+    for f in os.listdir(VOICES_DIR):
+        if not f.endswith('.ttse'):
+            continue
+        if f.startswith(f"voder_ttse_{name}_"):
+            matches.append(os.path.join(VOICES_DIR, f))
+    if not matches:
+        return None
+    matches.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+    return matches[0]
+
+def _is_fish_voice_ref(value):
+    if os.path.exists(value) and value.endswith('.ttse'):
+        return True
+    if _find_fish_voice_file(value.lower()) is not None:
+        return True
+    if ':' in value:
+        parts = value.split(':', 1)
+        second = parts[1].strip()
+        if second.endswith('.ttse'):
+            if os.path.exists(second):
+                return True
+            if _find_fish_voice_file(second.lower()) is not None:
+                return True
+        if _find_fish_voice_file(second.lower()) is not None:
+            return True
+    return False
+
+def _resolve_fish_voice_ref(value):
+    if ':' not in value:
+        voice_file = _find_fish_voice_file(value.lower())
+        if voice_file:
+            return voice_file
+        return None
+    parts = value.split(':', 1)
+    first = parts[0].strip()
+    second = parts[1].strip().lower()
+    if second.endswith('.ttse'):
+        if os.path.exists(second):
+            return second
+        voice_file = _find_fish_voice_file(second)
+        if voice_file:
+            return voice_file
+        return None
+    voice_file = _find_fish_voice_file(second)
+    if voice_file:
+        return voice_file
+    return None
+
+def _check_voice_extreme_mismatch(voice_path, use_extreme):
+    if not voice_path:
+        return False
+    basename = os.path.basename(voice_path)
+    if use_extreme and basename.endswith('.tts'):
+        print("Error: .tts voice files are for standard TTS mode, .ttse files are for extreme mode. Use 'voder.py train extreme' to create a .ttse file.")
+        return True
+    if not use_extreme and basename.endswith('.ttse'):
+        print("Error: .ttse voice files are for extreme mode, .tts files are for standard TTS mode. Remove 'extreme' keyword or use a .tts file instead.")
+        return True
+    return False
+
 def validate_oneline_mode(mode_name):
     valid_modes = ['tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'ss', 'train']
     if mode_name.lower() in valid_modes:
@@ -6281,6 +6594,7 @@ def oneline_train(params):
     has_test = params.get('has_test', False)
     test_script = params.get('test_script')
     use_first = params.get('use_first', False)
+    use_extreme = params.get('extreme', False)
 
     if sub_type != 'voice':
         print("Error: Only 'voice' training is supported")
@@ -6309,41 +6623,68 @@ def oneline_train(params):
             if resolved_audio not in _cleanup and resolved_audio != clean_vocal:
                 _cleanup.append(resolved_audio)
 
-        print("Loading Qwen-TTS model...")
-        tts = QwenTTS()
-        if tts.model is None:
-            print("Error: Failed to load Qwen-TTS model")
-            return False
+        if use_extreme:
+            print("Loading Fish-S2Pro model (extreme)...")
+            fish_tts = FishTTS()
+            if not fish_tts.ensure_model():
+                print("Error: Failed to load Fish-S2Pro model")
+                return False
+            print("Encoding voice reference...")
+            success = fish_tts.encode_voice(clean_vocal)
+            if not success:
+                print("Error: Voice encoding failed")
+                return False
+            saved_path = _save_fish_voice(fish_tts.encoded_refs, voice_name)
+            print(f"Extreme voice '{voice_name}' saved to: {saved_path}")
+            if has_test:
+                script = test_script if test_script else TRAIN_TEST_SCRIPT
+                print(f"Testing trained voice (extreme)...")
+                results_dir = os.path.join(os.getcwd(), "results")
+                os.makedirs(results_dir, exist_ok=True)
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                test_output = os.path.join(results_dir, f"voder_tts_extreme_{voice_name}_test_{timestamp}.wav")
+                success = fish_tts.synthesize(script, test_output)
+                if success:
+                    print(f"Test output saved to: {test_output}")
+                else:
+                    print("Warning: Test synthesis failed (voice was still saved)")
+            fish_tts.cleanup()
+        else:
+            print("Loading Qwen-TTS model...")
+            tts = QwenTTS()
+            if tts.model is None:
+                print("Error: Failed to load Qwen-TTS model")
+                return False
 
-        print("Extracting voice characteristics...")
-        success = tts.extract_voice(clean_vocal)
-        if not success:
-            print("Error: Voice extraction failed")
-            return False
+            print("Extracting voice characteristics...")
+            success = tts.extract_voice(clean_vocal)
+            if not success:
+                print("Error: Voice extraction failed")
+                return False
 
-        voice_prompt = tts.voice_prompt
-        if voice_prompt is None:
-            print("Error: Voice prompt extraction returned None")
-            return False
+            voice_prompt = tts.voice_prompt
+            if voice_prompt is None:
+                print("Error: Voice prompt extraction returned None")
+                return False
 
-        if not isinstance(voice_prompt, list):
-            voice_prompt = [voice_prompt]
+            if not isinstance(voice_prompt, list):
+                voice_prompt = [voice_prompt]
 
-        saved_path = _save_voice_prompt(voice_prompt, voice_name)
-        print(f"Voice '{voice_name}' saved to: {saved_path}")
+            saved_path = _save_voice_prompt(voice_prompt, voice_name)
+            print(f"Voice '{voice_name}' saved to: {saved_path}")
 
-        if has_test:
-            script = test_script if test_script else TRAIN_TEST_SCRIPT
-            print(f"Testing trained voice...")
-            results_dir = os.path.join(os.getcwd(), "results")
-            os.makedirs(results_dir, exist_ok=True)
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            test_output = os.path.join(results_dir, f"voder_tts_{voice_name}_test_{timestamp}.wav")
-            success = tts.synthesize(script, test_output)
-            if success:
-                print(f"Test output saved to: {test_output}")
-            else:
-                print("Warning: Test synthesis failed (voice was still saved)")
+            if has_test:
+                script = test_script if test_script else TRAIN_TEST_SCRIPT
+                print(f"Testing trained voice...")
+                results_dir = os.path.join(os.getcwd(), "results")
+                os.makedirs(results_dir, exist_ok=True)
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                test_output = os.path.join(results_dir, f"voder_tts_{voice_name}_test_{timestamp}.wav")
+                success = tts.synthesize(script, test_output)
+                if success:
+                    print(f"Test output saved to: {test_output}")
+                else:
+                    print("Warning: Test synthesis failed (voice was still saved)")
 
         return True
     finally:
@@ -6353,6 +6694,52 @@ def oneline_train(params):
                     os.unlink(f)
                 except:
                     pass
+
+def _create_tts_engine(use_extreme=False):
+    if use_extreme:
+        engine = FishTTS()
+        if engine.ensure_model():
+            return engine
+        print("Warning: Fish-S2Pro failed to load, falling back to Qwen-TTS")
+        return QwenTTS()
+    return QwenTTS()
+
+def _tts_extract_voice(engine, audio_path, use_extreme=False):
+    if use_extreme and isinstance(engine, FishTTS):
+        return engine.encode_voice(audio_path)
+    return engine.extract_voice(audio_path)
+
+def _tts_synthesize(engine, text, output_path, language="Auto", use_extreme=False):
+    if use_extreme and isinstance(engine, FishTTS):
+        return engine.synthesize(text, output_path)
+    return engine.synthesize(text, output_path, language=language)
+
+def _tts_load_voice(engine, voice_path, use_extreme=False):
+    if use_extreme and isinstance(engine, FishTTS):
+        payload = _load_fish_voice(voice_path)
+        if payload is None:
+            return False
+        engine.encoded_refs = payload
+        return True
+    items = _load_voice_prompt(voice_path)
+    if items is None:
+        return False
+    engine.voice_prompt = items
+    return True
+
+def _tts_cleanup(engine, use_extreme=False):
+    if use_extreme and isinstance(engine, FishTTS):
+        engine.cleanup()
+    else:
+        import gc
+        try:
+            del engine
+            gc.collect()
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
 def oneline_tts(params):
     original_cwd = os.getcwd()
@@ -6370,6 +6757,7 @@ def oneline_tts(params):
     reference_source = reference_params[0] if reference_params else None
     ocr_param = params.get('ocr', [])
     use_overdose = params.get('overdose', False)
+    use_extreme = params.get('extreme', False)
 
     if params.get('slc'):
         slc_path = params.get('slc_path')
@@ -6516,10 +6904,23 @@ def oneline_tts(params):
             torch.cuda.empty_cache()
 
         print(f"TTS language: {tts_lang}")
-        print("Loading Qwen-TTS model...")
-        tts = QwenTTS()
+        if use_extreme:
+            print("Loading Fish-S2Pro model (extreme)...")
+            tts = FishTTS()
+            if not tts.ensure_model():
+                print("Error: Failed to load Fish-S2Pro model")
+                for f in _slc_cleanup:
+                    if f and os.path.exists(f):
+                        try:
+                            os.unlink(f)
+                        except:
+                            pass
+                return False
+        else:
+            print("Loading Qwen-TTS model...")
+            tts = QwenTTS()
         print("Extracting voice characteristics...")
-        success = tts.extract_voice(clean_vocal)
+        success = _tts_extract_voice(tts, clean_vocal, use_extreme=use_extreme)
         if not success:
             print("Error: Voice extraction failed")
             del tts
@@ -6538,7 +6939,7 @@ def oneline_tts(params):
         print("Generating speech...")
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         output_path = os.path.join(results_dir, f"voder_tts_slc_{timestamp}.wav")
-        success = tts.synthesize(final_text, output_path, language=tts_lang)
+        success = _tts_synthesize(tts, final_text, output_path, language=tts_lang, use_extreme=use_extreme)
         if not success:
             print("Error: Synthesis failed")
             del tts
@@ -6554,11 +6955,8 @@ def oneline_tts(params):
                         pass
             return False
 
-        del tts
+        _tts_cleanup(tts, use_extreme=use_extreme)
         tts = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
 
         print(f"✓ SLC output saved to: {output_path}")
 
@@ -6781,20 +7179,30 @@ def oneline_tts(params):
             sts_ref_raw = svc_target[4:]
             trained_file = _resolve_voice_ref(sts_ref_raw)
             if trained_file:
-                print(f"Loading trained voice for STS pass: {trained_file}")
-                voice_items = _load_voice_prompt(trained_file)
-                if voice_items is None:
-                    print(f"Error: Failed to load trained voice: {trained_file}")
-                    for f in _svc_cleanup:
-                        if f and os.path.exists(f):
-                            try:
-                                os.unlink(f)
-                            except:
-                                pass
+                if _check_voice_extreme_mismatch(trained_file, use_extreme):
                     return False
-                print("Loading Qwen-TTS model...")
-                tts = QwenTTS()
-                tts.voice_prompt = voice_items
+                print(f"Loading trained voice for STS pass: {trained_file}")
+                if use_extreme:
+                    tts = FishTTS()
+                    if not tts.ensure_model():
+                        print("Error: Failed to load Fish-S2Pro model")
+                        return False
+                    if not _tts_load_voice(tts, trained_file, use_extreme=True):
+                        voice_items = _load_voice_prompt(trained_file)
+                        if voice_items is None:
+                            print(f"Error: Failed to load trained voice: {trained_file}")
+                            return False
+                        tts = QwenTTS()
+                        tts.voice_prompt = voice_items
+                        use_extreme = False
+                else:
+                    voice_items = _load_voice_prompt(trained_file)
+                    if voice_items is None:
+                        print(f"Error: Failed to load trained voice: {trained_file}")
+                        return False
+                    print("Loading Qwen-TTS model...")
+                    tts = QwenTTS()
+                    tts.voice_prompt = voice_items
             else:
                 multi = _parse_multi_refs(sts_ref_raw)
                 if multi:
@@ -6825,10 +7233,17 @@ def oneline_tts(params):
                         _svc_cleanup.append(target_voice_path)
                     if resolved_audio not in _svc_cleanup and resolved_audio != target_voice_path:
                         _svc_cleanup.append(resolved_audio)
-                print("Loading Qwen-TTS model...")
-                tts = QwenTTS()
+                if use_extreme:
+                    print("Loading Fish-S2Pro model (extreme)...")
+                    tts = FishTTS()
+                    if not tts.ensure_model():
+                        print("Error: Failed to load Fish-S2Pro model")
+                        return False
+                else:
+                    print("Loading Qwen-TTS model...")
+                    tts = QwenTTS()
                 print("Extracting voice characteristics from STS target...")
-                success = tts.extract_voice(target_voice_path)
+                success = _tts_extract_voice(tts, target_voice_path, use_extreme=use_extreme)
                 if not success:
                     print("Error: Voice extraction from STS target failed")
                     del tts
@@ -6846,20 +7261,30 @@ def oneline_tts(params):
         else:
             trained_file = _resolve_voice_ref(svc_target)
             if trained_file:
-                print(f"Loading trained voice from: {trained_file}")
-                voice_items = _load_voice_prompt(trained_file)
-                if voice_items is None:
-                    print(f"Error: Failed to load trained voice: {trained_file}")
-                    for f in _svc_cleanup:
-                        if f and os.path.exists(f):
-                            try:
-                                os.unlink(f)
-                            except:
-                                pass
+                if _check_voice_extreme_mismatch(trained_file, use_extreme):
                     return False
-                print("Loading Qwen-TTS model...")
-                tts = QwenTTS()
-                tts.voice_prompt = voice_items
+                print(f"Loading trained voice from: {trained_file}")
+                if use_extreme:
+                    tts = FishTTS()
+                    if not tts.ensure_model():
+                        print("Error: Failed to load Fish-S2Pro model")
+                        return False
+                    if not _tts_load_voice(tts, trained_file, use_extreme=True):
+                        voice_items = _load_voice_prompt(trained_file)
+                        if voice_items is None:
+                            print(f"Error: Failed to load trained voice: {trained_file}")
+                            return False
+                        tts = QwenTTS()
+                        tts.voice_prompt = voice_items
+                        use_extreme = False
+                else:
+                    voice_items = _load_voice_prompt(trained_file)
+                    if voice_items is None:
+                        print(f"Error: Failed to load trained voice: {trained_file}")
+                        return False
+                    print("Loading Qwen-TTS model...")
+                    tts = QwenTTS()
+                    tts.voice_prompt = voice_items
             else:
                 multi = _parse_multi_refs(svc_target)
                 if multi:
@@ -6873,10 +7298,17 @@ def oneline_tts(params):
                                 except:
                                     pass
                         return False
-                    print("Loading Qwen-TTS model...")
-                    tts = QwenTTS()
+                    if use_extreme:
+                        print("Loading Fish-S2Pro model (extreme)...")
+                        tts = FishTTS()
+                        if not tts.ensure_model():
+                            print("Error: Failed to load Fish-S2Pro model")
+                            return False
+                    else:
+                        print("Loading Qwen-TTS model...")
+                        tts = QwenTTS()
                     print("Extracting voice characteristics...")
-                    success = tts.extract_voice(target_voice_path)
+                    success = _tts_extract_voice(tts, target_voice_path, use_extreme=use_extreme)
                     if not success:
                         print("Error: Voice extraction failed")
                         del tts
@@ -6908,10 +7340,17 @@ def oneline_tts(params):
                         _svc_cleanup.append(target_voice_path)
                     if resolved_audio not in _svc_cleanup and resolved_audio != target_voice_path:
                         _svc_cleanup.append(resolved_audio)
-                    print("Loading Qwen-TTS model...")
-                    tts = QwenTTS()
+                    if use_extreme:
+                        print("Loading Fish-S2Pro model (extreme)...")
+                        tts = FishTTS()
+                        if not tts.ensure_model():
+                            print("Error: Failed to load Fish-S2Pro model")
+                            return False
+                    else:
+                        print("Loading Qwen-TTS model...")
+                        tts = QwenTTS()
                     print("Extracting voice characteristics...")
-                    success = tts.extract_voice(target_voice_path)
+                    success = _tts_extract_voice(tts, target_voice_path, use_extreme=use_extreme)
                     if not success:
                         print("Error: Voice extraction failed")
                         del tts
@@ -6927,45 +7366,120 @@ def oneline_tts(params):
                                     pass
                         return False
                 else:
-                    print(f"Loading Qwen-TTS VoiceDesign model...")
-                    tts_design = QwenTTSVoiceDesign()
-                    if tts_design.model is None:
-                        print("Error: Failed to load VoiceDesign model")
-                        for f in _svc_cleanup:
-                            if f and os.path.exists(f):
-                                try:
-                                    os.unlink(f)
-                                except:
-                                    pass
-                        return False
-                    print("Generating speech with voice design...")
-                    timestamp = time.strftime("%Y%m%d_%H%M%S")
-                    output_path = os.path.join(results_dir, f"voder_tts_svc_{timestamp}.wav")
-                    success = tts_design.synthesize(final_text, svc_target, output_path, language=tts_lang)
-                    if not success:
-                        print("Error: VoiceDesign synthesis failed")
+                    if use_extreme:
+                        print("Loading Qwen-TTS VoiceDesign model (extreme: generating placeholder voice)...")
+                        tts_design = QwenTTSVoiceDesign()
+                        if tts_design.model is None:
+                            print("Error: Failed to load VoiceDesign model")
+                            for f in _svc_cleanup:
+                                if f and os.path.exists(f):
+                                    try:
+                                        os.unlink(f)
+                                    except:
+                                        pass
+                            return False
+                        placeholder_text = "The quick brown fox jumps over the lazy dog. She sells seashells by the seashore, while the crystal clear waves gently lap against the warm golden sand. Every morning, the old lighthouse keeper climbs the winding stone stairs to check the beam that guides ships safely through the foggy harbor."
+                        placeholder_path = os.path.join(tempfile.gettempdir(), f"voder_extreme_placeholder_{int(time.time())}.wav")
+                        success = tts_design.synthesize(placeholder_text, svc_target, placeholder_path, language="English")
                         del tts_design
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        if not success or not os.path.exists(placeholder_path):
+                            print("Error: Failed to generate voice design placeholder for extreme mode")
+                            for f in _svc_cleanup:
+                                if f and os.path.exists(f):
+                                    try:
+                                        os.unlink(f)
+                                    except:
+                                        pass
+                            return False
+                        _svc_cleanup.append(placeholder_path)
+                        print("Loading Fish-S2Pro model (extreme)...")
+                        tts = FishTTS()
+                        if not tts.ensure_model():
+                            print("Error: Failed to load Fish-S2Pro model")
+                            for f in _svc_cleanup:
+                                if f and os.path.exists(f):
+                                    try:
+                                        os.unlink(f)
+                                    except:
+                                        pass
+                            return False
+                        print("Encoding voice design audio as Fish reference...")
+                        success = tts.encode_voice(placeholder_path)
+                        if not success:
+                            print("Error: Fish voice encoding failed")
+                            for f in _svc_cleanup:
+                                if f and os.path.exists(f):
+                                    try:
+                                        os.unlink(f)
+                                    except:
+                                        pass
+                            return False
+                        print("Generating speech (extreme)...")
+                        timestamp = time.strftime("%Y%m%d_%H%M%S")
+                        output_path = os.path.join(results_dir, f"voder_tts_svc_extreme_{timestamp}.wav")
+                        success = tts.synthesize(final_text, output_path)
+                        if not success:
+                            print("Error: Fish TTS synthesis failed")
+                            for f in _svc_cleanup:
+                                if f and os.path.exists(f):
+                                    try:
+                                        os.unlink(f)
+                                    except:
+                                        pass
+                            return False
+                        _tts_cleanup(tts, use_extreme=True)
+                        tts = None
+                        print(f"✓ SVC extreme output saved to: {output_path}")
                         for f in _svc_cleanup:
                             if f and os.path.exists(f):
                                 try:
                                     os.unlink(f)
                                 except:
                                     pass
-                        return False
-                    del tts_design
-                    print(f"✓ SVC output saved to: {output_path}")
-                    for f in _svc_cleanup:
-                        if f and os.path.exists(f):
-                            try:
-                                os.unlink(f)
-                            except:
-                                pass
-                    return True
+                        return True
+                    else:
+                        print(f"Loading Qwen-TTS VoiceDesign model...")
+                        tts_design = QwenTTSVoiceDesign()
+                        if tts_design.model is None:
+                            print("Error: Failed to load VoiceDesign model")
+                            for f in _svc_cleanup:
+                                if f and os.path.exists(f):
+                                    try:
+                                        os.unlink(f)
+                                    except:
+                                        pass
+                            return False
+                        print("Generating speech with voice design...")
+                        timestamp = time.strftime("%Y%m%d_%H%M%S")
+                        output_path = os.path.join(results_dir, f"voder_tts_svc_{timestamp}.wav")
+                        success = tts_design.synthesize(final_text, svc_target, output_path, language=tts_lang)
+                        if not success:
+                            print("Error: VoiceDesign synthesis failed")
+                            del tts_design
+                            for f in _svc_cleanup:
+                                if f and os.path.exists(f):
+                                    try:
+                                        os.unlink(f)
+                                    except:
+                                        pass
+                            return False
+                        del tts_design
+                        print(f"✓ SVC output saved to: {output_path}")
+                        for f in _svc_cleanup:
+                            if f and os.path.exists(f):
+                                try:
+                                    os.unlink(f)
+                                except:
+                                    pass
+                        return True
 
         print("Generating speech...")
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         output_path = os.path.join(results_dir, f"voder_tts_svc_{timestamp}.wav")
-        success = tts.synthesize(final_text, output_path, language=tts_lang)
+        success = _tts_synthesize(tts, final_text, output_path, language=tts_lang, use_extreme=use_extreme)
         if not success:
             print("Error: Synthesis failed")
             del tts
@@ -7085,6 +7599,35 @@ def oneline_tts(params):
             voice_value = voices[0]
             trained_file = _resolve_voice_ref(voice_value)
             if trained_file:
+                if _check_voice_extreme_mismatch(trained_file, use_extreme):
+                    return False
+                if use_extreme:
+                    print("Loading Fish-S2Pro model (extreme)...")
+                    tts = FishTTS()
+                    if not tts.ensure_model():
+                        print("Error: Failed to load Fish-S2Pro model")
+                        return False
+                    if not _tts_load_voice(tts, trained_file, use_extreme=True):
+                        voice_items = _load_voice_prompt(trained_file)
+                        if voice_items is None:
+                            print(f"Error: Failed to load trained voice: {trained_file}")
+                            return False
+                        tts = QwenTTS()
+                        if tts.model is None:
+                            print("Error: Failed to load Qwen-TTS model")
+                            return False
+                        tts.voice_prompt = voice_items
+                        use_extreme = False
+                    print("Generating speech with trained voice (extreme)...")
+                    timestamp = time.strftime("%Y%m%d_%H%M%S")
+                    output_path = os.path.join(results_dir, f"voder_tts_extreme_{timestamp}.wav")
+                    success = _tts_synthesize(tts, script, output_path, use_extreme=use_extreme)
+                    if not success:
+                        print("Error: Synthesis failed")
+                        return False
+                    _tts_cleanup(tts, use_extreme=use_extreme)
+                    print(f"✓ Success! Output saved to: {output_path}")
+                    return True
                 print(f"Loading trained voice from: {trained_file}")
                 voice_items = _load_voice_prompt(trained_file)
                 if voice_items is None:
@@ -7145,17 +7688,24 @@ def oneline_tts(params):
                         _cleanup.append(clean_vocal)
                     if resolved_audio not in _cleanup and resolved_audio != clean_vocal:
                         _cleanup.append(resolved_audio)
-                print("Loading Qwen-TTS model...")
-                tts = QwenTTS()
+                if use_extreme:
+                    print("Loading Fish-S2Pro model (extreme)...")
+                    tts = FishTTS()
+                    if not tts.ensure_model():
+                        print("Error: Failed to load Fish-S2Pro model")
+                        return False
+                else:
+                    print("Loading Qwen-TTS model...")
+                    tts = QwenTTS()
                 print("Extracting voice characteristics...")
-                success = tts.extract_voice(clean_vocal)
+                success = _tts_extract_voice(tts, clean_vocal, use_extreme=use_extreme)
                 if not success:
                     print("Error: Voice extraction failed")
                     return False
                 print("Generating speech with cloned voice...")
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
-                output_path = os.path.join(results_dir, f"voder_tts_{timestamp}.wav")
-                success = tts.synthesize(script, output_path)
+                output_path = os.path.join(results_dir, f"voder_tts_{'extreme_' if use_extreme else ''}{timestamp}.wav")
+                success = _tts_synthesize(tts, script, output_path, use_extreme=use_extreme)
                 if not success:
                     print("Error: Synthesis failed")
                     return False
@@ -7315,6 +7865,10 @@ def oneline_tts(params):
             has_tts_chars = len(voice_prompts) > 0
             has_vc_chars = len(target_assignments) > 0 or len(trained_voice_refs) > 0
 
+            for char_lower, trained_file in trained_voice_refs.items():
+                if _check_voice_extreme_mismatch(trained_file, use_extreme):
+                    return False
+
             if music_description and music_description.strip() == "":
                 music_description = None
 
@@ -7356,25 +7910,51 @@ def oneline_tts(params):
                     return False
 
             vc_voice_prompts = None
+            fish_voice_data = None
             tts_obj = None
             if has_vc_chars:
-                print("Loading Qwen-TTS model...")
-                tts_obj = QwenTTS()
-                vc_voice_prompts = {}
-                for char_lower, audio_path in target_assignments.items():
-                    print(f"Extracting voice for '{char_lower}'...")
-                    success = tts_obj.extract_voice(audio_path)
-                    if not success:
-                        print(f"Error: Failed to extract voice from {audio_path}")
+                if use_extreme:
+                    print("Loading Fish-S2Pro model (extreme)...")
+                    tts_obj = FishTTS()
+                    if not tts_obj.ensure_model():
+                        print("Error: Failed to load Fish-S2Pro model")
                         return False
-                    vc_voice_prompts[char_lower] = tts_obj.voice_prompt
-                for char_lower, trained_file in trained_voice_refs.items():
-                    print(f"Loading trained voice for '{char_lower}' from: {trained_file}")
-                    voice_items = _load_voice_prompt(trained_file)
-                    if voice_items is None:
-                        print(f"Error: Failed to load trained voice: {trained_file}")
-                        return False
-                    vc_voice_prompts[char_lower] = voice_items
+                    fish_voice_data = {}
+                    for char_lower, audio_path in target_assignments.items():
+                        print(f"Encoding voice for '{char_lower}' (extreme)...")
+                        success = tts_obj.encode_voice(audio_path)
+                        if not success:
+                            print(f"Error: Failed to encode voice from {audio_path}")
+                            return False
+                        fish_voice_data[char_lower] = {
+                            "tokens": tts_obj.encoded_refs["tokens"].clone(),
+                            "text": tts_obj.encoded_refs.get("text", "")
+                        }
+                    for char_lower, trained_file in trained_voice_refs.items():
+                        print(f"Loading trained voice for '{char_lower}' (extreme) from: {trained_file}")
+                        payload = _load_fish_voice(trained_file)
+                        if payload is None:
+                            print(f"Error: Failed to load trained voice: {trained_file}")
+                            return False
+                        fish_voice_data[char_lower] = payload
+                else:
+                    print("Loading Qwen-TTS model...")
+                    tts_obj = QwenTTS()
+                    vc_voice_prompts = {}
+                    for char_lower, audio_path in target_assignments.items():
+                        print(f"Extracting voice for '{char_lower}'...")
+                        success = tts_obj.extract_voice(audio_path)
+                        if not success:
+                            print(f"Error: Failed to extract voice from {audio_path}")
+                            return False
+                        vc_voice_prompts[char_lower] = tts_obj.voice_prompt
+                    for char_lower, trained_file in trained_voice_refs.items():
+                        print(f"Loading trained voice for '{char_lower}' from: {trained_file}")
+                        voice_items = _load_voice_prompt(trained_file)
+                        if voice_items is None:
+                            print(f"Error: Failed to load trained voice: {trained_file}")
+                            return False
+                        vc_voice_prompts[char_lower] = voice_items
 
             if has_tts_chars and tts_obj is None:
                 print("Loading Qwen-TTS model for voice stabilization...")
@@ -7400,7 +7980,8 @@ def oneline_tts(params):
                     dialogue_items, voice_prompts, tts_design_obj=tts_design,
                     tts_vc_obj=tts_obj, vc_voice_data=vc_voice_prompts,
                     output_path=dialogue_temp.name, mode='tts',
-                    sts_refs=sts_refs if sts_refs else None
+                    sts_refs=sts_refs if sts_refs else None,
+                    use_extreme=use_extreme, fish_voice_data=fish_voice_data
                 )
                 if not success:
                     print(f"Error: {msg}")
