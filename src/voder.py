@@ -1516,7 +1516,12 @@ def _assemble_enhanced_dialogue(dialogue_items, voice_data, tts_design_obj=None,
                     if not success:
                         return False, f"Failed to synthesize line {num}"
                 else:
-                    if char_lower in design_cloned_prompts and tts_vc_obj is not None:
+                    if use_extreme and isinstance(tts_vc_obj, FishTTS) and fish_voice_data and char_lower in fish_voice_data:
+                        tts_vc_obj.encoded_refs = fish_voice_data[char_lower]
+                        success = tts_vc_obj.synthesize(text, raw_file)
+                        if not success:
+                            return False, f"Failed to synthesize line {num}"
+                    elif char_lower in design_cloned_prompts and tts_vc_obj is not None:
                         tts_vc_obj.voice_prompt = design_cloned_prompts[char_lower]
                         success = tts_vc_obj.synthesize(text, raw_file)
                         if not success:
@@ -2831,80 +2836,6 @@ SUPPORTED_TTS_LANGUAGES = {
     "de": "German", "fr": "French", "ru": "Russian", "pt": "Portuguese",
     "es": "Spanish", "it": "Italian"
 }
-
-def _detect_text_language(text):
-    import unicodedata
-    script_counts = {}
-    for ch in text:
-        if ch.isspace() or ch in '.,!?;:\'"()-[]{}<>/\\@#$%^&*+=~`|0123456789':
-            continue
-        try:
-            name = unicodedata.name(ch, '')
-            if not name:
-                continue
-            if any(k in name for k in ('CJK', 'HIRAGANA', 'KATAKANA', 'HIRAGANA-KATAKANA', 'HALFWIDTH AND FULLWIDTH FORMS')):
-                script_counts.setdefault('cjk', 0)
-                script_counts['cjk'] += 1
-            elif 'HANGUL' in name:
-                script_counts.setdefault('hangul', 0)
-                script_counts['hangul'] += 1
-            elif 'CYRILLIC' in name:
-                script_counts.setdefault('cyrillic', 0)
-                script_counts['cyrillic'] += 1
-            elif 'ARABIC' in name:
-                script_counts.setdefault('arabic', 0)
-                script_counts['arabic'] += 1
-            elif 'DEVANAGARI' in name:
-                script_counts.setdefault('devanagari', 0)
-                script_counts['devanagari'] += 1
-            elif 'THAI' in name:
-                script_counts.setdefault('thai', 0)
-                script_counts['thai'] += 1
-            elif 'TAMIL' in name:
-                script_counts.setdefault('tamil', 0)
-                script_counts['tamil'] += 1
-            elif 'TELUGU' in name:
-                script_counts.setdefault('telugu', 0)
-                script_counts['telugu'] += 1
-            elif 'BENGALI' in name:
-                script_counts.setdefault('bengali', 0)
-                script_counts['bengali'] += 1
-            elif 'LATIN' in name or name.startswith('FULLWIDTH LATIN'):
-                script_counts.setdefault('latin', 0)
-                script_counts['latin'] += 1
-            elif 'GREEK' in name:
-                script_counts.setdefault('greek', 0)
-                script_counts['greek'] += 1
-            elif 'HEBREW' in name:
-                script_counts.setdefault('hebrew', 0)
-                script_counts['hebrew'] += 1
-            elif 'GEORGIAN' in name:
-                script_counts.setdefault('georgian', 0)
-                script_counts['georgian'] += 1
-            elif 'ARMENIAN' in name:
-                script_counts.setdefault('armenian', 0)
-                script_counts['armenian'] += 1
-            else:
-                script_counts.setdefault('other', 0)
-                script_counts['other'] += 1
-        except Exception:
-            continue
-    if not script_counts:
-        return "en", True
-    dominant = max(script_counts, key=script_counts.get)
-    qwen_supported_scripts = {'latin', 'cjk', 'hangul', 'cyrillic'}
-    if dominant in qwen_supported_scripts:
-        if dominant == 'cjk':
-            ja_chars = sum(1 for ch in text if any(k in unicodedata.name(ch, '') for k in ('HIRAGANA', 'KATAKANA')))
-            if ja_chars > 0:
-                return "ja", True
-            return "zh", True
-        if dominant == 'hangul':
-            return "ko", True
-        if dominant == 'cyrillic':
-            return "ru", True
-        return "en", True
-    return "other", False
 
 def validate_audio_file(path):
     if not os.path.exists(path):
@@ -5800,13 +5731,13 @@ def parse_oneline_args(args):
             result['params']['bgm_source'] = args[i + 1]
             i += 2
         elif mode == 'ttm' and arg_lower == 'voice':
-            if 'complete' not in result['params'] and 'lego' not in result['params']:
-                result['error'] = 'voice keyword is only valid with complete/lego task'
-                return result
             if result['params'].get('use_music'):
                 result['error'] = 'voice and music cannot be used together, use one or the other'
                 return result
-            result['params']['use_vocals'] = True
+            if 'complete' in result['params'] or 'lego' in result['params']:
+                result['params']['use_vocals'] = True
+            else:
+                result['params']['ttm_voice'] = True
             i += 1
         elif mode == 'ttm' and arg_lower == 'music' and 'bgm' not in result['params']:
             if 'complete' not in result['params'] and 'lego' not in result['params']:
@@ -6384,6 +6315,10 @@ def show_oneline_usage():
     print('  python voder.py ttm lyrics "song" styling "pop" 30 target voice "https://youtu.be/..."')
     print('  python voder.py ttm vc lyrics "song" styling "pop" 30 clone "voice.wav"')
     print()
+    print("TTM voice examples (generate song then extract vocals):")
+    print('  python voder.py ttm voice lyrics "song" styling "pop" 30')
+    print('  python voder.py ttm voice lyrics "song" styling "rock" 30 target voice "ref.wav"')
+    print()
     print("STT examples (Speech-to-Text transcription):")
     print('  python voder.py stt "path/to/audio.wav"')
     print('  python voder.py stt "audio1.wav" "audio2.wav"')
@@ -6438,6 +6373,7 @@ def show_oneline_usage():
     print("  ocr      - Image file path for OCR text extraction (TTS modes)")
     print("  overdose - Use VibeVoice ASR for dialogue source and enhanced music (TTS/TTM modes)")
     print("  bgm      - Add or replace background music on an audio/video (TTM mode)")
+    print("  voice    - Extract vocals only from TTM output (TTM mode), or isolate voice (complete/lego)")
     print("  usrc     - Blend with original source instead of isolated voice/music (complete)")
     print('  "sfx:"   - Sound effect spec for bgm/complete tasks: "sfx:prompt/duration-position/level"')
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
@@ -6565,6 +6501,8 @@ def execute_oneline_command(parsed):
             success = oneline_ttm_lego(params)
         elif params.get('extract'):
             success = oneline_ttm_extract(params)
+        elif params.get('ttm_voice'):
+            success = oneline_ttm_voice(params)
         else:
             success = oneline_ttm(params)
     elif mode == 'stt':
@@ -7933,24 +7871,18 @@ def oneline_tts(params):
                     all_target_cleanup.append(reference_audio)
 
             tts_design = None
-            if has_tts_chars:
-                print("Loading Qwen-TTS VoiceDesign model...")
-                tts_design = QwenTTSVoiceDesign()
-                if tts_design.model is None:
-                    print("Error: Failed to load VoiceDesign model")
-                    return False
-
             vc_voice_prompts = None
             fish_voice_data = None
             tts_obj = None
-            if has_vc_chars:
-                if use_extreme:
-                    print("Loading Fish-S2Pro model (extreme)...")
-                    tts_obj = FishTTS()
-                    if not tts_obj.ensure_model():
-                        print("Error: Failed to load Fish-S2Pro model")
-                        return False
-                    fish_voice_data = {}
+
+            if use_extreme:
+                print("Loading Fish-S2Pro model (extreme)...")
+                tts_obj = FishTTS()
+                if not tts_obj.ensure_model():
+                    print("Error: Failed to load Fish-S2Pro model")
+                    return False
+                fish_voice_data = {}
+                if has_vc_chars:
                     for char_lower, audio_path in target_assignments.items():
                         print(f"Encoding voice for '{char_lower}' (extreme)...")
                         success = tts_obj.encode_voice(audio_path)
@@ -7968,7 +7900,60 @@ def oneline_tts(params):
                             print(f"Error: Failed to load trained voice: {trained_file}")
                             return False
                         fish_voice_data[char_lower] = payload
-                else:
+                if has_tts_chars:
+                    tts_design = QwenTTSVoiceDesign()
+                    if tts_design.model is None:
+                        print("Error: Failed to load VoiceDesign model")
+                        return False
+                    placeholder_text = "The quick brown fox jumps over the lazy dog. She sells seashells by the seashore, while the crystal clear waves gently lap against the warm golden sand. Every morning, the old lighthouse keeper climbs the winding stone stairs to check the beam that guides ships safely through the foggy harbor."
+                    _design_cleanup = []
+                    for char_lower, voice_instruct in voice_prompts.items():
+                        print(f"Generating voice design placeholder for '{char_lower}' (extreme)...")
+                        placeholder_path = os.path.join(tempfile.gettempdir(), f"voder_extreme_placeholder_{char_lower}_{int(time.time())}.wav")
+                        success = tts_design.synthesize(placeholder_text, voice_instruct, placeholder_path, language="English")
+                        if not success or not os.path.exists(placeholder_path):
+                            print(f"Error: Failed to generate voice design placeholder for '{char_lower}'")
+                            for f in _design_cleanup:
+                                if f and os.path.exists(f):
+                                    try:
+                                        os.unlink(f)
+                                    except:
+                                        pass
+                            return False
+                        _design_cleanup.append(placeholder_path)
+                        success = tts_obj.encode_voice(placeholder_path)
+                        if not success:
+                            print(f"Error: Failed to encode voice design for '{char_lower}'")
+                            for f in _design_cleanup:
+                                if f and os.path.exists(f):
+                                    try:
+                                        os.unlink(f)
+                                    except:
+                                        pass
+                            return False
+                        fish_voice_data[char_lower] = {
+                            "tokens": tts_obj.encoded_refs["tokens"].clone(),
+                            "text": tts_obj.encoded_refs.get("text", "")
+                        }
+                    del tts_design
+                    tts_design = None
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    for f in _design_cleanup:
+                        if f and os.path.exists(f):
+                            try:
+                                os.unlink(f)
+                            except:
+                                pass
+            else:
+                if has_tts_chars:
+                    print("Loading Qwen-TTS VoiceDesign model...")
+                    tts_design = QwenTTSVoiceDesign()
+                    if tts_design.model is None:
+                        print("Error: Failed to load VoiceDesign model")
+                        return False
+                if has_vc_chars:
                     print("Loading Qwen-TTS model...")
                     tts_obj = QwenTTS()
                     vc_voice_prompts = {}
@@ -7986,10 +7971,9 @@ def oneline_tts(params):
                             print(f"Error: Failed to load trained voice: {trained_file}")
                             return False
                         vc_voice_prompts[char_lower] = voice_items
-
-            if has_tts_chars and tts_obj is None:
-                print("Loading Qwen-TTS model for voice stabilization...")
-                tts_obj = QwenTTS()
+                if has_tts_chars and tts_obj is None:
+                    print("Loading Qwen-TTS model for voice stabilization...")
+                    tts_obj = QwenTTS()
 
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             base_name = f"voder_tts_dialogue_{timestamp}"
@@ -8930,6 +8914,116 @@ def oneline_ttm(params):
         return True
     finally:
         for f in _ttm_cleanup:
+            if f and os.path.exists(f):
+                try:
+                    os.unlink(f)
+                except:
+                    pass
+
+def oneline_ttm_voice(params):
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    use_overdose = params.get('overdose', False)
+
+    if 'lyrics' not in params or len(params['lyrics']) != 1:
+        print("Error: TTM voice requires exactly one 'lyrics' parameter")
+        return False
+    if 'styling' not in params or len(params['styling']) != 1:
+        print("Error: TTM voice requires exactly one 'styling' parameter")
+        return False
+    if 'duration' not in params:
+        print("Error: TTM voice requires duration (10-300 seconds)")
+        return False
+    duration = params['duration']
+    if not (10 <= duration <= 300):
+        print(f"Error: Duration must be between 10 and 300 seconds, got {duration}")
+        return False
+    lyrics = params['lyrics'][0].replace('\\n', '\n')
+    style = params['styling'][0].replace('\\n', '\n')
+    _cleanup = []
+    reference_audio = None
+    _target_vals = params.get('target', [])
+    if _target_vals:
+        if len(_target_vals) >= 2:
+            ref_type = _target_vals[0].lower()
+            ref_path_raw = _target_vals[1]
+            if ref_type not in ('voice', 'music'):
+                ref_type = 'asis'
+                ref_path_raw = _target_vals[0]
+        else:
+            ref_type = 'asis'
+            ref_path_raw = _target_vals[0]
+        _tr, ref_path = _parse_ref_time_spec(ref_path_raw)
+        if not os.path.exists(ref_path) and not is_youtube_url(ref_path):
+            print(f"Error: Reference target not found: {ref_path}")
+            return False
+        resolved_audio, cleanup = resolve_target_to_audio(ref_path)
+        if resolved_audio is None:
+            print("Error: Could not resolve reference target")
+            return False
+        _cleanup.extend(cleanup)
+        if _tr:
+            resolved_audio = _extract_ref_segments(resolved_audio, _tr, 30, _cleanup)
+        if ref_type == 'voice':
+            processed = svs_extract_vocals(resolved_audio)
+        elif ref_type == 'music':
+            processed = svs_extract_music(resolved_audio)
+        else:
+            processed = resolved_audio
+        if processed != resolved_audio and processed not in _cleanup:
+            _cleanup.append(processed)
+        if resolved_audio not in _cleanup and resolved_audio != processed:
+            _cleanup.append(resolved_audio)
+        reference_audio = processed
+    print("Loading ACE-Step model...")
+    ace_step = AceStepWrapper(use_overdose=use_overdose)
+    if ace_step.handler is None:
+        print("Error: Failed to load ACE-Step model")
+        for f in _cleanup:
+            if f and os.path.exists(f):
+                try:
+                    os.unlink(f)
+                except:
+                    pass
+        return False
+    temp_ttm_output = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    try:
+        print(f"Generating music ({duration}s duration)...")
+        if reference_audio:
+            print(f"Using reference audio: {reference_audio}")
+        success = ace_step.generate(
+            lyrics=lyrics,
+            style_prompt=style,
+            output_path=temp_ttm_output.name,
+            duration=duration,
+            reference_audio=reference_audio
+        )
+        if not success:
+            print("Error: Music generation failed")
+            return False
+        del ace_step
+        ace_step = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        print("Extracting vocals from TTM output...")
+        vocals_path = svs_extract_vocals(temp_ttm_output.name)
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        output_path = os.path.join(results_dir, f"voder_ttm_voice_{timestamp}.wav")
+        if vocals_path and vocals_path != temp_ttm_output.name:
+            shutil.copy(vocals_path, output_path)
+            if vocals_path not in _cleanup:
+                _cleanup.append(vocals_path)
+        else:
+            shutil.copy(temp_ttm_output.name, output_path)
+        print(f"\n✓ Success! Voice output saved to: {output_path}")
+        return True
+    finally:
+        if os.path.exists(temp_ttm_output.name):
+            os.remove(temp_ttm_output.name)
+        for f in _cleanup:
             if f and os.path.exists(f):
                 try:
                     os.unlink(f)

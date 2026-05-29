@@ -81,7 +81,7 @@ Generate speech from text using voice descriptions (VoiceDesign) or voice clone 
 | `slc` | (flag) | Enable SLC (Speaker Language Conversion) sub-task. Transcribe source, clone voice, re-synthesize. See SLC Sub-Task below. |
 | `svc` | `"path"` | SVC sub-task: transcribe single-speaker audio and re-synthesize with a target voice. Must be paired with `target` or `voice` for the output voice |
 | `overdose` | (flag) | Use VibeVoice ASR for dialogue source analysis and voice clip extraction instead of Whisper + pyannote. When used with `music`, also uses ACE-Step XL turbo for enhanced background music quality. With `slc`, runs an additional STS v2 pass for better voice preservation. Requires 24GB+ VRAM or 48GB+ RAM. |
-| `extreme` | (flag) | Use Fish Audio S2-Pro instead of Qwen3-TTS for TTS synthesis. Provides higher quality voice cloning, 80+ language support (vs 10 for Qwen3-TTS), and voice effects via `[tag]` syntax (e.g. `[whispering]`, `[laughing]`, `[pause]`, `[excited]`, `[angry]`). Also supports 64 S1 Pro tags in `[brackets]`. Can be combined with `overdose`. Voice design for unsupported languages uses automatic placeholder trick. Trained voices use `.ttse` format (not `.tts`). |
+| `extreme` | (flag) | Use Fish Audio S2-Pro instead of Qwen3-TTS for TTS synthesis. Provides higher quality voice cloning, 80+ language support (vs 10 for Qwen3-TTS), and voice effects via `[tag]` syntax (e.g. `[whispering]`, `[laughing]`, `[pause]`, `[excited]`, `[angry]`). Also supports 64 S1 Pro tags in `[brackets]`. Can be combined with `overdose`. Voice design always uses placeholder trick (generates English placeholder → Fish clones it → Fish speaks actual text). Trained voices use `.ttse` format (not `.tts`). |
 
 ### Single Mode
 
@@ -155,7 +155,7 @@ python voder.py tts overdose script "James: Hello" script "Sarah: Hi" target "Ja
 # TTS with extreme (Fish S2-Pro for higher quality TTS)
 python voder.py tts extreme script "Hello world" target "voice.wav"
 
-# TTS with extreme + voice design (auto language trick for non-10 languages)
+# TTS with extreme + voice design (placeholder trick for all languages)
 python voder.py tts extreme script "Arabic text here" voice "deep male"
 
 # TTS with extreme + voice effects
@@ -184,7 +184,7 @@ python voder.py tts extreme script "Hello" voice "my-character"
   - **Free-form examples**: `[professional broadcast tone]`, `[pitch up]`, `[voice rough from crying, trying to sound normal]`, `[dead tired, end of a very long shift]`
   - **Multi-language tags**: Supported (e.g. `[低声说]` for Chinese, `[囁き声で]` for Japanese)
   - Tags affect text from their position onward. Placement matters: `[whispering] I didn't want to go inside.` whispers the whole line, while `I didn't want to go [whispering] inside.` whispers from "inside" onward.
-- When the text language is outside VoiceDesign's 10 supported languages and `extreme` is enabled with a `voice` prompt (not `target`), VODER automatically generates placeholder English speech via VoiceDesign, clones it with Fish, then Fish speaks the actual foreign-language text. No manual workaround needed.
+- When `extreme` is used with a `voice` prompt (not `target`), VODER always generates placeholder English speech via VoiceDesign, clones it with Fish, then Fish speaks the actual text. This applies unconditionally to ensure consistent voice quality and preserve voice effects tags across all languages.
 - Trained voices for extreme mode use `.ttse` files (saved via `train extreme voice:name`). Using `.tts` with extreme or `.ttse` without extreme produces a clear error message.
 - Fish S2-Pro supports 80+ languages natively, far beyond Qwen3-TTS's 10.
 - STS voice pass (`sts:` prefix) is not applicable with extreme mode — Fish's integrated cloning already produces high-fidelity output.
@@ -573,6 +573,7 @@ Basic text-to-music generation. Supports optional reference audio via `target`.
 | `target` | `"<path>"` | Reference audio (as-is). |
 | `target voice` | `"<path>"` | Reference audio — extract vocals via SVS first. |
 | `target music` | `"<path>"` | Reference audio — extract instruments via SVS first. |
+| `voice` | (flag) | Generate song then extract vocals via SVS voice pipe. Output is clean vocals only. |
 
 ```
 # Generate music from lyrics and style
@@ -595,6 +596,12 @@ python voder.py ttm lyrics "walking down the road" styling "pop rock" 30 target 
 
 # Generate with overdose tier (after mode name)
 python voder.py ttm overdose lyrics "walking down the road" styling "pop rock" 30
+
+# Generate song then extract vocals only
+python voder.py ttm voice lyrics "walking down the road" styling "pop rock" 30
+
+# Generate song with reference then extract vocals
+python voder.py ttm voice lyrics "walking down the road" styling "pop rock" 30 target voice "ref.wav"
 ```
 
 ### 3b. Voice Cloning (`vc`)

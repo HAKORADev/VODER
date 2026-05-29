@@ -239,7 +239,7 @@ When the `extreme` flag is added to TTS, it switches the TTS engine from Qwen3-T
 - **Fish Audio S2-Pro instead of Qwen3-TTS**: All TTS synthesis steps use Fish S2-Pro's dual-autoregressive architecture (4B + 400M parameters) for superior voice cloning quality and natural prosody
 - **80+ languages**: Fish S2-Pro supports over 80 languages natively, compared to Qwen3-TTS's 10. This enables voice design for Arabic, Hindi, Thai, Turkish, and 70+ additional languages
 - **Voice effects via `[tag]` syntax**: S2-Pro well-tested tags control emotions (`[excited]`, `[angry]`, `[sad]`), tones (`[whispering]`, `[soft voice]`, `[low voice]`, `[loud voice]`, `[shouting]`), breathing (`[sigh]`, `[inhale]`, `[exhale]`, `[gasp]`, `[panting]`, `[clears throat]`), vocal sounds (`[laughing]`, `[chuckling]`, `[giggle]`, `[sobbing]`, `[crying]`, `[groan]`), pacing (`[pause]`, `[short pause]`, `[long pause]`), and special effects (`[emphasis]`, `[rustling sound]`). 64 S1 Pro tags also work in `[brackets]` (e.g., `(furious)`, `(sarcastic)`, `(screaming)`, `(audience laughing)`). Over 15,000 free-form tags are supported including multi-language tags (e.g., `[低声说]` for Chinese). Tags affect text from their position onward
-- **Voice Design language trick**: When `extreme` is used with a `voice` prompt (not `target`) and the text language is outside Qwen3-TTS's 10 supported languages, VODER automatically generates placeholder English speech via VoiceDesign, clones it with Fish, then Fish speaks the actual text
+- **Voice Design with extreme mode**: When `extreme` is used with a `voice` prompt (not `target`), VODER always generates placeholder English speech via VoiceDesign, clones it with Fish, then Fish speaks the actual text. This applies unconditionally to ensure consistent voice quality and preserve voice effects tags across all languages
 - **Can combine with overdose**: `extreme` and `overdose` affect different parts of the pipeline (overdose = STT/TTM, extreme = TTS) and can be used simultaneously
 - **`.ttse` trained voices**: Extreme mode uses `.ttse` files (from `train extreme voice:name`) instead of `.tts` files. A clear error is shown on mismatch
 
@@ -253,7 +253,7 @@ python src/voder.py tts extreme script "[whispering] Hello there [pause] how are
 # TTS extreme + overdose combined
 python src/voder.py tts overdose extreme script "James: Hello" target "James: james.wav" music "soft piano"
 
-# TTS extreme with voice design (auto language trick for non-10 languages)
+# TTS extreme with voice design (placeholder trick for all languages)
 python src/voder.py tts extreme script "Arabic text here" voice "deep male"
 
 # TTS extreme with trained .ttse voice
@@ -915,6 +915,19 @@ python src/voder.py ttm lyrics "Verse 1:\nLyrics here\n\nChorus:\nChorus lyrics"
 
 # Overdose instrumental
 python src/voder.py ttm lyrics "..." styling "cinematic orchestral, dramatic" duration 90 overdose result "/output/high_quality.wav"
+```
+
+#### Vocal Extraction (`voice` keyword)
+Generates a song then automatically extracts clean vocals via SVS voice pipe. Output is the isolated vocal track only.
+```bash
+# Generate song then extract vocals only
+python src/voder.py ttm voice lyrics "walking down the road" styling "pop rock" duration 30
+
+# With reference audio
+python src/voder.py ttm voice lyrics "walking down the road" styling "pop rock" duration 30 target voice "ref.wav"
+
+# With overdose quality
+python src/voder.py ttm overdose voice lyrics "singing in the rain" styling "jazz" duration 30
 ```
 
 #### Sub-Task Commands
@@ -2104,7 +2117,7 @@ python src/voder.py sts base "source.wav" [source2.wav ...] target "voice.wav" [
 
 ### TTM Mode
 ```
-python src/voder.py ttm [lyrics "lyrics text"] styling "style prompt" duration N [vc] [clone "path"] [target music "path"] [overdose] [result "path"]
+python src/voder.py ttm [voice] [lyrics "lyrics text"] styling "style prompt" duration N [vc] [clone "path"] [target music "path"] [overdose] [result "path"]
 python src/voder.py ttm complete "source.wav" [add "instruments"] [noblend] [sfx:"prompt/duration-position/level" ...] styling "style" [result "path"]
 python src/voder.py ttm lego "..." [make "instruments"] styling "style" duration N [result "path"]
 python src/voder.py ttm extract "source.wav" [stems "instruments"] [result "path"]

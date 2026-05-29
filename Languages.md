@@ -200,8 +200,8 @@ These 64 tags were designed for Fish S1 Pro using `(parenthesis)` syntax, but th
 
 Free-form examples: `[professional broadcast tone]`, `[pitch up]`, `[voice rough from crying, trying to sound normal]`, `[dead tired, end of a very long shift]`. Multi-language tags are also supported (e.g., `[低声说]` for Chinese "speak softly", `[囁き声で]` for Japanese "whisper voice").
 
-**Voice Design language trick:**
-When `extreme` is enabled with a `voice` prompt (not `target`) and the text language is outside Qwen3‑TTS VoiceDesign's 10 supported languages, VODER automatically generates ~30 seconds of placeholder English speech via VoiceDesign, feeds it to Fish S2‑Pro for voice cloning, then Fish speaks the actual foreign‑language text. This enables voice design for 70+ additional languages that VoiceDesign doesn't natively support — no manual workaround needed.
+**Voice Design with extreme mode:**
+When `extreme` is used with a `voice` prompt (not `target`), VODER always generates ~30 seconds of placeholder English speech via VoiceDesign, feeds it to Fish S2‑Pro for voice cloning, then Fish speaks the actual text. This applies unconditionally — even for languages VoiceDesign already supports — because it ensures consistent voice quality across all languages, preserves voice effects tags (like `[whispering]`, `[angry]`) that VoiceDesign would otherwise misinterpret, and eliminates the need for language detection. This enables voice design for 70+ additional languages that VoiceDesign doesn't natively support, while also improving results for the 10 supported ones.
 
 **Technical notes:**
 - The model uses an RVQ‑based codec with 10 codebooks at ~21 Hz frame rate
@@ -434,9 +434,9 @@ Audio (any language) → Whisper translate → English text → Qwen3‑TTS TTS 
 Audio (Spanish) + target reference (English speaker) → TTS SLC → English speech with English speaker voice
 ```
 
-**Voice design for unsupported languages (extreme):**
+**Voice design with extreme mode:**
 ```
-Text (Arabic) + voice prompt ("deep male") + extreme flag → VoiceDesign generates English placeholder → Fish S2-Pro clones it → Fish speaks Arabic text
+Text (any language) + voice prompt ("deep male") + extreme flag → VoiceDesign generates English placeholder → Fish S2-Pro clones it → Fish speaks actual text in any language
 ```
 
 **Extreme voice cloning for 80+ languages:**

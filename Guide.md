@@ -1019,6 +1019,21 @@ Additionally, `remix` and `repaint` sub-tasks now support a `reference` paramete
 
 The `reference` parameter accepts audio files, video files, and URLs (YouTube, Bilibili, TikTok). It works with both standard and overdose quality modes.
 
+**Vocal Extraction (`voice` keyword):**
+
+TTM supports a `voice` keyword that generates a song normally then automatically extracts the clean vocals via the SVS voice pipe. This is useful when you want only the singing voice from a generated song — for example, to use as a reference in another task, to isolate a vocal performance, or to process the vocals further. The output is the clean vocal track without instruments.
+
+```bash
+# Generate a song then extract vocals only
+python src/voder.py ttm voice lyrics "walking down the road" styling "pop rock" 30
+
+# With reference audio for style guidance
+python src/voder.py ttm voice lyrics "walking down the road" styling "pop rock" 30 target voice "ref.wav"
+
+# With overdose quality
+python src/voder.py ttm overdose voice lyrics "singing in the rain" styling "jazz" 30
+```
+
 **Reference Time Spec:**
 
 The reference path can include an optional time spec to select a specific portion of the reference audio instead of using the entire file. This applies to all TTM sub-tasks that accept references (remix, repaint, complete, lego, bgm).
@@ -2557,7 +2572,7 @@ Since the model accepts free-form descriptions, any natural language text in bra
 # Extreme TTS with voice effects
 python src/voder.py tts extreme script "[whispering] Hello there [pause] how are you?" target "voice.wav"
 
-# Extreme TTS with voice design for Arabic (auto language trick)
+# Extreme TTS with voice design for any language (placeholder trick)
 python src/voder.py tts extreme script "مرحبا بالعالم" voice "deep male"
 
 # Extreme TTS combined with overdose
@@ -2567,7 +2582,7 @@ python src/voder.py tts overdose extreme script "James: Hello" target "James: ja
 python src/voder.py train extreme voice:narrator "ref.wav"
 ```
 
-**Voice Design language trick:** When `extreme` is used with a `voice` prompt (not `target`) and the text language is outside Qwen3-TTS VoiceDesign's 10 supported languages, VODER automatically handles this without any user intervention. It generates ~30 seconds of placeholder English text, has VoiceDesign speak it, feeds that audio to Fish S2-Pro for voice cloning, then Fish speaks the actual foreign-language text. This makes voice design available for 70+ additional languages that VoiceDesign doesn't natively support.
+**Voice Design with extreme mode:** When `extreme` is used with a `voice` prompt (not `target`), VODER always generates ~30 seconds of placeholder English text, has VoiceDesign speak it, feeds that audio to Fish S2-Pro for voice cloning, then Fish speaks the actual text. This applies unconditionally — even for languages VoiceDesign already supports — because it ensures consistent voice quality across all languages, preserves voice effects tags (like `[whispering]`, `[angry]`) that VoiceDesign would misinterpret, and eliminates the need for language detection. This makes voice design available for 70+ additional languages that VoiceDesign doesn't natively support, while also improving results for the 10 supported ones.
 
 **Multi-speaker note:** Fish S2-Pro natively supports multi-speaker generation in a single pass using `Name: text` syntax (e.g., `SARAH: [sigh] I made coffee. DANIEL: [long pause] Yeah. Thanks.`) or via internal `<|speaker:i|>` tokens. However, VODER's dialogue mode is recommended over this feature because it provides better per-character voice control, mixing, and the ability to use different voice references for each character.
 

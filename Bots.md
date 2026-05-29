@@ -487,7 +487,7 @@ python src/voder.py tts extreme script "[whispering] Hello there [pause] how are
 # Extreme + overdose combined
 python src/voder.py tts overdose extreme script "James: Hello" target "James: james.wav" music "soft piano"
 
-# Extreme with voice design (auto language trick for non-10 languages)
+# Extreme with voice design (placeholder trick for all languages)
 python src/voder.py tts extreme script "Arabic text here" voice "deep male"
 
 # Extreme with trained .ttse voice
@@ -498,6 +498,7 @@ When `extreme` is used:
 - TTS synthesis uses **Fish Audio S2-Pro** instead of Qwen3-TTS for higher quality voice cloning
 - Supports 80+ languages (vs 10 for Qwen3-TTS), enabling voice design for Arabic, Hindi, Thai, Turkish, and many more
 - Voice effects via `[tag]` syntax in script text: S2-Pro well-tested tags cover emotions (`[excited]`, `[angry]`, `[sad]`), tones (`[whispering]`, `[soft voice]`, `[low voice]`, `[loud voice]`, `[shouting]`), breathing (`[sigh]`, `[inhale]`, `[exhale]`, `[gasp]`, `[panting]`, `[clears throat]`), vocal sounds (`[laughing]`, `[chuckling]`, `[giggle]`, `[sobbing]`, `[crying]`, `[groan]`), pacing (`[pause]`, `[short pause]`, `[long pause]`), special (`[emphasis]`, `[rustling sound]`). 64 S1 Pro tags also work in `[brackets]` (e.g., `(furious)`, `(sarcastic)`, `(screaming)`, `(audience laughing)`), plus 15,000+ free-form descriptions like `[professional broadcast tone]`, `[pitch up]`, `[voice rough from crying, trying to sound normal]`. Multi-language tags also work (e.g., `[低声说]` for Chinese). Tags affect text from their position onward
+- Voice design always uses placeholder trick: generates English placeholder via VoiceDesign → Fish clones it → Fish speaks actual text. This applies unconditionally to ensure consistent voice quality and preserve voice effects tags across all languages
 - Can be combined with `overdose` (they affect different pipeline stages)
 - Trained voices use `.ttse` files; using `.tts` with extreme or `.ttse` without extreme produces an error
 
@@ -864,6 +865,16 @@ python src/voder.py ttm lyrics "song lyrics" styling "style description" duratio
 **Generate music with overdose quality:**
 ```bash
 python src/voder.py ttm lyrics "song lyrics" styling "pop" duration 30 overdose
+```
+
+**Generate song then extract vocals only (voice keyword):**
+```bash
+python src/voder.py ttm voice lyrics "song lyrics" styling "pop" duration 30
+```
+
+**Generate song with reference then extract vocals:**
+```bash
+python src/voder.py ttm voice lyrics "song lyrics" styling "pop" duration 30 target voice "ref.wav"
 ```
 
 **Generate music with voice conversion (vc flag BEFORE lyrics, use `clone` for voice ref):**

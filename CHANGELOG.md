@@ -23,7 +23,7 @@
 
 - **Train Extreme** — `voder.py train extreme voice:name "ref.wav"` trains a voice using Fish S2-Pro and saves it as a `.ttse` file (instead of `.tts`). `.tts` files only work without extreme, `.ttse` files only work with extreme — a clear error message is shown if mismatched.
 
-- **Voice Design Language Trick** — When `extreme` is enabled and the text language is outside Qwen3-TTS VoiceDesign's 10 supported languages, VODER automatically generates ~30s placeholder English text, has VoiceDesign speak it, feeds that audio to Fish for cloning, then Fish speaks the actual text. This enables voice design for languages like Arabic, Hindi, Thai, Turkish, and 70+ others that VoiceDesign doesn't natively support.
+- **Voice Design with Extreme Mode** — When `extreme` is used with a `voice` prompt (not `target`), VODER always generates ~30s placeholder English text, has VoiceDesign speak it, feeds that audio to Fish for cloning, then Fish speaks the actual text. This applies unconditionally — even for languages VoiceDesign already supports — to ensure consistent voice quality, preserve voice effects tags across all languages, and eliminate the need for language detection. This enables voice design for languages like Arabic, Hindi, Thai, Turkish, and 70+ others that VoiceDesign doesn't natively support, while also improving results for the 10 supported ones.
 
 - **Extreme in SLC** — `tts extreme slc "path.wav"` and `tts overdose extreme slc "path.wav"` use Fish S2-Pro for the resynthesis step. Supports `.ttse` premade voice files.
 
@@ -31,12 +31,18 @@
 
 - **Extreme in Modify Speech** — TTS interactive modify speech now includes an "Enable extreme? (Y/N)" prompt after overdose. When enabled, Fish S2-Pro replaces Qwen3-TTS for voice extraction and synthesis.
 
+- **TTM Voice** — `ttm voice` keyword generates a song via ACE-Step then automatically extracts clean vocals via the SVS voice pipe. Output is the isolated vocal track. Supports `target` reference audio and `overdose` quality. Syntax: `voder.py ttm voice lyrics "..." styling "..." 30`
+
 ### Changed
 
 - Interactive TTS mode now prompts for `extreme` after `overdose` (both in the main flow and in modify speech)
 - Oneline TTS parser accepts `extreme` keyword after `overdose`
 - `_assemble_enhanced_dialogue()` accepts `use_extreme` and `fish_voice_data` parameters for dialogue-level Fish synthesis
 - Voice mismatch check (`.tts` vs `.ttse`) applies across all TTS sub-tasks
+- Voice design with extreme mode now always uses the placeholder trick unconditionally (generates English placeholder → Fish clones it → Fish speaks actual text), even for languages VoiceDesign already supports. This fixes voice effects tags being misinterpreted by VoiceDesign and ensures consistent quality across all languages
+- Extreme mode dialogue with voice-design characters now correctly applies the placeholder trick per character (was previously broken — VoiceDesign was used directly, causing crashes with unsupported languages and voice effects tags)
+- Removed dead `_detect_text_language()` function (was defined but never called)
+- `ttm voice` keyword now works in standard TTM mode (was previously restricted to complete/lego tasks only)
 
 ---
 
