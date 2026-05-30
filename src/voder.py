@@ -21,6 +21,7 @@ UNISE_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "unise")
 TANGOFLUX_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "tangoflux")
 SVS_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "svs")
 VIBEVOICE_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "vibevoice_asr")
+TRANSLATE_GEMMA_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "translate_gemma")
 
 os.environ["HF_HOME"] = MODELS_DIR
 os.environ["HF_HUB_CACHE"] = MODELS_TMP_DIR
@@ -43,6 +44,7 @@ os.makedirs(UNISE_DIR, exist_ok=True)
 os.makedirs(TANGOFLUX_DIR, exist_ok=True)
 os.makedirs(SVS_DIR, exist_ok=True)
 os.makedirs(VIBEVOICE_DIR, exist_ok=True)
+os.makedirs(TRANSLATE_GEMMA_DIR, exist_ok=True)
 
 import time
 import math
@@ -611,6 +613,173 @@ class VibeVoiceASR:
             torch.cuda.empty_cache()
 
 import re
+
+TRANSLATE_GEMMA_SUPPORTED_LANGS = {
+    'af', 'am', 'ar', 'az', 'be', 'bg', 'bn', 'bs', 'ca', 'cs', 'cy', 'da',
+    'de', 'el', 'en', 'es', 'et', 'eu', 'fa', 'fi', 'fr', 'ga', 'gl', 'gu',
+    'ha', 'he', 'hi', 'hr', 'hu', 'id', 'is', 'it', 'ja', 'jv', 'ka', 'kk',
+    'km', 'kn', 'ko', 'lo', 'lt', 'lv', 'mk', 'ml', 'mn', 'mr', 'ms', 'mt',
+    'my', 'ne', 'nl', 'no', 'pa', 'pl', 'ps', 'pt', 'ro', 'ru', 'si', 'sk',
+    'sl', 'so', 'sq', 'sr', 'sv', 'sw', 'ta', 'te', 'tg', 'th', 'tk', 'tl',
+    'tr', 'uk', 'ur', 'uz', 'vi', 'yo', 'zh'
+}
+
+class TranslateGemma:
+    def __init__(self, model_dir=None):
+        self.model_dir = TRANSLATE_GEMMA_DIR if model_dir is None else model_dir
+        self.model = None
+        self.processor = None
+        self._loaded = False
+
+    def ensure_model(self):
+        if self._loaded and self.model is not None and self.processor is not None:
+            return True
+        try:
+            from transformers import AutoModelForImageTextToText, AutoProcessor
+            model_id = "google/translategemma-12b-it"
+            print("Loading TranslateGemma 12B model...")
+            use_cuda = torch.cuda.is_available() and torch.cuda.get_device_properties(0).total_mem / (1024**3) >= 24.0
+            if use_cuda:
+                dtype = torch.bfloat16
+                device_map = "auto"
+            else:
+                dtype = torch.float32
+                device_map = "cpu"
+            self.processor = AutoProcessor.from_pretrained(model_id, cache_dir=self.model_dir)
+            self.model = AutoModelForImageTextToText.from_pretrained(
+                model_id, cache_dir=self.model_dir, device_map=device_map, torch_dtype=dtype
+            )
+            self._loaded = True
+            print(f"TranslateGemma loaded ({'GPU bfloat16' if use_cuda else 'CPU float32'})")
+            return True
+        except Exception as e:
+            print(f"Error loading TranslateGemma: {e}")
+            self.cleanup()
+            return False
+
+    def translate(self, text, source_lang, target_lang):
+        if not self._loaded or self.model is None:
+            return None
+        try:
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "source_lang_code": source_lang,
+                            "target_lang_code": target_lang,
+                            "text": text,
+                        }
+                    ],
+                }
+            ]
+            inputs = self.processor.apply_chat_template(
+                messages, tokenize=True, add_generation_prompt=True, return_dict=True, return_tensors="pt"
+            ).to(self.model.device)
+            if hasattr(inputs, 'dtype') and inputs.dtype != torch.bfloat16 and next(self.model.parameters()).dtype == torch.bfloat16:
+                inputs = {k: v.to(dtype=torch.bfloat16) if v.dtype == torch.float32 else v for k, v in inputs.items()}
+            input_len = inputs['input_ids'].shape[1] if 'input_ids' in inputs else len(inputs.get('input_ids', []))
+            with torch.inference_mode():
+                generation = self.model.generate(**inputs, do_sample=False, max_new_tokens=2048)
+            if isinstance(generation, torch.Tensor):
+                generation = generation[0][input_len:]
+                decoded = self.processor.decode(generation, skip_special_tokens=True)
+            else:
+                decoded = ""
+            return decoded.strip()
+        except Exception as e:
+            print(f"TranslateGemma translation error: {e}")
+            return None
+
+    def translate_segments(self, segments, source_lang, target_lang):
+        results = []
+        for seg in segments:
+            text = seg if isinstance(seg, str) else seg.get('text', '')
+            translated = self.translate(text, source_lang, target_lang)
+            results.append(translated if translated else text)
+        return results
+
+    def cleanup(self):
+        if self.model is not None:
+            del self.model
+            self.model = None
+        if self.processor is not None:
+            del self.processor
+            self.processor = None
+        self._loaded = False
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+
+def _parse_lang_spec(spec_str):
+    m = re.match(r'^\(([a-zA-Z]{2,3})-([a-zA-Z]{2,3})\)$', spec_str)
+    if not m:
+        return None
+    return {'source': m.group(1).lower(), 'target': m.group(2).lower()}
+
+
+def _translate_with_gemma(text, source_lang, target_lang):
+    translator = TranslateGemma()
+    if not translator.ensure_model():
+        print("Error: Failed to load TranslateGemma for translation")
+        return None
+    result = translator.translate(text, source_lang, target_lang)
+    translator.cleanup()
+    del translator
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return result
+
+
+def _translate_segments_with_gemma(segments, source_lang, target_lang):
+    translator = TranslateGemma()
+    if not translator.ensure_model():
+        print("Error: Failed to load TranslateGemma for translation")
+        return None
+    results = translator.translate_segments(segments, source_lang, target_lang)
+    translator.cleanup()
+    del translator
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return results
+
+
+def _adjust_audio_speed(input_path, target_duration, output_path):
+    try:
+        probe_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                     '-of', 'default=noprint_wrappers=1:nokey=1', input_path]
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+        if probe_result.returncode != 0:
+            return False
+        current_duration = float(probe_result.stdout.strip())
+        if current_duration <= 0 or target_duration <= 0:
+            return False
+        speed_factor = current_duration / target_duration
+        if speed_factor < 0.25 or speed_factor > 4.0:
+            return False
+        atempo_filters = []
+        remaining = speed_factor
+        while remaining < 0.5 or remaining > 2.0:
+            if remaining < 0.5:
+                chunk = 0.5
+                remaining = remaining / chunk
+                atempo_filters.append(f"atempo={chunk}")
+            elif remaining > 2.0:
+                chunk = 2.0
+                remaining = remaining / chunk
+                atempo_filters.append(f"atempo={chunk}")
+        atempo_filters.append(f"atempo={remaining:.4f}")
+        filter_str = ",".join(atempo_filters)
+        cmd = ['ffmpeg', '-i', input_path, '-filter:a', filter_str, '-y', output_path]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        return result.returncode == 0 and os.path.exists(output_path)
+    except Exception:
+        return False
+
 
 def _get_audio_duration(path):
     try:
@@ -5413,9 +5582,17 @@ def parse_oneline_args(args):
         while i < len(args):
             arg = args[i]
             arg_lower = arg.lower()
-            if arg_lower in ['timestamp', 'dialogue', 'translate', 'se', 'overdose', 'subtitle']:
+            if arg_lower in ['timestamp', 'dialogue', 'se', 'overdose', 'subtitle']:
                 result['params'][arg_lower] = True
                 i += 1
+            elif arg_lower == 'translate':
+                result['params']['translate'] = True
+                i += 1
+                if i < len(args):
+                    lang_spec = _parse_lang_spec(args[i])
+                    if lang_spec:
+                        result['params']['translate_langs'] = lang_spec
+                        i += 1
             elif arg_lower == 'result':
                 if i + 1 < len(args):
                     result_path = args[i + 1]
@@ -5436,12 +5613,16 @@ def parse_oneline_args(args):
 
         if result['params'].get('subtitle'):
             result['params']['overdose'] = True
-        if result['params'].get('overdose') and result['params'].get('translate'):
-            result['error'] = 'STT overdose cannot be used with translate (ASR does not support translation)'
+        if result['params'].get('translate_langs'):
+            pass
+        elif result['params'].get('overdose') and result['params'].get('translate'):
+            result['error'] = 'STT overdose cannot be used with bare translate. Use translate (source-target) for any-to-any with overdose'
             return result
-        if result['params'].get('subtitle') and result['params'].get('translate'):
-            result['error'] = 'STT subtitle cannot be used with translate'
+        elif result['params'].get('subtitle') and result['params'].get('translate'):
+            result['error'] = 'STT subtitle cannot be used with bare translate. Use translate (source-target) for any-to-any with subtitle'
             return result
+        if result['params'].get('translate') and 'translate_langs' not in result['params']:
+            result['params']['translate_langs'] = {'source': 'auto', 'target': 'en'}
 
         result['params']['files'] = file_paths
         result['params']['result_path'] = result_path
@@ -5911,7 +6092,18 @@ def parse_oneline_args(args):
             result['params']['slc'] = True
             if i + 1 < len(args):
                 peek = args[i + 1]
-                if peek.lower() != 'music' and peek.lower() != 'overdose' and peek.lower() not in valid_keywords:
+                peek_lower = peek.lower()
+                if peek_lower == 'translate':
+                    result['params']['slc_translate'] = True
+                    i += 2
+                    if i < len(args):
+                        lang_spec = _parse_lang_spec(args[i])
+                        if lang_spec:
+                            result['params']['slc_translate_langs'] = lang_spec
+                            i += 1
+                        else:
+                            result['params']['slc_translate_langs'] = {'source': 'auto', 'target': 'en'}
+                elif peek_lower != 'music' and peek_lower != 'overdose' and peek_lower not in valid_keywords and peek_lower != 'dub':
                     result['params']['slc_path'] = peek
                     i += 2
                 else:
@@ -5940,6 +6132,51 @@ def parse_oneline_args(args):
                     i += 1
             else:
                 i += 1
+        elif mode == 'tts' and arg_lower == 'dub':
+            result['params']['dub'] = True
+            result['params']['extreme'] = True
+            i += 1
+            while i < len(args):
+                dub_arg = args[i]
+                dub_lower = dub_arg.lower()
+                if dub_lower == 'subtitle':
+                    result['params']['dub_subtitle'] = True
+                    i += 1
+                elif dub_lower == 'translate':
+                    result['params']['dub_translate'] = True
+                    i += 1
+                    if i < len(args):
+                        lang_spec = _parse_lang_spec(args[i])
+                        if lang_spec:
+                            result['params']['dub_translate_langs'] = lang_spec
+                            i += 1
+                        else:
+                            result['params']['dub_translate_langs'] = {'source': 'auto', 'target': 'en'}
+                elif dub_lower == 'video':
+                    result['params']['dub_video'] = True
+                    i += 1
+                    if i < len(args) and not args[i].lower().startswith(('translate', 'subtitle', 'result', 'overdose')):
+                        result['params']['dub_source'] = args[i]
+                        i += 1
+                elif dub_lower == 'result':
+                    if i + 1 < len(args):
+                        result_path = args[i + 1]
+                        i += 2
+                    else:
+                        result['error'] = 'result keyword requires a path argument'
+                        return result
+                elif dub_lower == 'overdose':
+                    result['params']['overdose'] = True
+                    i += 1
+                elif os.path.exists(dub_arg) or is_youtube_url(dub_arg):
+                    if 'dub_source' not in result['params']:
+                        result['params']['dub_source'] = dub_arg
+                    i += 1
+                else:
+                    if 'dub_source' not in result['params']:
+                        result['params']['dub_source'] = dub_arg
+                    i += 1
+            break
         elif mode == 'ttm' and arg_lower == 'vc':
             result['params']['vc'] = True
             i += 1
@@ -6336,6 +6573,11 @@ def show_oneline_usage():
     print('  python voder.py stt subtitle "video.mp4"')
     print('  python voder.py stt subtitle se "noisy_video.mp4"')
     print('  python voder.py stt subtitle "https://youtube.com/watch?v=..."')
+    print('  python voder.py stt translate (auto-en) "audio.wav"')
+    print('  python voder.py stt translate (auto-ar) "audio.wav"')
+    print('  python voder.py stt translate (ja-en) "audio.wav" dialogue')
+    print('  python voder.py stt overdose translate (auto-fr) "audio.wav"')
+    print('  python voder.py stt subtitle translate (auto-ar) "video.mp4"')
     print()
     print("SE examples (Speech Enhancement):")
     print('  python voder.py se "path/to/audio.wav"')
@@ -6369,7 +6611,7 @@ def show_oneline_usage():
     print("  music    - Music flag for STS mode (uses 44.1kHz v1 model)")
     print("  timestamp - Keep Whisper timestamps in output (STT mode)")
     print("  dialogue - Enable speaker diarization (STT mode)")
-    print("  translate - Translate to English (STT mode, uses large-v3 model)")
+    print("  translate - Translate to English (STT mode, uses large-v3 model), or translate (source-target) for any-to-any via TranslateGemma")
     print("  sound    - Sound effect prompt (SFX mode)")
     print("  duration - Duration in seconds (10-300 for TTM, 1-30 for SFX)")
     print("  steps    - Inference steps (1-100, SFX mode, default: 30)")
@@ -6391,6 +6633,16 @@ def show_oneline_usage():
     print('  python voder.py tts slc "path/to/audio.wav" target "voice_ref.wav"')
     print('  python voder.py tts overdose slc "path/to/audio.wav"')
     print('  python voder.py tts overdose slc music "path/to/audio.wav"')
+    print('  python voder.py tts slc translate (auto-ar) "path/to/audio.wav"')
+    print('  python voder.py tts slc translate (en-ja) "path/to/audio.wav"')
+    print()
+    print("TTS dub examples (Video/Audio Dubbing):")
+    print('  python voder.py tts dub "video.mp4"')
+    print('  python voder.py tts dub subtitle "video.mp4"')
+    print('  python voder.py tts dub translate (auto-ar) "video.mp4"')
+    print('  python voder.py tts dub translate (auto-ar) subtitle "video.mp4"')
+    print('  python voder.py tts dub "audio.wav"')
+    print('  python voder.py tts dub translate (en-ja) "audio.wav"')
     print()
     print("TTS SVC examples (Speaker Voice Change):")
     print('  python voder.py tts svc "speech.wav" target "voice_ref.wav"')
@@ -6869,10 +7121,39 @@ def oneline_tts(params):
         print(f"Detected language: {detected_lang}")
         print(f"Transcribed text ({len(transcribed_text)} chars): {transcribed_text[:100]}{'...' if len(transcribed_text) > 100 else ''}")
 
+        slc_translate_langs = params.get('slc_translate_langs')
         tts_lang = "English"
         final_text = transcribed_text
 
-        if detected_lang == "en":
+        if slc_translate_langs:
+            tgt_lang = slc_translate_langs['target']
+            src_lang = slc_translate_langs['source']
+            if src_lang == 'auto':
+                src_lang = detected_lang[:2].lower() if detected_lang else 'en'
+
+            del stt
+            stt = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            if src_lang == tgt_lang:
+                print(f"Source and target are both {tgt_lang}, no translation needed")
+            else:
+                print(f"Translating with TranslateGemma ({src_lang}->{tgt_lang})...")
+                translated = _translate_with_gemma(transcribed_text, src_lang, tgt_lang)
+                if translated:
+                    final_text = translated
+                    print(f"Translated text: {final_text[:100]}{'...' if len(final_text) > 100 else ''}")
+                else:
+                    print("Warning: TranslateGemma translation failed, using original transcription")
+
+            lang_name_map = {'en': 'English', 'ar': 'Arabic', 'fr': 'French', 'de': 'German',
+                           'es': 'Spanish', 'it': 'Italian', 'ja': 'Japanese', 'ko': 'Korean',
+                           'zh': 'Chinese', 'pt': 'Portuguese', 'ru': 'Russian', 'hi': 'Hindi',
+                           'tr': 'Turkish', 'nl': 'Dutch', 'pl': 'Polish', 'sv': 'Swedish'}
+            tts_lang = lang_name_map.get(tgt_lang, tgt_lang.upper())
+        elif detected_lang == "en":
             print("Audio is already in English")
         else:
             print("Translating to English...")
@@ -6887,11 +7168,11 @@ def oneline_tts(params):
             else:
                 print("Warning: Translation failed, using original transcription")
 
-        del stt
-        stt = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+            del stt
+            stt = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         print(f"TTS language: {tts_lang}")
         if use_extreme:
@@ -7002,6 +7283,9 @@ def oneline_tts(params):
                 except:
                     pass
         return True
+
+    if params.get('dub'):
+        return oneline_tts_dub(params)
 
     if params.get('svc'):
         svc_path = params.get('svc_path')
@@ -10054,6 +10338,344 @@ def oneline_ttm_bgm(params):
                 except:
                     pass
 
+def oneline_tts_dub(params):
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    dub_source = params.get('dub_source')
+    dub_subtitle = params.get('dub_subtitle', False)
+    dub_translate_langs = params.get('dub_translate_langs')
+    dub_video = params.get('dub_video', False)
+    use_overdose = params.get('overdose', False)
+
+    if not dub_source:
+        print("Error: TTS dub requires a source audio/video path")
+        return False
+
+    is_url = is_youtube_url(dub_source)
+    is_video_file = is_url or dub_source.lower().endswith(tuple(VIDEO_EXTENSIONS)) or dub_video or dub_subtitle
+    has_video_path = is_url or dub_source.lower().endswith(tuple(VIDEO_EXTENSIONS))
+
+    video_path = None
+    audio_path = None
+    downloaded_video = None
+    extracted_audio = None
+    svs_vocal = None
+    svs_music_track = None
+    _dub_cleanup = []
+
+    try:
+        if is_url:
+            print("Downloading video from URL...")
+            downloaded_video, video_title = download_youtube_video(dub_source)
+            if not downloaded_video:
+                print("Error: Failed to download video")
+                return False
+            video_path = downloaded_video
+            _dub_cleanup.append(downloaded_video)
+            print("Extracting audio from video...")
+            extracted_audio = extract_audio_from_video_cli(video_path)
+            if not extracted_audio:
+                print("Error: Could not extract audio from video")
+                return False
+            audio_path = extracted_audio
+            _dub_cleanup.append(extracted_audio)
+        elif dub_source.lower().endswith(tuple(VIDEO_EXTENSIONS)):
+            video_path = dub_source
+            print("Extracting audio from video...")
+            extracted_audio = extract_audio_from_video_cli(video_path)
+            if not extracted_audio:
+                print("Error: Could not extract audio from video")
+                return False
+            audio_path = extracted_audio
+            _dub_cleanup.append(extracted_audio)
+        elif os.path.exists(dub_source):
+            audio_path = dub_source
+        else:
+            print(f"Error: File not found: {dub_source}")
+            return False
+
+        bs_roformer_lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bs_roformer', 'lib')
+        if bs_roformer_lib not in sys.path:
+            sys.path.insert(0, bs_roformer_lib)
+        bs_roformer_pkg = os.path.dirname(os.path.abspath(__file__))
+        if bs_roformer_pkg not in sys.path:
+            sys.path.insert(0, bs_roformer_pkg)
+
+        print("Stage 1: SVS voice isolation (BS-RoFormer)...")
+        from bs_roformer import BSRoformerSeparator
+        svs_separator = BSRoformerSeparator(SVS_DIR)
+        svs_separator.ensure_model(stem='voice')
+        if svs_separator.vocals_model is None:
+            print("Error: Failed to load BS-RoFormer vocals model")
+            svs_separator.cleanup()
+            del svs_separator
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            return False
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        svs_vocal_dir = tempfile.mkdtemp()
+        svs_vocal = os.path.join(svs_vocal_dir, f'_dub_vocal_{ts}.wav')
+        svs_ok = svs_separator.separate(audio_path, 'voice', svs_vocal)
+        svs_separator.cleanup()
+        del svs_separator
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        if not (svs_ok and os.path.exists(svs_vocal)):
+            print("Warning: SVS voice isolation failed, using original audio")
+            svs_vocal = audio_path
+        else:
+            _dub_cleanup.append(svs_vocal)
+
+        if is_video_file or has_video_path:
+            print("Extracting music track via SVS music...")
+            svs_sep2 = BSRoformerSeparator(SVS_DIR)
+            svs_sep2.ensure_model(stem='music')
+            svs_music_dir = tempfile.mkdtemp()
+            svs_music_track = os.path.join(svs_music_dir, f'_dub_music_{ts}.wav')
+            svs_m_ok = svs_sep2.separate(audio_path, 'music', svs_music_track)
+            svs_sep2.cleanup()
+            del svs_sep2
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            if svs_m_ok and os.path.exists(svs_music_track):
+                _dub_cleanup.append(svs_music_track)
+            else:
+                svs_music_track = None
+
+        print("Stage 2: Transcribing with VibeVoice ASR...")
+        asr = VibeVoiceASR()
+        asr.ensure_model()
+        if asr.model is None:
+            print("Error: VibeVoice ASR failed to load. Dub requires VibeVoice (24GB+ VRAM or 48GB+ RAM)")
+            asr.cleanup()
+            del asr
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            return False
+
+        asr_segments = asr.transcribe(svs_vocal)
+        asr.cleanup()
+        del asr
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        if not asr_segments:
+            print("Error: ASR transcription returned no segments")
+            return False
+
+        print(f"Transcribed {len(asr_segments)} segments")
+
+        src_lang = 'en'
+        for seg in asr_segments:
+            if seg.get('language'):
+                src_lang = seg['language'][:2].lower()
+                break
+
+        tgt_lang = 'en'
+        if dub_translate_langs:
+            tgt_lang = dub_translate_langs['target']
+            if dub_translate_langs['source'] != 'auto':
+                src_lang = dub_translate_langs['source']
+
+        num_speakers = len(set(seg.get('speaker', 'SPEAKER_00') for seg in asr_segments))
+        print(f"Detected {num_speakers} speaker(s), source language: {src_lang}")
+
+        speaker_segments = {}
+        for seg in asr_segments:
+            spk = seg.get('speaker', 'SPEAKER_00')
+            if spk not in speaker_segments:
+                speaker_segments[spk] = []
+            speaker_segments[spk].append(seg)
+
+        print("Stage 3: Loading Fish-S2Pro model (extreme)...")
+        tts = FishTTS()
+        if not tts.ensure_model():
+            print("Error: Failed to load Fish-S2Pro model")
+            return False
+
+        print("Extracting voice from source audio...")
+        ref_text = _transcribe_for_fish_ref(svs_vocal)
+        voice_ok = _tts_extract_voice(tts, svs_vocal, use_extreme=True, ref_text=ref_text)
+        if not voice_ok:
+            print("Error: Voice extraction failed")
+            tts.cleanup()
+            del tts
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            return False
+
+        all_tts_parts = []
+        total_original_duration = 0
+
+        for spk_idx, (spk, segs) in enumerate(speaker_segments.items()):
+            spk_text = " ".join(seg.get('text', '') for seg in segs)
+            spk_start = min(seg.get('start', 0) for seg in segs)
+            spk_end = max(seg.get('end', 0) for seg in segs)
+            spk_duration = spk_end - spk_start
+            total_original_duration += spk_duration
+
+            if dub_translate_langs and src_lang != tgt_lang:
+                print(f"Translating speaker {spk_idx+1} text with TranslateGemma ({src_lang}->{tgt_lang})...")
+                timing_context = f"Original duration: {spk_duration:.1f}s. Word count: {len(spk_text.split())}. Keep translation concise to match timing. Less is better than more."
+                translation_prompt = f"{spk_text}\n\n[{timing_context}]"
+                translated = _translate_with_gemma(translation_prompt, src_lang, tgt_lang)
+                if translated:
+                    spk_text = translated
+                else:
+                    print(f"Warning: Translation failed for speaker {spk_idx+1}, using original text")
+
+            print(f"Generating speech for speaker {spk_idx+1} ({len(spk_text)} chars)...")
+            spk_output_dir = tempfile.mkdtemp()
+            spk_output = os.path.join(spk_output_dir, f'_dub_spk{spk_idx}_{ts}.wav')
+            syn_ok = _tts_synthesize(tts, spk_text, spk_output, language=None, use_extreme=True)
+            if not syn_ok or not os.path.exists(spk_output):
+                print(f"Warning: TTS synthesis failed for speaker {spk_idx+1}")
+                continue
+            _dub_cleanup.append(spk_output)
+
+            if spk_duration > 0:
+                tts_duration = _get_audio_duration(spk_output)
+                if tts_duration > 0:
+                    speed_ratio = tts_duration / spk_duration
+                    if speed_ratio > 1.3 or speed_ratio < 0.7:
+                        print(f"Adjusting speed for speaker {spk_idx+1} (TTS: {tts_duration:.1f}s, target: {spk_duration:.1f}s)...")
+                        adjusted_dir = tempfile.mkdtemp()
+                        adjusted_output = os.path.join(adjusted_dir, f'_dub_spk{spk_idx}_adj_{ts}.wav')
+                        adj_ok = _adjust_audio_speed(spk_output, spk_duration, adjusted_output)
+                        if adj_ok and os.path.exists(adjusted_output):
+                            _dub_cleanup.append(adjusted_output)
+                            spk_output = adjusted_output
+                        else:
+                            print("Warning: Speed adjustment failed, using original TTS output")
+
+            all_tts_parts.append({
+                'path': spk_output,
+                'start': spk_start,
+                'end': spk_end,
+                'speaker': spk,
+                'text': spk_text
+            })
+
+        _tts_cleanup(tts, use_extreme=True)
+        tts = None
+
+        if not all_tts_parts:
+            print("Error: No TTS parts generated")
+            return False
+
+        print("Stage 4: Assembling dubbed audio...")
+        if len(all_tts_parts) == 1:
+            dubbed_audio = all_tts_parts[0]['path']
+        else:
+            concat_list_dir = tempfile.mkdtemp()
+            concat_list = os.path.join(concat_list_dir, '_dub_concat.txt')
+            with open(concat_list, 'w') as f:
+                for part in sorted(all_tts_parts, key=lambda x: x['start']):
+                    f.write(f"file '{part['path']}'\n")
+            _dub_cleanup.append(concat_list)
+            dubbed_audio_dir = tempfile.mkdtemp()
+            dubbed_audio = os.path.join(dubbed_audio_dir, f'_dub_concat_{ts}.wav')
+            concat_cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_list, '-y', dubbed_audio]
+            concat_result = subprocess.run(concat_cmd, capture_output=True, text=True, timeout=300)
+            if concat_result.returncode != 0 or not os.path.exists(dubbed_audio):
+                print("Error: Failed to concatenate TTS parts")
+                dubbed_audio = all_tts_parts[0]['path']
+            else:
+                _dub_cleanup.append(dubbed_audio)
+
+        final_audio = dubbed_audio
+        if svs_music_track and os.path.exists(svs_music_track):
+            print("Mixing dubbed vocals with original music track...")
+            mix_dir = tempfile.mkdtemp()
+            mix_output = os.path.join(mix_dir, f'_dub_mixed_{ts}.wav')
+            mix_cmd = [
+                'ffmpeg', '-i', dubbed_audio, '-i', svs_music_track,
+                '-filter_complex', '[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=0[out]',
+                '-map', '[out]', '-y', mix_output
+            ]
+            mix_result = subprocess.run(mix_cmd, capture_output=True, text=True, timeout=300)
+            if mix_result.returncode == 0 and os.path.exists(mix_output):
+                final_audio = mix_output
+                _dub_cleanup.append(mix_output)
+            else:
+                print("Warning: Music mixing failed, using vocals-only output")
+
+        timestamp_str = time.strftime("%Y%m%d_%H%M%S")
+        lang_tag = f"_{tgt_lang}" if dub_translate_langs and tgt_lang != 'en' else ""
+
+        if video_path and os.path.exists(video_path):
+            if dub_subtitle:
+                subtitle_segments = []
+                for part in all_tts_parts:
+                    subtitle_segments.append({
+                        'start': part['start'],
+                        'end': part['end'],
+                        'text': part['text'],
+                        'speaker': part['speaker']
+                    })
+                base_name = os.path.splitext(os.path.basename(dub_source))[0] if not is_url else "youtube_dub"
+                output_filename = f"voder_tts_dub{lang_tag}_{timestamp_str}_{base_name}.mp4"
+                output_path = os.path.join(results_dir, output_filename)
+                burn_ok = _burn_subtitles_on_video(video_path, subtitle_segments, output_path)
+                if burn_ok:
+                    print(f"✓ Success! Dubbed+subtitled video saved to: {output_path}")
+                else:
+                    mux_cmd = [
+                        'ffmpeg', '-i', video_path, '-i', final_audio,
+                        '-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0',
+                        '-shortest', '-y', output_path
+                    ]
+                    mux_result = subprocess.run(mux_cmd, capture_output=True, text=True, timeout=300)
+                    if mux_result.returncode == 0:
+                        print(f"✓ Success! Dubbed video (no subtitles) saved to: {output_path}")
+                    else:
+                        print("Error: Failed to create output video")
+                        return False
+            else:
+                base_name = os.path.splitext(os.path.basename(dub_source))[0] if not is_url else "youtube_dub"
+                output_filename = f"voder_tts_dub{lang_tag}_{timestamp_str}_{base_name}.mp4"
+                output_path = os.path.join(results_dir, output_filename)
+                mux_cmd = [
+                    'ffmpeg', '-i', video_path, '-i', final_audio,
+                    '-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0',
+                    '-shortest', '-y', output_path
+                ]
+                mux_result = subprocess.run(mux_cmd, capture_output=True, text=True, timeout=300)
+                if mux_result.returncode == 0:
+                    print(f"✓ Success! Dubbed video saved to: {output_path}")
+                else:
+                    print("Error: Failed to mux dubbed audio into video")
+                    return False
+        else:
+            base_name = os.path.splitext(os.path.basename(dub_source))[0]
+            output_filename = f"voder_tts_dub{lang_tag}_{timestamp_str}_{base_name}.wav"
+            output_path = os.path.join(results_dir, output_filename)
+            shutil.copy2(final_audio, output_path)
+            print(f"✓ Success! Dubbed audio saved to: {output_path}")
+
+        return True
+
+    except Exception as e:
+        print(f"Error in dub pipeline: {e}")
+        traceback.print_exc()
+        return False
+
+    finally:
+        for f in _dub_cleanup:
+            if f and os.path.exists(f):
+                try:
+                    os.unlink(f)
+                except:
+                    pass
+
 def oneline_stt(params):
     original_cwd = os.getcwd()
     results_dir = os.path.join(original_cwd, "results")
@@ -10064,6 +10686,7 @@ def oneline_stt(params):
     enable_dialogue = params.get('dialogue', False)
     enable_translate = params.get('translate', False)
     use_overdose = params.get('overdose', False)
+    translate_langs = params.get('translate_langs')
 
     if not files:
         print("Error: STT mode requires at least one audio/video/image file path or YouTube URL")
@@ -10080,6 +10703,7 @@ def oneline_stt(params):
         print("=" * 60)
 
         do_translate = enable_translate
+        has_lang_spec = translate_langs is not None
         is_image = file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp'))
 
         if is_image:
@@ -10215,7 +10839,9 @@ def oneline_stt(params):
                     shutil.rmtree(se_temp_dir, ignore_errors=True)
 
         try:
-            if use_overdose and not do_translate and not is_image:
+            can_overdose_with_translate = has_lang_spec and do_translate
+
+            if use_overdose and (not do_translate or can_overdose_with_translate) and not is_image:
                 asr = VibeVoiceASR()
                 asr.ensure_model()
                 if asr.model is None:
@@ -10224,7 +10850,7 @@ def oneline_stt(params):
                     del asr
                     use_overdose = False
 
-            if use_overdose and not do_translate and not is_image:
+            if use_overdose and (not do_translate or can_overdose_with_translate) and not is_image:
                 print("Transcribing with VibeVoice ASR...")
                 asr_segments = asr.transcribe(audio_path)
                 asr.cleanup()
@@ -10236,6 +10862,23 @@ def oneline_stt(params):
                 if not asr_segments:
                     print(f"Error: ASR transcription returned no segments for {file_path}")
                     continue
+
+                if do_translate and has_lang_spec:
+                    src_lang = translate_langs['source']
+                    tgt_lang = translate_langs['target']
+                    if src_lang == 'auto':
+                        src_lang = 'en'
+                        for seg in asr_segments:
+                            if seg.get('language'):
+                                src_lang = seg['language'][:2].lower()
+                                break
+                    print(f"Translating with TranslateGemma ({src_lang}->{tgt_lang})...")
+                    texts_to_translate = [seg.get('text', '') for seg in asr_segments]
+                    translated_texts = _translate_segments_with_gemma(texts_to_translate, src_lang, tgt_lang)
+                    if translated_texts:
+                        for idx, seg in enumerate(asr_segments):
+                            if idx < len(translated_texts):
+                                seg['text'] = translated_texts[idx]
 
                 def format_time_range(start, end):
                     def format_single(seconds):
@@ -10335,35 +10978,102 @@ def oneline_stt(params):
                             torch.cuda.empty_cache()
                         continue
 
-                    print("Translating audio to English...")
-                    result = stt.translate(audio_path)
-                    if not result:
-                        print("Error: Translation failed, using original transcription")
-                        result = original_result
-                        do_translate = False
-
-                    del stt
-                    stt = None
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                elif do_translate:
-                    print("Translating audio to English...")
-                    result = stt.translate(audio_path)
-                    if not result:
-                        print(f"Error: Translation failed for {file_path}")
+                    if has_lang_spec:
+                        src_lang = translate_langs['source']
+                        tgt_lang = translate_langs['target']
+                        if src_lang == 'auto':
+                            src_lang = original_result.get('language', 'en')[:2].lower()
                         del stt
                         stt = None
                         gc.collect()
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
-                        continue
+                        print(f"Translating with TranslateGemma ({src_lang}->{tgt_lang})...")
+                        original_text = original_result.get('text', '').strip()
+                        translated_text = _translate_with_gemma(original_text, src_lang, tgt_lang)
+                        if translated_text:
+                            translated_segments = original_result.get('segments', [])
+                            seg_texts = [seg.get('text', '') for seg in translated_segments]
+                            translated_seg_texts = _translate_segments_with_gemma(seg_texts, src_lang, tgt_lang)
+                            if translated_seg_texts:
+                                for idx, seg in enumerate(translated_segments):
+                                    if idx < len(translated_seg_texts):
+                                        seg['text'] = translated_seg_texts[idx]
+                            result = {"text": translated_text, "segments": translated_segments, "language": tgt_lang}
+                        else:
+                            print("Warning: TranslateGemma translation failed, using original transcription")
+                            result = original_result
+                            do_translate = False
+                    else:
+                        print("Translating audio to English...")
+                        result = stt.translate(audio_path)
+                        if not result:
+                            print("Error: Translation failed, using original transcription")
+                            result = original_result
+                            do_translate = False
 
-                    del stt
-                    stt = None
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
+                        del stt
+                        stt = None
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                elif do_translate:
+                    if has_lang_spec:
+                        print("Transcribing audio...")
+                        original_result = stt.transcribe(audio_path)
+                        if not original_result:
+                            print(f"Error: Transcription failed for {file_path}")
+                            del stt
+                            stt = None
+                            gc.collect()
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                            continue
+
+                        src_lang = translate_langs['source']
+                        tgt_lang = translate_langs['target']
+                        if src_lang == 'auto':
+                            src_lang = original_result.get('language', 'en')[:2].lower()
+
+                        del stt
+                        stt = None
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+
+                        print(f"Translating with TranslateGemma ({src_lang}->{tgt_lang})...")
+                        original_text = original_result.get('text', '').strip()
+                        translated_text = _translate_with_gemma(original_text, src_lang, tgt_lang)
+                        if translated_text:
+                            translated_segments = original_result.get('segments', [])
+                            seg_texts = [seg.get('text', '') for seg in translated_segments]
+                            translated_seg_texts = _translate_segments_with_gemma(seg_texts, src_lang, tgt_lang)
+                            if translated_seg_texts:
+                                for idx, seg in enumerate(translated_segments):
+                                    if idx < len(translated_seg_texts):
+                                        seg['text'] = translated_seg_texts[idx]
+                            result = {"text": translated_text, "segments": translated_segments, "language": tgt_lang}
+                        else:
+                            print("Warning: TranslateGemma translation failed, using original transcription")
+                            result = original_result
+                            do_translate = False
+                    else:
+                        print("Translating audio to English...")
+                        result = stt.translate(audio_path)
+                        if not result:
+                            print(f"Error: Translation failed for {file_path}")
+                            del stt
+                            stt = None
+                            gc.collect()
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                            continue
+
+                        del stt
+                        stt = None
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
                 else:
                     print("Transcribing audio...")
                     result = stt.transcribe(audio_path)
@@ -10570,7 +11280,10 @@ def oneline_stt(params):
 
             suffix_parts = ["stt"]
             if do_translate:
-                suffix_parts.append("translate")
+                if has_lang_spec:
+                    suffix_parts.append(f"translate_{translate_langs['target']}")
+                else:
+                    suffix_parts.append("translate")
             if keep_timestamp:
                 suffix_parts.append("timestamp")
             if enable_dialogue:
@@ -10716,6 +11429,7 @@ def oneline_stt_subtitle(params):
 
     files = params.get('files', [])
     use_se = params.get('se', False)
+    translate_langs = params.get('translate_langs')
 
     if not files:
         print("Error: STT subtitle requires a video file path or URL")
@@ -10861,6 +11575,23 @@ def oneline_stt_subtitle(params):
                 print("Error: ASR transcription returned no segments")
                 continue
 
+            if translate_langs:
+                src_lang = translate_langs['source']
+                tgt_lang = translate_langs['target']
+                if src_lang == 'auto':
+                    src_lang = 'en'
+                    for seg in asr_segments:
+                        if seg.get('language'):
+                            src_lang = seg['language'][:2].lower()
+                            break
+                print(f"Translating with TranslateGemma ({src_lang}->{tgt_lang})...")
+                texts_to_translate = [seg.get('text', '') for seg in asr_segments]
+                translated_texts = _translate_segments_with_gemma(texts_to_translate, src_lang, tgt_lang)
+                if translated_texts:
+                    for idx, seg in enumerate(asr_segments):
+                        if idx < len(translated_texts):
+                            seg['text'] = translated_texts[idx]
+
             print(f"Transcribed {len(asr_segments)} segments. Burning subtitles onto video...")
 
             timestamp_str = time.strftime("%Y%m%d_%H%M%S")
@@ -10869,7 +11600,8 @@ def oneline_stt_subtitle(params):
             else:
                 base_name = os.path.splitext(os.path.basename(file_path))[0]
 
-            output_filename = f"voder_stt_subtitle_{timestamp_str}_{base_name}.mp4"
+            lang_suffix = f"_{translate_langs['target']}" if translate_langs else ""
+            output_filename = f"voder_stt_subtitle{lang_suffix}_{timestamp_str}_{base_name}.mp4"
             output_path = os.path.join(results_dir, output_filename)
 
             burn_ok = _burn_subtitles_on_video(video_path, asr_segments, output_path)

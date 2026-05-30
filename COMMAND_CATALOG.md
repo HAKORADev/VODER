@@ -80,6 +80,7 @@ Generate speech from text using voice descriptions (VoiceDesign) or voice clone 
 | `<number>` | `10-300` | Duration in seconds (TTM only, ignored in pure TTS). |
 | `slc` | (flag) | Enable SLC (Speaker Language Conversion) sub-task. Transcribe source, clone voice, re-synthesize. See SLC Sub-Task below. |
 | `svc` | `"path"` | SVC sub-task: transcribe single-speaker audio and re-synthesize with a target voice. Must be paired with `target` or `voice` for the output voice |
+| `dub` | `"path"` | Dub sub-task: dub video/audio with voice cloning, optional translation, and speed adjustment. See Dub Sub-Task below. |
 | `overdose` | (flag) | Use VibeVoice ASR for dialogue source analysis and voice clip extraction instead of Whisper + pyannote. When used with `music`, also uses ACE-Step XL turbo for enhanced background music quality. With `slc`, runs an additional STS v2 pass for better voice preservation. Requires 24GB+ VRAM or 48GB+ RAM. |
 | `extreme` | (flag) | Use Fish Audio S2-Pro instead of Qwen3-TTS for TTS synthesis. Provides higher quality voice cloning, 80+ language support (vs 10 for Qwen3-TTS), and voice effects via `[tag]` syntax (e.g. `[whispering]`, `[laughing]`, `[pause]`, `[excited]`, `[angry]`). Also supports 64 S1 Pro tags in `[brackets]`. Can be combined with `overdose`. Voice design always uses placeholder trick (generates English placeholder → Fish clones it → Fish speaks actual text). Trained voices use `.ttse` format (not `.tts`). |
 
@@ -191,19 +192,20 @@ python voder.py tts extreme script "Hello" voice "my-character"
 
 ### SLC Sub-Task
 
-Speaker Language Conversion: transcribe speech from an audio/video source, translate to English, clone the speaker's voice, and re-synthesize. Always translates to English using Whisper large-v3. SVS voice isolation is automatically run on the source before transcription.
+Speaker Language Conversion: transcribe speech from an audio/video source, translate to English (default) or any language (with `translate (source-target)`), clone the speaker's voice, and re-synthesize. SVS voice isolation is automatically run on the source before transcription.
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `slc` | (flag) | Enable SLC sub-task. Always translates to English. |
+| `slc` | (flag) | Enable SLC sub-task. Translates to English by default. |
+| `translate (source-target)` | `(auto-en)` / `(ja-en)` / `(auto-ar)` etc. | Any-to-any translation via TranslateGemma 12B (55 languages). Overrides default English-only translation. |
 | `music` | (flag) | Preserve non-vocals: extract music from source via SVS music and blend with voice output. |
 | `"<path>"` | file | Audio/video file path or YouTube/TikTok/Bilibili URL. |
 | `result` | `"<path>"` | Copy output to custom path. |
 
 #### Rules
 
-- Pipeline: SVS voice isolation → Whisper large-v3 (transcribe + translate to English) → Qwen-TTS with voice cloning.
-- Always translates to English. If audio is already English, translation is skipped.
+- Pipeline: SVS voice isolation → Whisper large-v3 (transcribe + translate to English) → Qwen-TTS with voice cloning. With `translate (source-target)`: SVS voice isolation → Whisper large-v3 (transcribe) → TranslateGemma 12B (translate to target language) → Qwen-TTS with voice cloning.
+- Default translation target is English. With `translate (source-target)`, TranslateGemma 12B handles translation to any of 55 languages.
 - Uses Whisper large-v3 (not turbo) for maximum translation accuracy.
 - Supports audio files, video files, and YouTube/TikTok/Bilibili URLs.
 - `music` flag extracts the instrumental track from the source and blends it with the voice output, preserving background music.
@@ -236,6 +238,15 @@ python voder.py tts extreme slc "french_speech.wav"
 
 # SLC with overdose + extreme
 python voder.py tts overdose extreme slc "french_speech.wav"
+
+# SLC any-to-any: translate to Arabic with original voice (TranslateGemma 12B)
+python voder.py tts slc translate (auto-ar) "french_speech.wav"
+
+# SLC any-to-any with music preservation
+python voder.py tts slc translate (auto-ar) music "french_speech.wav"
+
+# SLC any-to-any: Japanese to English
+python voder.py tts slc translate (ja-en) "japanese_speech.wav"
 ```
 
 ### SVC Sub-Task
@@ -295,6 +306,47 @@ python src/voder.py tts svc "input.wav" target "sts:ref.wav"
 ```
 
 **Output naming:** `voder_tts_sts_*.wav` (single mode)
+
+### Dub Sub-Task
+
+Video/audio dubbing with voice cloning, optional translation, and speed adjustment. Transcribes speech with VibeVoice ASR, optionally translates with TranslateGemma 12B, re-synthesizes with Fish S2 Pro using voice cloning from each speaker's original audio, adjusts speed to match original timing, mixes with instrumentals, and muxes with video.
+
+| Keyword | Value | Description |
+|---------|-------|-------------|
+| `dub` | `"path"` | Enable dub sub-task. Input video or audio file path. |
+| `translate (source-target)` | `(auto-ar)` / `(ja-en)` etc. | Any-to-any translation via TranslateGemma 12B (55 languages). Optional. |
+| `subtitle` | (flag) | Burn translated subtitles onto the output video. Optional. |
+| `result` | `"<path>"` | Copy output to custom path. |
+
+#### Rules
+
+- Pipeline: Download/extract → SVS voice+music separation → VibeVoice ASR (speaker diarization) → TranslateGemma translation (if `translate` specified) → Fish S2 Pro TTS (voice cloning from source) → per-speaker speed adjustment → mix with instrumentals → mux with video.
+- VibeVoice ASR is always used (overdose is implied).
+- Fish S2 Pro is always used for TTS synthesis with voice cloning from each speaker's original audio.
+- VibeVoice ASR and Fish S2 Pro are loaded separately (never simultaneously) to fit within 24GB VRAM.
+- Video input produces MP4 output; audio input produces WAV output.
+- `subtitle` burns translated subtitles onto the output video (only meaningful with `translate`).
+- Requires 24GB+ VRAM and FFmpeg.
+
+```
+# Basic dub (same language, voice cloning from source)
+python voder.py tts dub "video.mp4"
+
+# Dub with subtitle burning
+python voder.py tts dub subtitle "video.mp4"
+
+# Dub with translation to Arabic
+python voder.py tts dub translate (auto-ar) "video.mp4"
+
+# Dub with translation and subtitles
+python voder.py tts dub translate (auto-ar) subtitle "video.mp4"
+
+# Dub audio file (output is WAV)
+python voder.py tts dub "audio.wav"
+
+# Dub with specific source-target translation
+python voder.py tts dub translate (ja-en) "japanese_video.mp4"
+```
 
 ### Newline Support
 
@@ -1146,6 +1198,7 @@ Transcribe audio/video to text using Whisper.
 | `timestamp` | (flag) | Keep Whisper word-level timestamps in the output. |
 | `dialogue` | (flag) | Enable speaker diarization (requires HF_TOKEN and pyannote model access). |
 | `translate` | (flag) | Translate transcription to English (uses Whisper large-v3 model). |
+| `translate (source-target)` | `(auto-en)` / `(ja-en)` / `(auto-ar)` etc. | Any-to-any translation via TranslateGemma 12B (55 languages). Use `auto` for source auto-detection. Compatible with `overdose` and `subtitle`. |
 | `se` | (flag) | Apply speech enhancement before transcription (denoise/dereverb input first). |
 | `overdose` | (flag) | Use VibeVoice ASR (requires 24GB+ VRAM or 48GB+ RAM). Falls back to Whisper + pyannote if unavailable. |
 | `subtitle` | (flag) | Burn VibeVoice ASR subtitles onto video (implies `overdose`; video/URL only; no `translate`). |
@@ -1153,8 +1206,9 @@ Transcribe audio/video to text using Whisper.
 
 ### Rules
 
-- `overdose` cannot be combined with `translate`.
-- `subtitle` implies `overdose`, cannot combine with `translate`, and only accepts video files/URLs.
+- `overdose` cannot be combined with bare `translate` (without parentheses).
+- `translate (source-target)` is compatible with `overdose` — TranslateGemma decouples translation from ASR.
+- `subtitle` implies `overdose`, cannot combine with bare `translate`, and only accepts video files/URLs.
 - Multiple files are processed sequentially.
 - Output is saved as `.txt` in the `results/` directory.
 - **Pipeline:** SVS voice isolation is always applied before transcription. With `se`, speech enhancement runs first.
@@ -1178,6 +1232,15 @@ python voder.py stt "audio.wav" timestamp dialogue
 
 # Translate to English
 python voder.py stt "audio.wav" translate
+
+# Any-to-any translation (TranslateGemma 12B)
+python voder.py stt "audio.wav" translate (auto-ar)
+
+# Translate Japanese to English
+python voder.py stt "audio.wav" translate (ja-en)
+
+# Overdose + any-to-any translation (compatible)
+python voder.py stt "audio.wav" overdose translate (auto-fr)
 
 # Full combination
 python voder.py stt "audio.wav" translate timestamp dialogue

@@ -24,6 +24,7 @@ VODER is not a single AI model — it is an **orchestration layer** that coordin
 |-------|---------|---------------|
 | **Whisper large-v3-turbo** | Fast speech-to-text transcription | STT, Dialogue Source Analysis |
 | **Whisper large-v3** | High-accuracy transcription + translation to English | STT with `translate` flag, TTS `slc` sub-task (translation step), TTS `svc` sub-task (transcription step) |
+| **TranslateGemma 12B** | Any-to-any translation (55 languages) | STT with `translate (source-target)` syntax, TTS `slc` sub-task with `translate (source-target)`, TTS `dub` sub-task |
 | **Qwen3-TTS VoiceDesign** | Generate speech from voice descriptions | TTS (voice design path) |
 | **Qwen3-TTS Base** | Text-to-speech with built-in voice cloning | TTS (voice clone path via `target`), TTS `slc` sub-task (resynthesis step), TTS `svc` sub-task (re-synthesis step), TTS interactive modify-speech |
 | **Seed-VC v2** | Voice conversion (22.05kHz speech) | STS, TTM with `vc` flag, TTS `slc overdose` (non-mimic pass), TTS `svc` sub-task (voice change pass) |
@@ -31,9 +32,9 @@ VODER is not a single AI model — it is an **orchestration layer** that coordin
 | **ACE-Step XL-Turbo** | Enhanced music generation (highest quality) | TTM with `overdose` flag, TTS with `overdose` + `music` |
 | **ACE-Step XL-Base** | Music generation (complete-mode sub-tasks) | TTM (`complete`, `extract`, `lego`) |
 | **ACE-Step 1.5** | Music generation (legacy / background music) | TTM (default), Background Music (dialogue `music` param) |
-| **BS-RoFormer Resurrection** | Vocal/music separation (stem extraction) | SVS, STS (auto vocal extraction), STT (pre-cleanup), TTS (voice clone cleanup, SLC voice isolation, SVC voice isolation), TTM `bgm` (strip music + reference cleanup) |
-| **VibeVoice ASR** | Advanced ASR with native speaker diarization | STT with `overdose` flag, TTS with `overdose` flag, SS |
-| **Fish Audio S2-Pro** | High quality TTS with 80+ language support | TTS with `extreme` flag, SLC/SVC/Modify Speech with `extreme`, `train extreme` |
+| **BS-RoFormer Resurrection** | Vocal/music separation (stem extraction) | SVS, STS (auto vocal extraction), STT (pre-cleanup), TTS (voice clone cleanup, SLC voice isolation, SVC voice isolation, dub voice+music separation), TTM `bgm` (strip music + reference cleanup) |
+| **VibeVoice ASR** | Advanced ASR with native speaker diarization | STT with `overdose` flag, TTS with `overdose` flag, SS, TTS `dub` sub-task |
+| **Fish Audio S2-Pro** | High quality TTS with 80+ language support | TTS with `extreme` flag, SLC/SVC/Modify Speech with `extreme`, `train extreme`, TTS `dub` sub-task |
 | **Pyannote** | Speaker diarization (who spoke when) | STT with `dialogue` flag |
 | **EasyOCR** | Text extraction from images | STT with image input |
 | **UniSE** | Speech enhancement/denoising | SE |
@@ -83,6 +84,9 @@ Audio → Whisper (large-v3-turbo) → [Transcript Text]
 AUDIO INPUT PATH (Translation):
 Audio → Whisper large-v3 → [English Transcript Text]
 
+AUDIO INPUT PATH (Any-to-Any Translation):
+Audio → Whisper/VibeVoice → Transcript → TranslateGemma 12B → [Target Language Transcript Text]
+
 AUDIO INPUT PATH (Overdose Transcription):
 Audio → VibeVoice ASR → [Transcript with Native Diarization]
 
@@ -106,6 +110,10 @@ Source Audio/Video/URL → SVS Voice Isolation → Whisper large-v3 (Transcribe 
                                                                                                                                                    ↓ (optional `music` flag)
                                                                                                           SVS Music Extraction → Blend with Voice Output
 [With overdose: → Seed-VC v2 non-mimic pass for better voice preservation]
+[With translate (source-target): → TranslateGemma 12B translates to any target language instead of English-only]
+
+DUB PATH (TTS Dub Sub-Task):
+Source Audio/Video → SVS Voice+Music Separation → VibeVoice ASR (speaker diarization) → TranslateGemma 12B (if translate) → Fish S2 Pro TTS (voice cloning from source speakers) → Speed Adjustment → Mix with Instrumentals → Mux with Video
 
 SPEAKER VOICE CHANGE PATH (TTS SVC Sub-Task):
 Source Audio → SVS Voice Isolation → Whisper large-v3 (Transcribe in original language) → Qwen3-TTS (with voice ref) → Seed-VC v2 (voice change pass using target reference) → [Audio with changed voice, same language]
@@ -132,7 +140,7 @@ VODER uses three types of parameters:
 |------|-------------|----------|
 | **Positional** | Mode name comes first, input files follow | `stt "audio.wav"` |
 | **Named** | Key-value pairs with space separation | `voice "male"` `duration 30` |
-| **Flags** | Standalone keywords that enable features | `timestamp` `dialogue` `music` `translate` `overdose` `mimic` `vc` `nomusic` `slc` `svc` |
+| **Flags** | Standalone keywords that enable features | `timestamp` `dialogue` `music` `translate` `translate (source-target)` `overdose` `mimic` `vc` `nomusic` `slc` `svc` `dub` |
 
 ### Parameter Multiplicity
 
@@ -156,7 +164,7 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 
 ### Parameter Order Rules
 
-1. **Mode comes first**: `tts`, `stt`, `sts`, `ttm`, `svs`, `ss`, etc. Sub-tasks follow mode: `tts slc`, `tts overdose slc`, `tts extreme slc`, `tts slc music`, `tts svc`, `tts overdose svc`, `tts extreme svc`
+1. **Mode comes first**: `tts`, `stt`, `sts`, `ttm`, `svs`, `ss`, etc. Sub-tasks follow mode: `tts slc`, `tts overdose slc`, `tts extreme slc`, `tts slc music`, `tts svc`, `tts overdose svc`, `tts extreme svc`, `tts dub`, `tts dub subtitle`, `tts dub translate (auto-ar)`
 2. **Required parameters follow**: `script`, `voice`, `target`, `base`, `lyrics`, `styling`, etc.
 3. **Optional parameters come after**: `music`, `level`, `result`, `vc`, `stem`, `task`, etc.
 4. **Flags can appear anywhere after mode**: `timestamp`, `dialogue`, `music` (STS), `mimic` (STS), `nomusic` (STS), `translate` (STT), `overdose` (STT, TTM, TTS), `extreme` (TTS, SLC, SVC), `vc` (TTM)
@@ -169,7 +177,7 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 
 | Mode | Section | Input Type | Output Type | One-Liner Support |
 |------|---------|------------|-------------|-------------------|
-| TTS | 2.1 | Text [ + Audio ] | Audio | ✅ Full (single + dialogue, voice cloning via `target`, trained voices via `voice`, SLC sub-task via `slc`, SVC sub-task via `svc`) |
+| TTS | 2.1 | Text [ + Audio ] | Audio | Full (single + dialogue, voice cloning via `target`, trained voices via `voice`, SLC sub-task via `slc`, SVC sub-task via `svc`, dub sub-task via `dub`) |
 | Voice Training | 2.1a | Audio | .tts file | ✅ Full (oneline only) |
 | STS | 2.2 | Audio/Video + Audio | Audio/Video | ✅ Single only |
 | TTM | 2.3 | Text [ + Audio ] | Audio | ✅ Single only (voice cloning via `vc` + `clone`) |
@@ -437,13 +445,13 @@ python src/voder.py tts script "First paragraph\nSecond paragraph" voice "profes
 
 ### SLC Sub-Task (Spoken Language Conversion / Dubbing)
 
-SLC (Spoken Language Conversion) is now a TTS oneline sub-task that translates spoken content from any language to English and re-synthesizes it with the original speaker's voice. It combines Whisper large-v3's translation capability with Qwen3-TTS's voice synthesis to produce **dubbed audio** — the content is translated but the voice character is preserved. Translation to English is always performed; no separate `translate` flag is needed.
+SLC (Spoken Language Conversion) is now a TTS oneline sub-task that translates spoken content from any language to English and re-synthesizes it with the original speaker's voice. It combines Whisper large-v3's translation capability with Qwen3-TTS's voice synthesis to produce **dubbed audio** — the content is translated but the voice character is preserved. Translation to English is performed by default; no separate `translate` flag is needed. For any-to-any translation (55 languages), use the `translate (source-target)` syntax which employs TranslateGemma 12B instead of Whisper for the translation step.
 
 **How It Works:**
 1. **Source Input**: Accepts audio files, video files, and YouTube/URL sources
 2. **SVS Voice Isolation**: BS-RoFormer isolates the voice from the source (handles mixed audio/video)
 3. **Music Extraction** (optional): When the `music` flag is used, SVS also extracts the instrumental track for later blending
-4. **Translation**: Whisper large-v3 (not turbo) transcribes and translates the isolated voice to English
+4. **Translation**: Whisper large-v3 (not turbo) transcribes and translates the isolated voice to English. If `translate (source-target)` is specified, TranslateGemma 12B handles any-to-any translation instead
 5. **Voice Extraction**: The source audio's voice characteristics are analyzed
 6. **Re-Synthesis**: Qwen3-TTS Base synthesizes the English text with the extracted voice
 7. **Overdose Post-Processing** (optional): When `tts overdose slc` is used, Seed-VC v2 runs a non-mimic pass after TTS output for better voice preservation
@@ -474,16 +482,33 @@ python src/voder.py tts overdose slc "foreign_speech.wav"
 python src/voder.py tts overdose slc music "foreign_speech.wav"
 ```
 
+**SLC with any-to-any translation (TranslateGemma 12B):**
+
+```bash
+# Translate to Arabic with original voice
+python src/voder.py tts slc translate (auto-ar) "foreign_speech.wav"
+
+# Translate to Arabic with music preservation
+python src/voder.py tts slc translate (auto-ar) music "foreign_speech.wav"
+
+# Japanese to English
+python src/voder.py tts slc translate (ja-en) "japanese_speech.wav"
+
+# English to French
+python src/voder.py tts slc translate (en-fr) "english_speech.wav"
+```
+
 **SLC Parameter Reference:**
 
 | Parameter | Required | Purpose | Default |
 |-----------|----------|---------|----------|
 | `music` | No | Preserve non-vocals (extract and blend instrumental back) | Off |
+| `translate (source-target)` | No | Any-to-any translation via TranslateGemma 12B (55 languages) | Off (English-only via Whisper) |
 | `overdose` | No | Additional STS v2 non-mimic pass for better voice fidelity | Off |
 | `result` | No | Output destination | Auto-generated |
 
 **Limitations:**
-- Source language is auto-detected; output is always **English**
+- Source language is auto-detected; output is **English** by default (use `translate (source-target)` for other target languages)
 - Same-voice quality depends on how distinct the source voice features are
 - Very short audio segments (< 3 seconds) may produce lower quality voice matching
 - Heavy background noise reduces voice extraction accuracy
@@ -549,9 +574,9 @@ python src/voder.py tts svc "podcast_clip.wav" target "new_speaker.wav" result "
 
 | Aspect | SLC | SVC |
 |--------|-----|-----|
-| Language | Translates to English | Keeps original language |
+| Language | Translates to English (default) or any language with `translate (source-target)` | Keeps original language |
 | Purpose | Dubbing / language conversion | Voice swapping |
-| Translation step | Whisper large-v3 translates | Whisper large-v3 transcribes only |
+| Translation step | Whisper large-v3 translates | Whisper large-v3 transcribes only (or TranslateGemma 12B with `translate (source-target)`) |
 | Target voice | Optional (defaults to source speaker) | Required |
 | Music flag | Supported (`tts slc music`) | Not applicable |
 
@@ -590,6 +615,62 @@ python src/voder.py tts overdose svc "source_audio.wav" target "sts:target_voice
 3. **Output**: The final audio has both the natural prosody of Qwen-TTS synthesis and the improved voice fidelity of the Seed-VC v2 conversion
 
 > **When to use `sts:`**: Use it when standard Qwen-TTS voice cloning doesn't produce a close enough voice match. The additional Seed-VC v2 pass adds processing time but significantly improves voice similarity to the target reference.
+
+### Dub Sub-Task (Video/Audio Dubbing)
+
+TTS Dub is a sub‑task for dubbing video or audio content with voice cloning, optional translation, and speed adjustment. It transcribes speech with VibeVoice ASR, optionally translates with TranslateGemma 12B, re‑synthesizes with Fish S2 Pro using voice cloning from each speaker's original audio, adjusts speed to match original timing, mixes with instrumentals, and muxes with video.
+
+**How It Works:**
+
+1. **Download/Extract**: If a URL is provided, the video is downloaded. If a video file is provided, the audio track is extracted via FFmpeg
+2. **SVS Voice + Music Separation**: BS‑RoFormer separates the source into voice and music stems
+3. **VibeVoice ASR**: Transcribes the voice stem with speaker diarization (overdose is implied). VibeVoice ASR and Fish S2 Pro are loaded separately to fit within 24GB VRAM
+4. **Speaker Detection**: Each detected speaker's audio segments are extracted for voice cloning reference
+5. **TranslateGemma Translation** (optional): When `translate (source-target)` is specified, TranslateGemma 12B translates each speaker's transcript to the target language
+6. **Fish S2 Pro TTS**: Each speaker's text is synthesized using Fish S2 Pro with voice cloning from that speaker's extracted audio reference
+7. **Speed Adjustment**: Per‑speaker dubbed audio is speed‑adjusted to match original segment timing
+8. **Mix with Instrumentals**: The dubbed voice is mixed with the extracted instrumental track
+9. **Mux with Video** (video input only): The final audio is muxed with the original video via FFmpeg. If `subtitle` is specified, translated subtitles are burned onto the video
+
+**Command Catalog:**
+
+```bash
+# Basic dub (same language, voice cloning from source speakers)
+python src/voder.py tts dub "video.mp4"
+
+# Dub with subtitle burning
+python src/voder.py tts dub subtitle "video.mp4"
+
+# Dub with translation to Arabic
+python src/voder.py tts dub translate (auto-ar) "video.mp4"
+
+# Dub with translation and subtitles
+python src/voder.py tts dub translate (auto-ar) subtitle "video.mp4"
+
+# Dub audio file (output is WAV)
+python src/voder.py tts dub "audio.wav"
+
+# Dub with specific source-target translation
+python src/voder.py tts dub translate (ja-en) "japanese_video.mp4"
+```
+
+**Dub Parameter Reference:**
+
+| Parameter | Required | Purpose | Default |
+|-----------|----------|---------|----------|
+| `dub` | Yes | Invoke dub sub-task with input path | — |
+| `translate (source-target)` | No | Any-to-any translation via TranslateGemma 12B (55 languages) | Off (same language) |
+| `subtitle` | No | Burn translated subtitles onto output video | Off |
+| `result` | No | Output destination | Auto-generated |
+
+**Requirements:** 24GB+ VRAM (VibeVoice ASR and Fish S2 Pro loaded separately), FFmpeg
+
+**Limitations:**
+- Overlapping speakers are best‑effort: VibeVoice's overlap detection handles simultaneous speech, but dubbed quality may vary for heavily overlapping segments
+- Multilingual input not supported: The source audio should be predominantly in one language for best results
+- Translation quality depends on TranslateGemma's accuracy for the specific language pair
+
+**Output:** MP4 for video input, WAV for audio input
 
 ### Interactive Modify-Speech (formerly STT+TTS)
 
@@ -1289,7 +1370,7 @@ STT mode converts audio, video, images, and URLs into text. It uses Whisper for 
 1. **Input Processing**: Audio extracted from video; text extracted from images via OCR; URLs downloaded via yt-dlp
 2. **Pre-Cleanup** (optional): BS-RoFormer can separate vocals from music/noise before transcription for cleaner results
 3. **Transcription**: Whisper transcribes with word-level timestamps (or VibeVoice ASR with `overdose`)
-4. **Translation** (optional): With `translate` flag, Whisper large-v3 translates non-English audio to English
+4. **Translation** (optional): With `translate` flag, Whisper large-v3 translates non-English audio to English. With `translate (source-target)` syntax, TranslateGemma 12B performs any-to-any translation across 55 languages. Use `auto` for source language auto-detection (e.g., `translate (auto-ar)`). The bare `translate` flag is incompatible with `overdose`, but `translate (source-target)` is compatible with `overdose`.
 5. **Optional Diarization**: Pyannote identifies speaker segments (or VibeVoice with `overdose`)
 6. **Alignment**: Transcription and diarization are aligned using three-tier overlap matching
 7. **Output**: Text file saved to results/ directory
@@ -1307,21 +1388,24 @@ STT mode converts audio, video, images, and URLs into text. It uses Whisper for 
 
 ### Flags: translate and overdose
 
-STT supports two advanced flags that **cannot be used together** (mutually exclusive):
+STT supports translation and overdose flags with nuanced compatibility:
 
 | Flag | Model Used | What It Does |
 |------|-----------|--------------|
 | `translate` | Whisper large-v3 | Transcribes AND translates non-English audio to English text |
+| `translate (source-target)` | TranslateGemma 12B | Any-to-any translation across 55 languages. Use `auto` for source auto-detection. |
 | `overdose` | VibeVoice ASR | Advanced transcription with native speaker diarization built-in |
 
 **`translate` flag**: Uses Whisper large-v3 (not turbo) for maximum translation accuracy. The output is English text regardless of the source language. Useful for subtitling foreign content, translating meetings, or processing multilingual media.
 
+**`translate (source-target)` syntax**: Uses TranslateGemma 12B for true any-to-any translation across 55 languages. The `source` and `target` are language codes (e.g., `ja` for Japanese, `ar` for Arabic, `en` for English). Use `auto` for source language auto-detection. Examples: `translate (auto-ar)` auto-detects source and translates to Arabic, `translate (ja-en)` translates Japanese to English.
+
 **`overdose` flag**: Uses VibeVoice ASR which provides superior transcription quality with **native speaker diarization** — no separate Pyannote step needed. Ideal for challenging audio (multiple speakers, overlapping speech, noisy environments). Note: `overdose` implies diarization; the `dialogue` flag is redundant and ignored when `overdose` is active.
 
-**Mutual Exclusivity**: `overdose` and `translate` cannot be combined. If both are specified, an error is raised. Choose one based on your need:
-- Need English text from foreign audio? → `translate`
-- Need best transcription + speaker labels? → `overdose`
-- Need standard transcription? → Neither flag (uses Whisper large-v3-turbo)
+**Compatibility Rules**:
+- `overdose` and bare `translate` (without parentheses) are **mutually exclusive** — Whisper's built-in translation conflicts with VibeVoice ASR
+- `overdose` and `translate (source-target)` are **compatible** — TranslateGemma decouples translation from ASR, running after VibeVoice completes
+- `translate (source-target)` works with `subtitle` — produces translated subtitles burned onto the video
 
 ### Subtitle Flag
 
@@ -1393,6 +1477,18 @@ python src/voder.py stt "french_meeting.wav" translate timestamp
 
 # Translate YouTube video
 python src/voder.py stt "https://youtube.com/watch?v=VIDEO_ID" translate result "/output/english_transcript.txt"
+
+# Any-to-any translation (TranslateGemma 12B)
+python src/voder.py stt "audio.wav" translate (auto-ar)
+
+# Japanese to English translation
+python src/voder.py stt "audio.wav" translate (ja-en)
+
+# Overdose + any-to-any translation (compatible)
+python src/voder.py stt "audio.wav" overdose translate (auto-fr)
+
+# Subtitle with translation
+python src/voder.py stt subtitle translate (auto-ar) "video.mp4"
 ```
 
 #### With Overdose (VibeVoice ASR)
@@ -2095,6 +2191,7 @@ Not all features work together. This section maps out exactly what combinations 
 | Dialogue mode | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | SLC sub-task | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | SVC sub-task | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Dub sub-task | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `sts:` prefix (target) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `voice` param | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `target` param | ✅ | ✅ | ✅† | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -2106,6 +2203,7 @@ Not all features work together. This section maps out exactly what combinations 
 | `timestamp` flag | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | `dialogue` flag | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `translate` flag | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `translate (source-target)` | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `overdose` flag | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | `clone` param | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `mimic` flag | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -2125,7 +2223,7 @@ Not all features work together. This section maps out exactly what combinations 
 
 | Rule | Modes Affected | Details |
 |------|---------------|---------|
-| `overdose` XOR `translate` | STT | Cannot use both; choose one based on need |
+| `overdose` XOR `translate` | STT | Bare `translate` (without parentheses) cannot be used with `overdose`; `translate (source-target)` IS compatible |
 | `overdose` XOR `dialogue` | STT | `overdose` includes native diarization; `dialogue` is redundant |
 | `mimic` XOR `music` | STS | Cannot transfer style and switch to music model simultaneously |
 | `remix` XOR `vc` | TTM | Remix and voice cloning are mutually exclusive |
@@ -2137,9 +2235,11 @@ Not all features work together. This section maps out exactly what combinations 
 ```
 python src/voder.py tts [overdose] script "text" [script "text2" ...] [voice "prompt" [voice "prompt2" ...]] [target "path" [target "Char: path2" ...]] [music "description"] [level "spec"] [result "path"]
 python src/voder.py tts slc [music] "source_audio.wav" [result "path"]
+python src/voder.py tts slc translate (source-target) [music] "source_audio.wav" [result "path"]
 python src/voder.py tts overdose slc [music] "source_audio.wav" [result "path"]
 python src/voder.py tts svc "source_audio.wav" target "voice_ref" [result "path"]
 python src/voder.py tts overdose svc "source_audio.wav" target "voice_ref" [result "path"]
+python src/voder.py tts dub "source_path" [translate (source-target)] [subtitle] [result "path"]
 ```
 
 ### STS Mode
@@ -2161,7 +2261,7 @@ python src/voder.py ttm bgm "source.wav" [music "description"] level N [referenc
 
 ### STT Mode
 ```
-python src/voder.py stt "file1" ["file2" ...] [timestamp] [dialogue] [translate] [overdose] [result "path"]
+python src/voder.py stt "file1" ["file2" ...] [timestamp] [dialogue] [translate | translate (source-target)] [overdose] [result "path"]
 ```
 
 ### SE Mode
@@ -2405,16 +2505,21 @@ python src/voder.py tts overdose script "Host: Let's dive in" "Guest: Absolutely
 | TTM + vc (voice clone) | 26GB | 18-20GB | Auto-offloads between stages |
 | STT | 12GB | N/A (CPU) | Whisper large-v3-turbo |
 | STT + translate | 12GB | N/A (CPU) | Whisper large-v3 |
+| STT + translate (source-target) | 16GB | 24GB | Whisper + TranslateGemma 12B (loaded sequentially) |
 | STT + overdose | 14GB | N/A (CPU) | VibeVoice ASR |
+| STT + overdose + translate (source-target) | 18GB | 24GB | VibeVoice ASR + TranslateGemma 12B (loaded sequentially) |
 | STT + diarization | 15GB | N/A (CPU) | Whisper + Pyannote |
 | SE | 11GB | 4GB | UniSE |
 | SFX | 12GB | 4GB | TangoFlux |
 | SVS | 14GB | 8GB | BS-RoFormer |
 | TTS slc | 16GB | 4GB | Whisper large-v3 + Qwen3-TTS (+ SVS for voice isolation + music) |
+| TTS slc + translate (source-target) | 20GB | 24GB | Whisper large-v3 + TranslateGemma 12B + Qwen3-TTS (loaded sequentially) |
 | TTS slc overdose | 20GB | 12GB | Whisper large-v3 + Qwen3-TTS + Seed-VC v2 (non-mimic) |
 | TTS svc | 18GB | 8GB | Whisper large-v3 + Qwen3-TTS + Seed-VC v2 (+ SVS for voice isolation) |
 | TTS svc overdose | 22GB | 12GB | Whisper large-v3 + Qwen3-TTS + Seed-VC v2 (enhanced) |
 | SS | 14GB | N/A (CPU) | VibeVoice ASR |
+| TTS dub | 18GB | 24GB | SVS + VibeVoice ASR + Fish S2 Pro (loaded sequentially; VibeVoice and Fish never simultaneous) |
+| TTS dub + translate (source-target) | 22GB | 24GB | SVS + VibeVoice ASR + TranslateGemma 12B + Fish S2 Pro (loaded sequentially) |
 
 ## Planning Complex Workflows
 
@@ -2448,6 +2553,18 @@ Step 3: Done
 Total memory needed: 14GB
 ```
 
+### Example: Any-to-Any Dubbing Pipeline (TTS dub)
+```
+Step 1: SVS — extract voice + music (14GB peak) → offloaded
+Step 2: VibeVoice ASR — transcribe with diarization (14GB peak) → offloaded
+Step 3: TranslateGemma 12B — translate transcript (24GB peak) → offloaded
+Step 4: Fish S2 Pro — synthesize with voice cloning (10GB peak) → offloaded
+Step 5: FFmpeg — speed adjustment + mux
+
+Total memory needed: 24GB (peak at TranslateGemma)
+Note: VibeVoice ASR and Fish S2 Pro are never loaded simultaneously
+```
+
 ### Example: Multi-Speaker Analysis Pipeline
 ```
 Step 1: SS — separate speakers (14GB peak) → offloaded
@@ -2474,7 +2591,10 @@ Total memory needed: 14GB
 | Music doesn't generate | Single mode used | music only works in dialogue mode |
 | SFX line ignored | Missing /duration | Add /duration:nn directive |
 | Cross-use conflict | Both voice and target for same character | Use one or the other per character |
-| `overdose` + `translate` error | Mutually exclusive flags | Use one or the other, not both |
+| `overdose` + `translate` error | Mutually exclusive flags | Bare `translate` is incompatible with `overdose`; use `translate (source-target)` instead for any-to-any translation with overdose |
+| TranslateGemma OOM | Insufficient VRAM for 12B model | Requires 24GB+ VRAM; ensure other models are offloaded first |
+| Dub speed misalignment | Dubbed speech timing differs from original | Speed adjustment is best-effort; very different language lengths may cause drift |
+| Dub overlapping speakers | Overlapping speech produces mixed quality | Overlapping speakers are best-effort; consider running SS first to pre-separate |
 | SS fallback to Pyannote | VibeVoice unavailable | Install VibeVoice model; or set up HF_TOKEN for fallback |
 | TTS slc poor voice match | Noisy source audio | Run SE or SVS on source before tts slc |
 | TTS svc poor voice match | Weak target reference or noisy source | Use `sts:` prefix for additional Seed-VC v2 pass; ensure clear target reference |
@@ -2508,11 +2628,13 @@ Total memory needed: 14GB
 19. **Extract for remixing**: Use `extract` to pull individual stems from existing songs
 20. **Remix for style transfer**: Use `remix` with `styling` and `bias` to create cover versions with adjustable style strength; add `lyrics` to guide new vocal content; use multi-source (up to 3) for creative composite sources and multi-reference (up to 3) for diverse style guidance
 21. **Repaint for section editing**: Use `repaint` with `time:start-end` to restyle specific sections of a song; add `voice`/`music` prefix to isolate source components; use multi-pass mode (`"start-end/styling(...)/..."`) for sequential edits that build on each previous result
-22. **Overdose XOR translate**: Remember these STT flags are mutually exclusive — pick based on whether you need translation or enhanced transcription
-23. **TTS overdose for cleaner cloning**: Use `overdose` flag with TTS when doing voice cloning from dialogue sources — the 2s/3s trim on extracted voice clips avoids cross-speaker contamination and produces cleaner reference audio
-24. **TTS overdose + music for premium output**: Combining `overdose` with `music` in TTS gives you both superior voice clip extraction (VibeVoice ASR) and higher quality background music (ACE-Step XL Turbo)
-25. **TTS svc for voice swapping**: Use `tts svc "source.wav" target "target.wav"` when you want to change who is speaking without changing the language or content. Unlike SLC, SVC keeps the original language intact
-26. **sts: prefix for better voice fidelity**: When standard Qwen-TTS voice cloning doesn't produce a close enough match, prefix the target reference with `sts:` (e.g., `target "sts:ref.wav"`) to run an additional Seed-VC v2 non-mimic pass after synthesis
+22. **Overdose XOR translate**: Bare `translate` (without parentheses) is incompatible with `overdose` in STT — use `translate (source-target)` instead for any-to-any translation with overdose quality
+23. **translate (source-target) for any-to-any**: Use `translate (auto-ar)` to auto-detect source and translate to Arabic, `translate (ja-en)` for Japanese-to-English, etc. TranslateGemma 12B supports 55 languages and is compatible with `overdose` and `subtitle`
+24. **TTS overdose for cleaner cloning**: Use `overdose` flag with TTS when doing voice cloning from dialogue sources — the 2s/3s trim on extracted voice clips avoids cross-speaker contamination and produces cleaner reference audio
+25. **TTS overdose + music for premium output**: Combining `overdose` with `music` in TTS gives you both superior voice clip extraction (VibeVoice ASR) and higher quality background music (ACE-Step XL Turbo)
+26. **TTS svc for voice swapping**: Use `tts svc "source.wav" target "target.wav"` when you want to change who is speaking without changing the language or content. Unlike SLC, SVC keeps the original language intact
+27. **sts: prefix for better voice fidelity**: When standard Qwen-TTS voice cloning doesn't produce a close enough match, prefix the target reference with `sts:` (e.g., `target "sts:ref.wav"`) to run an additional Seed-VC v2 non-mimic pass after synthesis
+28. **TTS dub for video dubbing**: Use `tts dub "video.mp4"` for end-to-end video dubbing with voice cloning from source speakers. Add `translate (auto-ar)` for any-to-any translation, and `subtitle` to burn translated subtitles onto the output video
 
 ---
 

@@ -33,6 +33,24 @@
 
 - **TTM Voice** — `ttm voice` keyword generates a song via ACE-Step then automatically extracts clean vocals via the SVS voice pipe. Output is the isolated vocal track. Supports `target` reference audio and `overdose` quality. Syntax: `voder.py ttm voice lyrics "..." styling "..." 30`
 
+#### TranslateGemma 12B Integration
+
+- **TranslateGemma 12B** — New translation model integrated into VODER (`google/translategemma-12b-it`, 12B parameters). Supports true any-to-any translation across 55 languages, replacing Whisper's any-to-English-only translation limitation. Requires 24GB+ VRAM. Stored at `src/models/checkpoints/translategemma/`.
+
+- **`translate (source-target)` Syntax** — New syntax for STT any-to-any translation using TranslateGemma. The bare `translate` flag (without parentheses) still uses Whisper for any-to-English translation (backward compatible). The `translate (source-target)` syntax uses TranslateGemma and supports any target language. `auto` can be used for source language auto-detection. Examples: `translate (auto-ar)` auto-detects source and translates to Arabic; `translate (ja-en)` translates Japanese to English; `translate (auto-en)` auto-detects source and translates to English.
+
+- **STT Subtitle + Translate** — `stt subtitle translate (auto-ar) "video.mp4"` now supports translated subtitles. When `translate (source-target)` is used with `subtitle`, VibeVoice ASR transcribes the speech, TranslateGemma translates the transcript, and the translated subtitles are burned onto the video.
+
+- **STT Overdose + Translate** — `stt overdose translate (auto-fr) "audio.wav"` is now supported. Previously, `overdose` and `translate` were mutually exclusive because Whisper could not translate with VibeVoice ASR. TranslateGemma decouples translation from ASR, allowing overdose-quality transcription with any-to-any translation. The bare `translate` (without parentheses) remains incompatible with `overdose` (it uses Whisper's built-in translation which conflicts with VibeVoice ASR).
+
+- **SLC Any-to-Any Translation** — `tts slc translate (auto-ar) "audio.wav"` translates speech to any target language instead of only English. The `translate (source-target)` syntax replaces Whisper's English-only limitation with TranslateGemma's 55-language support. The original SLC behavior (translate to English using Whisper) is preserved when no `translate` syntax is used.
+
+- **TTS Dub Sub-Task** — New `tts dub` sub-task for video/audio dubbing with voice cloning, translation, and speed adjustment. Pipeline: SVS voice isolation → VibeVoice ASR → speaker detection → TranslateGemma translation (if translate specified) → Fish S2 Pro TTS (voice cloning from source) → per-speaker speed adjustment → mix with instrumentals → mux with video. Supports optional `subtitle` keyword to burn translated subtitles onto the output video. Commands: `tts dub "video.mp4"`, `tts dub subtitle "video.mp4"`, `tts dub translate (auto-ar) "video.mp4"`, `tts dub translate (auto-ar) subtitle "video.mp4"`, `tts dub "audio.wav"`.
+
+- **Dub Pipeline Architecture** — The dub pipeline chains SVS voice+music separation, VibeVoice ASR for transcription with speaker diarization, TranslateGemma for any-to-any translation (when specified), Fish S2 Pro for TTS with voice cloning from each speaker's source audio, per-speaker audio speed adjustment to match original segment timing, instrumental track mixing for music preservation, and FFmpeg video muxing for video output. VibeVoice ASR and Fish S2 Pro are loaded separately (never simultaneously) to fit within 24GB VRAM.
+
+- **Audio Speed Adjustment Helper** — New helper for dub timing alignment. When dubbed speech differs in duration from the original, the audio speed is adjusted to match the original segment timing. Applied per-speaker in the dub pipeline.
+
 #### STT Subtitle Sub-Task
 
 - **`subtitle` Keyword** — New STT sub-task keyword that transcribes a video's speech using VibeVoice ASR and burns the subtitles directly onto the video as ASS-format overlays. Implies `overdose` (VibeVoice ASR is always used). Only accepts video files and URLs — audio, text, and image files are rejected.

@@ -555,6 +555,24 @@ python src/voder.py tts slc "https://youtube.com/watch?v=..." result "/output/en
 - Output is always English (Whisper can only translate to English)
 - Voice-music sync may vary when using the `music` flag; this is inherent to the approach
 
+**SLC with any-to-any translation (TranslateGemma 12B):**
+
+Use `translate (source-target)` to translate to any of 55 supported languages instead of only English:
+
+```bash
+# Translate to Arabic, preserving original voice
+python src/voder.py tts slc translate (auto-ar) "spanish_speech.wav"
+
+# Translate to Arabic with music preservation
+python src/voder.py tts slc translate (auto-ar) music "spanish_speech.wav"
+
+# Japanese to English
+python src/voder.py tts slc translate (ja-en) "japanese_speech.wav"
+
+# English to French
+python src/voder.py tts slc translate (en-fr) "english_speech.wav"
+```
+
 > **Note:** The standalone `slc` mode has been merged into TTS. The old `slc` command is no longer accepted — use `tts slc` instead. The `translate` keyword is no longer needed; SLC always translates to English.
 
 #### SVC (Speaker Voice Change)
@@ -606,6 +624,49 @@ python src/voder.py tts svc "speech.wav" target "sts:(ref1.wav)(ref2.wav)" resul
 ```
 
 **Output naming:** SVC outputs are saved as `voder_tts_svc_*.wav` (or the path specified by `result`).
+
+#### TTS Dub (Video/Audio Dubbing)
+
+TTS Dub is a sub‑task for dubbing video or audio content with voice cloning, optional translation, and speed adjustment. The pipeline transcribes speech with VibeVoice ASR, optionally translates with TranslateGemma 12B, re‑synthesizes with Fish S2 Pro using voice cloning from each speaker's original audio, adjusts speed to match original timing, mixes with instrumentals, and muxes with video.
+
+**Pipeline:** Download/extract audio → SVS voice+music separation → VibeVoice ASR (speaker diarization) → TranslateGemma translation (if `translate` specified) → Fish S2 Pro TTS (voice cloning from source) → per-speaker speed adjustment → mix with instrumentals → mux with video (if video input)
+
+**Commands:**
+
+```bash
+# Basic dub (same language, voice cloning from source speakers)
+python src/voder.py tts dub "video.mp4"
+
+# Dub with subtitle burning
+python src/voder.py tts dub subtitle "video.mp4"
+
+# Dub with translation to Arabic
+python src/voder.py tts dub translate (auto-ar) "video.mp4"
+
+# Dub with translation and subtitles
+python src/voder.py tts dub translate (auto-ar) subtitle "video.mp4"
+
+# Dub audio file (output is WAV)
+python src/voder.py tts dub "audio.wav"
+
+# Dub with specific source-target translation
+python src/voder.py tts dub translate (ja-en) "japanese_video.mp4"
+```
+
+**Dub Parameters:**
+
+| Parameter | Description | Required |
+|-----------|-------------|----------|
+| `dub` | Invoke dub sub‑task within TTS mode (positional path after `dub`) | Yes (for dub) |
+| `translate (source-target)` | Translate speech using TranslateGemma 12B (55 languages) | No |
+| `subtitle` | Burn translated subtitles onto the output video | No |
+| `result` | Output path | No |
+
+**Output formats:**
+- Video input: MP4 (dubbed audio muxed with original video)
+- Audio input: WAV
+
+**Requirements:** 24GB+ VRAM (VibeVoice ASR and Fish S2 Pro loaded separately), FFmpeg
 
 #### STS Voice Pass (`sts:` Prefix)
 
@@ -1279,7 +1340,7 @@ python src/voder.py ttm vc lyrics "Chorus:\nThis is our moment" styling "rock ba
 
 ### Speech‑to‑Text (stt)
 
-Transcribe audio, video, images, or YouTube URLs to text using Whisper. Supports timestamps, speaker diarization, batch processing, translation, overdose quality, and automatic result routing. **Translation**: add `translate` flag to translate transcribed speech to English. **Overdose**: add `overdose` flag for enhanced transcription quality using VibeVoice ASR. **SVS pre‑cleanup**: SVS vocal separation runs automatically before transcription to improve accuracy. **Note:** `overdose` and `translate` are mutually exclusive.
+Transcribe audio, video, images, or YouTube URLs to text using Whisper. Supports timestamps, speaker diarization, batch processing, translation, overdose quality, and automatic result routing. **Translation**: add `translate` flag to translate transcribed speech to English (Whisper large-v3), or use `translate (source-target)` syntax for any-to-any translation across 55 languages via TranslateGemma 12B. **Overdose**: add `overdose` flag for enhanced transcription quality using VibeVoice ASR. **SVS pre‑cleanup**: SVS vocal separation runs automatically before transcription to improve accuracy. **Note:** `overdose` and bare `translate` (without parentheses) are mutually exclusive, but `overdose` and `translate (source-target)` are compatible.
 
 **Basic transcription:**
 ```bash
@@ -1304,6 +1365,18 @@ python src/voder.py stt "audio.wav" timestamp dialogue result "/output/transcrip
 **Transcription with translation to English:**
 ```bash
 python src/voder.py stt "french_audio.wav" translate timestamp result "/output/translated.txt"
+```
+
+**Transcription with any-to-any translation (TranslateGemma 12B):**
+```bash
+# Auto-detect source, translate to Arabic
+python src/voder.py stt "audio.wav" translate (auto-ar) timestamp result "/output/arabic.txt"
+
+# Japanese to English
+python src/voder.py stt "audio.wav" translate (ja-en) result "/output/english.txt"
+
+# Overdose + any-to-any translation (now compatible)
+python src/voder.py stt "audio.wav" overdose translate (auto-fr) result "/output/french.txt"
 ```
 
 **Transcription with overdose quality:**
@@ -1343,12 +1416,13 @@ python src/voder.py stt "file1.wav" "file2.mp3" "file3.mp4" timestamp result "/o
 | `files` | One or more input file paths or URLs (positional arguments after `stt`) | Yes |
 | `timestamp` | Include word‑level timestamps in the output | No |
 | `dialogue` | Enable speaker diarization (requires HF_TOKEN) | No |
-| `translate` | Translate transcribed speech to English | No |
+| `translate` | Translate transcribed speech to English (Whisper large-v3) | No |
+| `translate (source-target)` | Any-to-any translation via TranslateGemma 12B (55 languages). Use `auto` for source auto-detection. Examples: `translate (auto-ar)`, `translate (ja-en)`, `translate (auto-en)` | No |
 | `overdose` | Use enhanced transcription quality (VibeVoice ASR) | No |
 | `subtitle` | Burn VibeVoice ASR subtitles onto a video (implies `overdose`; video/URL only) | No |
 | `result` | Copy result file(s) to the specified path (file or directory) | No |
 
-**Important:** `overdose` and `translate` are mutually exclusive and cannot be used together. `subtitle` implies `overdose` and cannot be used with `translate` or with audio/text/image files.
+**Important:** `overdose` and bare `translate` (without parentheses) are mutually exclusive and cannot be used together. However, `overdose` and `translate (source-target)` are compatible — TranslateGemma decouples translation from ASR, allowing overdose-quality transcription with any-to-any translation. `subtitle` implies `overdose` and cannot be used with bare `translate` or with audio/text/image files.
 
 **Supported Input Formats:**
 - **Audio**: WAV, MP3, FLAC, OGG, AAC, M4A, WMA
