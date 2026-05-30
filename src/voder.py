@@ -905,38 +905,15 @@ def _translate_segments_with_gemma(segments, source_lang, target_lang):
 
 
 def _mix_audio_at_target_sr(vocals_path, music_path, output_path, target_sr=48000):
-    _mix_cleanup = []
     try:
-        def _resolve_to_audio(path, _mix_cleanup):
-            if is_youtube_url(path):
-                print(f"Downloading audio from URL for mixing: {path}")
-                ok, err, dl_path = download_youtube_audio(path)
-                if not ok:
-                    print(f"Error: Failed to download: {err}")
-                    return None
-                _mix_cleanup.append(dl_path)
-                return dl_path
-            if not os.path.exists(path):
-                print(f"Error: Audio file not found: {path}")
-                return None
-            ext = os.path.splitext(path)[1].lower()
-            if ext in VIDEO_EXTENSIONS:
-                print("Extracting audio from video for mixing...")
-                extracted = extract_audio_from_video_cli(path)
-                if not extracted:
-                    print(f"Error: Could not extract audio from video: {path}")
-                    return None
-                _mix_cleanup.append(extracted)
-                return extracted
-            return path
-
-        resolved_vocals = _resolve_to_audio(vocals_path, _mix_cleanup)
-        resolved_music = _resolve_to_audio(music_path, _mix_cleanup)
-        if not resolved_vocals or not resolved_music:
+        if not os.path.exists(vocals_path):
+            print(f"Error: Vocals file not found: {vocals_path}")
             return False
-
-        voc_wav, voc_sr = torchaudio.load(resolved_vocals)
-        mus_wav, mus_sr = torchaudio.load(resolved_music)
+        if not os.path.exists(music_path):
+            print(f"Error: Music file not found: {music_path}")
+            return False
+        voc_wav, voc_sr = torchaudio.load(vocals_path)
+        mus_wav, mus_sr = torchaudio.load(music_path)
         if voc_sr != target_sr:
             voc_wav = torchaudio.functional.resample(voc_wav, orig_freq=voc_sr, new_freq=target_sr)
         if mus_sr != target_sr:
@@ -959,11 +936,6 @@ def _mix_audio_at_target_sr(vocals_path, music_path, output_path, target_sr=4800
     except Exception as e:
         print(f"Audio mixing error: {e}")
         return False
-    finally:
-        for f in _mix_cleanup:
-            if f and os.path.exists(f):
-                try: os.unlink(f)
-                except: pass
 
 
 def _adjust_audio_speed(input_path, target_duration, output_path):
@@ -13546,8 +13518,8 @@ def cli_se_mode():
     os.makedirs(results_dir, exist_ok=True)
 
     print("\n--- SE Mode ---")
-    print("Sound Enhancement - denoise, dereverb, restore, upsample audio")
-    print("Sub-modes: (none) | voice [blend] | sr | sr music [blend] | sr voice [blend] | sr voice music")
+    print("Sound Enhancement - denoise, dereverb, restore audio")
+    print("For sub-modes (voice/sr/sr music/sr voice/sr voice music), use oneline mode.")
     print()
 
     while True:
@@ -13569,28 +13541,11 @@ def cli_se_mode():
         else:
             print("Error: File not found. Please try again.")
 
-    valid_se_subs = ('', 'default', 'voice', 'sr', 'sr music', 'sr voice', 'sr voice music')
-    se_sub = None
-    while se_sub is None:
-        sub_input = input("Sub-mode (default/voice/sr/sr music/sr voice/sr voice music): ").strip().lower()
-        if sub_input in ('', 'default'):
-            se_sub = None
-            break
-        elif sub_input in ('voice', 'sr', 'sr music', 'sr voice', 'sr voice music'):
-            se_sub = sub_input
-            break
-        else:
-            print(f"Error: '{sub_input}' is not a valid SE sub-mode. Valid: default, voice, sr, sr music, sr voice, sr voice music")
-    se_blend = False
-    if se_sub in ('voice', 'sr music', 'sr voice'):
-        blend_input = input("Blend with other stems? (y/n): ").strip().lower()
-        se_blend = blend_input in ('y', 'yes')
-
     params = {
         'files': [file_path],
         'result_path': None,
-        'se_sub': se_sub,
-        'se_blend': se_blend,
+        'se_sub': None,
+        'se_blend': False,
     }
 
     return oneline_se(params)
