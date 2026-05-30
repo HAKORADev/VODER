@@ -5413,7 +5413,7 @@ def parse_oneline_args(args):
         while i < len(args):
             arg = args[i]
             arg_lower = arg.lower()
-            if arg_lower in ['timestamp', 'dialogue', 'translate', 'se', 'overdose']:
+            if arg_lower in ['timestamp', 'dialogue', 'translate', 'se', 'overdose', 'transcribe']:
                 result['params'][arg_lower] = True
                 i += 1
             elif arg_lower == 'result':
@@ -5434,8 +5434,13 @@ def parse_oneline_args(args):
             result['error'] = 'STT mode requires at least one audio/video file path'
             return result
 
+        if result['params'].get('transcribe'):
+            result['params']['overdose'] = True
         if result['params'].get('overdose') and result['params'].get('translate'):
             result['error'] = 'STT overdose cannot be used with translate (ASR does not support translation)'
+            return result
+        if result['params'].get('transcribe') and result['params'].get('translate'):
+            result['error'] = 'STT transcribe cannot be used with translate'
             return result
 
         result['params']['files'] = file_paths
@@ -6328,6 +6333,9 @@ def show_oneline_usage():
     print('  python voder.py stt "audio.wav" translate dialogue')
     print('  python voder.py stt "audio.wav" translate timestamp dialogue')
     print('  python voder.py stt "https://youtube.com/watch?v=..."')
+    print('  python voder.py stt transcribe "video.mp4"')
+    print('  python voder.py stt transcribe se "noisy_video.mp4"')
+    print('  python voder.py stt transcribe "https://youtube.com/watch?v=..."')
     print()
     print("SE examples (Speech Enhancement):")
     print('  python voder.py se "path/to/audio.wav"')
@@ -6505,7 +6513,10 @@ def execute_oneline_command(parsed):
         else:
             success = oneline_ttm(params)
     elif mode == 'stt':
-        success = oneline_stt(params)
+        if params.get('transcribe'):
+            success = oneline_stt_transcribe(params)
+        else:
+            success = oneline_stt(params)
     elif mode == 'se':
         success = oneline_se(params)
     elif mode == 'sfx':
@@ -10587,6 +10598,305 @@ def oneline_stt(params):
                         shutil.rmtree(parent_dir, ignore_errors=True)
                 except:
                     pass
+
+    print(f"\n{'=' * 60}")
+    print(f"Processing complete: {success_count}/{len(files)} files successful")
+    return success_count > 0
+
+def _get_video_resolution_ffmpeg(video_path):
+    try:
+        cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+               '-show_entries', 'stream=width,height', '-of', 'csv=p=0', video_path]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0 and result.stdout.strip():
+            parts = result.stdout.strip().split(',')
+            if len(parts) == 2:
+                return int(parts[0]), int(parts[1])
+    except:
+        pass
+    return 1920, 1080
+
+def _format_ass_time(seconds):
+    if seconds is None:
+        seconds = 0
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    cs = int((seconds % 1) * 100)
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+
+def _build_ass_subtitles(segments, video_width, video_height):
+    font_size = max(16, int(video_height * 0.035))
+    margin_v = max(20, int(video_height * 0.03))
+    outline_width = max(1, int(font_size * 0.12))
+    shadow_offset = max(1, int(font_size * 0.08))
+
+    primary_color = "&H00FFFFFF"
+    overlap_color = "&H0000CCFF"
+
+    ass_header = f"""[Script Info]
+Title: VODER Transcription
+ScriptType: v4.00+
+PlayResX: {video_width}
+PlayResY: {video_height}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,{font_size},{primary_color},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_offset},2,10,10,{margin_v},1
+Style: Overlap,Arial,{font_size},{overlap_color},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_offset},2,10,10,{margin_v + font_size + 8},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+    events = []
+    overlaps = []
+    for i, seg in enumerate(segments):
+        start = seg.get("start", 0) or 0
+        end = seg.get("end", 0) or 0
+        text = seg.get("text", "").strip()
+        if not text or end <= start:
+            continue
+        for j, other in enumerate(segments):
+            if i == j:
+                continue
+            o_start = other.get("start", 0) or 0
+            o_end = other.get("end", 0) or 0
+            if o_start < end and o_end > start and j > i:
+                overlap_start = max(start, o_start)
+                overlap_end = min(end, o_end)
+                o_text = other.get("text", "").strip()
+                if o_text:
+                    overlaps.append({
+                        "start": overlap_start,
+                        "end": overlap_end,
+                        "text": o_text
+                    })
+
+        text_escaped = text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
+        events.append(f"Dialogue: 0,{_format_ass_time(start)},{_format_ass_time(end)},Default,,0,0,0,,{text_escaped}")
+
+    for ov in overlaps:
+        text_escaped = ov["text"].replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
+        events.append(f"Dialogue: 1,{_format_ass_time(ov['start'])},{_format_ass_time(ov['end'])},Overlap,,0,0,0,,{text_escaped}")
+
+    return ass_header + "\n".join(events) + "\n"
+
+def _burn_subtitles_on_video(video_path, segments, output_path):
+    video_width, video_height = _get_video_resolution_ffmpeg(video_path)
+    ass_content = _build_ass_subtitles(segments, video_width, video_height)
+    temp_dir = tempfile.mkdtemp()
+    ass_path = os.path.join(temp_dir, "subtitles.ass")
+    try:
+        with open(ass_path, 'w', encoding='utf-8') as f:
+            f.write(ass_content)
+        escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
+        cmd = ['ffmpeg', '-i', video_path, '-vf', f"ass={escaped_ass}",
+               '-c:a', 'copy', '-y', output_path]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if result.returncode != 0:
+            cmd = ['ffmpeg', '-i', video_path, '-vf', f"subtitles={escaped_ass}",
+                   '-c:a', 'copy', '-y', output_path]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            if result.returncode != 0:
+                return False
+        return os.path.exists(output_path)
+    except Exception as e:
+        print(f"Error burning subtitles: {e}")
+        return False
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+def oneline_stt_transcribe(params):
+    original_cwd = os.getcwd()
+    results_dir = os.path.join(original_cwd, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    files = params.get('files', [])
+    use_se = params.get('se', False)
+
+    if not files:
+        print("Error: STT transcribe requires a video file path or URL")
+        return False
+
+    for file_path in files:
+        if not os.path.exists(file_path) and not is_youtube_url(file_path):
+            print(f"Error: File not found or invalid URL: {file_path}")
+            return False
+
+    success_count = 0
+    for file_path in files:
+        print(f"\nProcessing: {file_path}")
+        print("=" * 60)
+
+        is_url = is_youtube_url(file_path)
+        ext = os.path.splitext(file_path)[1].lower() if not is_url else ""
+
+        if not is_url and ext not in VIDEO_EXTENSIONS:
+            print(f"Error: STT transcribe only accepts video files and URLs. Got: {ext if ext else 'non-video file'}")
+            continue
+
+        video_path = None
+        audio_path = None
+        downloaded_video = None
+        extracted_audio = None
+        svs_temp = None
+        se_temp = None
+        svs_temp_dir = None
+        se_temp_dir = None
+
+        try:
+            if is_url:
+                print("Downloading video from URL...")
+                downloaded_video, video_title = download_youtube_video(file_path)
+                if not downloaded_video:
+                    print("Error: Failed to download video")
+                    continue
+                video_path = downloaded_video
+                print("Extracting audio from video...")
+                extracted_audio = extract_audio_from_video_cli(video_path)
+                if not extracted_audio:
+                    print("Error: Could not extract audio from downloaded video")
+                    continue
+                audio_path = extracted_audio
+            elif file_path.lower().endswith(tuple(VIDEO_EXTENSIONS)):
+                video_path = file_path
+                print("Extracting audio from video...")
+                extracted_audio = extract_audio_from_video_cli(video_path)
+                if not extracted_audio:
+                    print("Error: Could not extract audio from video")
+                    continue
+                audio_path = extracted_audio
+            else:
+                print("Error: STT transcribe only accepts video files and URLs")
+                continue
+
+            bs_roformer_lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bs_roformer', 'lib')
+            if bs_roformer_lib not in sys.path:
+                sys.path.insert(0, bs_roformer_lib)
+            bs_roformer_pkg = os.path.dirname(os.path.abspath(__file__))
+            if bs_roformer_pkg not in sys.path:
+                sys.path.insert(0, bs_roformer_pkg)
+
+            print("Stage 1: SVS voice isolation (BS-RoFormer)...")
+            from bs_roformer import BSRoformerSeparator
+            svs_separator = BSRoformerSeparator(SVS_DIR)
+            svs_separator.ensure_model(stem='voice')
+            if svs_separator.vocals_model is None:
+                print("Error: Failed to load BS-RoFormer vocals model")
+                svs_separator.cleanup()
+                del svs_separator
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                continue
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            svs_temp_dir = tempfile.mkdtemp()
+            svs_temp = os.path.join(svs_temp_dir, f'_stt_svs_{timestamp}.wav')
+            svs_ok = svs_separator.separate(audio_path, 'voice', svs_temp)
+            svs_separator.cleanup()
+            del svs_separator
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            if svs_ok and os.path.exists(svs_temp):
+                audio_path = svs_temp
+            else:
+                print("Warning: SVS voice isolation failed, using original audio")
+                if svs_temp_dir:
+                    shutil.rmtree(svs_temp_dir, ignore_errors=True)
+                    svs_temp_dir = None
+
+            if use_se:
+                print("Stage 2: Speech Enhancement (UniSE SE)...")
+                from unise import UniSEEnhancer
+                se_enhancer = UniSEEnhancer(UNISE_DIR)
+                se_enhancer.ensure_model()
+                if se_enhancer.model is None:
+                    print("Warning: Failed to load UniSE SE model, skipping enhancement")
+                    se_enhancer.cleanup()
+                    del se_enhancer
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                else:
+                    se_temp_dir = tempfile.mkdtemp()
+                    se_temp = os.path.join(se_temp_dir, f'_stt_se_{timestamp}.wav')
+                    se_ok = se_enhancer.enhance(audio_path, se_temp)
+                    se_enhancer.cleanup()
+                    del se_enhancer
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    if se_ok and os.path.exists(se_temp):
+                        audio_path = se_temp
+                    else:
+                        print("Warning: Speech Enhancement failed, using previous audio")
+                        if se_temp_dir:
+                            shutil.rmtree(se_temp_dir, ignore_errors=True)
+                            se_temp_dir = None
+
+            print("Transcribing with VibeVoice ASR...")
+            asr = VibeVoiceASR()
+            asr.ensure_model()
+            if asr.model is None:
+                print("Error: VibeVoice ASR failed to load. Transcribe requires VibeVoice (24GB+ VRAM or 48GB+ RAM)")
+                asr.cleanup()
+                del asr
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                continue
+
+            asr_segments = asr.transcribe(audio_path)
+            asr.cleanup()
+            del asr
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            if not asr_segments:
+                print("Error: ASR transcription returned no segments")
+                continue
+
+            print(f"Transcribed {len(asr_segments)} segments. Burning subtitles onto video...")
+
+            timestamp_str = time.strftime("%Y%m%d_%H%M%S")
+            if is_url:
+                base_name = "youtube_transcribe"
+            else:
+                base_name = os.path.splitext(os.path.basename(file_path))[0]
+
+            output_filename = f"voder_stt_transcribe_{timestamp_str}_{base_name}.mp4"
+            output_path = os.path.join(results_dir, output_filename)
+
+            burn_ok = _burn_subtitles_on_video(video_path, asr_segments, output_path)
+            if burn_ok:
+                print(f"✓ Success! Subtitled video saved to: {output_path}")
+                success_count += 1
+            else:
+                print("Error: Failed to burn subtitles onto video")
+                continue
+
+        except Exception as e:
+            print(f"Error processing {file_path}: {e}")
+            traceback.print_exc()
+
+        finally:
+            for temp_path in [extracted_audio, downloaded_video, svs_temp, se_temp]:
+                if temp_path and os.path.exists(temp_path):
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
+            for temp_dir in [svs_temp_dir, se_temp_dir]:
+                if temp_dir and os.path.exists(temp_dir):
+                    try:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                    except:
+                        pass
 
     print(f"\n{'=' * 60}")
     print(f"Processing complete: {success_count}/{len(files)} files successful")

@@ -1323,6 +1323,25 @@ STT supports two advanced flags that **cannot be used together** (mutually exclu
 - Need best transcription + speaker labels? → `overdose`
 - Need standard transcription? → Neither flag (uses Whisper large-v3-turbo)
 
+### Transcribe Flag
+
+The `transcribe` keyword is an STT sub‑task that produces a subtitled video instead of a text file. It automatically implies `overdose` (uses VibeVoice ASR for transcription) and only accepts **video files and URLs** — audio, text, and image files are rejected with an error.
+
+**Pipeline:** Download video (if URL) → Extract audio → SVS voice isolation → Optional `se` speech enhancement → VibeVoice ASR transcription → Burn ASS subtitles onto video → Output MP4.
+
+**Overlap handling:** When VibeVoice detects overlapping speech (two speakers talking at the same time), the primary speaker's text appears on the first subtitle line (white), and the overlapping speaker's text appears on a second line directly beneath it in cyan, making it visually clear that a different speaker is talking simultaneously.
+
+**Dynamic positioning:** Subtitles are scaled and positioned at the bottom of the frame proportionally to the video resolution. Font size, margins, outline, and shadow are all calculated relative to the video height, so the result looks consistent whether the video is 480p or 4K.
+
+| Flag | Model Used | What It Does |
+|------|-----------|--------------|
+| `transcribe` | VibeVoice ASR + FFmpeg | Transcribes video speech and burns subtitles onto the video |
+
+**Restrictions:**
+- Cannot be used with `translate`
+- Only accepts video files (MP4, AVI, MOV, MKV, FLV, WebM, etc.) and URLs
+- Audio, text, and image files are rejected
+
 ### SVS Pre-Cleanup
 For audio with significant background music or noise, STT can internally use BS-RoFormer (SVS mode) to extract clean vocals before transcription. This is triggered automatically when the audio is detected to have high noise/music content, or can be manually invoked by running SVS first:
 ```bash
@@ -1388,6 +1407,18 @@ python src/voder.py stt "podcast_episode.wav" overdose timestamp
 python src/voder.py stt "https://youtube.com/watch?v=VIDEO_ID" overdose result "/output/overdose_transcript.txt"
 ```
 
+#### With Transcribe (Video Subtitles)
+```bash
+# Burn subtitles onto a local video
+python src/voder.py stt transcribe "video.mp4"
+
+# Transcribe with speech enhancement for noisy videos
+python src/voder.py stt transcribe se "noisy_interview.mp4"
+
+# Burn subtitles onto a YouTube video
+python src/voder.py stt transcribe "https://youtube.com/watch?v=VIDEO_ID"
+```
+
 #### Full Transcription
 ```bash
 python src/voder.py stt "audio.wav" timestamp dialogue result "/output/transcript.txt"
@@ -1417,6 +1448,7 @@ python src/voder.py stt "spanish_ep1.wav" "spanish_ep2.wav" translate result "/o
 | `translate timestamp` | Translated + timestamps | `[00:00.000 → 00:03.500] Hello everyone` |
 | `overdose` | Enhanced + speaker-labeled | `Speaker 1 (00:00): Hello everyone` |
 | `overdose timestamp` | Enhanced + timestamps + speakers | `[00:00.000 → 00:03.500] Speaker 1: Hello everyone` |
+| `transcribe` | Subtitled MP4 video | Video file with burned‑in ASS subtitles |
 
 ### HF_TOKEN Requirement
 Speaker diarization (`dialogue` flag) requires:

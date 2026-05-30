@@ -33,6 +33,14 @@
 
 - **TTM Voice** — `ttm voice` keyword generates a song via ACE-Step then automatically extracts clean vocals via the SVS voice pipe. Output is the isolated vocal track. Supports `target` reference audio and `overdose` quality. Syntax: `voder.py ttm voice lyrics "..." styling "..." 30`
 
+#### STT Transcribe Sub-Task
+
+- **`transcribe` Keyword** — New STT sub-task keyword that transcribes a video's speech using VibeVoice ASR and burns the subtitles directly onto the video as ASS-format overlays. Implies `overdose` (VibeVoice ASR is always used). Only accepts video files and URLs — audio, text, and image files are rejected.
+- **Dynamic Subtitle Positioning** — Subtitles are dynamically scaled and positioned at the bottom of the frame relative to the video resolution. Font size, margins, outline width, and shadow offset are all calculated proportionally to the video height, ensuring consistent appearance from 480p to 4K.
+- **Overlap Handling** — When overlapping speech is detected (two speakers talking simultaneously), the primary speaker's text appears on the first line (white), and the overlapping speaker's text appears on a second line beneath it in cyan, making it visually clear that a different speaker is talking.
+- **Full Pipeline** — Download video (if URL) → Extract audio via FFmpeg → SVS voice isolation (BS-RoFormer) → Optional speech enhancement (`se`) → VibeVoice ASR transcription → Burn ASS subtitles onto video via FFmpeg → Output MP4.
+- Syntax: `voder.py stt transcribe "video.mp4"`, `voder.py stt transcribe se "noisy_video.mp4"`, `voder.py stt transcribe "https://youtube.com/watch?v=..."`
+
 ### Changed
 
 - Interactive TTS mode now prompts for `extreme` after `overdose` (both in the main flow and in modify speech)
