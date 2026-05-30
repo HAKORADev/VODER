@@ -1311,14 +1311,14 @@ python src/voder.py stt "french_audio.wav" translate timestamp result "/output/t
 python src/voder.py stt "meeting.wav" overdose dialogue
 ```
 
-**Transcribe sub‑task (burn subtitles onto video):**
+**Subtitle sub‑task (burn subtitles onto video):**
 ```bash
-python src/voder.py stt transcribe "video.mp4"
+python src/voder.py stt subtitle "video.mp4"
 ```
 
-**Transcribe with speech enhancement:**
+**Subtitle with speech enhancement:**
 ```bash
-python src/voder.py stt transcribe se "noisy_video.mp4"
+python src/voder.py stt subtitle se "noisy_video.mp4"
 ```
 
 **Transcribe a YouTube video:**
@@ -1345,10 +1345,10 @@ python src/voder.py stt "file1.wav" "file2.mp3" "file3.mp4" timestamp result "/o
 | `dialogue` | Enable speaker diarization (requires HF_TOKEN) | No |
 | `translate` | Translate transcribed speech to English | No |
 | `overdose` | Use enhanced transcription quality (VibeVoice ASR) | No |
-| `transcribe` | Burn VibeVoice ASR subtitles onto a video (implies `overdose`; video/URL only) | No |
+| `subtitle` | Burn VibeVoice ASR subtitles onto a video (implies `overdose`; video/URL only) | No |
 | `result` | Copy result file(s) to the specified path (file or directory) | No |
 
-**Important:** `overdose` and `translate` are mutually exclusive and cannot be used together. `transcribe` implies `overdose` and cannot be used with `translate` or with audio/text/image files.
+**Important:** `overdose` and `translate` are mutually exclusive and cannot be used together. `subtitle` implies `overdose` and cannot be used with `translate` or with audio/text/image files.
 
 **Supported Input Formats:**
 - **Audio**: WAV, MP3, FLAC, OGG, AAC, M4A, WMA
@@ -1372,7 +1372,7 @@ The transcription result is saved as a `.txt` file in the `results/` directory. 
 | `translate timestamp` | Timestamped transcript translated to English |
 | `overdose` | Enhanced accuracy plain text transcript (VibeVoice ASR) |
 | `overdose dialogue` | Enhanced accuracy with speaker labels |
-| `transcribe` | Subtitled MP4 video (VibeVoice ASR, video/URL input only) |
+| `subtitle` | Subtitled MP4 video (VibeVoice ASR, video/URL input only) |
 
 **Diarization Output Example:**
 ```
@@ -1665,17 +1665,17 @@ python src/voder.py stt "meeting.wav" overdose dialogue
 
 **Note:** `overdose` and `translate` are mutually exclusive.
 
-### STT‑Only: `transcribe` Flag
+### STT‑Only: `subtitle` Flag
 
 Burn VibeVoice ASR transcription as subtitles directly onto a video file. Implies `overdose` (VibeVoice ASR is required). Only accepts video files and URLs — audio, text, and image files are rejected. Overlapping speech from different speakers is shown on a second line beneath the primary speaker in cyan. Subtitles are dynamically positioned at the bottom of the frame regardless of resolution.
 
 ```bash
-python src/voder.py stt transcribe "video.mp4"
-python src/voder.py stt transcribe se "noisy_video.mp4"
-python src/voder.py stt transcribe "https://www.youtube.com/watch?v=VIDEO_ID"
+python src/voder.py stt subtitle "video.mp4"
+python src/voder.py stt subtitle se "noisy_video.mp4"
+python src/voder.py stt subtitle "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
-**Note:** `transcribe` cannot be used with `translate` or with non‑video files.
+**Note:** `subtitle` cannot be used with `translate` or with non‑video files.
 
 ### YouTube URL Input
 
@@ -1885,7 +1885,7 @@ free -h
 3. **Image OCR Accuracy Varies**: Text extraction quality depends on image resolution, font clarity, and language support
 4. **Speaker Diarization Accuracy Varies**: Best results with clear audio, minimal background noise, and ≤4 speakers; overlapping speech and noisy environments reduce accuracy
 5. **Overdose Not Available with Translation**: The `overdose` and `translate` flags are mutually exclusive and cannot be used together
-6. **Transcribe Video Only**: The `transcribe` flag only accepts video files and URLs — audio, text, and image files are rejected
+6. **Subtitle Video Only**: The `subtitle` flag only accepts video files and URLs — audio, text, and image files are rejected
 
 ### SVS Mode Limitations
 

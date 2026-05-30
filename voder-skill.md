@@ -1323,9 +1323,9 @@ STT supports two advanced flags that **cannot be used together** (mutually exclu
 - Need best transcription + speaker labels? → `overdose`
 - Need standard transcription? → Neither flag (uses Whisper large-v3-turbo)
 
-### Transcribe Flag
+### Subtitle Flag
 
-The `transcribe` keyword is an STT sub‑task that produces a subtitled video instead of a text file. It automatically implies `overdose` (uses VibeVoice ASR for transcription) and only accepts **video files and URLs** — audio, text, and image files are rejected with an error.
+The `subtitle` keyword is an STT sub‑task that produces a subtitled video instead of a text file. It automatically implies `overdose` (uses VibeVoice ASR for transcription) and only accepts **video files and URLs** — audio, text, and image files are rejected with an error.
 
 **Pipeline:** Download video (if URL) → Extract audio → SVS voice isolation → Optional `se` speech enhancement → VibeVoice ASR transcription → Burn ASS subtitles onto video → Output MP4.
 
@@ -1335,7 +1335,7 @@ The `transcribe` keyword is an STT sub‑task that produces a subtitled video in
 
 | Flag | Model Used | What It Does |
 |------|-----------|--------------|
-| `transcribe` | VibeVoice ASR + FFmpeg | Transcribes video speech and burns subtitles onto the video |
+| `subtitle` | VibeVoice ASR + FFmpeg | Transcribes video speech and burns subtitles onto the video |
 
 **Restrictions:**
 - Cannot be used with `translate`
@@ -1407,16 +1407,16 @@ python src/voder.py stt "podcast_episode.wav" overdose timestamp
 python src/voder.py stt "https://youtube.com/watch?v=VIDEO_ID" overdose result "/output/overdose_transcript.txt"
 ```
 
-#### With Transcribe (Video Subtitles)
+#### With Subtitle (Video Subtitles)
 ```bash
 # Burn subtitles onto a local video
-python src/voder.py stt transcribe "video.mp4"
+python src/voder.py stt subtitle "video.mp4"
 
-# Transcribe with speech enhancement for noisy videos
-python src/voder.py stt transcribe se "noisy_interview.mp4"
+# Subtitle with speech enhancement for noisy videos
+python src/voder.py stt subtitle se "noisy_interview.mp4"
 
 # Burn subtitles onto a YouTube video
-python src/voder.py stt transcribe "https://youtube.com/watch?v=VIDEO_ID"
+python src/voder.py stt subtitle "https://youtube.com/watch?v=VIDEO_ID"
 ```
 
 #### Full Transcription
@@ -1448,7 +1448,7 @@ python src/voder.py stt "spanish_ep1.wav" "spanish_ep2.wav" translate result "/o
 | `translate timestamp` | Translated + timestamps | `[00:00.000 → 00:03.500] Hello everyone` |
 | `overdose` | Enhanced + speaker-labeled | `Speaker 1 (00:00): Hello everyone` |
 | `overdose timestamp` | Enhanced + timestamps + speakers | `[00:00.000 → 00:03.500] Speaker 1: Hello everyone` |
-| `transcribe` | Subtitled MP4 video | Video file with burned‑in ASS subtitles |
+| `subtitle` | Subtitled MP4 video | Video file with burned‑in ASS subtitles |
 
 ### HF_TOKEN Requirement
 Speaker diarization (`dialogue` flag) requires:

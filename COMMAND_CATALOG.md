@@ -1148,13 +1148,13 @@ Transcribe audio/video to text using Whisper.
 | `translate` | (flag) | Translate transcription to English (uses Whisper large-v3 model). |
 | `se` | (flag) | Apply speech enhancement before transcription (denoise/dereverb input first). |
 | `overdose` | (flag) | Use VibeVoice ASR (requires 24GB+ VRAM or 48GB+ RAM). Falls back to Whisper + pyannote if unavailable. |
-| `transcribe` | (flag) | Burn VibeVoice ASR subtitles onto video (implies `overdose`; video/URL only; no `translate`). |
+| `subtitle` | (flag) | Burn VibeVoice ASR subtitles onto video (implies `overdose`; video/URL only; no `translate`). |
 | `result` | `"<path>"` | Copy output to custom path. |
 
 ### Rules
 
 - `overdose` cannot be combined with `translate`.
-- `transcribe` implies `overdose`, cannot combine with `translate`, and only accepts video files/URLs.
+- `subtitle` implies `overdose`, cannot combine with `translate`, and only accepts video files/URLs.
 - Multiple files are processed sequentially.
 - Output is saved as `.txt` in the `results/` directory.
 - **Pipeline:** SVS voice isolation is always applied before transcription. With `se`, speech enhancement runs first.
@@ -1185,14 +1185,14 @@ python voder.py stt "audio.wav" translate timestamp dialogue
 # From YouTube
 python voder.py stt "https://youtube.com/watch?v=..."
 
-# Transcribe sub-task: burn subtitles onto video
-python voder.py stt transcribe "video.mp4"
+# Subtitle sub-task: burn subtitles onto video
+python voder.py stt subtitle "video.mp4"
 
-# Transcribe with speech enhancement
-python voder.py stt transcribe se "noisy_video.mp4"
+# Subtitle with speech enhancement
+python voder.py stt subtitle se "noisy_video.mp4"
 
-# Transcribe from YouTube URL
-python voder.py stt transcribe "https://youtube.com/watch?v=..."
+# Subtitle from YouTube URL
+python voder.py stt subtitle "https://youtube.com/watch?v=..."
 ```
 
 ---

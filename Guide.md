@@ -299,10 +299,10 @@ This is VODER's first mode that doesn't produce audio output — its output is a
 3. **Transcription**: Whisper Turbo loads the audio and produces a transcript with word‑level timestamps
 4. **Translation** (optional): When the `translate` flag is set, Whisper large‑v3 translates the audio to English with word‑level timestamps. This supports all 99 languages that Whisper large‑v3 handles.
 5. **Overdose Mode** (optional): When the `overdose` flag is set, VibeVoice ASR replaces Whisper for transcription. VibeVoice provides higher‑quality speaker‑aware transcription with built‑in speaker identification, but requires 24GB+ VRAM or 48GB+ combined system memory. Overdose cannot be used with translate (ASR does not support translation).
-6. **Transcribe Sub‑Task** (optional): When the `transcribe` keyword is used, VODER transcribes the video's speech using VibeVoice ASR (overdose is implied) and burns the resulting subtitles directly onto the video as ASS‑format overlays. Only video files and URLs are accepted — audio, text, and image files are rejected. Overlapping speech from different speakers is shown on a second line beneath the primary speaker in a different color (cyan). Subtitles are dynamically positioned at the bottom of the frame at a consistent visual position regardless of the video resolution. The pipeline runs SVS voice isolation and optional speech enhancement (`se`) before transcription. The output is a new MP4 video file with burned‑in subtitles.
+6. **Subtitle Sub‑Task** (optional): When the `subtitle` keyword is used, VODER transcribes the video's speech using VibeVoice ASR (overdose is implied) and burns the resulting subtitles directly onto the video as ASS‑format overlays. Only video files and URLs are accepted — audio, text, and image files are rejected. Overlapping speech from different speakers is shown on a second line beneath the primary speaker in a different color (cyan). Subtitles are dynamically positioned at the bottom of the frame at a consistent visual position regardless of the video resolution. The pipeline runs SVS voice isolation and optional speech enhancement (`se`) before transcription. The output is a new MP4 video file with burned‑in subtitles.
 7. **Optional Timestamps**: The `timestamp` flag adds formatted timestamps to the output
 8. **Optional Diarization**: The `dialogue` flag runs Pyannote speaker diarization and attributes each segment to a speaker
-9. **Output**: Results are saved as `.txt` files in the `results/` directory (or `.mp4` for transcribe)
+9. **Output**: Results are saved as `.txt` files in the `results/` directory (or `.mp4` for subtitle)
 
 **Dual-Model Architecture:**
 
@@ -313,7 +313,7 @@ STT mode uses a dual‑model architecture for flexibility:
 | Standard transcription | Whisper large-v3-turbo | Fast, accurate transcription with timestamps |
 | Translation | Whisper large-v3 | High‑quality translation from 99 languages to English |
 | Overdose transcription | VibeVoice ASR | Maximum quality with built‑in speaker identification |
-| Transcribe sub‑task | VibeVoice ASR + FFmpeg | Video transcription with burned‑in subtitles |
+| Subtitle sub‑task | VibeVoice ASR + FFmpeg | Video transcription with burned‑in subtitles |
 
 When translation is requested, the large‑v3 model is loaded alongside or instead of the turbo model. When overdose is requested, VibeVoice ASR entirely replaces the Whisper pipeline. This architecture ensures each task uses the model best suited to it.
 
@@ -331,7 +331,7 @@ STT mode supports processing multiple files in a single command. When you provid
 | Audio with diarization | `voder_stt_podcast_dialogue.txt` |
 | Audio with translate + dialogue | `voder_stt_podcast_translate_dialogue.txt` |
 | Audio with all flags | `voder_stt_podcast_timestamp_translate_dialogue.txt` |
-| Video with transcribe | `voder_stt_transcribe_podcast.mp4` |
+| Video with subtitle | `voder_stt_subtitle_podcast.mp4` |
 | YouTube URL | `voder_stt_<video_id>.txt` |
 | Image file (`slide.png`) | `voder_stt_slide.txt` |
 
@@ -361,14 +361,14 @@ python src/voder.py stt "audio.wav" translate dialogue
 # With overdose mode (higher quality, requires more VRAM)
 python src/voder.py stt "audio.wav" overdose
 
-# Transcribe sub-task: burn subtitles onto a video
-python src/voder.py stt transcribe "video.mp4"
+# Subtitle sub-task: burn subtitles onto a video
+python src/voder.py stt subtitle "video.mp4"
 
-# Transcribe with speech enhancement
-python src/voder.py stt transcribe se "video.mp4"
+# Subtitle with speech enhancement
+python src/voder.py stt subtitle se "video.mp4"
 
-# Transcribe a YouTube video with subtitles
-python src/voder.py stt transcribe "https://www.youtube.com/watch?v=VIDEO_ID"
+# Subtitle a YouTube video
+python src/voder.py stt subtitle "https://www.youtube.com/watch?v=VIDEO_ID"
 
 # Transcribe a YouTube video
 python src/voder.py stt "https://www.youtube.com/watch?v=VIDEO_ID" timestamp dialogue
@@ -397,7 +397,7 @@ The dual‑model approach exists because Whisper Turbo and Whisper large‑v3 se
 - Transcribing songs with vocal isolation (SVS pre‑cleanup)
 - Translating foreign language content to English
 - Maximum quality transcription with Overdose mode
-- Burning subtitles onto videos with the transcribe sub‑task
+- Burning subtitles onto videos with the subtitle sub‑task
 
 **Technical Notes:**
 
@@ -2544,22 +2544,22 @@ python src/voder.py stt "audio.wav" overdose
 
 Note: Overdose cannot be combined with the `translate` flag, as VibeVoice ASR does not support translation.
 
-### Transcribe STT Trick
+### Subtitle STT Trick
 
-The `transcribe` keyword is a sub‑task within STT that goes beyond plain text output — it burns the transcription directly onto the video as subtitles. It implies `overdose` (uses VibeVoice ASR for the best transcription quality) and only accepts video files or URLs. Overlapping speech is automatically detected and rendered on a second line beneath the primary speaker in cyan, making it easy to follow multi‑speaker conversations. Subtitles are dynamically scaled and positioned at the bottom of the frame regardless of resolution.
+The `subtitle` keyword is a sub‑task within STT that goes beyond plain text output — it burns the transcription directly onto the video as subtitles. It implies `overdose` (uses VibeVoice ASR for the best transcription quality) and only accepts video files or URLs. Overlapping speech is automatically detected and rendered on a second line beneath the primary speaker in cyan, making it easy to follow multi‑speaker conversations. Subtitles are dynamically scaled and positioned at the bottom of the frame regardless of resolution.
 
 ```bash
 # Burn subtitles onto a local video
-python src/voder.py stt transcribe "movie_clip.mp4"
+python src/voder.py stt subtitle "movie_clip.mp4"
 
 # With speech enhancement for noisy videos
-python src/voder.py stt transcribe se "noisy_interview.mp4"
+python src/voder.py stt subtitle se "noisy_interview.mp4"
 
 # Burn subtitles onto a YouTube video
-python src/voder.py stt transcribe "https://www.youtube.com/watch?v=VIDEO_ID"
+python src/voder.py stt subtitle "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
-Note: `transcribe` cannot be used with `translate` or with audio/text/image files. It only produces video output (MP4 with burned‑in subtitles).
+Note: `subtitle` cannot be used with `translate` or with audio/text/image files. It only produces video output (MP4 with burned‑in subtitles).
 
 ### Extreme TTS Trick
 

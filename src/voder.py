@@ -5413,7 +5413,7 @@ def parse_oneline_args(args):
         while i < len(args):
             arg = args[i]
             arg_lower = arg.lower()
-            if arg_lower in ['timestamp', 'dialogue', 'translate', 'se', 'overdose', 'transcribe']:
+            if arg_lower in ['timestamp', 'dialogue', 'translate', 'se', 'overdose', 'subtitle']:
                 result['params'][arg_lower] = True
                 i += 1
             elif arg_lower == 'result':
@@ -5434,13 +5434,13 @@ def parse_oneline_args(args):
             result['error'] = 'STT mode requires at least one audio/video file path'
             return result
 
-        if result['params'].get('transcribe'):
+        if result['params'].get('subtitle'):
             result['params']['overdose'] = True
         if result['params'].get('overdose') and result['params'].get('translate'):
             result['error'] = 'STT overdose cannot be used with translate (ASR does not support translation)'
             return result
-        if result['params'].get('transcribe') and result['params'].get('translate'):
-            result['error'] = 'STT transcribe cannot be used with translate'
+        if result['params'].get('subtitle') and result['params'].get('translate'):
+            result['error'] = 'STT subtitle cannot be used with translate'
             return result
 
         result['params']['files'] = file_paths
@@ -6333,9 +6333,9 @@ def show_oneline_usage():
     print('  python voder.py stt "audio.wav" translate dialogue')
     print('  python voder.py stt "audio.wav" translate timestamp dialogue')
     print('  python voder.py stt "https://youtube.com/watch?v=..."')
-    print('  python voder.py stt transcribe "video.mp4"')
-    print('  python voder.py stt transcribe se "noisy_video.mp4"')
-    print('  python voder.py stt transcribe "https://youtube.com/watch?v=..."')
+    print('  python voder.py stt subtitle "video.mp4"')
+    print('  python voder.py stt subtitle se "noisy_video.mp4"')
+    print('  python voder.py stt subtitle "https://youtube.com/watch?v=..."')
     print()
     print("SE examples (Speech Enhancement):")
     print('  python voder.py se "path/to/audio.wav"')
@@ -6513,8 +6513,8 @@ def execute_oneline_command(parsed):
         else:
             success = oneline_ttm(params)
     elif mode == 'stt':
-        if params.get('transcribe'):
-            success = oneline_stt_transcribe(params)
+        if params.get('subtitle'):
+            success = oneline_stt_subtitle(params)
         else:
             success = oneline_stt(params)
     elif mode == 'se':
@@ -10709,7 +10709,7 @@ def _burn_subtitles_on_video(video_path, segments, output_path):
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-def oneline_stt_transcribe(params):
+def oneline_stt_subtitle(params):
     original_cwd = os.getcwd()
     results_dir = os.path.join(original_cwd, "results")
     os.makedirs(results_dir, exist_ok=True)
@@ -10718,7 +10718,7 @@ def oneline_stt_transcribe(params):
     use_se = params.get('se', False)
 
     if not files:
-        print("Error: STT transcribe requires a video file path or URL")
+        print("Error: STT subtitle requires a video file path or URL")
         return False
 
     for file_path in files:
@@ -10735,7 +10735,7 @@ def oneline_stt_transcribe(params):
         ext = os.path.splitext(file_path)[1].lower() if not is_url else ""
 
         if not is_url and ext not in VIDEO_EXTENSIONS:
-            print(f"Error: STT transcribe only accepts video files and URLs. Got: {ext if ext else 'non-video file'}")
+            print(f"Error: STT subtitle only accepts video files and URLs. Got: {ext if ext else 'non-video file'}")
             continue
 
         video_path = None
@@ -10770,7 +10770,7 @@ def oneline_stt_transcribe(params):
                     continue
                 audio_path = extracted_audio
             else:
-                print("Error: STT transcribe only accepts video files and URLs")
+                print("Error: STT subtitle only accepts video files and URLs")
                 continue
 
             bs_roformer_lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bs_roformer', 'lib')
@@ -10842,7 +10842,7 @@ def oneline_stt_transcribe(params):
             asr = VibeVoiceASR()
             asr.ensure_model()
             if asr.model is None:
-                print("Error: VibeVoice ASR failed to load. Transcribe requires VibeVoice (24GB+ VRAM or 48GB+ RAM)")
+                print("Error: VibeVoice ASR failed to load. Subtitle requires VibeVoice (24GB+ VRAM or 48GB+ RAM)")
                 asr.cleanup()
                 del asr
                 gc.collect()
@@ -10865,11 +10865,11 @@ def oneline_stt_transcribe(params):
 
             timestamp_str = time.strftime("%Y%m%d_%H%M%S")
             if is_url:
-                base_name = "youtube_transcribe"
+                base_name = "youtube_subtitle"
             else:
                 base_name = os.path.splitext(os.path.basename(file_path))[0]
 
-            output_filename = f"voder_stt_transcribe_{timestamp_str}_{base_name}.mp4"
+            output_filename = f"voder_stt_subtitle_{timestamp_str}_{base_name}.mp4"
             output_path = os.path.join(results_dir, output_filename)
 
             burn_ok = _burn_subtitles_on_video(video_path, asr_segments, output_path)
