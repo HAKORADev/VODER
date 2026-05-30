@@ -197,7 +197,7 @@ VODER uses hardcoded default models. This isn't an accident or a limitation — 
 
 ### The Quality Imperative
 
-The models VODER uses were selected because they represent the best available quality in their respective categories. Qwen3‑TTS for text‑to‑speech, Seed‑VC v2 for voice conversion, ACE‑Step for music generation, Whisper for speech‑to‑text, TranslateGemma 12B for any-to-any translation, Pyannote for speaker diarization, EasyOCR for image text extraction, UniSE for speech enhancement, TangoFlux for sound effects, BS‑RoFormer Resurrection for voice separation, VibeVoice ASR for advanced transcription with speaker identification, ACE‑Step XL‑Turbo for enhanced music generation — these aren't arbitrary choices. They're the result of evaluating multiple alternatives and selecting the ones that produce the best results.
+The models VODER uses were selected because they represent the best available quality in their respective categories. Qwen3‑TTS for text‑to‑speech, Seed‑VC v2 for voice conversion, ACE‑Step for music generation, Whisper for speech‑to‑text, TranslateGemma 12B for any-to-any translation across 76 languages (used in dub with per‑segment timing context, defaulting to auto→English), Pyannote for speaker diarization, EasyOCR for image text extraction, UniSE for speech enhancement, TangoFlux for sound effects, BS‑RoFormer Resurrection for voice separation, VibeVoice ASR for advanced transcription with speaker identification, ACE‑Step XL‑Turbo for enhanced music generation — these aren't arbitrary choices. They're the result of evaluating multiple alternatives and selecting the ones that produce the best results.
 
 Smaller models exist. Quantized variants exist. "Fast" versions exist. We deliberately don't use them because they produce noticeably worse output. A smaller TTS model sounds less natural, has more artifacts, and fails on complex text. A quantized voice conversion model loses the subtle characteristics that make voice cloning convincing. Using degraded models would undermine the entire purpose of having VODER exist.
 
@@ -299,8 +299,8 @@ This is VODER's first mode that doesn't produce audio output — its output is a
    - **YouTube/URLs** — audio is downloaded via yt-dlp before transcription
 2. **SVS Pre‑Cleanup** (optional): If enabled, BS‑RoFormer isolates the vocal track from music and background noise before transcription. This significantly improves transcription accuracy for songs or recordings with musical accompaniment.
 3. **Transcription**: Whisper Turbo loads the audio and produces a transcript with word‑level timestamps
-4. **Translation** (optional): When the `translate` flag is set, Whisper large‑v3 translates the audio to English with word‑level timestamps. This supports all 99 languages that Whisper large‑v3 handles. When the `translate (source-target)` syntax is used, TranslateGemma 12B performs any-to-any translation across 55 languages instead of Whisper's any-to-English limitation. Use `auto` for source language auto-detection (e.g., `translate (auto-ar)` to auto-detect source and translate to Arabic). The bare `translate` flag (without parentheses) is backward compatible and still uses Whisper.
-5. **Overdose Mode** (optional): When the `overdose` flag is set, VibeVoice ASR replaces Whisper for transcription. VibeVoice provides higher‑quality speaker‑aware transcription with built‑in speaker identification, but requires 24GB+ VRAM or 48GB+ combined system memory. The bare `translate` flag is incompatible with `overdose` (Whisper's built-in translation conflicts with VibeVoice ASR). However, `translate (source-target)` is compatible with `overdose` — TranslateGemma runs after VibeVoice ASR transcription, allowing overdose-quality transcription with any-to-any translation.
+4. **Translation** (optional): When the `translate` flag is set, Whisper large‑v3 translates the audio to English with word‑level timestamps. This supports all 99 languages that Whisper large‑v3 handles. When the `translate (source-target)` syntax is used, TranslateGemma 12B performs any-to-any translation across 76 languages instead of Whisper's any-to-English limitation. Use `auto` for source language auto-detection (e.g., `translate (auto-ar)` to auto-detect source and translate to Arabic). The bare `translate` flag (without parentheses) is backward compatible and still uses Whisper.
+5. **Overdose Mode** (optional): When the `overdose` flag is set, VibeVoice ASR replaces Whisper for transcription. VibeVoice provides higher‑quality speaker‑aware transcription with built‑in speaker identification, but requires 24GB+ VRAM or 48GB+ combined system memory. VibeVoice ASR exposes two methods: `transcribe()` for standard transcription and `transcribe_with_events()` for event‑aware transcription that also captures silence, music, and noise markers alongside speech segments (used by the dub pipeline). The bare `translate` flag is incompatible with `overdose` (Whisper's built-in translation conflicts with VibeVoice ASR). However, `translate (source-target)` is compatible with `overdose` — TranslateGemma runs after VibeVoice ASR transcription, allowing overdose-quality transcription with any-to-any translation.
 6. **Subtitle Sub‑Task** (optional): When the `subtitle` keyword is used, VODER transcribes the video's speech using VibeVoice ASR (overdose is implied) and burns the resulting subtitles directly onto the video as ASS‑format overlays. Only video files and URLs are accepted — audio, text, and image files are rejected. Overlapping speech from different speakers is shown on a second line beneath the primary speaker in a different color (cyan). Subtitles are dynamically positioned at the bottom of the frame at a consistent visual position regardless of the video resolution. The pipeline runs SVS voice isolation and optional speech enhancement (`se`) before transcription. The output is a new MP4 video file with burned‑in subtitles.
 7. **Optional Timestamps**: The `timestamp` flag adds formatted timestamps to the output
 8. **Optional Diarization**: The `dialogue` flag runs Pyannote speaker diarization and attributes each segment to a speaker
@@ -314,7 +314,7 @@ STT mode uses a dual‑model architecture for flexibility:
 |------|-------|---------|
 | Standard transcription | Whisper large-v3-turbo | Fast, accurate transcription with timestamps |
 | Translation (to English) | Whisper large-v3 | High‑quality translation from 99 languages to English |
-| Translation (any-to-any) | TranslateGemma 12B | Any-to-any translation across 55 languages via `translate (source-target)` syntax |
+| Translation (any-to-any) | TranslateGemma 12B | Any-to-any translation across 76 languages via `translate (source-target)` syntax |
 | Overdose transcription | VibeVoice ASR | Maximum quality with built‑in speaker identification |
 | Subtitle sub‑task | VibeVoice ASR + FFmpeg | Video transcription with burned‑in subtitles |
 
@@ -636,7 +636,7 @@ This is useful for converting screenshots of scripts, slides, or documents into 
 
 **What It Does:**
 
-SLC (Speaker Language Conversion) translates speech from any language to English while preserving the original speaker's voice identity. It is now a TTS oneline sub‑task, invoked with `tts slc`. Translation to English is performed by default using Whisper large-v3 (not turbo). SLC also supports any-to-any translation via the `translate (source-target)` syntax, which uses TranslateGemma 12B to translate to any of 55 supported languages instead of only English. SLC supports video and YouTube URLs as source input, runs SVS voice isolation on the source audio before transcription, and can optionally preserve non-vocals using the `music` flag.
+SLC (Speaker Language Conversion) translates speech from any language to English while preserving the original speaker's voice identity. It is now a TTS oneline sub‑task, invoked with `tts slc`. Translation to English is performed by default using Whisper large-v3 (not turbo). SLC also supports any-to-any translation via the `translate (source-target)` syntax, which uses TranslateGemma 12B to translate to any of 76 supported languages instead of only English. SLC supports video and YouTube URLs as source input, runs SVS voice isolation on the source audio before transcription, and can optionally preserve non-vocals using the `music` flag.
 
 **How It Works:**
 
@@ -679,7 +679,7 @@ python src/voder.py tts slc translate (ja-en) "japanese_speech.wav"
 
 **Why It's Like That:**
 
-SLC exists because traditional voice conversion (STS) doesn't change language — it changes voice. Traditional TTS doesn't preserve voice — it generates new speech. SLC bridges this gap by decomposing the problem: first understand what was said (transcription + translation), then say it with the same voice (resynthesis). This approach is more flexible than trying to do both simultaneously in a single model, and it produces higher quality results because each stage can use the best available model for its specific task. By default, SLC targets English using Whisper's translation capability. With the `translate (source-target)` syntax, TranslateGemma 12B enables any-to-any translation across 55 languages, removing the English-only limitation. SLC is now a TTS sub‑task rather than a standalone mode because its pipeline is fundamentally a TTS operation with STT front‑end — it generates speech from text, which is the core definition of TTS.
+SLC exists because traditional voice conversion (STS) doesn't change language — it changes voice. Traditional TTS doesn't preserve voice — it generates new speech. SLC bridges this gap by decomposing the problem: first understand what was said (transcription + translation), then say it with the same voice (resynthesis). This approach is more flexible than trying to do both simultaneously in a single model, and it produces higher quality results because each stage can use the best available model for its specific task. By default, SLC targets English using Whisper's translation capability. With the `translate (source-target)` syntax, TranslateGemma 12B enables any-to-any translation across 76 languages, removing the English-only limitation. SLC is now a TTS sub‑task rather than a standalone mode because its pipeline is fundamentally a TTS operation with STT front‑end — it generates speech from text, which is the core definition of TTS.
 
 **Best For:**
 
@@ -697,7 +697,7 @@ SLC exists because traditional voice conversion (STS) doesn't change language �
 |-------|----------|
 | Input (Whisper large-v3 transcription) | 99 languages |
 | Translation target (default, Whisper) | English only |
-| Translation target (TranslateGemma 12B, via `translate (source-target)`) | 55 languages |
+| Translation target (TranslateGemma 12B, via `translate (source-target)`) | 76 languages |
 | Output | English (default) or any TranslateGemma-supported target language |
 
 **CLI Usage:**
@@ -742,49 +742,88 @@ SLC works on CPU without GPU acceleration. The pipeline is sequential: SVS voice
 
 **What It Does:**
 
-TTS Dub is a TTS sub‑task that dubs video or audio content by transcribing speech, optionally translating it, and re‑synthesizing with voice cloning from the original speakers. It preserves the original speakers' voices, adjusts speech timing to match original segment durations, and maintains the music/instrumental track. For video input, the dubbed audio is muxed back with the original video.
+TTS Dub is a TTS sub‑task that dubs video or audio content by transcribing speech, optionally translating it, and re‑synthesizing with voice cloning from the original speakers. It uses a per‑segment pipeline with timeline‑based assembly to preserve audio events (silence, music, noise) and maintain accurate timing. The `dub` keyword auto‑implies `overdose` (VibeVoice ASR) and `extreme` (Fish S2 Pro) for maximum quality. The dub pipeline defaults to auto→English translation, so no `translate` keyword is needed for the common case of translating from any language to English. For video input, the dubbed audio is muxed back with the original video. Optional speech enhancement via the `se` keyword cleans the audio before ASR. Subtitles can be burned onto the output video via `subtitle`, and `subtitle (source-target)` enables an independent subtitle translation pass separate from the dub audio language.
 
 **How It Works:**
 
 1. **Download/Extract**: If a URL is provided, the video is downloaded. If a video file is provided, the audio track is extracted via FFmpeg.
 2. **SVS Voice + Music Separation**: BS‑RoFormer separates the source into voice and music stems. The voice stem is used for transcription; the music stem is preserved for later mixing.
-3. **VibeVoice ASR**: Transcribes the voice stem with speaker diarization, producing per‑speaker timestamped segments. VibeVoice ASR is always used for dub (overdose is implied).
-4. **Speaker Detection**: Each detected speaker's audio segments are extracted for voice cloning reference.
-5. **TranslateGemma Translation** (optional): When `translate (source-target)` is specified, TranslateGemma 12B translates each speaker's transcript to the target language. Without translation, the original transcript is used.
-6. **Fish S2 Pro TTS**: Each speaker's text is synthesized using Fish S2 Pro with voice cloning from that speaker's extracted audio reference. This preserves each speaker's voice identity in the dubbed output. VibeVoice ASR and Fish S2 Pro are loaded separately (never simultaneously) to stay within 24GB VRAM.
-7. **Speed Adjustment**: Per‑speaker dubbed audio is speed‑adjusted to match the original segment timing. If the dubbed speech is longer or shorter than the original segment, the audio is stretched or compressed accordingly.
-8. **Mix with Instrumentals**: The dubbed voice is mixed with the extracted instrumental track at the original music level.
-9. **Mux with Video** (video input only): The final audio is muxed with the original video via FFmpeg. If `subtitle` is specified, translated subtitles are burned onto the video.
+3. **Speech Enhancement** (optional, `se` keyword): If enabled, UniSE applies speech enhancement (denoising/dereverberation) to the voice stem before ASR. This improves transcription accuracy for noisy or reverberant input.
+4. **VibeVoice ASR with Events**: Transcribes the voice stem using `transcribe_with_events()` instead of `transcribe()`. This preserves audio events (silence, music, noise) alongside speech segments, producing per‑segment timestamped output with event markers. VibeVoice ASR is always used for dub (overdose is implied). Audio events are never translated — only speech segments are processed.
+5. **Speaker Detection**: Each detected speaker's audio segments are extracted for voice cloning reference.
+6. **TranslateGemma Translation**: TranslateGemma 12B is loaded once and handles all translation needs for the entire pipeline, then unloads once. By default, dub uses auto→English translation (source auto‑detected, target English) without needing the `translate` keyword. When `translate (source-target)` is specified, it overrides the default target language. When `subtitle (source-target)` is specified, TranslateGemma also performs an independent subtitle translation pass (separate from the dub audio language). TranslateGemma operates with per‑segment timing context, allowing it to consider duration constraints when producing translations.
+7. **Fish S2 Pro TTS (Per‑Segment)**: Each segment's text is synthesized individually using Fish S2 Pro with voice cloning from that speaker's extracted audio reference. Per‑segment synthesis (rather than per‑speaker) provides better timing control because each segment's TTS output can be independently adjusted. VibeVoice ASR and Fish S2 Pro are loaded separately (never simultaneously) to stay within 24GB VRAM.
+8. **Per‑Segment Speed Adjustment**: Each segment's dubbed audio is speed‑adjusted independently to match its original segment timing. The speed adjustment thresholds are 1.5 (maximum speed‑up) and 0.5 (maximum slow‑down), allowing more aggressive time compression or expansion than the previous 1.3/0.7 thresholds. Segments that cannot fit within the threshold are left at their natural duration.
+9. **Timeline‑Based Assembly**: Instead of simple concatenation, a silent base track matching the original audio duration is created. Each speed‑adjusted dubbed segment is overlaid at its original timeline position on the silent base. Audio events (silence gaps, music sections, noise) occupy their original positions naturally because they are part of the base timeline structure. This preserves the original pacing and event layout far more accurately than concatenation.
+10. **Mix with Instrumentals**: The assembled dubbed voice is mixed with the extracted instrumental track at the original music level.
+11. **Mux with Video** (video input only): The final audio is muxed with the original video via FFmpeg. If `subtitle` is specified, subtitles are burned onto the video. By default, subtitles use the same text as the dubbed audio. When `subtitle (source-target)` is specified, an independent translation is performed for the subtitles, allowing them to differ from the dub audio language (e.g., dub in Japanese, subtitles in English).
+
+**Canonical Command Form:**
+
+```
+python src/voder.py tts overdose extreme se dub subtitle (auto-en) translate (auto-ja) video "path"
+```
+
+`overdose` and `extreme` are auto‑implied by `dub` but recommended to include in documentation for clarity. Commands work with or without them.
+
+**Keyword Reference:**
+
+| Keyword | Description |
+|---------|-------------|
+| `dub` | Invoke dub sub‑task (auto‑implies `extreme`/Fish S2 Pro) |
+| `translate (source-target)` | Override target language via TranslateGemma (76 languages). Defaults to auto→English |
+| `subtitle` | Burn subtitles onto output video. Uses dubbed audio text by default |
+| `subtitle (source-target)` | Burn independently translated subtitles onto output video (separate from dub audio language) |
+| `se` | Enable speech enhancement before ASR (optional) |
+| `video "path"` | Specify input video path |
+| `overdose` | Auto‑implied by `dub` but can be specified for clarity |
+| `extreme` | Auto‑implied by `dub` but can be specified for clarity |
+| `result "path"` | Custom output path |
 
 **Commands:**
 
 ```bash
-# Basic dub (same language, voice cloning from source)
+# Basic dub (defaults to auto->English translation with voice cloning from source)
 python src/voder.py tts dub "video.mp4"
 
-# Dub with subtitle burning
+# Dub with subtitle burning (subtitles use dubbed audio text)
 python src/voder.py tts dub subtitle "video.mp4"
 
-# Dub with translation to Arabic
+# Dub with translation to Arabic instead of English
 python src/voder.py tts dub translate (auto-ar) "video.mp4"
 
 # Dub with translation and subtitles
 python src/voder.py tts dub translate (auto-ar) subtitle "video.mp4"
+
+# Dub with independent subtitle translation to English and dub audio to Japanese
+python src/voder.py tts dub subtitle (auto-en) translate (auto-ja) "video.mp4"
+
+# Full canonical form with speech enhancement, translate, and subtitles
+python src/voder.py tts overdose extreme se dub translate (auto-ar) subtitle "video.mp4"
 
 # Dub audio file (output is WAV, not MP4)
 python src/voder.py tts dub "audio.wav"
 
 # Dub with translation from specific source language
 python src/voder.py tts dub translate (ja-en) "japanese_video.mp4"
+
+# Dub with auto->French translation
+python src/voder.py tts dub translate (auto-fr) "video.mp4"
 ```
 
 **Features:**
 
 - Voice cloning from source: Each speaker's voice is preserved by cloning from their original audio segments
-- Per‑speaker speed adjustment: Dubbed audio is time‑aligned to match original segment durations
+- Per‑segment speed adjustment: Each segment's dubbed audio is independently time‑aligned to match its original duration (threshold: 1.5/0.5)
+- Timeline‑based assembly: Segments are overlaid at original positions on a silent base, preserving audio events and original pacing
+- Audio event preservation: Silence, music, and noise events from `transcribe_with_events()` are kept in their original positions and never translated
 - Music track preservation: The instrumental track from SVS separation is mixed back with the dubbed voice
-- Optional subtitle burning: When `subtitle` is specified, translated subtitles are burned onto the output video
-- Any-to-any translation: When `translate (source-target)` is used, TranslateGemma 12B translates across 55 languages
+- Optional subtitle burning: When `subtitle` is specified, subtitles are burned onto the output video; by default subtitles use the same text as the dubbed audio
+- Independent subtitle translation: `subtitle (source-target)` performs a separate translation pass for subtitles, allowing subtitle language to differ from dub audio language (e.g., dub in Japanese, subtitles in English)
+- Optional speech enhancement: The `se` keyword enables UniSE speech enhancement (denoising/dereverberation) before ASR for improved transcription on noisy input
+- Default auto→English translation: Dub translates to English by default; no `translate` keyword needed for the common case
+- Any-to-any translation: When `translate (source-target)` is used, TranslateGemma 12B translates across 76 languages; use `auto` for source auto‑detection (e.g., `translate (auto-ar)`, `translate (auto-en)`)
+- Smart TranslateGemma lifecycle: TranslateGemma loads once, handles both dub audio translation AND subtitle translation (if needed), then unloads once — avoiding redundant model loads
 
 **Requirements:**
 
@@ -2570,7 +2609,7 @@ If you use the **same input file** for both dialogue source and auto-clone, the 
 
 ### SLC Tricks: Music Preservation & Voice Fidelity
 
-SLC (now a TTS sub‑task: `tts slc`) always translates to English. Two powerful but non‑obvious tricks:
+SLC (now a TTS sub‑task: `tts slc`) always translates to English by default. Use `translate (source-target)` syntax (e.g., `translate (auto-ar)`, `translate (ja-en)`) to translate to any of 76 languages instead. Two powerful but non‑obvious tricks:
 
 **Trick 1: Music Preservation (`music` flag):**
 
@@ -2630,7 +2669,12 @@ python src/voder.py stt "audio.wav" dialogue
 python src/voder.py stt "audio.wav" overdose
 ```
 
-Note: Overdose cannot be combined with the `translate` flag, as VibeVoice ASR does not support translation.
+Note: Overdose cannot be combined with the bare `translate` flag, as VibeVoice ASR does not support Whisper-style translation. However, `translate (source-target)` is compatible with overdose — TranslateGemma 12B handles translation after VibeVoice ASR transcription.
+
+```bash
+# Overdose + any-to-any translation (compatible)
+python src/voder.py stt "audio.wav" overdose translate (auto-fr)
+```
 
 ### Subtitle STT Trick
 
@@ -2897,7 +2941,7 @@ python src/voder.py ttm lego source "drums_only.wav" make "bass guitar" styling 
 **Issue: Overdose mode fails to load**
 - Solution: Ensure you have 24GB+ VRAM or 48GB+ combined system memory
 - Solution: VODER automatically falls back to standard mode if resources are insufficient
-- Solution: Overdose cannot be used with translate flag
+- Solution: Overdose cannot be used with bare `translate` flag; use `translate (source-target)` instead (e.g., `translate (auto-en)`)
 
 **Issue: Translation produces poor results**
 - Solution: Ensure audio has clear speech (use SVS pre-cleanup for songs)
@@ -2974,7 +3018,7 @@ python src/voder.py ttm lego source "drums_only.wav" make "bass guitar" styling 
 
 ### SLC Issues
 
-Note: SLC is now a TTS sub‑task (`tts slc`), not a standalone mode. SLC always translates to English using Whisper large-v3. These issues apply to the SLC sub‑task within TTS.
+Note: SLC is now a TTS sub‑task (`tts slc`), not a standalone mode. SLC defaults to translating to English using Whisper large-v3. Use `translate (source-target)` syntax for any-to-any translation across 76 languages.
 
 **Issue: Output doesn't sound like the original speaker**
 - Solution: Ensure the source audio is clean and contains sufficient speech (10+ seconds)

@@ -19,7 +19,8 @@ VODER is not an English‑only tool. The AI models it orchestrates collectively 
 | **Seed‑VC v1** | MSTS | Any | N/A | Language‑agnostic (audio waveforms) |
 | **UniSE** | SE | Any | N/A | Language‑agnostic (audio waveforms) |
 | **Pyannote** | Diarization | Any | N/A | Language‑agnostic (voice embeddings) |
-| **VibeVoice ASR** | STT (overdose), SS | 53 | Yes | Native speaker diarization; 24GB+ VRAM or 48GB+ RAM required; does not support translation |
+| **VibeVoice ASR** | STT (overdose), SS, TTS (dub) | 53 | Yes | Native speaker diarization; 24GB+ VRAM or 48GB+ RAM required; audio events preserved for dub pipeline |
+| **TranslateGemma 12B** | STT (translate), TTS (SLC translate, dub), STT (subtitle translate) | 76 | Yes | Any-to-any translation; decoupled from ASR; 24GB+ VRAM recommended; auto-detects source language with `auto` |
 
 ---
 
@@ -101,9 +102,69 @@ Mongolian         Armenian           Javanese
 **Technical notes:**
 - VibeVoice ASR provides **native speaker diarization** — it identifies and labels individual speakers as part of the transcription process without needing a separate diarization model like Pyannote.
 - Requires 24GB+ VRAM or 48GB+ system memory. If insufficient resources are detected, SS mode falls back to Whisper + Pyannote speaker diarization.
-- Does **not** support translation to English. For translation, use standard STT mode with Whisper (`translate` flag).
+- Does **not** support translation to English. For translation, use standard STT mode with Whisper (`translate` flag) or TranslateGemma (`translate (source-target)` syntax).
 - The `overdose` flag in STT mode switches the transcription pipeline from Whisper to VibeVoice ASR. When `overdose` is active, the `dialogue` flag is redundant and ignored since VibeVoice handles speaker identification natively.
 - In SS mode, VibeVoice ASR is the primary model used for speaker identification and segmentation. Each identified speaker's audio is extracted into a separate file, and a speaker-labeled transcript is produced.
+- In the TTS dub pipeline, VibeVoice ASR uses the `transcribe_with_events()` method which preserves audio event tags (`[Silence]`, `[Lyric]`, `[Music]`, `[Noise]`, etc.) alongside speech segments. Audio events are used to identify non-speech portions of the audio that should not be translated or dubbed — these segments are left as silence or original audio in the dubbed output.
+
+---
+
+## TranslateGemma 12B — Any-to-Any Translation
+
+**Model:** `google/translategemma-12b-it` (12B parameters)
+**Modes:** STT (with `translate (source-target)` syntax), TTS (SLC with translate, dub), STT (subtitle with translate)
+**Language handling:** Accepts explicit source and target language codes. Supports `auto` as source language for auto-detection (VibeVoice ASR or Whisper detects the source language, then TranslateGemma translates). TranslateGemma is decoupled from the ASR engine — it receives text from either VibeVoice ASR or Whisper and translates it independently.
+
+**Supported languages (76 total):**
+
+```
+af  Afrikaans      am  Amharic        ar  Arabic         az  Azerbaijani
+be  Belarusian     bg  Bulgarian      bn  Bengali        bs  Bosnian
+ca  Catalan        cs  Czech          cy  Welsh          da  Danish
+de  German         el  Greek          en  English        es  Spanish
+et  Estonian       eu  Basque         fa  Persian        fi  Finnish
+fr  French         ga  Irish          gl  Galician       gu  Gujarati
+ha  Hausa          he  Hebrew         hi  Hindi          hr  Croatian
+hu  Hungarian      id  Indonesian     is  Icelandic      it  Italian
+ja  Japanese       jv  Javanese       ka  Georgian       kk  Kazakh
+km  Khmer          kn  Kannada        ko  Korean         lo  Lao
+lt  Lithuanian     lv  Latvian        mk  Macedonian     ml  Malayalam
+mn  Mongolian      mr  Marathi        ms  Malay          mt  Maltese
+my  Myanmar        ne  Nepali         nl  Dutch          no  Norwegian
+pa  Punjabi        pl  Polish         ps  Pashto         pt  Portuguese
+ro  Romanian       ru  Russian        si  Sinhala        sk  Slovak
+sl  Slovenian      so  Somali         sq  Albanian       sr  Serbian
+sv  Swedish        sw  Swahili        ta  Tamil          tg  Tajik
+th  Thai           tk  Turkmen        tl  Tagalog        tr  Turkish
+uk  Ukrainian      ur  Urdu           uz  Uzbek          vi  Vietnamese
+yo  Yoruba         zh  Chinese
+```
+
+**Syntax:**
+- `translate` (bare) — Uses Whisper's built-in any-to-English translation (backward compatible, limited to English output)
+- `translate (auto-en)` — Auto-detect source language, translate to English via TranslateGemma
+- `translate (auto-ja)` — Auto-detect source language, translate to Japanese via TranslateGemma
+- `translate (ja-en)` — Translate Japanese to English via TranslateGemma
+- `translate (ar-fr)` — Translate Arabic to French via TranslateGemma
+
+**Where TranslateGemma is used:**
+
+| Context | Syntax | Behavior |
+|---------|--------|----------|
+| STT standard | `translate` (bare) | Whisper large-v3 any-to-English (no TranslateGemma) |
+| STT standard | `translate (source-target)` | Whisper transcribe → TranslateGemma translate |
+| STT overdose | `translate (source-target)` | VibeVoice ASR transcribe → TranslateGemma translate |
+| STT subtitle | `translate (source-target)` | VibeVoice ASR → TranslateGemma → burned subtitles |
+| TTS SLC | `translate (source-target)` | Whisper transcribe → TranslateGemma translate → TTS resynthesize |
+| TTS dub | default or `translate (source-target)` | VibeVoice ASR → TranslateGemma translate per segment → Fish S2 Pro TTS per segment |
+
+**Technical notes:**
+- TranslateGemma is loaded and unloaded per-use to prevent memory conflicts with VibeVoice ASR and Fish S2 Pro. It never co-exists with either model in GPU memory.
+- The model uses the `AutoModelForImageTextToText` architecture from transformers with a chat template for translation prompts.
+- On GPU with 24GB+ VRAM, runs in bfloat16. On systems with less VRAM, falls back to CPU float32 (slow but functional).
+- Stored at `src/models/checkpoints/translategemma/`. Auto-downloads on first use.
+- The bare `translate` flag (without parentheses) remains incompatible with `overdose` in STT — it uses Whisper's built-in translation which conflicts with VibeVoice ASR. The `translate (source-target)` syntax is compatible with overdose because TranslateGemma is decoupled from the ASR engine.
+- In the TTS dub pipeline, TranslateGemma receives per-segment timing context to encourage concise translations that match the original speech duration. The prompt includes original duration, word count, and instructions to keep the translation concise.
 
 ---
 
@@ -394,7 +455,7 @@ Identifies and labels individual speakers based on voice embeddings, not linguis
 
 ### BS‑RoFormer Resurrection — Voice/Music Separation (SVS)
 
-**Modes:** SVS (standalone), STS (automatic vocal extraction), STT (pre‑cleanup), TTS (voice cloning cleanup)
+**Modes:** SVS (standalone), STS (automatic vocal extraction), STT (pre‑cleanup), TTS (voice cloning cleanup, dub vocal isolation)
 
 Operates on raw audio waveforms to separate vocal content from instrumental content. The model does not process text or use language codes — it works purely on audio signal characteristics. Separation quality is consistent across all languages because it relies on spectral and temporal features rather than linguistic content. Two stems are supported: `voice` (vocal isolation) and `music` (instrumental extraction).
 
@@ -444,7 +505,22 @@ Text (any language) + voice prompt ("deep male") + extreme flag → VoiceDesign 
 Reference audio (Hindi) + text (Hindi) + extreme flag → Fish S2-Pro → Hindi speech with cloned voice
 ```
 
-These workflows work because each component handles language independently. Whisper auto‑detects the input language, Qwen3‑TTS auto‑detects the output language, and voice cloning operates on speaker identity rather than language. The components don't need to agree on a language — each one handles its own detection.
+**Any-to-any translation with TranslateGemma (STT):**
+```
+Audio (Arabic) → VibeVoice ASR → Arabic text → TranslateGemma → Japanese text
+```
+
+**Dub video to another language (TTS dub):**
+```
+Video (Japanese) → SVS voice isolation → VibeVoice ASR → Japanese segments → TranslateGemma → English segments → Fish S2 Pro (voice cloning) → Per-segment speed adjustment → Timeline assembly → Mix with music track → English dubbed video
+```
+
+**Translate and subtitle (STT subtitle):**
+```
+Video (French) → SVS voice isolation → VibeVoice ASR → French segments → TranslateGemma → English segments → ASS subtitle burn → English subtitled video
+```
+
+These workflows work because each component handles language independently. Whisper auto‑detects the input language, TranslateGemma handles any-to-any translation, Qwen3‑TTS auto‑detects the output language, and voice cloning operates on speaker identity rather than language. The components don't need to agree on a language — each one handles its own detection. TranslateGemma decouples translation from ASR, enabling any-to-any translation regardless of which transcription engine (Whisper or VibeVoice) is used.
 
 ---
 

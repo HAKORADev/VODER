@@ -53,7 +53,8 @@ VODER downloads and caches models automatically on first use. Models are stored 
   - [1.3 Cross-Use Feature](#13-cross-use-feature)
   - [1.4 Background Music](#14-background-music)
   - [1.5 SLC (Speech Language Conversion)](#15-slc-speech-language-conversion)
-  - [1.6 Modify Speech (STT+TTS)](#16-modify-speech-stttts)
+  - [1.6 Dub (Video/Audio Dubbing)](#16-dub-videoaudio-dubbing)
+  - [1.7 Modify Speech (STT+TTS)](#17-modify-speech-stttts)
 - [2. STS Mode](#2-sts-mode)
   - [2.1 MSTS (Music-STS)](#21-msts-music-sts)
 - [3. TTM Mode](#3-ttm-mode)
@@ -230,6 +231,7 @@ SLC translates speech from one language to another while preserving the speaker'
 **Features:**
 - Same-language resynthesis — re-synthesize speech preserving the original voice and language
 - Translation to English — translate from any of Whisper's 99 supported languages while preserving the speaker's voice, tone, and delivery style
+- Any-to-any translation — translate between any of 76 languages using the `translate (source-target)` syntax with TranslateGemma 12B
 - Optional overdose mode — runs an STS v2 non-mimic pass after TTS output for better voice preservation
 
 **CLI Examples:**
@@ -240,11 +242,63 @@ python src/voder.py tts slc "speech.wav"
 # Translate to English preserving speaker voice
 python src/voder.py tts slc translate "spanish_speech.wav"
 
+# Translate to Arabic with TranslateGemma
+python src/voder.py tts slc translate (auto-ar) "english_speech.wav"
+
 # Overdose mode: STS v2 non-mimic pass after TTS for better voice preservation
 python src/voder.py tts overdose slc translate "speech.wav"
 ```
 
-### 1.6 Modify Speech (STT+TTS)
+### 1.6 Dub (Video/Audio Dubbing)
+
+Dub translates and replaces speech in a video or audio file while preserving the original speaker's voice and the background music. It is the deepest TTS sub-task, combining SVS separation, VibeVoice ASR with audio events, TranslateGemma translation, Fish S2 Pro TTS with voice cloning, per-segment speed adjustment, and timeline-based assembly.
+
+**Supported Inputs:**
+- Video files (MP4, MKV, AVI, etc.)
+- Audio files (WAV, MP3, FLAC, OGG, etc.)
+- YouTube URLs — downloaded and processed automatically
+
+**Features:**
+- Auto-translate to English by default (no `translate` keyword needed)
+- Any-to-any translation via `translate (source-target)` syntax with TranslateGemma
+- Per-segment TTS generation and speed adjustment for near-perfect timing alignment
+- Audio event preservation — silence, music, and noise segments are detected and left untouched
+- Background music preservation via SVS music separation
+- Optional subtitle burning with the `subtitle` keyword
+- Multi-speaker detection with per-speaker voice cloning
+
+**Pipeline:**
+1. SVS voice + music isolation (BS-RoFormer)
+2. VibeVoice ASR transcription with audio events (speech segments + non-speech markers)
+3. TranslateGemma per-segment translation (with timing context for concise output)
+4. Fish S2 Pro TTS per segment (voice cloning from source, short segments avoid drift)
+5. Per-segment speed adjustment (match original segment duration)
+6. Timeline assembly (overlay each segment at its original position on a silent base)
+7. Mix with music track (preserve background music)
+8. Video mux or subtitle burn
+
+**CLI Examples:**
+```bash
+# Dub video to English (default)
+python src/voder.py tts dub "video.mp4"
+
+# Dub video to Japanese
+python src/voder.py tts dub translate (auto-ja) "video.mp4"
+
+# Dub video with translated subtitles burned on
+python src/voder.py tts dub subtitle "video.mp4"
+
+# Dub video to Arabic with subtitles
+python src/voder.py tts dub translate (auto-ar) subtitle "video.mp4"
+
+# Dub audio file (no video output)
+python src/voder.py tts dub "speech.wav"
+
+# Dub YouTube video to French
+python src/voder.py tts dub translate (auto-fr) "https://youtube.com/watch?v=..."
+```
+
+### 1.7 Modify Speech (STT+TTS)
 
 TTS interactive mode includes an integrated modify-speech pipeline. When launching TTS interactively, the first prompt asks **"modify speech? (Y/N)"** — answering yes initiates the following workflow:
 
@@ -613,6 +667,7 @@ VODER leverages state-of-the-art open-source models for professional-grade audio
 - **Speech Enhancement:** [alibaba/unified-audio](https://github.com/alibaba/unified-audio) — UniSE for denoising, dereverberation, and speech restoration
 - **Voice Separation:** [BS-RoFormer Resurrection](https://huggingface.co/pcunwa/BS-Roformer-Resurrection) — BS-RoFormer for vocal/music isolation
 - **Advanced ASR:** [Microsoft VibeVoice](https://github.com/microsoft/VibeVoice) — VibeVoice ASR for speaker diarization, transcription, and overdose mode
+- **Any-to-Any Translation:** [Google TranslateGemma 12B](https://huggingface.co/google/translategemma-12b-it) — TranslateGemma for translation between 76 languages, decoupled from ASR engine
 - **Speaker Diarization:** [pyannote/speaker-diarization-community-1](https://github.com/pyannote/pyannote-audio) — pyannote for identifying and labeling individual speakers in multi-speaker audio
 - **Image Text Extraction:** [EasyOCR](https://github.com/JaidedAI/EasyOCR) — EasyOCR for extracting text from images, enabling image-to-speech workflows
 
@@ -694,6 +749,24 @@ python src/voder.py tts slc translate "spanish_speech.wav"
 python src/voder.py tts overdose slc translate "speech.wav"
 ```
 
+**TTS — Dub (Video/Audio Dubbing):**
+```bash
+# Dub video to English (default)
+python src/voder.py tts dub "video.mp4"
+
+# Dub video to Japanese with TranslateGemma
+python src/voder.py tts dub translate (auto-ja) "video.mp4"
+
+# Dub video with translated subtitles
+python src/voder.py tts dub subtitle "video.mp4"
+
+# Dub video to Arabic with subtitles
+python src/voder.py tts dub translate (auto-ar) subtitle "video.mp4"
+
+# Dub audio file
+python src/voder.py tts dub "speech.wav"
+```
+
 **STS mode:**
 ```bash
 python src/voder.py sts base "input.wav" target "voice.wav"
@@ -721,6 +794,16 @@ python src/voder.py stt "audio.wav" dialogue
 
 # Translate audio to English
 python src/voder.py stt "audio.wav" translate
+
+# Translate to any language with TranslateGemma
+python src/voder.py stt "audio.wav" translate (auto-ja)
+python src/voder.py stt "audio.wav" translate (ar-fr)
+
+# Overdose + translate to Japanese
+python src/voder.py stt "audio.wav" overdose translate (auto-ja)
+
+# Subtitle a video with translated text
+python src/voder.py stt subtitle translate (auto-en) "video.mp4"
 
 # With overdose mode (VibeVoice ASR)
 python src/voder.py stt "audio.wav" overdose
@@ -782,7 +865,9 @@ python src/voder.py sfx sound "footsteps on gravel" duration 8 result "/output/f
 - **Sound Effects Generation:** Text-to-audio synthesis for custom sound design
 - **Speech Enhancement:** Denoise, dereverberate, and restore speech audio
 - **Vocal/Music Separation:** BS-RoFormer integration for automatic vocal extraction — used internally by STS (target cleanup), STT (pre-cleanup isolation), TTS (voice cloning target cleanup), and available as a standalone SVS mode
-- **Speech Language Conversion (SLC):** Integrated into TTS as an oneline sub-task — translate speech to English or re-synthesize in the same language while preserving the speaker's voice, with optional overdose mode for enhanced voice fidelity
+- **Speech Language Conversion (SLC):** Integrated into TTS as an oneline sub-task — translate speech to English or any of 76 languages via TranslateGemma, or re-synthesize in the same language while preserving the speaker's voice, with optional overdose mode for enhanced voice fidelity
+- **Video/Audio Dubbing (TTS Dub):** Translate and replace speech in videos while preserving the original speaker's voice and background music — per-segment TTS generation, speed adjustment, and timeline-based assembly for near-perfect timing alignment
+- **Any-to-Any Translation (TranslateGemma):** Translate between any of 76 languages using the `translate (source-target)` syntax, decoupled from the ASR engine — works with Whisper, VibeVoice ASR, SLC, dub, and subtitle modes
 - **Modify Speech (STT+TTS):** Integrated into TTS interactive mode — transcribe, edit, and re-synthesize speech with source or custom voice selection
 - **Cross-Modal Transformation:** Speech-to-speech, text-to-speech, speech-to-text, text-to-text, and speech language conversion
 - **Cross-Platform Source Input:** Unified input pipeline accepts audio files, video files, images, and URLs (YouTube, Bilibili, TikTok) across multiple modes — no manual format conversion required

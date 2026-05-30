@@ -17,7 +17,7 @@
 
 ---
 
-VODER brings together **8 processing modes** under one interface — speech-to-text, text-to-speech, voice conversion, music generation, speech enhancement, sound effects, vocal separation, and speaker diarization — plus language dubbing (`tts slc`) and transcribe-edit-resynthesize (built into TTS interactive). It runs entirely on your machine, needs no subscription, and works with or without a GPU.
+VODER brings together **8 processing modes** under one interface — speech-to-text, text-to-speech, voice conversion, music generation, speech enhancement, sound effects, vocal separation, and speaker diarization — plus language dubbing (`tts dub`), any-to-any translation via TranslateGemma 12B, and transcribe-edit-resynthesize (built into TTS interactive). It runs entirely on your machine, needs no subscription, and works with or without a GPU.
 
 ---
 
@@ -28,8 +28,9 @@ VODER brings together **8 processing modes** under one interface — speech-to-t
 - **Speaker Separation** — Extract individual speakers from multi-speaker recordings into separate audio files, each with a speaker-labeled transcript.
 - **Voice Conversion with Video I/O** — Transform one voice into another while preserving words, emotion, and timing. Drop in an MP4 and get back a video with the converted voice.
 - **Music Generation & Manipulation** — Generate full songs from lyrics and style descriptions. Remix, repaint, complete, extract stems, build individual instrument tracks, or replace background music in existing audio/video. Output up to 12 separate instrument tracks.
-- **Speech-to-Text with Intelligence** — Transcribe audio, video, images, or direct URLs. Translate to English from 99 languages. Identify who spoke when with speaker diarization. Batch process multiple files.
-- **Language Dubbing** — Translate speech from one language to another while preserving the original speaker's voice identity.
+- **Speech-to-Text with Intelligence** — Transcribe audio, video, images, or direct URLs. Translate to any of 76 languages via TranslateGemma. Identify who spoke when with speaker diarization. Batch process multiple files.
+- **Language Dubbing** — Translate speech from one language to another while preserving the original speaker's voice identity. Dub entire videos with per-segment timing alignment and background music preservation.
+- **Any-to-Any Translation** — Translate between any of 76 languages using TranslateGemma 12B via the `translate (source-target)` syntax, decoupled from the ASR engine.
 - **Voice Re-Synthesis** — Transcribe speech and re-read it in a different voice using `tts svc`, with an optional `sts:` prefix for high-fidelity voice conversion via Seed-VC v2.
 - **Smart Input Pipeline** — Paste a YouTube, Bilibili, or TikTok URL directly as input. Feed an image and VODER extracts text via OCR. Automatically extract voice clips from multi-speaker audio for one-click voice cloning.
 
@@ -75,7 +76,11 @@ Extract individual speakers from multi-speaker recordings into separate audio fi
 
 ### Language Conversion (TTS Sub-Task)
 
-Translate speech from any language to English while **preserving the original speaker's voice identity** — `tts slc "audio.wav"`. An optional `music` flag preserves the original instrumental track, and `overdose` adds a voice fidelity pass. Accepts audio files, videos, and YouTube URLs.
+Translate speech from any language to English while **preserving the original speaker's voice identity** — `tts slc "audio.wav"`. Supports any-to-any translation via TranslateGemma with the `translate (source-target)` syntax. An optional `music` flag preserves the original instrumental track, and `overdose` adds a voice fidelity pass. Accepts audio files, videos, and YouTube URLs.
+
+### Video/Audio Dubbing (TTS Sub-Task)
+
+Dub entire videos to another language with **per-segment timing alignment** — `tts dub "video.mp4"` auto-translates to English by default. Uses VibeVoice ASR with audio events, TranslateGemma per-segment translation, Fish S2 Pro voice cloning, speed adjustment, and timeline assembly. Add `subtitle` to burn translated subtitles. Add `translate (auto-ja)` to target any language. Preserves background music.
 
 ### Smart Input Pipeline
 
@@ -103,6 +108,8 @@ python src/voder.py ttm lyrics "Walking down the street" styling "upbeat pop" 30
 python src/voder.py svs "song.mp3" voice
 python src/voder.py ss "meeting.wav"
 python src/voder.py tts slc "foreign_speech.wav"
+python src/voder.py tts dub "video.mp4"
+python src/voder.py tts dub translate (auto-ja) "video.mp4"
 python src/voder.py tts svc "speech.wav" target "voice_ref.wav"
 python src/voder.py se "noisy_recording.wav"
 python src/voder.py sfx sound "thunder rumbling" duration 10
@@ -118,10 +125,10 @@ python src/voder.py sfx sound "thunder rumbling" duration 10
 
 | Mode | What It Does | Input | Output |
 |------|-------------|-------|--------|
-| **TTS** | Generate speech from text, design or clone voices; includes SLC (language dubbing) and modify speech | Text / Image / URL / Audio | Audio |
+| **TTS** | Generate speech from text, design or clone voices; includes SLC (language conversion), dub (video/audio dubbing), and modify speech | Text / Image / URL / Audio | Audio |
 | **STS** | Convert one voice to another | Audio / Video | Audio / Video |
 | **TTM** | Generate, remix, repaint, bgm, and manipulate music | Text + Audio | Audio / Stems |
-| **STT** | Transcribe audio, translate, identify speakers | Audio / Video / Image / URL | Text |
+| **STT** | Transcribe audio, translate to 76 languages, identify speakers | Audio / Video / Image / URL | Text |
 | **SE** | Denoise, dereverb, restore speech | Audio / Video | Audio / Video |
 | **SFX** | Generate sound effects from text | Text | Audio |
 | **SVS** | Isolate vocals from music | Audio / Video / URL | Audio |
@@ -143,6 +150,7 @@ VODER orchestrates state-of-the-art open-source models — each selected for qua
 | Speech Enhancement | [UniSE](https://github.com/alibaba/unified-audio) |
 | Vocal / Music Separation | [BS-RoFormer](https://huggingface.co/pcunwa/BS-Roformer-Resurrection) |
 | Advanced ASR & Diarization | [VibeVoice](https://github.com/microsoft/VibeVoice) |
+| Any-to-Any Translation | [TranslateGemma 12B](https://huggingface.co/google/translategemma-12b-it) |
 | Speaker Diarization | [pyannote](https://github.com/pyannote/pyannote-audio) |
 | Image Text Extraction | [EasyOCR](https://github.com/JaidedAI/EasyOCR) |
 

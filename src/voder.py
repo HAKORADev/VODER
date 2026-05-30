@@ -193,8 +193,15 @@ class WhisperSTT:
             return None
 
     def cleanup(self):
-        self.model = None
-        self.translate_model = None
+        if self.model is not None:
+            del self.model
+            self.model = None
+        if self.translate_model is not None:
+            del self.translate_model
+            self.translate_model = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 class EasyOCRReader:
     def __init__(self, model_dir=None):
@@ -559,6 +566,72 @@ class VibeVoiceASR:
             return None
 
     @torch.no_grad()
+    def transcribe_with_events(self, audio_path):
+        if not self._loaded:
+            self.ensure_model()
+        if self.model is None or self.processor is None:
+            return None
+        try:
+            inputs = self.processor(
+                audio=audio_path,
+                return_tensors="pt",
+                add_generation_prompt=True,
+            )
+
+            inputs = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+
+            output_ids = self.model.generate(
+                **inputs,
+                max_new_tokens=32768,
+                pad_token_id=self.processor.pad_id,
+                eos_token_id=self.processor.tokenizer.eos_token_id,
+                do_sample=False,
+            )
+
+            input_length = inputs['input_ids'].shape[1]
+            generated_ids = output_ids[0, input_length:]
+            generated_text = self.processor.decode(generated_ids, skip_special_tokens=True)
+
+            segments = self.processor.post_process_transcription(generated_text)
+
+            result = []
+            event_re = re.compile(r'^\[([^\]]+)\]\s*', re.IGNORECASE)
+            event_tags = {'lyric', 'silence', 'music', 'noise', 'applause', 'laughter', 'cough', 'breath'}
+
+            for seg in segments:
+                raw_text = seg.get("text", seg.get("Content", ""))
+                ev_match = event_re.match(raw_text)
+                event_type = None
+                is_event = False
+                text = raw_text
+
+                if ev_match:
+                    tag = ev_match.group(1).lower()
+                    remainder = raw_text[ev_match.end():].strip()
+                    if tag in event_tags:
+                        event_type = tag
+                        if not remainder:
+                            is_event = True
+                            text = ""
+                        else:
+                            text = remainder
+
+                result.append({
+                    "start": seg.get("start_time", seg.get("Start", seg.get("Start time", 0))),
+                    "end": seg.get("end_time", seg.get("End", seg.get("End time", 0))),
+                    "speaker": seg.get("speaker_id", seg.get("Speaker", seg.get("Speaker ID", 0))),
+                    "text": text,
+                    "is_event": is_event,
+                    "event_type": event_type
+                })
+            return result
+        except Exception as e:
+            print(f"VibeVoice ASR transcription error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    @torch.no_grad()
     def transcribe_plain_text(self, audio_path):
         if not self._loaded:
             self.ensure_model()
@@ -714,7 +787,7 @@ class TranslateGemma:
 
 
 def _parse_lang_spec(spec_str):
-    m = re.match(r'^\(([a-zA-Z]{2,3})-([a-zA-Z]{2,3})\)$', spec_str)
+    m = re.match(r'^\(([a-zA-Z]{2,})-([a-zA-Z]{2,})\)$', spec_str)
     if not m:
         return None
     return {'source': m.group(1).lower(), 'target': m.group(2).lower()}
@@ -791,6 +864,34 @@ def _get_audio_duration(path):
             return info.num_frames / info.sample_rate
         except Exception:
             return 30
+
+def _overlay_segment_on_base(base_path, segment_path, start_time, output_path):
+    try:
+        cmd = [
+            'ffmpeg', '-i', base_path, '-i', segment_path,
+            '-filter_complex',
+            f'[1:a]adelay={int(start_time * 1000)}|{int(start_time * 1000)}[delayed];'
+            f'[0:a][delayed]amix=inputs=2:duration=first:dropout_transition=0[out]',
+            '-map', '[out]', '-y', output_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        return result.returncode == 0 and os.path.exists(output_path)
+    except Exception:
+        return False
+
+def _extract_audio_segment(input_path, start, end, output_path):
+    try:
+        duration = end - start
+        if duration <= 0:
+            return False
+        cmd = [
+            'ffmpeg', '-i', input_path, '-ss', str(start), '-t', str(duration),
+            '-y', output_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        return result.returncode == 0 and os.path.exists(output_path)
+    except Exception:
+        return False
 
 def _parse_ref_time_spec(spec):
     if '(' not in spec or not spec.endswith(')'):
@@ -5615,11 +5716,11 @@ def parse_oneline_args(args):
             result['params']['overdose'] = True
         if result['params'].get('translate_langs'):
             pass
-        elif result['params'].get('overdose') and result['params'].get('translate'):
-            result['error'] = 'STT overdose cannot be used with bare translate. Use translate (source-target) for any-to-any with overdose'
-            return result
         elif result['params'].get('subtitle') and result['params'].get('translate'):
             result['error'] = 'STT subtitle cannot be used with bare translate. Use translate (source-target) for any-to-any with subtitle'
+            return result
+        elif result['params'].get('overdose') and result['params'].get('translate'):
+            result['error'] = 'STT overdose cannot be used with bare translate. Use translate (source-target) for any-to-any with overdose'
             return result
         if result['params'].get('translate') and 'translate_langs' not in result['params']:
             result['params']['translate_langs'] = {'source': 'auto', 'target': 'en'}
@@ -6132,6 +6233,9 @@ def parse_oneline_args(args):
                     i += 1
             else:
                 i += 1
+        elif mode == 'tts' and arg_lower == 'se':
+            result['params']['dub_se'] = True
+            i += 1
         elif mode == 'tts' and arg_lower == 'dub':
             result['params']['dub'] = True
             result['params']['extreme'] = True
@@ -6142,8 +6246,12 @@ def parse_oneline_args(args):
                 if dub_lower == 'subtitle':
                     result['params']['dub_subtitle'] = True
                     i += 1
+                    if i < len(args):
+                        lang_spec = _parse_lang_spec(args[i])
+                        if lang_spec:
+                            result['params']['dub_subtitle_langs'] = lang_spec
+                            i += 1
                 elif dub_lower == 'translate':
-                    result['params']['dub_translate'] = True
                     i += 1
                     if i < len(args):
                         lang_spec = _parse_lang_spec(args[i])
@@ -6152,10 +6260,13 @@ def parse_oneline_args(args):
                             i += 1
                         else:
                             result['params']['dub_translate_langs'] = {'source': 'auto', 'target': 'en'}
+                elif dub_lower == 'se':
+                    result['params']['dub_se'] = True
+                    i += 1
                 elif dub_lower == 'video':
                     result['params']['dub_video'] = True
                     i += 1
-                    if i < len(args) and not args[i].lower().startswith(('translate', 'subtitle', 'result', 'overdose')):
+                    if i < len(args) and not args[i].lower().startswith(('translate', 'subtitle', 'result', 'overdose', 'se')):
                         result['params']['dub_source'] = args[i]
                         i += 1
                 elif dub_lower == 'result':
@@ -6176,6 +6287,8 @@ def parse_oneline_args(args):
                     if 'dub_source' not in result['params']:
                         result['params']['dub_source'] = dub_arg
                     i += 1
+            if 'dub_translate_langs' not in result['params']:
+                result['params']['dub_translate_langs'] = {'source': 'auto', 'target': 'en'}
             break
         elif mode == 'ttm' and arg_lower == 'vc':
             result['params']['vc'] = True
@@ -10345,9 +10458,13 @@ def oneline_tts_dub(params):
 
     dub_source = params.get('dub_source')
     dub_subtitle = params.get('dub_subtitle', False)
+    dub_subtitle_langs = params.get('dub_subtitle_langs')
     dub_translate_langs = params.get('dub_translate_langs')
     dub_video = params.get('dub_video', False)
-    use_overdose = params.get('overdose', False)
+    use_se = params.get('dub_se', False)
+
+    if not dub_translate_langs:
+        dub_translate_langs = {'source': 'auto', 'target': 'en'}
 
     if not dub_source:
         print("Error: TTS dub requires a source audio/video path")
@@ -10356,6 +10473,9 @@ def oneline_tts_dub(params):
     is_url = is_youtube_url(dub_source)
     is_video_file = is_url or dub_source.lower().endswith(tuple(VIDEO_EXTENSIONS)) or dub_video or dub_subtitle
     has_video_path = is_url or dub_source.lower().endswith(tuple(VIDEO_EXTENSIONS))
+
+    if dub_subtitle and not has_video_path and not dub_video:
+        print("Warning: subtitle requested but no video available — subtitles will be skipped")
 
     video_path = None
     audio_path = None
@@ -10447,7 +10567,37 @@ def oneline_tts_dub(params):
             else:
                 svs_music_track = None
 
-        print("Stage 2: Transcribing with VibeVoice ASR...")
+        asr_input = svs_vocal
+        if use_se:
+            print("Stage 1.5: Speech Enhancement (UniSE SE)...")
+            from unise import UniSEEnhancer
+            se_enhancer = UniSEEnhancer(UNISE_DIR)
+            se_enhancer.ensure_model()
+            if se_enhancer.model is None:
+                print("Warning: Failed to load UniSE SE model, skipping enhancement")
+                se_enhancer.cleanup()
+                del se_enhancer
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            else:
+                se_temp_dir = tempfile.mkdtemp()
+                se_temp = os.path.join(se_temp_dir, f'_dub_se_{ts}.wav')
+                se_ok = se_enhancer.enhance(svs_vocal, se_temp)
+                se_enhancer.cleanup()
+                del se_enhancer
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                if se_ok and os.path.exists(se_temp):
+                    asr_input = se_temp
+                    _dub_cleanup.append(se_temp)
+                else:
+                    print("Warning: Speech Enhancement failed, using previous audio")
+                    if se_temp_dir:
+                        shutil.rmtree(se_temp_dir, ignore_errors=True)
+
+        print("Stage 2: Transcribing with VibeVoice ASR (with audio events)...")
         asr = VibeVoiceASR()
         asr.ensure_model()
         if asr.model is None:
@@ -10459,7 +10609,7 @@ def oneline_tts_dub(params):
                 torch.cuda.empty_cache()
             return False
 
-        asr_segments = asr.transcribe(svs_vocal)
+        asr_segments = asr.transcribe_with_events(asr_input)
         asr.cleanup()
         del asr
         gc.collect()
@@ -10470,34 +10620,52 @@ def oneline_tts_dub(params):
             print("Error: ASR transcription returned no segments")
             return False
 
-        print(f"Transcribed {len(asr_segments)} segments")
+        speech_segments = [s for s in asr_segments if not s.get('is_event', False) and s.get('text', '').strip()]
+        event_segments = [s for s in asr_segments if s.get('is_event', False)]
 
-        src_lang = 'en'
-        for seg in asr_segments:
-            if seg.get('language'):
-                src_lang = seg['language'][:2].lower()
-                break
+        print(f"Transcribed {len(speech_segments)} speech segments, {len(event_segments)} audio events")
 
-        tgt_lang = 'en'
-        if dub_translate_langs:
-            tgt_lang = dub_translate_langs['target']
-            if dub_translate_langs['source'] != 'auto':
-                src_lang = dub_translate_langs['source']
+        src_lang = dub_translate_langs['source'] if dub_translate_langs['source'] != 'auto' else 'auto'
 
-        num_speakers = len(set(seg.get('speaker', 'SPEAKER_00') for seg in asr_segments))
-        print(f"Detected {num_speakers} speaker(s), source language: {src_lang}")
+        tgt_lang = dub_translate_langs['target']
 
-        speaker_segments = {}
-        for seg in asr_segments:
-            spk = seg.get('speaker', 'SPEAKER_00')
-            if spk not in speaker_segments:
-                speaker_segments[spk] = []
-            speaker_segments[spk].append(seg)
+        need_dub_translate = dub_translate_langs is not None and not (src_lang == tgt_lang and src_lang != 'auto')
+
+        sub_src_lang = tgt_lang if need_dub_translate else src_lang
+        sub_tgt_lang = None
+        need_sub_translate = False
+        if dub_subtitle and dub_subtitle_langs:
+            sub_tgt_lang = dub_subtitle_langs['target']
+            if dub_subtitle_langs['source'] != 'auto':
+                sub_src_lang = dub_subtitle_langs['source']
+            need_sub_translate = sub_src_lang != sub_tgt_lang
+
+        translator = None
+        if need_dub_translate or need_sub_translate:
+            print("Loading TranslateGemma for translation...")
+            translator = TranslateGemma()
+            if not translator.ensure_model():
+                print("Warning: Failed to load TranslateGemma, translation will be skipped")
+                translator.cleanup()
+                del translator
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                translator = None
+
+        num_speakers = len(set(seg.get('speaker', 'SPEAKER_00') for seg in speech_segments))
+        print(f"Detected {num_speakers} speaker(s), source language: {src_lang}, target language: {tgt_lang}")
 
         print("Stage 3: Loading Fish-S2Pro model (extreme)...")
         tts = FishTTS()
         if not tts.ensure_model():
             print("Error: Failed to load Fish-S2Pro model")
+            if translator:
+                translator.cleanup()
+                del translator
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             return False
 
         print("Extracting voice from source audio...")
@@ -10507,89 +10675,107 @@ def oneline_tts_dub(params):
             print("Error: Voice extraction failed")
             tts.cleanup()
             del tts
+            if translator:
+                translator.cleanup()
+                del translator
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             return False
 
-        all_tts_parts = []
-        total_original_duration = 0
+        segment_tts_parts = []
 
-        for spk_idx, (spk, segs) in enumerate(speaker_segments.items()):
-            spk_text = " ".join(seg.get('text', '') for seg in segs)
-            spk_start = min(seg.get('start', 0) for seg in segs)
-            spk_end = max(seg.get('end', 0) for seg in segs)
-            spk_duration = spk_end - spk_start
-            total_original_duration += spk_duration
-
-            if dub_translate_langs and src_lang != tgt_lang:
-                print(f"Translating speaker {spk_idx+1} text with TranslateGemma ({src_lang}->{tgt_lang})...")
-                timing_context = f"Original duration: {spk_duration:.1f}s. Word count: {len(spk_text.split())}. Keep translation concise to match timing. Less is better than more."
-                translation_prompt = f"{spk_text}\n\n[{timing_context}]"
-                translated = _translate_with_gemma(translation_prompt, src_lang, tgt_lang)
-                if translated:
-                    spk_text = translated
-                else:
-                    print(f"Warning: Translation failed for speaker {spk_idx+1}, using original text")
-
-            print(f"Generating speech for speaker {spk_idx+1} ({len(spk_text)} chars)...")
-            spk_output_dir = tempfile.mkdtemp()
-            spk_output = os.path.join(spk_output_dir, f'_dub_spk{spk_idx}_{ts}.wav')
-            syn_ok = _tts_synthesize(tts, spk_text, spk_output, language=None, use_extreme=True)
-            if not syn_ok or not os.path.exists(spk_output):
-                print(f"Warning: TTS synthesis failed for speaker {spk_idx+1}")
+        for seg_idx, seg in enumerate(speech_segments):
+            seg_text = seg.get('text', '').strip()
+            if not seg_text:
                 continue
-            _dub_cleanup.append(spk_output)
 
-            if spk_duration > 0:
-                tts_duration = _get_audio_duration(spk_output)
+            seg_start = seg.get('start', 0)
+            seg_end = seg.get('end', 0)
+            seg_duration = seg_end - seg_start
+            seg_speaker = seg.get('speaker', 'SPEAKER_00')
+            original_text = seg_text
+
+            if translator and need_dub_translate:
+                print(f"Translating segment {seg_idx+1}/{len(speech_segments)} with TranslateGemma ({src_lang}->{tgt_lang})...")
+                translated = translator.translate(seg_text, src_lang, tgt_lang)
+                if translated:
+                    seg_text = translated
+                else:
+                    print(f"Warning: Translation failed for segment {seg_idx+1}, using original text")
+
+            print(f"Generating speech for segment {seg_idx+1}/{len(speech_segments)} ({len(seg_text)} chars)...")
+            seg_output_dir = tempfile.mkdtemp()
+            seg_output = os.path.join(seg_output_dir, f'_dub_seg{seg_idx}_{ts}.wav')
+            syn_ok = _tts_synthesize(tts, seg_text, seg_output, language=None, use_extreme=True)
+            if not syn_ok or not os.path.exists(seg_output):
+                print(f"Warning: TTS synthesis failed for segment {seg_idx+1}")
+                continue
+            _dub_cleanup.append(seg_output)
+
+            if seg_duration > 0:
+                tts_duration = _get_audio_duration(seg_output)
                 if tts_duration > 0:
-                    speed_ratio = tts_duration / spk_duration
-                    if speed_ratio > 1.3 or speed_ratio < 0.7:
-                        print(f"Adjusting speed for speaker {spk_idx+1} (TTS: {tts_duration:.1f}s, target: {spk_duration:.1f}s)...")
+                    speed_ratio = tts_duration / seg_duration
+                    if speed_ratio > 1.5 or speed_ratio < 0.5:
+                        print(f"Adjusting speed for segment {seg_idx+1} (TTS: {tts_duration:.1f}s, target: {seg_duration:.1f}s)...")
                         adjusted_dir = tempfile.mkdtemp()
-                        adjusted_output = os.path.join(adjusted_dir, f'_dub_spk{spk_idx}_adj_{ts}.wav')
-                        adj_ok = _adjust_audio_speed(spk_output, spk_duration, adjusted_output)
+                        adjusted_output = os.path.join(adjusted_dir, f'_dub_seg{seg_idx}_adj_{ts}.wav')
+                        adj_ok = _adjust_audio_speed(seg_output, seg_duration, adjusted_output)
                         if adj_ok and os.path.exists(adjusted_output):
                             _dub_cleanup.append(adjusted_output)
-                            spk_output = adjusted_output
+                            seg_output = adjusted_output
                         else:
                             print("Warning: Speed adjustment failed, using original TTS output")
 
-            all_tts_parts.append({
-                'path': spk_output,
-                'start': spk_start,
-                'end': spk_end,
-                'speaker': spk,
-                'text': spk_text
+            segment_tts_parts.append({
+                'path': seg_output,
+                'start': seg_start,
+                'end': seg_end,
+                'speaker': seg_speaker,
+                'text': seg_text,
+                'original_text': original_text,
+                'duration': seg_duration
             })
 
         _tts_cleanup(tts, use_extreme=True)
         tts = None
 
-        if not all_tts_parts:
+        if not segment_tts_parts:
             print("Error: No TTS parts generated")
+            if translator:
+                translator.cleanup()
+                del translator
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             return False
 
-        print("Stage 4: Assembling dubbed audio...")
-        if len(all_tts_parts) == 1:
-            dubbed_audio = all_tts_parts[0]['path']
-        else:
-            concat_list_dir = tempfile.mkdtemp()
-            concat_list = os.path.join(concat_list_dir, '_dub_concat.txt')
-            with open(concat_list, 'w') as f:
-                for part in sorted(all_tts_parts, key=lambda x: x['start']):
-                    f.write(f"file '{part['path']}'\n")
-            _dub_cleanup.append(concat_list)
-            dubbed_audio_dir = tempfile.mkdtemp()
-            dubbed_audio = os.path.join(dubbed_audio_dir, f'_dub_concat_{ts}.wav')
-            concat_cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_list, '-y', dubbed_audio]
-            concat_result = subprocess.run(concat_cmd, capture_output=True, text=True, timeout=300)
-            if concat_result.returncode != 0 or not os.path.exists(dubbed_audio):
-                print("Error: Failed to concatenate TTS parts")
-                dubbed_audio = all_tts_parts[0]['path']
+        print("Stage 4: Assembling dubbed audio on timeline...")
+        orig_duration = _get_audio_duration(audio_path)
+
+        import numpy as np
+        timeline_dir = tempfile.mkdtemp()
+        silent_base = os.path.join(timeline_dir, f'_dub_silent_{ts}.wav')
+        sr = 44100
+        silence_samples = int(orig_duration * sr)
+        silence_data = np.zeros((1, silence_samples), dtype=np.float32)
+        sf.write(silent_base, silence_data.T, sr)
+        _dub_cleanup.append(silent_base)
+
+        current_base = silent_base
+
+        for part_idx, part in enumerate(sorted(segment_tts_parts, key=lambda x: x['start'])):
+            overlay_dir = tempfile.mkdtemp()
+            overlay_output = os.path.join(overlay_dir, f'_dub_overlay_{part_idx}_{ts}.wav')
+            overlay_ok = _overlay_segment_on_base(current_base, part['path'], part['start'], overlay_output)
+            if overlay_ok and os.path.exists(overlay_output):
+                _dub_cleanup.append(overlay_output)
+                current_base = overlay_output
             else:
-                _dub_cleanup.append(dubbed_audio)
+                print(f"Warning: Failed to overlay segment {part_idx+1}")
+
+        dubbed_audio = current_base
 
         final_audio = dubbed_audio
         if svs_music_track and os.path.exists(svs_music_track):
@@ -10609,18 +10795,38 @@ def oneline_tts_dub(params):
                 print("Warning: Music mixing failed, using vocals-only output")
 
         timestamp_str = time.strftime("%Y%m%d_%H%M%S")
-        lang_tag = f"_{tgt_lang}" if dub_translate_langs and tgt_lang != 'en' else ""
+        lang_tag = f"_{tgt_lang}" if tgt_lang != 'en' else ""
 
         if video_path and os.path.exists(video_path):
             if dub_subtitle:
                 subtitle_segments = []
-                for part in all_tts_parts:
+                for part in segment_tts_parts:
                     subtitle_segments.append({
                         'start': part['start'],
                         'end': part['end'],
                         'text': part['text'],
                         'speaker': part['speaker']
                     })
+
+                if translator and need_sub_translate:
+                    print(f"Translating subtitles with TranslateGemma ({sub_src_lang}->{sub_tgt_lang})...")
+                    for sub_idx, sub_seg in enumerate(subtitle_segments):
+                        sub_text = sub_seg.get('text', '').strip()
+                        if sub_text:
+                            translated = translator.translate(sub_text, sub_src_lang, sub_tgt_lang)
+                            if translated:
+                                sub_seg['text'] = translated
+                            else:
+                                print(f"Warning: Subtitle translation failed for segment {sub_idx+1}")
+
+                if translator:
+                    translator.cleanup()
+                    del translator
+                    translator = None
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
                 base_name = os.path.splitext(os.path.basename(dub_source))[0] if not is_url else "youtube_dub"
                 output_filename = f"voder_tts_dub{lang_tag}_{timestamp_str}_{base_name}.mp4"
                 output_path = os.path.join(results_dir, output_filename)
@@ -10640,6 +10846,14 @@ def oneline_tts_dub(params):
                         print("Error: Failed to create output video")
                         return False
             else:
+                if translator:
+                    translator.cleanup()
+                    del translator
+                    translator = None
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
                 base_name = os.path.splitext(os.path.basename(dub_source))[0] if not is_url else "youtube_dub"
                 output_filename = f"voder_tts_dub{lang_tag}_{timestamp_str}_{base_name}.mp4"
                 output_path = os.path.join(results_dir, output_filename)
@@ -10655,6 +10869,14 @@ def oneline_tts_dub(params):
                     print("Error: Failed to mux dubbed audio into video")
                     return False
         else:
+            if translator:
+                translator.cleanup()
+                del translator
+                translator = None
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
             base_name = os.path.splitext(os.path.basename(dub_source))[0]
             output_filename = f"voder_tts_dub{lang_tag}_{timestamp_str}_{base_name}.wav"
             output_path = os.path.join(results_dir, output_filename)
@@ -10666,6 +10888,12 @@ def oneline_tts_dub(params):
     except Exception as e:
         print(f"Error in dub pipeline: {e}")
         traceback.print_exc()
+        if translator:
+            translator.cleanup()
+            del translator
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return False
 
     finally:
@@ -10866,12 +11094,6 @@ def oneline_stt(params):
                 if do_translate and has_lang_spec:
                     src_lang = translate_langs['source']
                     tgt_lang = translate_langs['target']
-                    if src_lang == 'auto':
-                        src_lang = 'en'
-                        for seg in asr_segments:
-                            if seg.get('language'):
-                                src_lang = seg['language'][:2].lower()
-                                break
                     print(f"Translating with TranslateGemma ({src_lang}->{tgt_lang})...")
                     texts_to_translate = [seg.get('text', '') for seg in asr_segments]
                     translated_texts = _translate_segments_with_gemma(texts_to_translate, src_lang, tgt_lang)
@@ -11440,6 +11662,19 @@ def oneline_stt_subtitle(params):
             print(f"Error: File not found or invalid URL: {file_path}")
             return False
 
+    translator = None
+    if translate_langs:
+        print("Loading TranslateGemma for translation...")
+        translator = TranslateGemma()
+        if not translator.ensure_model():
+            print("Warning: Failed to load TranslateGemma, translation will be skipped")
+            translator.cleanup()
+            del translator
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            translator = None
+
     success_count = 0
     for file_path in files:
         print(f"\nProcessing: {file_path}")
@@ -11575,22 +11810,24 @@ def oneline_stt_subtitle(params):
                 print("Error: ASR transcription returned no segments")
                 continue
 
-            if translate_langs:
+            if translate_langs and translator:
                 src_lang = translate_langs['source']
                 tgt_lang = translate_langs['target']
-                if src_lang == 'auto':
-                    src_lang = 'en'
-                    for seg in asr_segments:
-                        if seg.get('language'):
-                            src_lang = seg['language'][:2].lower()
-                            break
                 print(f"Translating with TranslateGemma ({src_lang}->{tgt_lang})...")
-                texts_to_translate = [seg.get('text', '') for seg in asr_segments]
-                translated_texts = _translate_segments_with_gemma(texts_to_translate, src_lang, tgt_lang)
-                if translated_texts:
-                    for idx, seg in enumerate(asr_segments):
-                        if idx < len(translated_texts):
-                            seg['text'] = translated_texts[idx]
+                translation_ok = True
+                for idx, seg in enumerate(asr_segments):
+                    seg_text = seg.get('text', '').strip()
+                    if seg_text:
+                        translated = translator.translate(seg_text, src_lang, tgt_lang)
+                        if translated:
+                            seg['text'] = translated
+                        else:
+                            print(f"Warning: Translation failed for segment {idx+1}")
+                            translation_ok = False
+                if not translation_ok:
+                    print("Warning: Some translations failed, subtitles may contain mixed languages")
+            elif translate_langs and not translator:
+                print("Warning: Translation was requested but TranslateGemma could not be loaded — generating subtitles with original text")
 
             print(f"Transcribed {len(asr_segments)} segments. Burning subtitles onto video...")
 
@@ -11629,6 +11866,13 @@ def oneline_stt_subtitle(params):
                         shutil.rmtree(temp_dir, ignore_errors=True)
                     except:
                         pass
+
+    if translator:
+        translator.cleanup()
+        del translator
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     print(f"\n{'=' * 60}")
     print(f"Processing complete: {success_count}/{len(files)} files successful")
