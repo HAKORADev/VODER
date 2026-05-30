@@ -58,8 +58,29 @@
 - **`subtitle` Keyword** — New STT sub-task keyword that transcribes a video's speech using VibeVoice ASR and burns the subtitles directly onto the video as ASS-format overlays. Implies `overdose` (VibeVoice ASR is always used). Only accepts video files and URLs — audio, text, and image files are rejected.
 - **Dynamic Subtitle Positioning** — Subtitles are dynamically scaled and positioned at the bottom of the frame relative to the video resolution. Font size, margins, outline width, and shadow offset are all calculated proportionally to the video height, ensuring consistent appearance from 480p to 4K.
 - **Overlap Handling** — When overlapping speech is detected (two speakers talking simultaneously), the primary speaker's text appears on the first line (white), and the overlapping speaker's text appears on a second line beneath it in cyan, making it visually clear that a different speaker is talking.
-- **Full Pipeline** — Download video (if URL) → Extract audio via FFmpeg → SVS voice isolation (BS-RoFormer) → Optional speech enhancement (`se`) → VibeVoice ASR transcription → Burn ASS subtitles onto video via FFmpeg → Output MP4.
+- **Full Pipeline** — Download video (if URL) → Extract audio via FFmpeg → SVS voice isolation (BS-RoFormer) → Optional sound enhancement (`se`) → VibeVoice ASR transcription → Burn ASS subtitles onto video via FFmpeg → Output MP4.
 - Syntax: `voder.py stt subtitle "video.mp4"`, `voder.py stt subtitle se "noisy_video.mp4"`, `voder.py stt subtitle "https://youtube.com/watch?v=..."`
+
+#### SE Sound Enhancement Modernization
+
+- **SE renamed to Sound Enhancement** — "Speech Enhancement" renamed to "Sound Enhancement" across all code and documentation, reflecting the expanded scope beyond just speech.
+
+- **SE Sub-Modes** — SE mode now supports sub-mode keywords for targeted enhancement:
+  - `se "path"` — Default UniSE enhancement (denoise, dereverb, restore speech, 16kHz output)
+  - `se voice "path"` — SVS voice extraction → UniSE enhancement on vocals only
+  - `se voice blend "path"` — SVS voice+music → UniSE on voice → blend enhanced vocals with music at 48kHz
+  - `se sr "path"` — AudioSR super-resolution on whole audio (speech model, 48kHz output)
+  - `se sr blend "path"` — AudioSR on whole audio + UniSE on SVS voice → blend at 48kHz
+  - `se sr music "path"` — SVS voice+music → AudioSR (basic model) on music → upsampled music only at 48kHz
+  - `se sr music blend "path"` — SVS voice+music → AudioSR on music + UniSE on voice → blend at 48kHz
+
+- **AudioSR Integration** — New audio super-resolution model integrated into VODER. Uses `haoheliu/versatile_audio_super_resolution` (AudioSR) for upscaling low-sample-rate audio to 48kHz. Two model variants: `basic` (general audio/music) and `speech` (speech-optimized). Source code: `src/audiosr/` (stripped from versatile_audio_super_resolution repo, inference-only). Model checkpoint: `src/models/checkpoints/audiosr/`. Auto-downloads on first use. Handles long audio via chunked overlap-add processing.
+
+- **`AudioSREnhancer` Class** — New model wrapper class following VODER's standard load/use/cleanup pattern. Supports both `basic` and `speech` model variants. Auto-selects chunked processing for audio >10.24s.
+
+- **`_mix_audio_at_target_sr()` Helper** — New helper function for blending two audio files at a target sample rate. Resamples both inputs to the target rate, converts to mono, pads to equal length, sums with peak normalization. Used by `blend` keyword in SE sub-modes to preserve upsampled quality (never downsamples the upsampled track).
+
+- **SE Parser Update** — SE oneline parser now accepts sub-mode keywords (`voice`, `sr`, `music`, `blend`) with validation rules: `music` only valid after `sr`, `blend` valid with `voice` or `sr` sub-modes only.
 
 ### Changed
 

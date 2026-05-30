@@ -24,7 +24,7 @@ python voder.py                  # launch GUI (no commands)
 | `sts` | Speech-to-Speech (Voice Conversion) |
 | `ttm` | Text-to-Music (generate / remix / repaint / complete / lego / extract / bgm) |
 | `stt` | Speech-to-Text (Transcription) |
-| `se` | Speech Enhancement |
+| `se` | Sound Enhancement |
 | `sfx` | Sound Effects Generation |
 | `svs` | Song Voice Separate |
 | `ss` | Speakers Separator |
@@ -40,7 +40,7 @@ python voder.py                  # launch GUI (no commands)
 | [2. STS](#2-sts--speech-to-speech-voice-conversion) | Voice Conversion |
 | [3. TTM](#3-ttm--text-to-music) | Generate, VC, Remix, Repaint, Complete, Lego, Extract |
 | [4. STT](#4-stt--speech-to-text-transcription) | Transcription, diarization, translate |
-| [5. SE](#5-se--speech-enhancement) | Denoise, dereverb |
+| [5. SE](#5-se--sound-enhancement) | Denoise, dereverb, restore, super-resolution |
 | [6. SFX](#6-sfx--sound-effects-generation) | Sound effects |
 | [7. SVS](#7-svs--song-voice-separate) | Vocal/instrument separation |
 | [8. SS](#8-ss--speakers-separator) | Speaker extraction & separation |
@@ -315,7 +315,7 @@ Video/audio dubbing with voice cloning, optional translation, subtitle burning, 
 ```
 python voder.py tts overdose extreme se dub subtitle (auto-en) translate (auto-ja) video "path"
 ```
-Where `overdose` and `extreme` are auto-implied by `dub` but recommended to include for clarity, `se` enables speech enhancement, `subtitle (auto-en)` burns subtitles with an independent translation to English, `translate (auto-ja)` translates the dubbed audio to Japanese, and `video "path"` specifies the input.
+Where `overdose` and `extreme` are auto-implied by `dub` but recommended to include for clarity, `se` enables sound enhancement, `subtitle (auto-en)` burns subtitles with an independent translation to English, `translate (auto-ja)` translates the dubbed audio to Japanese, and `video "path"` specifies the input.
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
@@ -323,7 +323,7 @@ Where `overdose` and `extreme` are auto-implied by `dub` but recommended to incl
 | `translate (source-target)` | `(auto-ar)` / `(ja-en)` etc. | Any-to-any translation via TranslateGemma 12B (76 languages). Optional. Overrides default auto→English. |
 | `subtitle` | (flag) | Burn subtitles onto the output video. Uses dubbed audio text by default. |
 | `subtitle (source-target)` | `(auto-en)` / `(ja-en)` etc. | Burn independently translated subtitles (separate from dub audio language). Optional. |
-| `se` | (flag) | Enable speech enhancement before ASR. Optional. |
+| `se` | (flag) | Enable sound enhancement before ASR. Optional. |
 | `video "path"` | `"path"` | Specify input video path. |
 | `overdose` | (flag) | Auto-implied by dub. Can be specified for clarity. |
 | `result "path"` | `"path"` | Custom output path. |
@@ -341,7 +341,7 @@ Where `overdose` and `extreme` are auto-implied by `dub` but recommended to incl
 - Video input produces MP4 output; audio input produces WAV output.
 - `subtitle` without lang spec uses the same text as the dubbed audio.
 - `subtitle (source-target)` applies an independent translation pass for subtitles.
-- `se` enhances vocal audio before ASR for better transcription in noisy conditions.
+- `se` enhances vocal audio before ASR for better transcription in noisy conditions (see [Section 5](#5-se--sound-enhancement) for full SE sub-modes).
 - TranslateGemma loads once for all translations (dub + subtitle) then unloads once.
 - Requires 24GB+ VRAM and FFmpeg.
 
@@ -1222,7 +1222,7 @@ Transcribe audio/video to text using Whisper.
 | `dialogue` | (flag) | Enable speaker diarization (requires HF_TOKEN and pyannote model access). |
 | `translate` | (flag) | Translate transcription to English (uses Whisper large-v3 model). |
 | `translate (source-target)` | `(auto-en)` / `(ja-en)` / `(auto-ar)` etc. | Any-to-any translation via TranslateGemma 12B (76 languages). Use `auto` for source auto-detection. Compatible with `overdose` and `subtitle`. |
-| `se` | (flag) | Apply speech enhancement before transcription (denoise/dereverb input first). |
+| `se` | (flag) | Apply sound enhancement before transcription (denoise/dereverb input first). |
 | `overdose` | (flag) | Use VibeVoice ASR (requires 24GB+ VRAM or 48GB+ RAM). Falls back to Whisper + pyannote if unavailable. |
 | `subtitle` | (flag) | Burn VibeVoice ASR subtitles onto video (implies `overdose`; video/URL only; no `translate`). |
 | `result` | `"<path>"` | Copy output to custom path. |
@@ -1234,7 +1234,7 @@ Transcribe audio/video to text using Whisper.
 - `subtitle` implies `overdose`, cannot combine with bare `translate`, and only accepts video files/URLs.
 - Multiple files are processed sequentially.
 - Output is saved as `.txt` in the `results/` directory.
-- **Pipeline:** SVS voice isolation is always applied before transcription. With `se`, speech enhancement runs first.
+- **Pipeline:** SVS voice isolation is always applied before transcription. With `se`, sound enhancement runs first.
 - **Image input:** Also accepts image files (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.gif`, `.tiff`, `.webp`) — runs EasyOCR text extraction, then transcribes the extracted text.
 
 ```
@@ -1274,7 +1274,7 @@ python voder.py stt "https://youtube.com/watch?v=..."
 # Subtitle sub-task: burn subtitles onto video
 python voder.py stt subtitle "video.mp4"
 
-# Subtitle with speech enhancement
+# Subtitle with sound enhancement
 python voder.py stt subtitle se "noisy_video.mp4"
 
 # Subtitle from YouTube URL
@@ -1289,26 +1289,37 @@ python voder.py stt subtitle translate (ja-en) "japanese_video.mp4"
 
 ---
 
-## 5. `se` — Speech Enhancement
+## 5. `se` — Sound Enhancement
 
-Denoise, dereverb, and restore speech audio using UniSE.
+Improve audio quality through denoising, dereverberation, restoration, and super-resolution.
 
 ### Keywords
 
-| Keyword | Value | Description |
-|---------|-------|-------------|
-| `"<path>"` | file | Audio/video file path or URL. Can specify multiple files (each is enhanced separately). |
-| `result` | `"<path>"` | Copy output to custom path. |
+| Keyword | Type | Description |
+|---------|------|-------------|
+| `voice` | sub-mode | SVS voice extraction + UniSE enhancement on vocals only |
+| `sr` | sub-mode | AudioSR super-resolution on input audio (48kHz output) |
+| `music` | modifier | After `sr`: apply AudioSR to non-vocals only (requires SVS) |
+| `blend` | modifier | Blend enhanced/upsampled audio with complementary stem |
+| `result` | keyword | Custom output path |
+| `"<path>"` | file | Audio/video file path or URL (multiple allowed) |
 
-### Notes
+### Sub-Mode Combinations
 
-- Outputs 16kHz audio (speech-focused, not for musical enhancement).
-- Video input: outputs `.mp4` with enhanced audio track.
-- Audio input: outputs `.wav`.
-- Supports local audio/video files and URLs (YouTube, TikTok, Bilibili).
+| Command | Pipeline | Output |
+|---------|----------|--------|
+| `se "path"` | UniSE → enhanced audio | 16kHz WAV |
+| `se voice "path"` | SVS voice → UniSE | 16kHz WAV |
+| `se voice blend "path"` | SVS voice+music → UniSE on voice → blend | 48kHz WAV |
+| `se sr "path"` | AudioSR (speech model) on whole input | 48kHz WAV |
+| `se sr blend "path"` | AudioSR on whole + UniSE on SVS voice → blend | 48kHz WAV |
+| `se sr music "path"` | SVS voice+music → AudioSR (basic) on music | 48kHz WAV |
+| `se sr music blend "path"` | SVS voice+music → AudioSR on music + UniSE on voice → blend | 48kHz WAV |
+
+### Examples
 
 ```
-# Enhance a single audio file
+# Default: UniSE enhancement on audio
 python voder.py se "noisy_audio.wav"
 
 # Enhance multiple files
@@ -1319,7 +1330,34 @@ python voder.py se "noisy_video.mp4"
 
 # Enhance from URL
 python voder.py se "https://youtube.com/watch?v=..."
+
+# Voice sub-mode: extract vocals then enhance
+python voder.py se voice "song.wav"
+
+# Voice + blend: enhance vocals and mix back with music at 48kHz
+python voder.py se voice blend "song.wav"
+
+# SR sub-mode: super-resolution on whole input (48kHz output)
+python voder.py se sr "speech.wav"
+
+# SR + blend: super-resolution on whole input, then UniSE on SVS voice and blend
+python voder.py se sr blend "song.wav"
+
+# SR + music: separate vocals, apply AudioSR (basic) to music stem
+python voder.py se sr music "song.wav"
+
+# SR + music + blend: AudioSR on music, UniSE on voice, blend at 48kHz
+python voder.py se sr music blend "song.wav"
 ```
+
+### Notes
+
+- Default (no sub-mode): UniSE enhancement, outputs 16kHz, designed for speech
+- `voice`: Extract vocals via SVS first, then enhance with UniSE
+- `sr`: AudioSR super-resolution, outputs 48kHz, has speech model for speech-heavy content
+- `sr music`: Uses AudioSR basic model (general audio) on non-vocal stems
+- `blend`: Mixes processed stems at the highest available sample rate (48kHz)
+- Video input: `.mp4` output with enhanced audio track (default mode only)
 
 ---
 
@@ -1412,7 +1450,7 @@ Extract all individual speakers from an audio source one by one, or extract a sp
 |---------|-------|-------------|
 | `"<path>"` | file | Audio/video file path or YouTube/TikTok/Bilibili URL. |
 | `target` | `"<path>"` | Target voice reference audio/URL. When provided, extracts only the speaker matching this reference from the source audio. Outputs a single file containing the targeted speaker's content. The model looks at the target voice and tries to find/extract that speaker from the source. |
-| `se` | (flag) | Apply speech enhancement before separation (denoise/dereverb the input first). |
+| `se` | (flag) | Apply sound enhancement before separation (denoise/dereverb the input first). |
 | `overdose` | (flag) | Use VibeVoice ASR instead of Whisper + pyannote for transcription and diarization, providing better separation accuracy. Requires 24GB+ VRAM or 48GB+ RAM. **Skipped when `target` is provided** (target uses TSE extraction, not diarization). |
 | `result` | `"<path>"` | Copy output to custom path. |
 
@@ -1422,7 +1460,7 @@ Extract all individual speakers from an audio source one by one, or extract a sp
 - **Pipeline (with target):** SVS voice isolation -> TSE (Target Speaker Extraction). Looks at the target reference and extracts matching speaker from source. Outputs one file.
 - `overdose` is only used in the no-target pipeline (switches from Whisper+pyannote to VibeVoice ASR for better accuracy). It is completely skipped when `target` is provided.
 - Supports audio, video, YouTube, TikTok, and Bilibili URLs.
-- `se` runs speech enhancement before anything else (cleaner input = better results).
+- `se` runs sound enhancement before anything else (cleaner input = better results).
 
 ```
 # Extract all speakers (standard pipeline)
@@ -1434,7 +1472,7 @@ python voder.py ss "interview.mp4"
 # From YouTube
 python voder.py ss "https://youtube.com/watch?v=..."
 
-# With speech enhancement pre-processing
+# With sound enhancement pre-processing
 python voder.py ss se "noisy_conversation.wav"
 
 # With overdose (better accuracy, uses VibeVoice ASR)
@@ -1446,7 +1484,7 @@ python voder.py ss target "speaker_ref.wav" "conversation.wav"
 # Target extraction from URL
 python voder.py ss target "speaker_ref.wav" "https://youtube.com/watch?v=..."
 
-# Overdose + speech enhancement combined
+# Overdose + sound enhancement combined
 python voder.py ss overdose se "noisy_conversation.wav"
 ```
 

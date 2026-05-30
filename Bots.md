@@ -33,7 +33,7 @@ VODER is a professional‑grade voice processing tool that enables seamless conv
 - **Optional Background Music for Dialogue**: Automatically generated, duration‑fitted ambient music with configurable volume levels and optional reference audio for style guidance
 - **Music Generation**: Lyrics‑to‑music synthesis with voice conversion
 - **Sound Effects Generation**: Text-to-audio synthesis for custom sound design
-- **Speech Enhancement**: Denoise, dereverberate, and restore speech audio
+- **Sound Enhancement**: Denoise, dereverberate, and restore speech audio; voice isolation and super-resolution for music
 - **Voice Cloning**: Extract and replicate voice characteristics from reference audio
 - **Standalone STT**: Transcribe audio, video, images, and YouTube URLs to text
 - **Speaker Diarization**: Identify and label individual speakers in multi‑speaker audio
@@ -72,7 +72,7 @@ python src/voder.py tts script "Hello world" voice "male voice"
 # Transcribe audio to text (STT)
 python src/voder.py stt "audio.wav" timestamp dialogue result "/output/transcript.txt"
 
-# Enhance speech audio (SE)
+# Enhance audio (SE)
 python src/voder.py se "noisy_audio.wav" result "/output/enhanced.wav"
 
 # Generate sound effects (SFX)
@@ -151,8 +151,11 @@ pip install --upgrade protobuf==5.29.6
 | `rotary_embedding_torch` | Rotary embeddings for BS-RoFormer SVS model |
 | `beartype` | Runtime type checking for BS-RoFormer |
 | `ml_collections` | Configuration collections for BS-RoFormer |
+| `audiosr` | Audio super‑resolution model for SE `sr` sub‑modes (install separately: `pip install audiosr`) |
 
 **Note:** `pyannote.audio` is bundled locally in `src/libs/pyannote` and does not require a separate pip install. However, a HuggingFace token is required for speaker diarization (see [HF_TOKEN Setup for AI Agents](#hf_token-setup-for-ai-agents)).
+
+**Note:** The `audiosr` package is optional and only needed for SE `sr` sub‑modes (`se sr`, `se sr blend`, `se sr music`, `se sr music blend`). Install it separately with `pip install audiosr`. The AudioSR model is downloaded automatically on first use (~4‑6GB).
 
 ### Verify Installation
 
@@ -316,7 +319,7 @@ python src/voder.py sts base "input.wav" target "voice1.wav" && python src/voder
 python src/voder.py ttm lyrics "Verse 1:..." styling "pop" duration 30 && python src/voder.py ttm lyrics "Chorus:..." styling "rock" duration 30
 ```
 
-**Speech enhancement pipeline:**
+**Sound enhancement pipeline:**
 
 ```bash
 python src/voder.py se "noisy_recording.wav" result "/clean/recording.wav"
@@ -358,7 +361,7 @@ python src/voder.py <mode> [parameters]
 | `ttm` | Text‑to‑Music Generation with sub‑tasks (`complete`, `lego`, `extract`, `remix`, `repaint`, `bgm`), `vc` flag, SFX overlay (`bgm`/`complete`), three‑tier ACE‑Step | No | ✅ Yes (single only) |
 | `ttm+vc` | Text‑to‑Music + Voice Conversion — **REMOVED** (use `ttm vc` with `clone`) | No | ❌ No longer accepted |
 | `stt` | Speech‑to‑Text Transcription with translation, overdose, video/URL input | No | ✅ Yes (single, batch, timestamps, diarization, URLs) |
-| `se` | Speech Enhancement (Denoise/Dereverb) | No | ✅ Yes |
+| `se` | Sound Enhancement (Denoise/Dereverb/Super‑Resolution/Voice+Music) | No | ✅ Yes |
 | `sfx` | Sound Effects Generation | No | ✅ Yes |
 | `svs` | Song Voice Separation (BS‑RoFormer) | No | ✅ Yes |
 | `ss` | Speakers Separator (Multi‑Speaker Extraction) | No | ✅ Yes |
@@ -370,7 +373,7 @@ Generate speech from text using Qwen3‑TTS VoiceDesign model.
 **Voice cloning is available via the `target` parameter — supply a voice reference audio path to clone that voice. Multi-reference cloning is supported using parenthesized format: `(path1)(path2)(path3)`. Add the `first` keyword before the references (`target first "(path1)(path2)(path3)"`) to extract only the first reference's speaker from all others via TSE before compiling.**
 **SLC (Speaker Language Conversion) is available as a sub‑task: `tts slc "path.wav"`, `tts slc music "path.wav"`, `tts overdose slc "path.wav"`, `tts overdose slc music "path.wav"`. Always translates to English using Whisper large-v3. Supports audio files, video files, and YouTube/URL input with automatic SVS voice isolation on source. The `music` flag preserves non-vocals by extracting and blending the instrumental track.**
 **SVC (Speaker Voice Change) is available as a sub‑task: `tts svc "path.wav" target "voice_ref.wav"`. Transcribes single-speaker audio and re-synthesizes it with a different target voice. The pipeline runs SVS voice isolation → Whisper/VibeVoice transcription → Qwen‑TTS synthesis with the specified target voice. Add the `overdose` flag to use VibeVoice ASR instead of Whisper. Supports the `sts:` prefix on `target` to route through STS v2 (Seed‑VC) for voice conversion instead of Qwen‑TTS, preserving more of the original prosody.**
-**Dub (Video/Audio Dubbing) is available as a sub‑task: `tts dub "video.mp4"`. Dubs video/audio with voice cloning, translation, optional subtitle burning, and speed adjustment. Auto‑implies `overdose` and `extreme`. Supports `translate (source-target)` for language override, `subtitle` / `subtitle (source-target)` for subtitle burning (independent translation), and `se` for speech enhancement.**
+**Dub (Video/Audio Dubbing) is available as a sub‑task: `tts dub "video.mp4"`. Dubs video/audio with voice cloning, translation, optional subtitle burning, and speed adjustment. Auto‑implies `overdose` and `extreme`. Supports `translate (source-target)` for language override, `subtitle` / `subtitle (source-target)` for subtitle burning (independent translation), and `se` for sound enhancement.**
 
 **In interactive CLI mode, providing audio/video/URL as input triggers a "modify speech? (Y/N)" prompt that runs the STT+TTS flow: SVS voice isolation → Whisper transcription → edit text → choose voice (source or custom) → Qwen‑TTS synthesis.**
 
@@ -628,9 +631,9 @@ python src/voder.py tts svc "speech.wav" target "sts:(ref1.wav)(ref2.wav)" resul
 
 #### TTS Dub (Video/Audio Dubbing)
 
-TTS Dub is a sub‑task for dubbing video or audio content with voice cloning, translation, subtitle burning, and speed adjustment. The `dub` keyword auto‑implies `overdose` and `extreme` (Fish S2 Pro), but they are recommended to include explicitly for clarity in documentation. Dub defaults to auto→English translation (no `translate` keyword needed); use `translate (source-target)` to override the target language. The `subtitle` keyword burns subtitles onto the output video — by default subtitles use the same text as the dubbed audio; use `subtitle (source-target)` for an independent translation pass for subtitles. Add `se` before `dub` to enable optional speech enhancement before ASR. The pipeline transcribes speech with VibeVoice ASR (optionally preceded by speech enhancement), translates with TranslateGemma 12B (which loads once for all translations — both dub audio and subtitle — then unloads once), re‑synthesizes with Fish S2 Pro using per‑segment TTS generation with voice cloning from each speaker's original audio, assembles output via timeline‑based overlay (segments placed at their original positions), adjusts speed to match original timing (threshold 1.5/0.5), mixes with instrumentals, and muxes with video. Audio events are preserved for non‑speech segment detection.
+TTS Dub is a sub‑task for dubbing video or audio content with voice cloning, translation, subtitle burning, and speed adjustment. The `dub` keyword auto‑implies `overdose` and `extreme` (Fish S2 Pro), but they are recommended to include explicitly for clarity in documentation. Dub defaults to auto→English translation (no `translate` keyword needed); use `translate (source-target)` to override the target language. The `subtitle` keyword burns subtitles onto the output video — by default subtitles use the same text as the dubbed audio; use `subtitle (source-target)` for an independent translation pass for subtitles. Add `se` before `dub` to enable optional sound enhancement before ASR. The pipeline transcribes speech with VibeVoice ASR (optionally preceded by sound enhancement), translates with TranslateGemma 12B (which loads once for all translations — both dub audio and subtitle — then unloads once), re‑synthesizes with Fish S2 Pro using per‑segment TTS generation with voice cloning from each speaker's original audio, assembles output via timeline‑based overlay (segments placed at their original positions), adjusts speed to match original timing (threshold 1.5/0.5), mixes with instrumentals, and muxes with video. Audio events are preserved for non‑speech segment detection.
 
-**Pipeline:** Download/extract audio → SVS voice+music separation → *(optional)* Speech enhancement (`se`) → VibeVoice ASR (speaker diarization + audio event detection) → TranslateGemma translation (loads once for dub audio + subtitle translations, then unloads once; auto→English by default, or `translate (source-target)`) → Fish S2 Pro TTS (per‑segment voice cloning from source) → timeline‑based assembly (overlay segments at original positions) → speed adjustment (threshold 1.5/0.5) → mix with instrumentals → *(optional)* subtitle burn (independent translation if `subtitle (source-target)` specified) → mux with video (if video input)
+**Pipeline:** Download/extract audio → SVS voice+music separation → *(optional)* Sound enhancement (`se`) → VibeVoice ASR (speaker diarization + audio event detection) → TranslateGemma translation (loads once for dub audio + subtitle translations, then unloads once; auto→English by default, or `translate (source-target)`) → Fish S2 Pro TTS (per‑segment voice cloning from source) → timeline‑based assembly (overlay segments at original positions) → speed adjustment (threshold 1.5/0.5) → mix with instrumentals → *(optional)* subtitle burn (independent translation if `subtitle (source-target)` specified) → mux with video (if video input)
 
 **Commands:**
 
@@ -653,7 +656,7 @@ python src/voder.py tts dub subtitle (auto-en) translate (auto-ja) "video.mp4"
 # Full-form canonical command (recommended for clarity — overdose/extreme auto-implied by dub)
 python src/voder.py tts overdose extreme se dub subtitle (auto-en) translate (auto-ja) video "video.mp4"
 
-# Dub with speech enhancement, translation to Arabic, and subtitles
+# Dub with sound enhancement, translation to Arabic, and subtitles
 python src/voder.py tts overdose extreme se dub translate (auto-ar) subtitle "video.mp4"
 
 # Dub audio file (output is WAV)
@@ -671,7 +674,7 @@ python src/voder.py tts dub translate (ja-en) "japanese_video.mp4"
 | `translate (source-target)` | Override target language via TranslateGemma 12B (76 languages). Defaults to auto→English if omitted | No |
 | `subtitle` | Burn subtitles onto output video. Uses dubbed audio text by default | No |
 | `subtitle (source-target)` | Burn independently translated subtitles onto output video (separate from dub audio language) | No |
-| `se` | Enable speech enhancement before ASR (optional) | No |
+| `se` | Enable sound enhancement before ASR (optional) | No |
 | `video "path"` | Specify input video path | No |
 | `overdose` | Auto‑implied by `dub` but can be specified for clarity | No |
 | `result "path"` | Custom output path | No |
@@ -1413,7 +1416,7 @@ python src/voder.py stt subtitle translate (auto-ar) "video.mp4"
 python src/voder.py stt subtitle translate (ja-en) "japanese_video.mp4"
 ```
 
-**Subtitle with speech enhancement:**
+**Subtitle with sound enhancement:**
 ```bash
 python src/voder.py stt subtitle se "noisy_video.mp4"
 ```
@@ -1560,13 +1563,55 @@ python src/voder.py ss "meeting.wav" overdose result "/output/speakers/"
 
 **Note:** Requires 24GB+ VRAM or 48GB+ system memory for VibeVoice ASR model.
 
-### Speech Enhancement (se)
+### Sound Enhancement (se)
 
-Enhance speech audio by denoising, dereverberating, and restoring clarity. Uses UniSE model from Alibaba's unified-audio project.
+Enhance audio by denoising, dereverberating, restoring clarity, and upscaling resolution. Supports speech, music, and mixed content through sub‑modes. Uses UniSE model from Alibaba's unified-audio project for speech enhancement and AudioSR for super‑resolution.
 
-**Basic enhancement:**
+**Sub‑modes:**
+
+| Command | Description |
+|---------|-------------|
+| `se "path"` | Default UniSE speech enhancement (denoise, dereverb) |
+| `se voice "path"` | SVS voice isolation + UniSE speech enhancement on vocals |
+| `se voice blend "path"` | SVS voice isolation + UniSE speech enhancement on vocals, then blend enhanced vocals back with music |
+| `se sr "path"` | AudioSR super‑resolution (speech model, 48kHz output) |
+| `se sr blend "path"` | AudioSR super‑resolution + UniSE speech enhancement on voice, blended at 48kHz |
+| `se sr music "path"` | SVS music isolation + AudioSR super‑resolution (basic model) on music, output upsampled music |
+| `se sr music blend "path"` | SVS music isolation + AudioSR super‑resolution on music + UniSE speech enhancement on voice, blend at 48kHz |
+
+**Default enhancement (UniSE):**
 ```bash
 python src/voder.py se "noisy_audio.wav"
+```
+
+**Voice isolation + enhancement:**
+```bash
+python src/voder.py se voice "song.wav"
+```
+
+**Voice isolation + enhancement + blend with music:**
+```bash
+python src/voder.py se voice blend "song.wav"
+```
+
+**Super‑resolution (AudioSR, 48kHz output):**
+```bash
+python src/voder.py se sr "low_quality_audio.wav"
+```
+
+**Super‑resolution + voice enhancement + blend:**
+```bash
+python src/voder.py se sr blend "song.wav"
+```
+
+**Music super‑resolution:**
+```bash
+python src/voder.py se sr music "low_quality_music.wav"
+```
+
+**Music super‑resolution + voice enhancement + blend:**
+```bash
+python src/voder.py se sr music blend "song.wav"
 ```
 
 **Enhance audio from video:**
@@ -1591,15 +1636,24 @@ python src/voder.py se "audio.wav" result "/output/enhanced.wav"
 - **Video**: MP4, AVI, MOV, MKV (audio auto‑extracted)
 
 **Important Notes:**
-- **Not for music**: SE is optimized for speech only; music may be degraded
-- **16kHz output**: Enhanced audio is output at 16kHz sample rate
-- **Best for**: Noisy recordings, distant microphones, room echo removal
+- **Default mode**: UniSE speech enhancement outputs at 16kHz — best for noisy recordings, distant microphones, room echo removal
+- **`voice` sub‑mode**: Isolates vocals via SVS first, then applies UniSE speech enhancement; `blend` recombines with instrumental
+- **`sr` sub‑mode**: Uses AudioSR for super‑resolution upscaling to 48kHz — ideal for restoring low‑bitrate or low‑sample‑rate audio
+- **`sr music` sub‑mode**: Isolates music via SVS, then applies AudioSR basic model for music super‑resolution; `blend` also enhances voice with UniSE
+- **AudioSR dependency**: `sr` sub‑modes require the `audiosr` package (install via `pip install audiosr`); first run downloads the AudioSR model (~4‑6GB)
 
-**Output Example:**
+**Output Example (default):**
 ```
-Loading UniSE Speech Enhancement model...
+Loading UniSE speech enhancement model...
 Enhancing audio...
 ✓ Success! Output saved to: results/voder_se_20260408_120000.wav
+```
+
+**Output Example (sr):**
+```
+Loading AudioSR super-resolution model...
+Upsampling audio to 48kHz...
+✓ Success! Output saved to: results/voder_se_sr_20260408_120000.wav
 ```
 
 ### Sound Effects Generation (sfx)
@@ -1709,7 +1763,7 @@ python src/voder.py stt "meeting.wav" timestamp result "/data/transcripts/meetin
 # Copy music result
 python src/voder.py ttm lyrics "Hello world" styling "pop" duration 30 result "/mnt/shared/music/"
 
-# Copy speech enhancement result
+# Copy sound enhancement result
 python src/voder.py se "noisy.wav" result "/clean/audio.wav"
 
 # Copy sound effect result
@@ -1841,7 +1895,7 @@ VODER offers different experiences depending on the interface. Understanding the
 | **YouTube/URL Input** | Direct transcription from YouTube, Bilibili, TikTok URLs |
 | **Image OCR Input** | Text extraction from images via EasyOCR |
 | **Result Routing** | Copy output to arbitrary filesystem paths with `result` parameter |
-| **Speech Enhancement** | Denoise, dereverberate, restore speech audio |
+| **Sound Enhancement** | Denoise, dereverberate, restore speech audio; voice isolation and super-resolution for music |
 | **Sound Effects Generation** | Text-to-audio synthesis with configurable parameters |
 | **Song Voice Separation** | Separate vocals from music using BS‑RoFormer |
 | **Speaker Language Conversion** | Translate speech to English preserving voice (TTS sub‑task: `tts slc`, `tts slc music` for music preservation) |
@@ -1875,7 +1929,7 @@ Available in **both** CLI and GUI:
 | **Background Music** | ✅ `music` parameter (one‑liner) or interactive yes/no | ✅ Modal dialog before generation |
 | **STS / TTM / TTM vc** | ✅ One‑liner commands | ✅ Dedicated panels |
 | **STT (Speech-to-Text)** | ✅ One‑liner with optional `timestamp`, `dialogue`, `translate`, `overdose`, `result` | ✅ Dedicated panel |
-| **SE (Speech Enhancement)** | ✅ One‑liner command | ✅ Dedicated panel |
+| **SE (Sound Enhancement)** | ✅ One‑liner command (with `voice`, `sr`, `sr music` sub‑modes) | ✅ Dedicated panel |
 | **SFX (Sound Effects)** | ✅ One‑liner with `sound`, `duration`, `steps`, `guide` | ✅ Dedicated panel |
 | **SVS (Song Voice Separate)** | ✅ One‑liner command | ✅ Dedicated panel |
 | **SLC (Speaker Language Conversion)** | ✅ One‑liner command (`tts slc`) | ✅ Dedicated panel |
@@ -1909,6 +1963,7 @@ VODER operates entirely on CPU. No GPU is required for any mode. This makes VODE
 | TTM + Complete | 48GB | Optional | 32GB VRAM or 48GB RAM | 8GB base + ~40GB (VibeVoice ASR + three‑tier ACE‑Step) |
 | TTM vc | 23GB | Optional | 16GB | 8GB base + 15GB (ACE) |
 | SE | 11GB | Optional | 4GB | 8GB base + 2-3GB (UniSE) |
+| SE (sr) | 17GB | Optional | 8GB | 8GB base + 2-3GB (UniSE) + 4-6GB (AudioSR) |
 | SFX | 12GB | Optional | 4GB | 8GB base + 3-4GB (TangoFlux) |
 | SVS | 14GB | Optional | 6-7GB (additional for BS-RoFormer) | 8GB base + 2-3GB (BS-RoFormer) |
 | TTS + SLC | 18GB | Optional | 4GB | 8GB base + ~3GB (SVS) + ~3GB (Whisper large-v3) + 4GB (Qwen, shared with TTS) |
@@ -1955,7 +2010,7 @@ The following modes work with approximately 11-13GB RAM:
 - **TTS SLC** (Speaker Language Conversion via `tts slc`) - 18GB
 - **STT** (Speech-to-Text) - 12GB
 - **STS** (Speech-to-Speech) - 13GB
-- **SE** (Speech Enhancement) - 11GB
+- **SE** (Sound Enhancement) - 11GB (base); up to 17GB with AudioSR
 - **SFX** (Sound Effects) - 12GB
 - **SVS** (Song Voice Separate) - 14GB
 
@@ -2004,9 +2059,10 @@ free -h
 
 ### SE Mode Limitations
 
-1. **Speech Only**: Not designed for music enhancement
-2. **16kHz Output**: Output sample rate is fixed at 16kHz
+1. **Default Mode — Speech Only**: The base `se "path"` mode uses UniSE speech enhancement and is optimized for speech; music may be degraded. Use `se sr music` for music content instead
+2. **16kHz Output (default)**: Default UniSE speech enhancement outputs at 16kHz sample rate. Use `se sr` sub‑modes for 48kHz output
 3. **Cannot Recover Missing Data**: Severely corrupted audio has restoration limits
+4. **AudioSR Model Size**: `sr` sub‑modes require downloading the AudioSR model (~4‑6GB on first use)
 
 ### SFX Mode Limitations
 
@@ -2102,11 +2158,11 @@ python src/voder.py tts script "James: Hello" "Sarah: Hi" voice "James: deep voi
 python src/voder.py tts script "James: Hello" "sfx: thunder /duration:5" voice "James: male"
 ```
 
-### Issue: Speech enhancement degrades music
+### Issue: Sound enhancement degrades music
 
-**Cause**: SE mode is designed for speech only
+**Cause**: Default SE mode (`se "path"`) uses UniSE speech enhancement which is optimized for speech only
 
-**Solution**: Don't use SE mode on music content
+**Solution**: Use `se sr music "path"` for music content, or `se sr music blend "path"` to enhance both voice and music
 
 ### Issue: Sound effect doesn't match prompt
 
@@ -2204,7 +2260,7 @@ python src/voder.py tts script "James: Hello" "sfx: thunder /duration:5" voice "
 **Solution**:
 1. Use higher quality source audio (320kbps MP3 or lossless)
 2. Ensure source is properly mixed (vocals not buried in effects)
-3. Pre-process with speech enhancement for better vocal extraction
+3. Pre-process with sound enhancement for better vocal extraction
 
 ### Issue: SLC translation produces incorrect output
 
@@ -2212,7 +2268,7 @@ python src/voder.py tts script "James: Hello" "sfx: thunder /duration:5" voice "
 
 **Solution**:
 1. Ensure source audio is clear with minimal background noise
-2. Pre-process with speech enhancement (`se` mode) before SLC
+2. Pre-process with sound enhancement (`se` mode) before SLC
 3. Use shorter audio segments for better accuracy
 4. SLC always uses Whisper large-v3 (not turbo) for maximum accuracy
 5. Note: SLC is now a TTS sub‑task — use `tts slc "path.wav"` instead of the old standalone `slc` command
@@ -2248,7 +2304,7 @@ VODER is a mature tool with all modes fully operational. When issues occur, they
 7. **Missing HF_TOKEN for diarization**: Create `HF_TOKEN.txt` with valid token
 8. **yt-dlp not installed**: Install via `pip install yt-dlp`
 9. **Poor OCR input quality**: Use high‑resolution, high‑contrast images
-10. **SE used on music**: SE is speech-only
+10. **SE used on music**: Default SE is speech-only; use `se sr music` for music content
 11. **SFX missing duration**: Add `/duration:nn` to SFX lines
 12. **SS/overdose insufficient memory**: Ensure 48GB+ RAM or 24GB+ VRAM
 13. **STT overdose + translate conflict**: These flags are mutually exclusive (STT mode only; SLC always translates to English)
@@ -2293,14 +2349,26 @@ python src/voder.py tts script "Narrator: Once upon a time, in a digital realm,"
 python src/voder.py tts script "James: Welcome to our podcast!" "sfx: intro jingle /duration:5 /level:60" "Sarah: Thanks for having me, James." "James: So, Sarah, tell us about your work." target "James: /voices/james_reference.wav" "Sarah: /voices/sarah_reference.wav" music "soft piano, cinematic strings" level "0:30-60:50"
 ```
 
-### Workflow 4: Speech Enhancement Pipeline
+### Workflow 4: Sound Enhancement Pipeline
 
 ```bash
-# Enhance a noisy recording
+# Enhance a noisy recording (default UniSE speech enhancement)
 python src/voder.py se "noisy_podcast.wav" result "/output/clean_podcast.wav"
 
 # Enhance audio from video
 python src/voder.py se "interview_recording.mp4" result "/output/enhanced_interview.wav"
+
+# Isolate and enhance vocals from a song, blend back with music
+python src/voder.py se voice blend "song.wav" result "/output/enhanced_song.wav"
+
+# Super‑resolution upscale to 48kHz
+python src/voder.py se sr "low_quality_audio.wav" result "/output/hq_audio.wav"
+
+# Music super‑resolution (upsample music track)
+python src/voder.py se sr music "low_quality_music.wav" result "/output/hq_music.wav"
+
+# Full song enhancement: super‑resolution on music + voice enhancement, blended
+python src/voder.py se sr music blend "song.wav" result "/output/hq_enhanced_song.wav"
 ```
 
 ### Workflow 5: Sound Effects Generation
@@ -2395,7 +2463,7 @@ python src/voder.py tts script "$SCRIPT" voice "professional narrator"
 ### Workflow 12: Complete Audio Production Pipeline
 
 ```bash
-# 1. Enhance source audio
+# 1. Enhance source audio (default SE)
 python src/voder.py se "raw_recording.wav" result "/clean/audio.wav"
 
 # 2. Transcribe with diarization
@@ -2423,7 +2491,7 @@ python src/voder.py svs "original_song.mp3" voice result "/output/vocals.wav"
 python src/voder.py svs "original_song.mp3" music result "/output/instrumental.wav"
 
 # 3. Enhance extracted vocals
-python src/voder.py se "/output/vocals.wav" result "/output/clean_vocals.wav"
+python src/voder.py se voice "/output/vocals.wav" result "/output/clean_vocals.wav"
 
 # 4. Convert vocals to a different voice
 python src/voder.py sts base "/output/clean_vocals.wav" target "new_singer.wav" result "/output/converted_vocals.wav"

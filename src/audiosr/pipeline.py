@@ -1,0 +1,326 @@
+import os
+import re
+import yaml
+import torch
+import torchaudio
+import numpy as np
+import torch.nn.functional as F
+import gc
+
+from audiosr.latent_diffusion.models.ddpm import LatentDiffusion
+from audiosr.utils import (
+    default_audioldm_config,
+    download_checkpoint,
+    read_audio_file,
+    lowpass_filtering_prepare_inference,
+    wav_feature_extraction,
+    normalize_wav,
+    pad_wav,
+)
+
+
+def seed_everything(seed):
+    import random, os
+    import numpy as np
+    import torch
+
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
+
+
+def text2phoneme(data):
+    return re.sub(r"<.*?>", "", data)
+
+
+def text_to_filename(text):
+    return text.replace(" ", "_").replace("'", "_").replace('"', "_")
+
+
+def extract_kaldi_fbank_feature(waveform, sampling_rate, log_mel_spec):
+    norm_mean = -4.2677393
+    norm_std = 4.5689974
+
+    if sampling_rate != 16000:
+        waveform_16k = torchaudio.functional.resample(
+            waveform, orig_freq=sampling_rate, new_freq=16000
+        )
+    else:
+        waveform_16k = waveform
+
+    waveform_16k = waveform_16k - waveform_16k.mean()
+    fbank = torchaudio.compliance.kaldi.fbank(
+        waveform_16k,
+        htk_compat=True,
+        sample_frequency=16000,
+        use_energy=False,
+        window_type="hanning",
+        num_mel_bins=128,
+        dither=0.0,
+        frame_shift=10,
+    )
+
+    TARGET_LEN = log_mel_spec.size(0)
+
+    # cut and pad
+    n_frames = fbank.shape[0]
+    p = TARGET_LEN - n_frames
+    if p > 0:
+        m = torch.nn.ZeroPad2d((0, 0, 0, p))
+        fbank = m(fbank)
+    elif p < 0:
+        fbank = fbank[:TARGET_LEN, :]
+
+    fbank = (fbank - norm_mean) / (norm_std * 2)
+
+    return {"ta_kaldi_fbank": fbank}  # [1024, 128]
+
+
+def make_batch_for_super_resolution(input_file, waveform=None, fbank=None):
+    if waveform is None:
+        # Original logic if no waveform is provided
+        log_mel_spec, stft, waveform, duration, target_frame = read_audio_file(input_file)
+    else:
+        # New logic for chunk-based processing
+        # We need to replicate the feature extraction from read_audio_file/wav_feature_extraction
+        sampling_rate = 48000 # Assuming this is fixed
+        duration = waveform.shape[-1] / sampling_rate
+        
+        # The original code pads to a multiple of 5.12s. We should do the same for each chunk
+        # to match the model's expected input size.
+        if(duration % 5.12 != 0):
+            pad_duration = duration + (5.12 - duration % 5.12)
+        else:
+            pad_duration = duration
+        
+        target_frame = int(pad_duration * 100)
+        
+        # Normalize and pad the waveform chunk
+        waveform = normalize_wav(waveform)
+        waveform = pad_wav(waveform, target_length=int(sampling_rate * pad_duration))
+
+        log_mel_spec, stft = wav_feature_extraction(torch.from_numpy(waveform), target_frame)
+
+
+    batch = {
+        "waveform": torch.FloatTensor(waveform),
+        "stft": torch.FloatTensor(stft),
+        "log_mel_spec": torch.FloatTensor(log_mel_spec),
+        "sampling_rate": 48000,
+    }
+
+    # print(batch["waveform"].size(), batch["stft"].size(), batch["log_mel_spec"].size())
+
+    batch.update(lowpass_filtering_prepare_inference(batch))
+
+    assert "waveform_lowpass" in batch.keys()
+    lowpass_mel, lowpass_stft = wav_feature_extraction(
+        batch["waveform_lowpass"], target_frame
+    )
+    batch["lowpass_mel"] = lowpass_mel
+
+    for k in batch.keys():
+        if type(batch[k]) == torch.Tensor:
+            batch[k] = torch.FloatTensor(batch[k]).unsqueeze(0)
+
+    return batch, duration
+
+
+def round_up_duration(duration):
+    return int(round(duration / 2.5) + 1) * 2.5
+
+
+def build_model(ckpt_path=None, config=None, device=None, model_name="basic", cache_dir=None):
+    if device is None or device == "auto":
+        if torch.cuda.is_available():
+            device = torch.device("cuda:0")
+        elif torch.backends.mps.is_available():
+            device = torch.device("mps")
+        else:
+            device = torch.device("cpu")
+
+    print("Loading AudioSR: %s" % model_name)
+    print("Loading model on %s" % device)
+
+    if ckpt_path is None:
+        ckpt_path = download_checkpoint(model_name, cache_dir=cache_dir)
+
+    if config is not None:
+        assert type(config) is str
+        config = yaml.load(open(config, "r"), Loader=yaml.FullLoader)
+    else:
+        config = default_audioldm_config(model_name)
+
+    config["model"]["params"]["device"] = device
+
+    latent_diffusion = LatentDiffusion(**config["model"]["params"])
+
+    resume_from_checkpoint = ckpt_path
+
+    checkpoint = torch.load(resume_from_checkpoint, map_location='cpu')
+
+    latent_diffusion.load_state_dict(checkpoint["state_dict"], strict=False)
+
+    latent_diffusion.eval()
+    latent_diffusion = latent_diffusion.to(device)
+
+    return latent_diffusion
+
+
+def super_resolution(
+    latent_diffusion,
+    input_file,
+    seed=42,
+    ddim_steps=200,
+    guidance_scale=3.5,
+    latent_t_per_second=12.8,
+    config=None,
+):
+    seed_everything(int(seed))
+    waveform = None
+
+    batch, duration = make_batch_for_super_resolution(input_file, waveform=waveform)
+
+    with torch.no_grad():
+        waveform = latent_diffusion.generate_batch(
+            batch,
+            unconditional_guidance_scale=guidance_scale,
+            ddim_steps=ddim_steps,
+            duration=duration,
+        )
+
+    return waveform
+
+
+def super_resolution_long_audio(
+    latent_diffusion,
+    input_file,
+    seed=42,
+    ddim_steps=200,
+    guidance_scale=3.5,
+    chunk_duration_s=15,
+    overlap_duration_s=2
+):
+    """
+    Processes a long audio file by chunking it, running super-resolution on each chunk,
+    and reconstructing the full audio with cross-fading in overlap regions.
+    """
+    seed_everything(int(seed))
+
+    if chunk_duration_s <= overlap_duration_s:
+        raise ValueError("Chunk duration must be greater than overlap duration.")
+    
+    # 1. Load the entire audio file once
+    waveform, sr = torchaudio.load(input_file)
+
+    # Resample to 48000 Hz
+    if sr != 48000:
+        resampler = torchaudio.transforms.Resample(sr, 48000)
+        waveform = resampler(waveform)
+        sr = 48000
+
+    # Ensure waveform is mono for processing
+    if waveform.shape[0] > 1:
+        waveform = torch.mean(waveform, dim=0, keepdim=True)
+    
+    waveform = waveform.unsqueeze(0) # Add a batch dimension
+
+    # 2. Define chunk and overlap sizes in samples
+    chunk_samples = int(chunk_duration_s * sr)
+    overlap_samples = int(overlap_duration_s * sr)
+    step_samples = chunk_samples - overlap_samples
+    total_samples = waveform.shape[2]
+    
+    # Create a buffer for the final output
+    final_waveform = torch.zeros_like(waveform)
+    # Create a buffer to track overlap contributions for normalization
+    overlap_contribution_map = torch.zeros_like(waveform)
+
+    # 3. Create a linear fade-in/fade-out window for cross-fading
+    fade_window = torch.hann_window(2 * overlap_samples, periodic=False)
+    fade_in = fade_window[:overlap_samples]
+    fade_out = fade_window[overlap_samples:]
+
+    # 4. Iterate over chunks
+    for start_sample in range(0, total_samples, step_samples):
+        end_sample = start_sample + chunk_samples
+        
+        # Get the current chunk
+        chunk_waveform = waveform[:, :, start_sample:end_sample]
+        
+        # *** NEW: Record the original peak amplitude of the chunk ***
+        # Add a small epsilon to avoid division by zero for silent chunks
+        original_peak = torch.max(torch.abs(chunk_waveform)) + 1e-8
+        
+        # Pad the last chunk if it's shorter than chunk_samples
+        current_chunk_len = chunk_waveform.shape[2]
+        if current_chunk_len < chunk_samples:
+            padding_needed = chunk_samples - current_chunk_len
+            chunk_waveform = F.pad(chunk_waveform, (0, padding_needed))
+
+        print(f"Processing chunk from {start_sample/sr:.2f}s to {end_sample/sr:.2f}s")
+
+        # --- This part replaces the original `super_resolution` logic ---
+        # Prepare batch from the waveform chunk directly
+        batch, duration = make_batch_for_super_resolution(None, waveform=chunk_waveform.squeeze(0).numpy())
+        
+        with torch.no_grad():
+            # Run inference on the single chunk
+            processed_chunk = latent_diffusion.generate_batch(
+                batch,
+                unconditional_guidance_scale=guidance_scale,
+                ddim_steps=ddim_steps,
+                duration=duration,
+            ) # This should return a tensor
+        
+        # Ensure the processed chunk is a tensor
+        if isinstance(processed_chunk, np.ndarray):
+            processed_chunk = torch.from_numpy(processed_chunk)
+
+        # Trim padding from the last chunk if necessary
+        processed_chunk = processed_chunk[:, :, :current_chunk_len]
+
+        # *** NEW: Rescale the output chunk to match the original peak volume ***
+        processed_peak = torch.max(torch.abs(processed_chunk)) + 1e-8
+        # Apply the scaling factor
+        processed_chunk = (processed_chunk / processed_peak) * original_peak
+
+        # 5. Apply cross-fading window to the overlap regions
+        # The very first chunk has no left overlap to fade in
+        if start_sample > 0:
+            processed_chunk[:, :, :overlap_samples] *= fade_in
+        
+        # The very last chunk has no right overlap to fade out
+        if end_sample < total_samples:
+            processed_chunk[:, :, -overlap_samples:] *= fade_out
+
+        # 6. Add the processed chunk to the final waveform (Overlap-Add)
+        final_waveform[:, :, start_sample:end_sample] += processed_chunk.to(final_waveform.device)
+
+        # Update the contribution map for normalization
+        window_contribution = torch.ones(current_chunk_len)
+        if start_sample > 0:
+            window_contribution[:overlap_samples] = fade_in
+        if end_sample < total_samples:
+            window_contribution[-overlap_samples:] = fade_out
+        overlap_contribution_map[:, :, start_sample:end_sample] += window_contribution.to(overlap_contribution_map.device)
+
+        # Clean up memory
+        del batch, processed_chunk
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    # 7. Normalize the overlapping regions
+    # Avoid division by zero in non-overlapping parts
+    overlap_contribution_map[overlap_contribution_map == 0] = 1.0
+    final_waveform /= overlap_contribution_map
+    
+    # Clamp the final output to avoid clipping
+    final_waveform = torch.clamp(final_waveform, -1.0, 1.0)
+    
+    return final_waveform.squeeze(0) # Remove batch dimension before saving

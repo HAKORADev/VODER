@@ -492,26 +492,48 @@ python src/voder.py stt "audio.wav" result "/path/to/output.txt"
 
 ## 5. SE Mode
 
-SE (Speech Enhancement) is a standalone mode for improving audio quality by removing noise, reducing reverberation, and restoring speech clarity.
+SE (Sound Enhancement) is a standalone mode for improving audio quality through denoising, dereverberation, restoration, and super-resolution.
 
 **Supported Inputs:**
 - Audio files (WAV, MP3, FLAC, OGG, etc.)
 - Video files (MP4, MKV, AVI, etc.) — audio is extracted automatically
 
+**Sub-Modes:**
+
+| Command | Pipeline | Output |
+|---------|----------|--------|
+| `se "path"` | UniSE enhancement | 16kHz WAV |
+| `se voice "path"` | SVS voice → UniSE on vocals | 16kHz WAV |
+| `se voice blend "path"` | SVS voice+music → UniSE on voice → blend | 48kHz WAV |
+| `se sr "path"` | AudioSR super-resolution (speech model) | 48kHz WAV |
+| `se sr blend "path"` | AudioSR + UniSE on voice → blend | 48kHz WAV |
+| `se sr music "path"` | SVS music → AudioSR (basic model) | 48kHz WAV |
+| `se sr music blend "path"` | SVS voice+music → AudioSR on music + UniSE on voice → blend | 48kHz WAV |
+
 **Features:**
 - Denoising — removes background noise and artifacts
 - Dereverberation — reduces room echo and reverb effects
 - Speech restoration — enhances clarity and intelligibility
-- Outputs at 16kHz sample rate (optimized for speech)
-- **Not designed for musical enhancement** — use for speech content only
+- Super-resolution — upscales low-sample-rate audio to 48kHz via AudioSR
+- Voice extraction — SVS isolates vocals before enhancement
+- Blend — mixes enhanced vocals with original/upsampled music
 
 **Quick Examples:**
 ```bash
-# Basic speech enhancement
+# Basic enhancement
 python src/voder.py se "noisy_audio.wav"
 
-# Enhance audio from video
-python src/voder.py se "recording.mp4"
+# Enhance extracted voice only
+python src/voder.py se voice "song.wav"
+
+# Enhance voice and blend with music
+python src/voder.py se voice blend "song.wav"
+
+# Super-resolution upsample to 48kHz
+python src/voder.py se sr "low_quality.wav"
+
+# Upsample music and blend with enhanced voice
+python src/voder.py se sr music blend "song.wav"
 
 # Save to specific location
 python src/voder.py se "audio.wav" result "/path/to/enhanced.wav"
@@ -521,10 +543,10 @@ python src/voder.py se "audio.wav" result "/path/to/enhanced.wav"
 ```bash
 # Interactive mode
 python src/voder.py cli
-# Select option 5 (SE)
+# Select option 4 (SE)
 
 # One-liner mode
-python src/voder.py se "audio_file.wav" result "/output/enhanced.wav"
+python src/voder.py se voice blend "audio_file.wav" result "/output/enhanced.wav"
 ```
 
 ---
@@ -664,7 +686,7 @@ VODER leverages state-of-the-art open-source models for professional-grade audio
 - **Voice Conversion:** [Plachtaa/seed-vc](https://github.com/Plachtaa/seed-vc) — Seed-VC for speech-to-speech transformation
 - **Music Generation:** [ace-step/ACE-Step-1.5](https://github.com/ace-step/ACE-Step-1.5) — ACE-Step for lyrics-to-music synthesis
 - **Sound Effects:** [declare-lab/TangoFlux](https://github.com/declare-lab/TangoFlux) — TangoFlux for text-to-audio generation
-- **Speech Enhancement:** [alibaba/unified-audio](https://github.com/alibaba/unified-audio) — UniSE for denoising, dereverberation, and speech restoration
+- **Sound Enhancement:** [alibaba/unified-audio](https://github.com/alibaba/unified-audio) + [versatile_audio_super_resolution](https://github.com/haoheliu/versatile_audio_super_resolution) — UniSE for denoising/dereverb, AudioSR for super-resolution
 - **Voice Separation:** [BS-RoFormer Resurrection](https://huggingface.co/pcunwa/BS-Roformer-Resurrection) — BS-RoFormer for vocal/music isolation
 - **Advanced ASR:** [Microsoft VibeVoice](https://github.com/microsoft/VibeVoice) — VibeVoice ASR for speaker diarization, transcription, and overdose mode
 - **Any-to-Any Translation:** [Google TranslateGemma 12B](https://huggingface.co/google/translategemma-12b-it) — TranslateGemma for translation between 76 languages, decoupled from ASR engine
@@ -835,7 +857,9 @@ python src/voder.py ss "meeting.wav"
 **SE mode:**
 ```bash
 python src/voder.py se "noisy_audio.wav"
-python src/voder.py se "recording.mp4"
+python src/voder.py se voice blend "song.wav"
+python src/voder.py se sr "low_quality.wav"
+python src/voder.py se sr music blend "song.wav"
 python src/voder.py se "audio.wav" result "/path/to/enhanced.wav"
 ```
 
@@ -863,7 +887,7 @@ python src/voder.py sfx sound "footsteps on gravel" duration 8 result "/output/f
 - **Voice Cloning:** Extract and replicate voice characteristics from reference audio samples via the `target` parameter in TTS mode
 - **Music Generation:** Lyrics-to-music synthesis with style control, voice conversion (`vc` flag), sub-tasks (complete, lego, extract, remix, repaint, bgm), and a three-tier ACE-Step quality system (standard, overdose, complete) with up to 12 instrument tracks
 - **Sound Effects Generation:** Text-to-audio synthesis for custom sound design
-- **Speech Enhancement:** Denoise, dereverberate, and restore speech audio
+- **Sound Enhancement:** Denoise, dereverb, restore, and super-resolve audio (voice, sr, sr music sub-modes)
 - **Vocal/Music Separation:** BS-RoFormer integration for automatic vocal extraction — used internally by STS (target cleanup), STT (pre-cleanup isolation), TTS (voice cloning target cleanup), and available as a standalone SVS mode
 - **Speech Language Conversion (SLC):** Integrated into TTS as an oneline sub-task — translate speech to English or any of 76 languages via TranslateGemma, or re-synthesize in the same language while preserving the speaker's voice, with optional overdose mode for enhanced voice fidelity
 - **Video/Audio Dubbing (TTS Dub):** Translate and replace speech in videos while preserving the original speaker's voice and background music — per-segment TTS generation, speed adjustment, and timeline-based assembly for near-perfect timing alignment

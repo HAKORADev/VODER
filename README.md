@@ -66,9 +66,9 @@ Isolate clean vocals from any song, or extract the instrumental. Works with audi
 
 Transcribe audio, video, images, or direct URLs to text. Supports **translation to English** from 99 languages, **speaker diarization** (who spoke when), and **batch processing** of multiple files. An **overdose mode** using Microsoft VibeVoice ASR delivers higher-quality transcription with built-in speaker identification.
 
-### Speech Enhancement
+### Sound Enhancement
 
-Remove noise, reduce room echo, and restore clarity from degraded recordings. Works on audio and video files alike.
+Remove noise, reduce room echo, and restore clarity from degraded recordings. Upscale audio to 48kHz with AudioSR super-resolution. Works on audio and video files alike.
 
 ### Speaker Separation
 
@@ -129,7 +129,7 @@ python src/voder.py sfx sound "thunder rumbling" duration 10
 | **STS** | Convert one voice to another | Audio / Video | Audio / Video |
 | **TTM** | Generate, remix, repaint, bgm, and manipulate music | Text + Audio | Audio / Stems |
 | **STT** | Transcribe audio, translate to 76 languages, identify speakers | Audio / Video / Image / URL | Text |
-| **SE** | Denoise, dereverb, restore speech | Audio / Video | Audio / Video |
+| **SE** | Denoise, dereverb, restore, super-resolution (48kHz) | Audio / Video | Audio / Video |
 | **SFX** | Generate sound effects from text | Text | Audio |
 | **SVS** | Isolate vocals from music | Audio / Video / URL | Audio |
 | **SS** | Extract individual speakers | Audio / Video | Audio per speaker |
@@ -147,7 +147,7 @@ VODER orchestrates state-of-the-art open-source models — each selected for qua
 | Voice Conversion | [Seed-VC](https://github.com/Plachtaa/seed-vc) |
 | Music Generation | [ACE-Step](https://github.com/ace-step/ACE-Step-1.5) |
 | Sound Effects | [TangoFlux](https://github.com/declare-lab/TangoFlux) |
-| Speech Enhancement | [UniSE](https://github.com/alibaba/unified-audio) |
+| Sound Enhancement | [UniSE](https://github.com/alibaba/unified-audio), [AudioSR](https://github.com/haoheliu/versatile_audio_super_resolution) |
 | Vocal / Music Separation | [BS-RoFormer](https://huggingface.co/pcunwa/BS-Roformer-Resurrection) |
 | Advanced ASR & Diarization | [VibeVoice](https://github.com/microsoft/VibeVoice) |
 | Any-to-Any Translation | [TranslateGemma 12B](https://huggingface.co/google/translategemma-12b-it) |

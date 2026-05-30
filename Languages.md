@@ -18,6 +18,7 @@ VODER is not an English‑only tool. The AI models it orchestrates collectively 
 | **Seed‑VC v2** | STS | Any | N/A | Language‑agnostic (audio waveforms) |
 | **Seed‑VC v1** | MSTS | Any | N/A | Language‑agnostic (audio waveforms) |
 | **UniSE** | SE | Any | N/A | Language‑agnostic (audio waveforms) |
+| **AudioSR** | SE (sr sub-modes) | Any | N/A | Language‑agnostic (audio waveforms, lowpass conditioning) |
 | **Pyannote** | Diarization | Any | N/A | Language‑agnostic (voice embeddings) |
 | **VibeVoice ASR** | STT (overdose), SS, TTS (dub) | 53 | Yes | Native speaker diarization; 24GB+ VRAM or 48GB+ RAM required; audio events preserved for dub pipeline |
 | **TranslateGemma 12B** | STT (translate), TTS (SLC translate, dub), STT (subtitle translate) | 76 | Yes | Any-to-any translation; decoupled from ASR; 24GB+ VRAM recommended; auto-detects source language with `auto` |
@@ -441,11 +442,17 @@ Operates on raw audio waveforms at 22.05kHz. The content encoder (ASTRAL Quantiz
 
 Same language‑agnostic approach as v2, but runs at 44.1kHz for music content. Uses Whisper‑small as content encoder (trained on approximately 100 languages) and includes RMVPE pitch extraction for singing voice.
 
-### UniSE — Speech Enhancement
+### UniSE — Sound Enhancement
 
-**Modes:** SE
+**Modes:** SE (default, voice sub-modes)
 
 Processes raw audio to remove noise, reduce reverberation, and restore speech clarity. Uses WavLM for semantic feature extraction (trained on multilingual speech data). No language configuration or text processing is involved. Outputs at 16kHz.
+
+### AudioSR — Audio Super-Resolution
+
+**Modes:** SE (sr, sr music sub-modes)
+
+Upscales low-sample-rate audio to 48kHz using a latent diffusion model. Operates purely on audio signal characteristics — no language configuration or text processing involved. Two model variants: `basic` (general audio/music) and `speech` (speech-optimized). Uses lowpass filtering as conditioning — language-agnostic by design.
 
 ### Pyannote — Speaker Diarization
 
