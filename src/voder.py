@@ -5852,14 +5852,17 @@ def parse_oneline_args(args):
                     result['error'] = 'result keyword requires a path argument'
                     return result
             elif arg_lower == 'voice':
-                if se_sub is not None:
-                    result['error'] = f'SE sub-mode already set to {se_sub}'
+                if se_sub is None:
+                    se_sub = 'voice'
+                elif se_sub == 'sr':
+                    se_sub = 'sr_voice'
+                else:
+                    result['error'] = 'Invalid SE syntax: unexpected voice keyword'
                     return result
-                se_sub = 'voice'
                 i += 1
             elif arg_lower == 'sr':
                 if se_sub is not None:
-                    result['error'] = f'SE sub-mode already set to {se_sub}'
+                    result['error'] = 'Invalid SE syntax: sr already specified'
                     return result
                 se_sub = 'sr'
                 i += 1
@@ -5867,10 +5870,13 @@ def parse_oneline_args(args):
                 se_blend = True
                 i += 1
             elif arg_lower == 'music':
-                if se_sub != 'sr':
-                    result['error'] = 'music keyword is only valid after sr (e.g. se sr music)'
+                if se_sub == 'sr':
+                    se_sub = 'sr_music'
+                elif se_sub == 'sr_voice':
+                    se_sub = 'sr_voice_music'
+                else:
+                    result['error'] = 'music keyword requires sr or sr voice prefix'
                     return result
-                se_sub = 'sr_music'
                 i += 1
             elif os.path.exists(arg) or is_youtube_url(arg):
                 file_paths.append(arg)
@@ -6766,7 +6772,7 @@ def show_oneline_usage():
     print("  sts      - Speech-to-Speech (Voice Conversion)")
     print("  ttm      - Text-to-Music (use 'vc' flag for voice cloning)")
     print("  stt      - Speech-to-Text (Transcription with optional diarization)")
-    print("  se       - Sound Enhancement (denoise, dereverb, restore)")
+    print("  se       - Sound Enhancement (denoise, dereverb, restore, super-resolution)")
     print("  sfx      - Sound Effects (text prompt + duration → audio)")
     print("  svs      - Song Voice Separate (extract vocals/music from song)")
     print("  ss       - Speakers Separator (extract all speakers one by one)")
@@ -6832,9 +6838,11 @@ def show_oneline_usage():
     print('  python voder.py se voice "path/to/audio.wav"')
     print('  python voder.py se voice blend "path/to/audio.wav"')
     print('  python voder.py se sr "path/to/audio.wav"')
-    print('  python voder.py se sr blend "path/to/audio.wav"')
     print('  python voder.py se sr music "path/to/audio.wav"')
     print('  python voder.py se sr music blend "path/to/audio.wav"')
+    print('  python voder.py se sr voice "path/to/audio.wav"')
+    print('  python voder.py se sr voice blend "path/to/audio.wav"')
+    print('  python voder.py se sr voice music "path/to/audio.wav"')
     print()
     print("SFX examples (Sound Effects Generation):")
     print('  python voder.py sfx sound "thunder cracking" duration 5')
@@ -12030,8 +12038,8 @@ def oneline_se(params):
         print("Error: SE mode requires at least one audio/video file path")
         return False
 
-    if se_blend and se_sub not in ('voice', 'sr', 'sr_music'):
-        print("Warning: blend keyword only applies to se voice blend or se sr [music] blend. Ignoring blend.")
+    if se_blend and se_sub not in ('voice', 'sr_music', 'sr_voice'):
+        print("Warning: blend only applies to se voice blend, se sr music blend, or se sr voice blend. Ignoring blend.")
         se_blend = False
 
     resolved_files = []
@@ -12187,17 +12195,12 @@ def oneline_se(params):
         print(f"Processing complete: {success_count}/{len(resolved_files)} files successful")
         return success_count > 0
 
-    elif se_sub in ('sr', 'sr_music'):
-        sr_on_music = (se_sub == 'sr_music')
-        if sr_on_music:
-            print("SE SR Music: Upsampling non-vocals via AudioSR...")
-        else:
-            print("SE SR: Upsampling audio via AudioSR...")
+    elif se_sub == 'sr':
+        print("SE SR: Upsampling full audio via AudioSR (basic model)...")
 
         audiosr = AudioSREnhancer(AUDIOSR_DIR)
-        model_name = "speech" if not sr_on_music else "basic"
-        if not audiosr.ensure_model(model_name=model_name):
-            print("Error: Failed to load AudioSR model")
+        if not audiosr.ensure_model(model_name="basic"):
+            print("Error: Failed to load AudioSR basic model")
             for f in _se_cleanup:
                 if f and os.path.exists(f):
                     try: os.unlink(f)
@@ -12213,92 +12216,17 @@ def oneline_se(params):
                 temp_dir = tempfile.mkdtemp()
                 _se_cleanup.append(temp_dir)
 
-                if sr_on_music:
-                    svs_vocals = svs_extract_vocals(file_path)
-                    svs_music = svs_extract_music(file_path)
+                sr_out = os.path.join(temp_dir, f"sr_{timestamp}.wav")
+                print("Upsampling audio via AudioSR (basic model)...")
+                sr_ok = audiosr.enhance(file_path, sr_out)
 
-                    sr_out = os.path.join(temp_dir, f"sr_music_{timestamp}.wav")
-                    print("Upsampling non-vocals via AudioSR (basic model)...")
-                    sr_ok = audiosr.enhance(svs_music, sr_out)
+                if not sr_ok or not os.path.exists(sr_out):
+                    print(f"Error: AudioSR upsampling failed for {file_path}")
+                    continue
 
-                    if not sr_ok or not os.path.exists(sr_out):
-                        print("Warning: AudioSR upsampling failed on non-vocals, using original")
-                        sr_out = svs_music
-
-                    if se_blend:
-                        se_voice_out = os.path.join(temp_dir, f"se_voice_{timestamp}.wav")
-                        print("Enhancing vocals via UniSE for blend...")
-                        from unise import UniSEEnhancer
-                        se_enh = UniSEEnhancer(UNISE_DIR)
-                        se_enh.ensure_model()
-                        if se_enh.model is not None:
-                            se_ok = se_enh.enhance(svs_vocals, se_voice_out)
-                            se_enh.cleanup()
-                            del se_enh
-                            gc.collect()
-                            if torch.cuda.is_available():
-                                torch.cuda.empty_cache()
-                            if not se_ok or not os.path.exists(se_voice_out):
-                                print("Warning: UniSE enhancement failed, using SVS vocals")
-                                se_voice_out = svs_vocals
-                        else:
-                            se_enh.cleanup()
-                            del se_enh
-                            se_voice_out = svs_vocals
-
-                        output_filename = f"voder_se_sr_music_blend_{timestamp}.wav"
-                        output_path = os.path.join(results_dir, output_filename)
-                        print("Blending upsampled music with enhanced vocals at 48kHz...")
-                        mix_ok = _mix_audio_at_target_sr(se_voice_out, sr_out, output_path, target_sr=48000)
-                        if not mix_ok:
-                            print("Warning: Blend failed, saving upsampled music only")
-                            shutil.copy2(sr_out, output_path)
-                    else:
-                        output_filename = f"voder_se_sr_music_{timestamp}.wav"
-                        output_path = os.path.join(results_dir, output_filename)
-                        shutil.copy2(sr_out, output_path)
-                else:
-                    sr_out = os.path.join(temp_dir, f"sr_{timestamp}.wav")
-                    print("Upsampling audio via AudioSR (speech model)...")
-                    sr_ok = audiosr.enhance(file_path, sr_out)
-
-                    if not sr_ok or not os.path.exists(sr_out):
-                        print(f"Error: AudioSR upsampling failed for {file_path}")
-                        continue
-
-                    if se_blend:
-                        svs_vocals = svs_extract_vocals(file_path)
-                        se_voice_out = os.path.join(temp_dir, f"se_voice_{timestamp}.wav")
-                        print("Enhancing vocals via UniSE for blend...")
-                        from unise import UniSEEnhancer
-                        se_enh = UniSEEnhancer(UNISE_DIR)
-                        se_enh.ensure_model()
-                        if se_enh.model is not None:
-                            se_ok = se_enh.enhance(svs_vocals, se_voice_out)
-                            se_enh.cleanup()
-                            del se_enh
-                            gc.collect()
-                            if torch.cuda.is_available():
-                                torch.cuda.empty_cache()
-                            if not se_ok or not os.path.exists(se_voice_out):
-                                print("Warning: UniSE enhancement failed, using SVS vocals")
-                                se_voice_out = svs_vocals
-                        else:
-                            se_enh.cleanup()
-                            del se_enh
-                            se_voice_out = svs_vocals
-
-                        output_filename = f"voder_se_sr_blend_{timestamp}.wav"
-                        output_path = os.path.join(results_dir, output_filename)
-                        print("Blending upsampled audio with enhanced vocals at 48kHz...")
-                        mix_ok = _mix_audio_at_target_sr(se_voice_out, sr_out, output_path, target_sr=48000)
-                        if not mix_ok:
-                            print("Warning: Blend failed, saving upsampled audio only")
-                            shutil.copy2(sr_out, output_path)
-                    else:
-                        output_filename = f"voder_se_sr_{timestamp}.wav"
-                        output_path = os.path.join(results_dir, output_filename)
-                        shutil.copy2(sr_out, output_path)
+                output_filename = f"voder_se_sr_{timestamp}.wav"
+                output_path = os.path.join(results_dir, output_filename)
+                shutil.copy2(sr_out, output_path)
 
                 if os.path.exists(output_path):
                     print(f"\nSuccess! Output saved to: {output_path}")
@@ -12315,6 +12243,255 @@ def oneline_se(params):
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+        for f in _se_cleanup:
+            if f and os.path.exists(f):
+                try:
+                    if os.path.isdir(f):
+                        shutil.rmtree(f)
+                    else:
+                        os.unlink(f)
+                except: pass
+
+        print(f"\n{'=' * 60}")
+        print(f"Processing complete: {success_count}/{len(resolved_files)} files successful")
+        return success_count > 0
+
+    elif se_sub == 'sr_music':
+        print("SE SR Music: Upsampling non-vocals via AudioSR (basic model)...")
+
+        audiosr = AudioSREnhancer(AUDIOSR_DIR)
+        if not audiosr.ensure_model(model_name="basic"):
+            print("Error: Failed to load AudioSR basic model")
+            for f in _se_cleanup:
+                if f and os.path.exists(f):
+                    try: os.unlink(f)
+                    except: pass
+            return False
+
+        success_count = 0
+        for file_path in resolved_files:
+            print(f"\nProcessing: {file_path}")
+            print("=" * 60)
+            try:
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                temp_dir = tempfile.mkdtemp()
+                _se_cleanup.append(temp_dir)
+
+                svs_vocals = svs_extract_vocals(file_path)
+                svs_music = svs_extract_music(file_path)
+
+                sr_out = os.path.join(temp_dir, f"sr_music_{timestamp}.wav")
+                print("Upsampling non-vocals via AudioSR (basic model)...")
+                sr_ok = audiosr.enhance(svs_music, sr_out)
+
+                if not sr_ok or not os.path.exists(sr_out):
+                    print("Warning: AudioSR upsampling failed on non-vocals, using original")
+                    sr_out = svs_music
+
+                if se_blend:
+                    se_voice_out = os.path.join(temp_dir, f"se_voice_{timestamp}.wav")
+                    print("Enhancing vocals via UniSE for blend...")
+                    from unise import UniSEEnhancer
+                    se_enh = UniSEEnhancer(UNISE_DIR)
+                    se_enh.ensure_model()
+                    if se_enh.model is not None:
+                        se_ok = se_enh.enhance(svs_vocals, se_voice_out)
+                        se_enh.cleanup()
+                        del se_enh
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        if not se_ok or not os.path.exists(se_voice_out):
+                            print("Warning: UniSE enhancement failed, using SVS vocals")
+                            se_voice_out = svs_vocals
+                    else:
+                        se_enh.cleanup()
+                        del se_enh
+                        se_voice_out = svs_vocals
+
+                    output_filename = f"voder_se_sr_music_blend_{timestamp}.wav"
+                    output_path = os.path.join(results_dir, output_filename)
+                    print("Blending upsampled music with enhanced vocals at 48kHz...")
+                    mix_ok = _mix_audio_at_target_sr(se_voice_out, sr_out, output_path, target_sr=48000)
+                    if not mix_ok:
+                        print("Warning: Blend failed, saving upsampled music only")
+                        shutil.copy2(sr_out, output_path)
+                else:
+                    output_filename = f"voder_se_sr_music_{timestamp}.wav"
+                    output_path = os.path.join(results_dir, output_filename)
+                    shutil.copy2(sr_out, output_path)
+
+                if os.path.exists(output_path):
+                    print(f"\nSuccess! Output saved to: {output_path}")
+                    success_count += 1
+                else:
+                    print(f"Error: Failed to produce output for {file_path}")
+
+            except Exception as e:
+                traceback.print_exc()
+                print(f"Error processing {file_path}: {e}")
+
+        audiosr.cleanup()
+        del audiosr
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        for f in _se_cleanup:
+            if f and os.path.exists(f):
+                try:
+                    if os.path.isdir(f):
+                        shutil.rmtree(f)
+                    else:
+                        os.unlink(f)
+                except: pass
+
+        print(f"\n{'=' * 60}")
+        print(f"Processing complete: {success_count}/{len(resolved_files)} files successful")
+        return success_count > 0
+
+    elif se_sub == 'sr_voice':
+        if se_blend:
+            print("SE SR Voice Blend: Upsampling vocals via AudioSR (speech model), blending with music...")
+        else:
+            print("SE SR Voice: Upsampling vocals via AudioSR (speech model)...")
+
+        audiosr = AudioSREnhancer(AUDIOSR_DIR)
+        if not audiosr.ensure_model(model_name="speech"):
+            print("Error: Failed to load AudioSR speech model")
+            for f in _se_cleanup:
+                if f and os.path.exists(f):
+                    try: os.unlink(f)
+                    except: pass
+            return False
+
+        success_count = 0
+        for file_path in resolved_files:
+            print(f"\nProcessing: {file_path}")
+            print("=" * 60)
+            try:
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                temp_dir = tempfile.mkdtemp()
+                _se_cleanup.append(temp_dir)
+
+                svs_vocals = svs_extract_vocals(file_path)
+
+                sr_voice_out = os.path.join(temp_dir, f"sr_voice_{timestamp}.wav")
+                print("Upsampling vocals via AudioSR (speech model)...")
+                sr_ok = audiosr.enhance(svs_vocals, sr_voice_out)
+
+                if not sr_ok or not os.path.exists(sr_voice_out):
+                    print("Warning: AudioSR upsampling failed on vocals, using SVS vocals as-is")
+                    sr_voice_out = svs_vocals
+
+                if se_blend:
+                    svs_music = svs_extract_music(file_path)
+                    output_filename = f"voder_se_sr_voice_blend_{timestamp}.wav"
+                    output_path = os.path.join(results_dir, output_filename)
+                    print("Blending upsampled vocals with music at 48kHz...")
+                    mix_ok = _mix_audio_at_target_sr(sr_voice_out, svs_music, output_path, target_sr=48000)
+                    if not mix_ok:
+                        print("Warning: Blend failed, saving upsampled vocals only")
+                        shutil.copy2(sr_voice_out, output_path)
+                else:
+                    output_filename = f"voder_se_sr_voice_{timestamp}.wav"
+                    output_path = os.path.join(results_dir, output_filename)
+                    shutil.copy2(sr_voice_out, output_path)
+
+                if os.path.exists(output_path):
+                    print(f"\nSuccess! Output saved to: {output_path}")
+                    success_count += 1
+                else:
+                    print(f"Error: Failed to produce output for {file_path}")
+
+            except Exception as e:
+                traceback.print_exc()
+                print(f"Error processing {file_path}: {e}")
+
+        audiosr.cleanup()
+        del audiosr
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        for f in _se_cleanup:
+            if f and os.path.exists(f):
+                try:
+                    if os.path.isdir(f):
+                        shutil.rmtree(f)
+                    else:
+                        os.unlink(f)
+                except: pass
+
+        print(f"\n{'=' * 60}")
+        print(f"Processing complete: {success_count}/{len(resolved_files)} files successful")
+        return success_count > 0
+
+    elif se_sub == 'sr_voice_music':
+        print("SE SR Voice Music: Upsampling vocals (speech model) + non-vocals (basic model), auto-blending...")
+
+        success_count = 0
+        for file_path in resolved_files:
+            print(f"\nProcessing: {file_path}")
+            print("=" * 60)
+            try:
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                temp_dir = tempfile.mkdtemp()
+                _se_cleanup.append(temp_dir)
+
+                svs_vocals = svs_extract_vocals(file_path)
+                svs_music = svs_extract_music(file_path)
+
+                audiosr = AudioSREnhancer(AUDIOSR_DIR)
+
+                sr_voice_out = os.path.join(temp_dir, f"sr_voice_{timestamp}.wav")
+                print("Upsampling vocals via AudioSR (speech model)...")
+                if not audiosr.ensure_model(model_name="speech"):
+                    print("Error: Failed to load AudioSR speech model for vocals")
+                    continue
+                sr_voice_ok = audiosr.enhance(svs_vocals, sr_voice_out)
+                audiosr.cleanup()
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+                sr_music_out = os.path.join(temp_dir, f"sr_music_{timestamp}.wav")
+                print("Upsampling non-vocals via AudioSR (basic model)...")
+                if not audiosr.ensure_model(model_name="basic"):
+                    print("Error: Failed to load AudioSR basic model for non-vocals")
+                    continue
+                sr_music_ok = audiosr.enhance(svs_music, sr_music_out)
+                audiosr.cleanup()
+                del audiosr
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+                if not sr_voice_ok or not os.path.exists(sr_voice_out):
+                    print("Warning: AudioSR failed on vocals, using SVS vocals as-is")
+                    sr_voice_out = svs_vocals
+                if not sr_music_ok or not os.path.exists(sr_music_out):
+                    print("Warning: AudioSR failed on non-vocals, using SVS music as-is")
+                    sr_music_out = svs_music
+
+                output_filename = f"voder_se_sr_voice_music_{timestamp}.wav"
+                output_path = os.path.join(results_dir, output_filename)
+                print("Auto-blending SR'd vocals and SR'd non-vocals at 48kHz...")
+                mix_ok = _mix_audio_at_target_sr(sr_voice_out, sr_music_out, output_path, target_sr=48000)
+                if not mix_ok:
+                    print("Warning: Blend failed, saving SR'd vocals only")
+                    shutil.copy2(sr_voice_out, output_path)
+
+                if os.path.exists(output_path):
+                    print(f"\nSuccess! Output saved to: {output_path}")
+                    success_count += 1
+                else:
+                    print(f"Error: Failed to produce output for {file_path}")
+
+            except Exception as e:
+                traceback.print_exc()
+                print(f"Error processing {file_path}: {e}")
 
         for f in _se_cleanup:
             if f and os.path.exists(f):
@@ -13261,7 +13438,7 @@ def cli_se_mode():
 
     print("\n--- SE Mode ---")
     print("Sound Enhancement - denoise, dereverb, restore, upsample audio")
-    print("Sub-modes: (none) | voice [blend] | sr [blend] | sr music [blend]")
+    print("Sub-modes: (none) | voice [blend] | sr | sr music [blend] | sr voice [blend] | sr voice music")
     print()
 
     while True:
@@ -13283,12 +13460,12 @@ def cli_se_mode():
         else:
             print("Error: File not found. Please try again.")
 
-    se_sub = input("Sub-mode (default/voice/sr/sr music): ").strip().lower()
+    se_sub = input("Sub-mode (default/voice/sr/sr music/sr voice/sr voice music): ").strip().lower()
     se_blend = False
-    if se_sub in ('voice', 'sr', 'sr music'):
+    if se_sub in ('voice', 'sr music', 'sr voice'):
         blend_input = input("Blend with other stems? (y/n): ").strip().lower()
         se_blend = blend_input in ('y', 'yes')
-    else:
+    elif se_sub not in ('sr', 'sr voice music'):
         se_sub = None
 
     params = {

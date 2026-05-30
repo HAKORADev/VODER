@@ -68,7 +68,7 @@ Transcribe audio, video, images, or direct URLs to text. Supports **translation 
 
 ### Sound Enhancement
 
-Remove noise, reduce room echo, and restore clarity from degraded recordings. Upscale audio to 48kHz with AudioSR super-resolution. Works on audio and video files alike.
+Remove noise, reduce room echo, and restore clarity from degraded recordings. Upscale audio to 48kHz with AudioSR super-resolution (basic model for general audio, speech model for voice). Works on audio and video files alike.
 
 ### Speaker Separation
 

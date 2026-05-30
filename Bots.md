@@ -33,7 +33,7 @@ VODER is a professional‑grade voice processing tool that enables seamless conv
 - **Optional Background Music for Dialogue**: Automatically generated, duration‑fitted ambient music with configurable volume levels and optional reference audio for style guidance
 - **Music Generation**: Lyrics‑to‑music synthesis with voice conversion
 - **Sound Effects Generation**: Text-to-audio synthesis for custom sound design
-- **Sound Enhancement**: Denoise, dereverberate, and restore speech audio; voice isolation and super-resolution for music
+- **Sound Enhancement**: Denoise, dereverberate, and restore speech audio; voice isolation and super-resolution via AudioSR (basic + speech models)
 - **Voice Cloning**: Extract and replicate voice characteristics from reference audio
 - **Standalone STT**: Transcribe audio, video, images, and YouTube URLs to text
 - **Speaker Diarization**: Identify and label individual speakers in multi‑speaker audio
@@ -155,7 +155,7 @@ pip install --upgrade protobuf==5.29.6
 
 **Note:** `pyannote.audio` is bundled locally in `src/libs/pyannote` and does not require a separate pip install. However, a HuggingFace token is required for speaker diarization (see [HF_TOKEN Setup for AI Agents](#hf_token-setup-for-ai-agents)).
 
-**Note:** The `audiosr` package is optional and only needed for SE `sr` sub‑modes (`se sr`, `se sr blend`, `se sr music`, `se sr music blend`). Install it separately with `pip install audiosr`. The AudioSR model is downloaded automatically on first use (~4‑6GB).
+**Note:** The `audiosr` package is optional and only needed for SE `sr` sub‑modes (`se sr`, `se sr music`, `se sr music blend`, `se sr voice`, `se sr voice blend`, `se sr voice music`). Install it separately with `pip install audiosr`. The AudioSR model is downloaded automatically on first use (~4‑6GB).
 
 ### Verify Installation
 
@@ -1571,13 +1571,15 @@ Enhance audio by denoising, dereverberating, restoring clarity, and upscaling re
 
 | Command | Description |
 |---------|-------------|
-| `se "path"` | Default UniSE speech enhancement (denoise, dereverb) |
-| `se voice "path"` | SVS voice isolation + UniSE speech enhancement on vocals |
-| `se voice blend "path"` | SVS voice isolation + UniSE speech enhancement on vocals, then blend enhanced vocals back with music |
-| `se sr "path"` | AudioSR super‑resolution (speech model, 48kHz output) |
-| `se sr blend "path"` | AudioSR super‑resolution + UniSE speech enhancement on voice, blended at 48kHz |
+| `se "path"` | Default UniSE sound enhancement (denoise, dereverb) |
+| `se voice "path"` | SVS voice isolation + UniSE sound enhancement on vocals |
+| `se voice blend "path"` | SVS voice isolation + UniSE sound enhancement on vocals, then blend enhanced vocals back with music |
+| `se sr "path"` | AudioSR super‑resolution (basic model, 48kHz output) on full audio |
 | `se sr music "path"` | SVS music isolation + AudioSR super‑resolution (basic model) on music, output upsampled music |
-| `se sr music blend "path"` | SVS music isolation + AudioSR super‑resolution on music + UniSE speech enhancement on voice, blend at 48kHz |
+| `se sr music blend "path"` | SVS music isolation + AudioSR super‑resolution on music + UniSE sound enhancement on voice, blend at 48kHz |
+| `se sr voice "path"` | SVS voice isolation + AudioSR super‑resolution (speech model) on vocals |
+| `se sr voice blend "path"` | SVS voice isolation + AudioSR speech model on vocals, blend with music |
+| `se sr voice music "path"` | SVS voice+music isolation + AudioSR speech model on vocals + basic model on music, auto‑blend |
 
 **Default enhancement (UniSE):**
 ```bash
@@ -1594,14 +1596,9 @@ python src/voder.py se voice "song.wav"
 python src/voder.py se voice blend "song.wav"
 ```
 
-**Super‑resolution (AudioSR, 48kHz output):**
+**Super‑resolution (AudioSR basic, 48kHz output):**
 ```bash
 python src/voder.py se sr "low_quality_audio.wav"
-```
-
-**Super‑resolution + voice enhancement + blend:**
-```bash
-python src/voder.py se sr blend "song.wav"
 ```
 
 **Music super‑resolution:**
@@ -1612,6 +1609,21 @@ python src/voder.py se sr music "low_quality_music.wav"
 **Music super‑resolution + voice enhancement + blend:**
 ```bash
 python src/voder.py se sr music blend "song.wav"
+```
+
+**Voice super‑resolution (AudioSR speech model):**
+```bash
+python src/voder.py se sr voice "vocals.wav"
+```
+
+**Voice super‑resolution + blend with music:**
+```bash
+python src/voder.py se sr voice blend "song.wav"
+```
+
+**Full SR: speech model on vocals + basic model on music, auto‑blended:**
+```bash
+python src/voder.py se sr voice music "song.wav"
 ```
 
 **Enhance audio from video:**
@@ -1638,8 +1650,10 @@ python src/voder.py se "audio.wav" result "/output/enhanced.wav"
 **Important Notes:**
 - **Default mode**: UniSE speech enhancement outputs at 16kHz — best for noisy recordings, distant microphones, room echo removal
 - **`voice` sub‑mode**: Isolates vocals via SVS first, then applies UniSE speech enhancement; `blend` recombines with instrumental
-- **`sr` sub‑mode**: Uses AudioSR for super‑resolution upscaling to 48kHz — ideal for restoring low‑bitrate or low‑sample‑rate audio
+- **`sr` sub‑mode**: Uses AudioSR basic model for super‑resolution upscaling to 48kHz — ideal for restoring low‑bitrate or low‑sample‑rate audio
 - **`sr music` sub‑mode**: Isolates music via SVS, then applies AudioSR basic model for music super‑resolution; `blend` also enhances voice with UniSE
+- **`sr voice` sub‑mode**: Isolates vocals via SVS, then applies AudioSR speech model for voice‑specific super‑resolution; `blend` recombines with music
+- **`sr voice music` sub‑mode**: Isolates vocals and music via SVS, applies AudioSR speech model on vocals and basic model on music, then auto‑blends both at 48kHz
 - **AudioSR dependency**: `sr` sub‑modes require the `audiosr` package (install via `pip install audiosr`); first run downloads the AudioSR model (~4‑6GB)
 
 **Output Example (default):**
@@ -1895,7 +1909,7 @@ VODER offers different experiences depending on the interface. Understanding the
 | **YouTube/URL Input** | Direct transcription from YouTube, Bilibili, TikTok URLs |
 | **Image OCR Input** | Text extraction from images via EasyOCR |
 | **Result Routing** | Copy output to arbitrary filesystem paths with `result` parameter |
-| **Sound Enhancement** | Denoise, dereverberate, restore speech audio; voice isolation and super-resolution for music |
+| **Sound Enhancement** | Denoise, dereverberate, restore speech audio; voice isolation and super-resolution via AudioSR (basic + speech models) |
 | **Sound Effects Generation** | Text-to-audio synthesis with configurable parameters |
 | **Song Voice Separation** | Separate vocals from music using BS‑RoFormer |
 | **Speaker Language Conversion** | Translate speech to English preserving voice (TTS sub‑task: `tts slc`, `tts slc music` for music preservation) |
@@ -1929,7 +1943,7 @@ Available in **both** CLI and GUI:
 | **Background Music** | ✅ `music` parameter (one‑liner) or interactive yes/no | ✅ Modal dialog before generation |
 | **STS / TTM / TTM vc** | ✅ One‑liner commands | ✅ Dedicated panels |
 | **STT (Speech-to-Text)** | ✅ One‑liner with optional `timestamp`, `dialogue`, `translate`, `overdose`, `result` | ✅ Dedicated panel |
-| **SE (Sound Enhancement)** | ✅ One‑liner command (with `voice`, `sr`, `sr music` sub‑modes) | ✅ Dedicated panel |
+| **SE (Sound Enhancement)** | ✅ One‑liner command (with `voice`, `sr`, `sr music`, `sr voice`, `sr voice music` sub‑modes) | ✅ Dedicated panel |
 | **SFX (Sound Effects)** | ✅ One‑liner with `sound`, `duration`, `steps`, `guide` | ✅ Dedicated panel |
 | **SVS (Song Voice Separate)** | ✅ One‑liner command | ✅ Dedicated panel |
 | **SLC (Speaker Language Conversion)** | ✅ One‑liner command (`tts slc`) | ✅ Dedicated panel |
@@ -2059,8 +2073,8 @@ free -h
 
 ### SE Mode Limitations
 
-1. **Default Mode — Speech Only**: The base `se "path"` mode uses UniSE speech enhancement and is optimized for speech; music may be degraded. Use `se sr music` for music content instead
-2. **16kHz Output (default)**: Default UniSE speech enhancement outputs at 16kHz sample rate. Use `se sr` sub‑modes for 48kHz output
+1. **Default Mode — Speech Only**: The base `se "path"` mode uses UniSE sound enhancement and is optimized for speech; music may be degraded. Use `se sr music` for music content instead
+2. **16kHz Output (default)**: Default UniSE sound enhancement outputs at 16kHz sample rate. Use `se sr` sub‑modes for 48kHz output
 3. **Cannot Recover Missing Data**: Severely corrupted audio has restoration limits
 4. **AudioSR Model Size**: `sr` sub‑modes require downloading the AudioSR model (~4‑6GB on first use)
 
@@ -2162,7 +2176,7 @@ python src/voder.py tts script "James: Hello" "sfx: thunder /duration:5" voice "
 
 **Cause**: Default SE mode (`se "path"`) uses UniSE speech enhancement which is optimized for speech only
 
-**Solution**: Use `se sr music "path"` for music content, or `se sr music blend "path"` to enhance both voice and music
+**Solution**: Use `se sr music "path"` for music content, `se sr music blend "path"` to enhance both voice and music, or `se sr voice music "path"` for SR on both stems
 
 ### Issue: Sound effect doesn't match prompt
 
@@ -2304,7 +2318,7 @@ VODER is a mature tool with all modes fully operational. When issues occur, they
 7. **Missing HF_TOKEN for diarization**: Create `HF_TOKEN.txt` with valid token
 8. **yt-dlp not installed**: Install via `pip install yt-dlp`
 9. **Poor OCR input quality**: Use high‑resolution, high‑contrast images
-10. **SE used on music**: Default SE is speech-only; use `se sr music` for music content
+10. **SE used on music**: Default SE is speech-only; use `se sr music` for music content, `se sr voice music` for both
 11. **SFX missing duration**: Add `/duration:nn` to SFX lines
 12. **SS/overdose insufficient memory**: Ensure 48GB+ RAM or 24GB+ VRAM
 13. **STT overdose + translate conflict**: These flags are mutually exclusive (STT mode only; SLC always translates to English)
@@ -2369,6 +2383,12 @@ python src/voder.py se sr music "low_quality_music.wav" result "/output/hq_music
 
 # Full song enhancement: super‑resolution on music + voice enhancement, blended
 python src/voder.py se sr music blend "song.wav" result "/output/hq_enhanced_song.wav"
+
+# Voice super‑resolution (AudioSR speech model on vocals)
+python src/voder.py se sr voice "vocals.wav" result "/output/hq_vocals.wav"
+
+# Full song SR: speech model on vocals + basic model on music, auto‑blended
+python src/voder.py se sr voice music "song.wav" result "/output/hq_full_song.wav"
 ```
 
 ### Workflow 5: Sound Effects Generation

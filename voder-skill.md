@@ -109,10 +109,16 @@ ENHANCEMENT PATH (SE Voice):
 Audio → SVS voice → UniSE → [Enhanced Vocals at 16kHz] (+ blend with music at 48kHz)
 
 ENHANCEMENT PATH (SE SR):
-Audio → AudioSR → [Upsampled Audio at 48kHz] (+ blend with UniSE voice at 48kHz)
+Audio → AudioSR (basic) → [Upsampled Audio at 48kHz]
 
 ENHANCEMENT PATH (SE SR Music):
-Audio → SVS → music → AudioSR → [Upsampled Music at 48kHz] (+ blend with UniSE voice at 48kHz)
+Audio → SVS → music → AudioSR (basic) → [Upsampled Music at 48kHz] (+ blend with UniSE voice at 48kHz)
+
+ENHANCEMENT PATH (SE SR Voice):
+Audio → SVS → vocals → AudioSR (speech) → [Upsampled Vocals at 48kHz] (+ blend with music at 48kHz)
+
+ENHANCEMENT PATH (SE SR Voice Music):
+Audio → SVS → vocals + music → AudioSR (speech) on vocals + AudioSR (basic) on music → [Auto-blended at 48kHz]
 
 SEPARATION PATH (SVS):
 Mixed Audio → BS-RoFormer → [Vocals] + [Instrumental]
@@ -1590,14 +1596,16 @@ Speaker diarization (`dialogue` flag) requires:
 ## 2.5 SE (Sound Enhancement)
 
 ### What It Is
-SE mode improves audio quality through four sub-modes, each targeting a different enhancement need:
+SE mode improves audio quality through seven sub-modes, each targeting a different enhancement need:
 
 | Sub-Mode | Purpose | Output | Model |
 |----------|---------|--------|-------|
 | **default** | Speech denoising / dereverberation | Clean audio at 16kHz | UniSE |
 | **voice** | Vocal enhancement from mixed audio | Enhanced vocals at 16kHz (+ blended with music at 48kHz) | SVS + UniSE |
-| **sr** | Audio super-resolution (upsampling) | Upsampled audio at 48kHz (+ blended with UniSE voice at 48kHz) | AudioSR (+ UniSE) |
-| **sr music** | Music super-resolution with vocal separation | Upsampled music at 48kHz (+ blended with UniSE voice at 48kHz) | SVS + AudioSR (+ UniSE) |
+| **sr** | Audio super-resolution (upsampling) | Upsampled audio at 48kHz | AudioSR (basic) |
+| **sr music** | Music super-resolution with vocal separation | Upsampled music at 48kHz (+ blended with UniSE voice at 48kHz) | SVS + AudioSR basic (+ UniSE) |
+| **sr voice** | Voice super-resolution with speech model | Upsampled vocals at 48kHz (+ blended with music at 48kHz) | SVS + AudioSR speech |
+| **sr voice music** | Full SR: speech on vocals + basic on music, auto-blended | Upsampled vocals + music at 48kHz | SVS + AudioSR speech + basic |
 
 ### Sub-Mode Details
 
@@ -1608,10 +1616,16 @@ Removes noise, reduces reverberation, and restores speech clarity. Designed spec
 Extracts vocals from mixed audio via SVS, enhances them with UniSE, then blends the cleaned vocals back with the original instrumental at 48kHz. Ideal for improving vocal clarity in music or mixed recordings while preserving the instrumental.
 
 **SR (Super-Resolution):**
-Upsamples audio to 48kHz using AudioSR. When the input contains speech, UniSE also enhances the voice, and both are blended at 48kHz for a combined enhancement + upsampling result.
+Upsamples audio to 48kHz using AudioSR basic model. Processes the whole input as-is for general audio super-resolution.
 
 **SR Music:**
 Separates the music stem via SVS, upsamples it with AudioSR to 48kHz, and blends it with UniSE-enhanced vocals at 48kHz. Produces a full-resolution enhanced track where both music and vocals benefit from upsampling and enhancement.
+
+**SR Voice:**
+Extracts vocals via SVS, upsamples them with AudioSR speech model (optimized for voice) to 48kHz. With blend, the upsampled vocals are combined with the original music at 48kHz.
+
+**SR Voice Music:**
+Extracts both vocals and music via SVS. Applies AudioSR speech model on vocals and AudioSR basic model on music, then auto-blends both at 48kHz. This provides the most comprehensive SR treatment — each stem uses its optimal model variant.
 
 ### How It Works
 
@@ -1629,16 +1643,28 @@ Separates the music stem via SVS, upsamples it with AudioSR to 48kHz, and blends
 4. **Output**: Enhanced mixed audio at 48kHz
 
 **SR Path:**
-1. **AudioSR Upsampling**: AudioSR upsamples the input to 48kHz
-2. **Optional UniSE Voice Blend**: If speech is detected, UniSE-enhanced voice is blended at 48kHz
-3. **Output**: Upsampled (and optionally enhanced) audio at 48kHz
+1. **AudioSR Upsampling**: AudioSR basic model upsamples the input to 48kHz
+2. **Output**: Upsampled audio at 48kHz
 
 **SR Music Path:**
 1. **SVS Separation**: BS-RoFormer separates voice and music stems
-2. **AudioSR Music Upsampling**: AudioSR upsamples the music stem to 48kHz
+2. **AudioSR Music Upsampling**: AudioSR basic model upsamples the music stem to 48kHz
 3. **UniSE Voice Enhancement**: UniSE enhances the voice stem
 4. **Blend**: Upsampled music and enhanced voice are blended at 48kHz
 5. **Output**: Full-resolution enhanced track at 48kHz
+
+**SR Voice Path:**
+1. **SVS Voice Extraction**: BS-RoFormer isolates vocals from the mix
+2. **AudioSR Speech Upsampling**: AudioSR speech model upsamples the vocals to 48kHz
+3. **Optional Blend**: If blend is enabled, upsampled vocals are blended with original music at 48kHz
+4. **Output**: Upsampled vocals (or blended track) at 48kHz
+
+**SR Voice Music Path:**
+1. **SVS Separation**: BS-RoFormer separates voice and music stems
+2. **AudioSR Speech Upsampling**: AudioSR speech model upsamples the vocals to 48kHz
+3. **AudioSR Basic Upsampling**: AudioSR basic model upsamples the music to 48kHz
+4. **Auto-Blend**: Both upsampled stems are blended at 48kHz
+5. **Output**: Fully upsampled track at 48kHz
 
 ### What It Does NOT Do
 - Cannot recover severely corrupted audio
@@ -1661,17 +1687,23 @@ python src/voder.py se voice "mixed_song.wav"
 # Voice — from video
 python src/voder.py se voice "music_video.mp4"
 
-# SR — upsample audio to 48kHz
+# SR — upsample audio to 48kHz (basic model)
 python src/voder.py se sr "low_quality_audio.wav"
-
-# SR — upsample with voice enhancement
-python src/voder.py se sr "speech_recording.wav"
 
 # SR Music — upsample and enhance music with vocals
 python src/voder.py se sr music "full_song.wav"
 
 # SR Music — from video
 python src/voder.py se sr music "concert_clip.mp4"
+
+# SR Voice — upsample vocals with speech model
+python src/voder.py se sr voice "vocals.wav"
+
+# SR Voice Blend — upsample vocals, blend with music
+python src/voder.py se sr voice blend "song.wav"
+
+# SR Voice Music — speech model on vocals + basic on music, auto-blend
+python src/voder.py se sr voice music "song.wav"
 
 # Audio-only output from video
 python src/voder.py se "recording.mp4" result "/output/clean.wav"
@@ -1693,6 +1725,8 @@ python src/voder.py se sr "source_audio.wav" result "/output/upsampled.wav"
 | `voice` | No | Voice sub-mode: enhance vocals from mixed audio | Off |
 | `sr` | No | SR sub-mode: upsample audio to 48kHz | Off |
 | `music` | No | Used with `sr` for SR Music sub-mode: upsample music stem | Off |
+| `voice` | No | Used after `sr` for SR Voice sub-mode: upsample vocals with speech model | Off |
+| `blend` | No | Blend processed stem with complementary stem | Off |
 | `result` | No | Output destination | Auto-generated |
 
 ### Best Use Cases
@@ -1706,6 +1740,8 @@ python src/voder.py se sr "source_audio.wav" result "/output/upsampled.wav"
 - Upsampling low-quality audio for production (sr)
 - Restoring old recordings (sr)
 - Full music track enhancement and upsampling (sr music)
+- Voice-specific super-resolution (sr voice)
+- Full SR with optimal models on both stems (sr voice music)
 
 ---
 
@@ -2378,6 +2414,10 @@ python src/voder.py se "input.wav" [result "path"]
 python src/voder.py se voice "input.wav" [result "path"]
 python src/voder.py se sr "input.wav" [result "path"]
 python src/voder.py se sr music "input.wav" [result "path"]
+python src/voder.py se sr music blend "input.wav" [result "path"]
+python src/voder.py se sr voice "input.wav" [result "path"]
+python src/voder.py se sr voice blend "input.wav" [result "path"]
+python src/voder.py se sr voice music "input.wav" [result "path"]
 ```
 
 ### SFX Mode
@@ -2514,8 +2554,8 @@ python src/voder.py se voice "mixed_podcast.wav" result "/clean/enhanced.wav"
 python src/voder.py ttm lyrics "Verse:\nNew lyrics" styling "ambient" duration 30 result "/output/new_music.wav"
 ```
 
-### Combo 13c: SE SR Music + STS (Upsample + Voice Conversion)
-**Mode**: SE sr music then STS (two commands)
+### Combo 13c: SE SR Voice Music + STS (Upsample + Voice Conversion)
+**Mode**: SE sr voice music then STS (two commands)
 **Features**: Super-resolution upsampling + voice conversion
 ```bash
 python src/voder.py se sr music "old_recording.wav" result "/output/upsampled.wav"
@@ -2638,8 +2678,10 @@ python src/voder.py tts overdose script "Host: Let's dive in" "Guest: Absolutely
 | STT + diarization | 15GB | N/A (CPU) | Whisper + Pyannote |
 | SE | 11GB | 4GB | UniSE |
 | SE voice | 18GB | 10GB | SVS + UniSE (loaded sequentially) |
-| SE sr | 15GB | 6GB | AudioSR (+ optional UniSE blend) |
+| SE sr | 15GB | 6GB | AudioSR basic model |
 | SE sr music | 22GB | 14GB | SVS + AudioSR + UniSE (loaded sequentially) |
+| SE sr voice | 22GB | 14GB | SVS + AudioSR speech model |
+| SE sr voice music | 22GB | 14GB | SVS + AudioSR speech + basic (loaded sequentially) |
 | SFX | 12GB | 4GB | TangoFlux |
 | SVS | 14GB | 8GB | BS-RoFormer |
 | TTS slc | 16GB | 4GB | Whisper large-v3 + Qwen3-TTS (+ SVS for voice isolation + music) |

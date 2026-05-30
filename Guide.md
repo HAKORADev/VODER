@@ -1528,13 +1528,15 @@ SE (Sound Enhancement) improves audio quality through a range of sub-modes that 
 
 SE provides multiple sub-modes that layer different enhancement capabilities:
 
-1. **Default (`se "path"`)** — UniSE speech enhancement on the whole audio. Denoises, dereverberates, and restores speech clarity. Output at 16kHz.
+1. **Default (`se "path"`)** — UniSE sound enhancement on the whole audio. Denoises, dereverberates, and restores speech clarity. Output at 16kHz.
 2. **Voice (`se voice "path"`)** — BS-RoFormer extracts vocals via SVS, then UniSE enhances the vocals only. Output at 16kHz (enhanced vocals).
 3. **Voice Blend (`se voice blend "path"`)** — BS-RoFormer separates voice and music, UniSE enhances the vocals, then enhanced vocals are blended back with the original music. Output at 48kHz.
-4. **SR (`se sr "path"`)** — AudioSR super-resolution on the whole audio using the speech model variant. Upsamples to 48kHz output.
-5. **SR Blend (`se sr blend "path"`)** — AudioSR super-resolution on the whole audio plus UniSE voice enhancement, blended at 48kHz.
-6. **SR Music (`se sr music "path"`)** — BS-RoFormer separates voice and music, AudioSR (basic model variant) upsamples the music only. Output upsampled music at 48kHz.
-7. **SR Music Blend (`se sr music blend "path"`)** — BS-RoFormer separates voice and music, AudioSR (basic model) upsamples the music, UniSE enhances the voice, both are blended at 48kHz.
+4. **SR (`se sr "path"`)** — AudioSR super-resolution (basic model) on the whole audio. Upsamples to 48kHz output.
+5. **SR Music (`se sr music "path"`)** — BS-RoFormer separates voice and music, AudioSR (basic model variant) upsamples the music only. Output upsampled music at 48kHz.
+6. **SR Music Blend (`se sr music blend "path"`)** — BS-RoFormer separates voice and music, AudioSR (basic model) upsamples the music, UniSE enhances the voice, both are blended at 48kHz.
+7. **SR Voice (`se sr voice "path"`)** — BS-RoFormer extracts vocals via SVS, AudioSR (speech model variant) upsamples the vocals. Output upsampled vocals at 48kHz.
+8. **SR Voice Blend (`se sr voice blend "path"`)** — BS-RoFormer separates voice and music, AudioSR (speech model) upsamples the vocals, then blends with original music at 48kHz.
+9. **SR Voice Music (`se sr voice music "path"`)** — BS-RoFormer separates voice and music, AudioSR speech model upsamples vocals, AudioSR basic model upsamples music, both are auto-blended at 48kHz.
 
 **Sub-Mode Summary:**
 
@@ -1543,10 +1545,12 @@ SE provides multiple sub-modes that layer different enhancement capabilities:
 | `se "path"` | No | Yes (whole audio) | No | Enhanced audio | 16kHz |
 | `se voice "path"` | Yes | Yes (vocals) | No | Enhanced vocals | 16kHz |
 | `se voice blend "path"` | Yes | Yes (vocals) | No | Enhanced vocals + music | 48kHz |
-| `se sr "path"` | No | No | Yes (speech model, whole audio) | Upsampled audio | 48kHz |
-| `se sr blend "path"` | No | Yes (vocals) | Yes (speech model, whole audio) | Upsampled + enhanced | 48kHz |
+| `se sr "path"` | No | No | Yes (basic model, whole audio) | Upsampled audio | 48kHz |
 | `se sr music "path"` | Yes | No | Yes (basic model, music) | Upsampled music | 48kHz |
 | `se sr music blend "path"` | Yes | Yes (vocals) | Yes (basic model, music) | Enhanced vocals + upsampled music | 48kHz |
+| `se sr voice "path"` | Yes | No | Yes (speech model, vocals) | Upsampled vocals | 48kHz |
+| `se sr voice blend "path"` | Yes | No | Yes (speech model, vocals) | Upsampled vocals + music | 48kHz |
+| `se sr voice music "path"` | Yes | No | Yes (speech + basic, both stems) | Upsampled vocals + upsampled music | 48kHz |
 
 **Why It's Like That:**
 
@@ -1557,9 +1561,11 @@ Sound enhancement is distinct from other VODER modes because it doesn't transfor
 - Cleaning up noisy speech recordings (default sub-mode)
 - Enhancing vocals in songs while preserving music (voice blend)
 - Upsampling low-quality audio to 48kHz (sr)
-- Enhancing voice and upsampling simultaneously (sr blend)
+- Upsampling voice to 48kHz with speech-optimized model (sr voice)
+- Enhancing voice and upsampling simultaneously (sr music blend)
 - Upsampling music tracks to high fidelity (sr music)
 - Full pipeline: separate, enhance voice, upsample music, blend (sr music blend)
+- Full SR: speech model on vocals + basic model on music (sr voice music)
 - Pre-processing audio before voice cloning
 - Enhancing remote meeting recordings
 - Cleaning up field recordings or interviews
@@ -1577,7 +1583,7 @@ Sound enhancement is distinct from other VODER modes because it doesn't transfor
 
 - **UniSE outputs 16kHz**: Default and voice sub-modes that use only UniSE produce 16kHz output, optimal for speech but lower than CD quality. Use blend or sr sub-modes for 48kHz output.
 - **Cannot recover missing information**: Severely clipped or corrupted audio cannot be fully restored.
-- **AudioSR model variants**: The `sr` sub-mode uses the speech model variant by default. The `sr music` sub-mode uses the basic model variant for music content.
+- **AudioSR model variants**: The `sr` sub-mode uses the basic model variant for general audio. The `sr voice` sub-mode uses the speech model variant optimized for voice. The `sr music` sub-mode uses the basic model for music. The `sr voice music` sub-mode uses both: speech for vocals, basic for music.
 
 **Technical Notes:**
 
@@ -1595,17 +1601,23 @@ python src/voder.py se voice "song_with_music.wav"
 # Voice + music blend: enhance vocals, keep music
 python src/voder.py se voice blend "song.wav"
 
-# AudioSR super-resolution on whole audio (speech model, 48kHz)
+# AudioSR super-resolution on whole audio (basic model, 48kHz)
 python src/voder.py se sr "low_quality_audio.wav"
-
-# AudioSR + UniSE voice enhancement, blended at 48kHz
-python src/voder.py se sr blend "noisy_low_quality.wav"
 
 # SVS separate, AudioSR upsample music only (basic model)
 python src/voder.py se sr music "song.wav"
 
 # Full pipeline: separate, upsample music, enhance voice, blend at 48kHz
 python src/voder.py se sr music blend "song.wav"
+
+# AudioSR super-resolution on vocals only (speech model, 48kHz)
+python src/voder.py se sr voice "vocals.wav"
+
+# SR voice + blend with music (speech model on vocals + original music)
+python src/voder.py se sr voice blend "song.wav"
+
+# Full SR: speech model on vocals + basic model on music, auto-blended
+python src/voder.py se sr voice music "song.wav"
 
 # Enhance audio from video
 python src/voder.py se "recording.mp4"
@@ -2648,11 +2660,13 @@ If you use the **same input file** for both dialogue source and auto-clone, the 
 3. **Voice blend for music** — Use `se voice blend` when you need to enhance vocals while preserving the instrumental track
 4. **SR for upsampling** — Use `se sr` when the input is low sample rate and you need 48kHz output
 5. **SR music blend for full treatment** — Use `se sr music blend` for the complete pipeline: separate vocals, upsample music, enhance voice, blend at 48kHz
+6. **SR voice for vocals** — Use `se sr voice` for speech-optimized super-resolution on vocals only
+7. **SR voice music for full SR** — Use `se sr voice music` when you want both stems super-resolved with their optimal models
 6. **Moderate degradation** — Severely corrupted audio has limits regardless of sub-mode
 7. **Preview first** — Listen to enhanced output before using in production
 8. **Chain operations** — Enhance before voice cloning for better results
 9. **Mind the sample rate** — Default and voice sub-modes output 16kHz (UniSE only); blend and sr sub-modes output 48kHz
-10. **AudioSR model variants** — `se sr` uses the speech model variant; `se sr music` uses the basic model variant for music
+10. **AudioSR model variants** — `se sr` uses the basic model for general audio; `se sr voice` uses the speech model for vocals; `se sr music` uses the basic model for music
 
 ### SLC Tricks: Music Preservation & Voice Fidelity
 
@@ -3053,16 +3067,16 @@ python src/voder.py ttm lego source "drums_only.wav" make "bass guitar" styling 
 ### SE Issues
 
 **Issue: Enhancement degrades music quality**
-- Solution: Use `se voice blend` to enhance vocals while preserving music, or `se sr music` to upsample music via AudioSR
+- Solution: Use `se voice blend` to enhance vocals while preserving music, `se sr music` to upsample music via AudioSR, or `se sr voice music` for full SR on both stems
 - Solution: The default `se "path"` uses UniSE which is optimized for speech; avoid on music-only content
 
 **Issue: Output sounds lower quality**
 - Solution: Default and voice sub-modes output at 16kHz (UniSE only) — this is normal for speech
-- Solution: Use `se sr` or `se voice blend` for 48kHz output when higher sample rate is needed
+- Solution: Use `se sr`, `se sr voice`, or `se voice blend` for 48kHz output when higher sample rate is needed
 
 **Issue: AudioSR produces artifacts or distortion**
 - Solution: AudioSR works best on moderately degraded audio; very low quality input may produce artifacts
-- Solution: Try the `se sr blend` sub-mode which combines AudioSR upsampling with UniSE enhancement
+- Solution: Try the `se sr music blend` or `se sr voice music` sub-modes which combine AudioSR upsampling with UniSE enhancement
 
 **Issue: SR music blend output has volume imbalance**
 - Solution: The blend combines independently processed vocals and music; volume levels may need manual adjustment

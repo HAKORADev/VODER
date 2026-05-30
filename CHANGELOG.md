@@ -69,10 +69,12 @@
   - `se "path"` — Default UniSE enhancement (denoise, dereverb, restore speech, 16kHz output)
   - `se voice "path"` — SVS voice extraction → UniSE enhancement on vocals only
   - `se voice blend "path"` — SVS voice+music → UniSE on voice → blend enhanced vocals with music at 48kHz
-  - `se sr "path"` — AudioSR super-resolution on whole audio (speech model, 48kHz output)
-  - `se sr blend "path"` — AudioSR on whole audio + UniSE on SVS voice → blend at 48kHz
+  - `se sr "path"` — AudioSR super-resolution on whole audio (basic model, 48kHz output)
   - `se sr music "path"` — SVS voice+music → AudioSR (basic model) on music → upsampled music only at 48kHz
   - `se sr music blend "path"` — SVS voice+music → AudioSR on music + UniSE on voice → blend at 48kHz
+  - `se sr voice "path"` — SVS voice extraction → AudioSR (speech model) on vocals → upsampled vocals at 48kHz
+  - `se sr voice blend "path"` — SVS voice+music → AudioSR speech on vocals → blend with music at 48kHz
+  - `se sr voice music "path"` — SVS voice+music → AudioSR speech on vocals + AudioSR basic on music → auto-blend at 48kHz
 
 - **AudioSR Integration** — New audio super-resolution model integrated into VODER. Uses `haoheliu/versatile_audio_super_resolution` (AudioSR) for upscaling low-sample-rate audio to 48kHz. Two model variants: `basic` (general audio/music) and `speech` (speech-optimized). Source code: `src/audiosr/` (stripped from versatile_audio_super_resolution repo, inference-only). Model checkpoint: `src/models/checkpoints/audiosr/`. Auto-downloads on first use. Handles long audio via chunked overlap-add processing.
 
@@ -80,7 +82,7 @@
 
 - **`_mix_audio_at_target_sr()` Helper** — New helper function for blending two audio files at a target sample rate. Resamples both inputs to the target rate, converts to mono, pads to equal length, sums with peak normalization. Used by `blend` keyword in SE sub-modes to preserve upsampled quality (never downsamples the upsampled track).
 
-- **SE Parser Update** — SE oneline parser now accepts sub-mode keywords (`voice`, `sr`, `music`, `blend`) with validation rules: `music` only valid after `sr`, `blend` valid with `voice` or `sr` sub-modes only.
+- **SE Parser Update** — SE oneline parser now accepts sub-mode keywords (`voice`, `sr`, `music`, `blend`) with validation rules: `music` only valid after `sr` or `sr voice`, `voice` after `sr` creates `sr_voice` sub-mode, `blend` valid with `voice`, `sr music`, or `sr voice` sub-modes only. Removed invalid `se sr blend` sub-mode (plain `se sr` uses basic model on full input).
 
 ### Changed
 

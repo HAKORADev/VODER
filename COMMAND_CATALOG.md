@@ -1300,6 +1300,7 @@ Improve audio quality through denoising, dereverberation, restoration, and super
 | `voice` | sub-mode | SVS voice extraction + UniSE enhancement on vocals only |
 | `sr` | sub-mode | AudioSR super-resolution on input audio (48kHz output) |
 | `music` | modifier | After `sr`: apply AudioSR to non-vocals only (requires SVS) |
+| `voice` | modifier | After `sr`: apply AudioSR speech model to vocals only (requires SVS) |
 | `blend` | modifier | Blend enhanced/upsampled audio with complementary stem |
 | `result` | keyword | Custom output path |
 | `"<path>"` | file | Audio/video file path or URL (multiple allowed) |
@@ -1311,10 +1312,12 @@ Improve audio quality through denoising, dereverberation, restoration, and super
 | `se "path"` | UniSE → enhanced audio | 16kHz WAV |
 | `se voice "path"` | SVS voice → UniSE | 16kHz WAV |
 | `se voice blend "path"` | SVS voice+music → UniSE on voice → blend | 48kHz WAV |
-| `se sr "path"` | AudioSR (speech model) on whole input | 48kHz WAV |
-| `se sr blend "path"` | AudioSR on whole + UniSE on SVS voice → blend | 48kHz WAV |
+| `se sr "path"` | AudioSR (basic model) on whole input | 48kHz WAV |
 | `se sr music "path"` | SVS voice+music → AudioSR (basic) on music | 48kHz WAV |
 | `se sr music blend "path"` | SVS voice+music → AudioSR on music + UniSE on voice → blend | 48kHz WAV |
+| `se sr voice "path"` | SVS voice → AudioSR (speech model) on vocals | 48kHz WAV |
+| `se sr voice blend "path"` | SVS voice+music → AudioSR (speech) on vocals → blend with music | 48kHz WAV |
+| `se sr voice music "path"` | SVS voice+music → AudioSR speech on vocals + basic on music → auto-blend | 48kHz WAV |
 
 ### Examples
 
@@ -1337,25 +1340,33 @@ python voder.py se voice "song.wav"
 # Voice + blend: enhance vocals and mix back with music at 48kHz
 python voder.py se voice blend "song.wav"
 
-# SR sub-mode: super-resolution on whole input (48kHz output)
+# SR sub-mode: super-resolution on whole input (basic model, 48kHz output)
 python voder.py se sr "speech.wav"
-
-# SR + blend: super-resolution on whole input, then UniSE on SVS voice and blend
-python voder.py se sr blend "song.wav"
 
 # SR + music: separate vocals, apply AudioSR (basic) to music stem
 python voder.py se sr music "song.wav"
 
 # SR + music + blend: AudioSR on music, UniSE on voice, blend at 48kHz
 python voder.py se sr music blend "song.wav"
+
+# SR + voice: extract vocals, apply AudioSR speech model for voice SR
+python voder.py se sr voice "vocals.wav"
+
+# SR + voice + blend: AudioSR speech on vocals, blend with music
+python voder.py se sr voice blend "song.wav"
+
+# SR + voice + music: AudioSR speech on vocals + basic on music, auto-blend
+python voder.py se sr voice music "song.wav"
 ```
 
 ### Notes
 
 - Default (no sub-mode): UniSE enhancement, outputs 16kHz, designed for speech
 - `voice`: Extract vocals via SVS first, then enhance with UniSE
-- `sr`: AudioSR super-resolution, outputs 48kHz, has speech model for speech-heavy content
+- `sr`: AudioSR super-resolution with basic model, outputs 48kHz
 - `sr music`: Uses AudioSR basic model (general audio) on non-vocal stems
+- `sr voice`: Uses AudioSR speech model on vocal stems for voice-optimized SR
+- `sr voice music`: AudioSR speech model on vocals + basic model on music, auto-blended at 48kHz
 - `blend`: Mixes processed stems at the highest available sample rate (48kHz)
 - Video input: `.mp4` output with enhanced audio track (default mode only)
 

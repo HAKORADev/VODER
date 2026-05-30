@@ -505,10 +505,12 @@ SE (Sound Enhancement) is a standalone mode for improving audio quality through 
 | `se "path"` | UniSE enhancement | 16kHz WAV |
 | `se voice "path"` | SVS voice → UniSE on vocals | 16kHz WAV |
 | `se voice blend "path"` | SVS voice+music → UniSE on voice → blend | 48kHz WAV |
-| `se sr "path"` | AudioSR super-resolution (speech model) | 48kHz WAV |
-| `se sr blend "path"` | AudioSR + UniSE on voice → blend | 48kHz WAV |
+| `se sr "path"` | AudioSR super-resolution (basic model) | 48kHz WAV |
 | `se sr music "path"` | SVS music → AudioSR (basic model) | 48kHz WAV |
 | `se sr music blend "path"` | SVS voice+music → AudioSR on music + UniSE on voice → blend | 48kHz WAV |
+| `se sr voice "path"` | SVS voice → AudioSR (speech model) on vocals | 48kHz WAV |
+| `se sr voice blend "path"` | SVS voice+music → AudioSR speech on vocals → blend with music | 48kHz WAV |
+| `se sr voice music "path"` | SVS → AudioSR speech on vocals + basic on music → auto-blend | 48kHz WAV |
 
 **Features:**
 - Denoising — removes background noise and artifacts
@@ -534,6 +536,12 @@ python src/voder.py se sr "low_quality.wav"
 
 # Upsample music and blend with enhanced voice
 python src/voder.py se sr music blend "song.wav"
+
+# Voice super-resolution with speech model
+python src/voder.py se sr voice "vocals.wav"
+
+# Full SR: speech on vocals + basic on music
+python src/voder.py se sr voice music "song.wav"
 
 # Save to specific location
 python src/voder.py se "audio.wav" result "/path/to/enhanced.wav"
@@ -860,6 +868,8 @@ python src/voder.py se "noisy_audio.wav"
 python src/voder.py se voice blend "song.wav"
 python src/voder.py se sr "low_quality.wav"
 python src/voder.py se sr music blend "song.wav"
+python src/voder.py se sr voice "vocals.wav"
+python src/voder.py se sr voice music "song.wav"
 python src/voder.py se "audio.wav" result "/path/to/enhanced.wav"
 ```
 
