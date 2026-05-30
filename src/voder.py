@@ -12352,8 +12352,6 @@ def oneline_se(params):
 
                 audio_path, is_video = _se_resolve_audio(file_path, _se_cleanup)
 
-                svs_vocals = svs_extract_vocals(audio_path)
-                _se_track_svs_temp(svs_vocals, audio_path, _se_cleanup)
                 svs_music = svs_extract_music(audio_path)
                 _se_track_svs_temp(svs_music, audio_path, _se_cleanup)
 
@@ -12366,6 +12364,8 @@ def oneline_se(params):
                     sr_out = svs_music
 
                 if se_blend:
+                    svs_vocals = svs_extract_vocals(audio_path)
+                    _se_track_svs_temp(svs_vocals, audio_path, _se_cleanup)
                     se_voice_out = os.path.join(temp_dir, f"se_voice_{timestamp}.wav")
                     print("Enhancing vocals via UniSE for blend...")
                     from unise import UniSEEnhancer
