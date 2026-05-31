@@ -192,20 +192,20 @@ python voder.py tts extreme script "Hello" voice "my-character"
 
 ### SLC Sub-Task
 
-Speaker Language Conversion: transcribe speech from an audio/video source, translate to English (default) or any language (with `translate (source-target)`), clone the speaker's voice, and re-synthesize. SVS voice isolation is automatically run on the source before transcription.
+Speaker Language Conversion: transcribe speech from an audio/video source, translate to English (default) or any language (with `translate (source-target)` or `translate (target)`), clone the speaker's voice, and re-synthesize. SVS voice isolation is automatically run on the source before transcription.
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
 | `slc` | (flag) | Enable SLC sub-task. Translates to English by default. |
-| `translate (source-target)` | `(auto-en)` / `(ja-en)` / `(auto-ar)` etc. | Any-to-any translation via TranslateGemma 12B (76 languages). Overrides default English-only translation. |
+| `translate (source-target)` or `translate (target)` | `(auto-en)` / `(ja-en)` / `(ar)` etc. | Any-to-any translation via TranslateGemma 12B (76 languages). Overrides default English-only translation. `(target)` is shorthand for `(auto-target)`. |
 | `music` | (flag) | Preserve non-vocals: extract music from source via SVS music and blend with voice output. |
 | `"<path>"` | file | Audio/video file path or YouTube/TikTok/Bilibili URL. |
 | `result` | `"<path>"` | Copy output to custom path. |
 
 #### Rules
 
-- Pipeline: SVS voice isolation → Whisper large-v3 (transcribe + translate to English) → Qwen-TTS with voice cloning. With `translate (source-target)`: SVS voice isolation → Whisper large-v3 (transcribe) → TranslateGemma 12B (translate to target language) → Qwen-TTS with voice cloning.
-- Default translation target is English. With `translate (source-target)`, TranslateGemma 12B handles translation to any of 76 languages.
+- Pipeline: SVS voice isolation → Whisper large-v3 (transcribe + translate to English) → Qwen-TTS with voice cloning. With `translate (source-target)` or `translate (target)`: SVS voice isolation → Whisper large-v3 (transcribe) → TranslateGemma 12B (translate to target language) → Qwen-TTS with voice cloning.
+- Default translation target is English. With `translate (source-target)` or `translate (target)`, TranslateGemma 12B handles translation to any of 76 languages.
 - Uses Whisper large-v3 (not turbo) for maximum translation accuracy.
 - Supports audio files, video files, and YouTube/TikTok/Bilibili URLs.
 - `music` flag extracts the instrumental track from the source and blends it with the voice output, preserving background music.
@@ -320,9 +320,9 @@ Where `overdose` and `extreme` are auto-implied by `dub` but recommended to incl
 | Keyword | Value | Description |
 |---------|-------|-------------|
 | `dub` | `"path"` | Enable dub sub-task. Input video or audio file path. Auto-implies extreme (Fish S2 Pro). |
-| `translate (source-target)` | `(auto-ar)` / `(ja-en)` etc. | Any-to-any translation via TranslateGemma 12B (76 languages). Optional. Overrides default auto→English. |
+| `translate (source-target)` or `translate (target)` | `(auto-ar)` / `(ja-en)` / `(ar)` etc. | Any-to-any translation via TranslateGemma 12B (76 languages). Optional. Overrides default auto→English. `(target)` is shorthand for `(auto-target)`. |
 | `subtitle` | (flag) | Burn subtitles onto the output video. Uses dubbed audio text by default. |
-| `subtitle (source-target)` | `(auto-en)` / `(ja-en)` etc. | Burn independently translated subtitles (separate from dub audio language). Optional. |
+| `subtitle (source-target)` or `subtitle (target)` | `(auto-en)` / `(ja-en)` / `(en)` etc. | Burn independently translated subtitles (separate from dub audio language). Optional. `(target)` is shorthand for `(auto-target)`. |
 | `se` | (flag) | Enable sound enhancement before ASR. Optional. |
 | `video "path"` | `"path"` | Specify input video path. |
 | `overdose` | (flag) | Auto-implied by dub. Can be specified for clarity. |
@@ -330,7 +330,7 @@ Where `overdose` and `extreme` are auto-implied by `dub` but recommended to incl
 
 #### Rules
 
-- Pipeline: Download/extract → SVS voice+music separation → VibeVoice ASR (speaker diarization) → audio event detection (preserves non-speech segments) → TranslateGemma translation (auto→English by default; `translate (source-target)` for other targets) → Fish S2 Pro TTS per-segment with timeline-based assembly (voice cloning from source) → per-speaker speed adjustment (threshold 1.5x/0.5x) → mix with instrumentals → mux with video.
+- Pipeline: Download/extract → SVS voice+music separation → VibeVoice ASR (speaker diarization) → audio event detection (preserves non-speech segments) → TranslateGemma translation (auto→English by default; `translate (source-target)` or `translate (target)` for other targets) → Fish S2 Pro TTS per-segment with timeline-based assembly (voice cloning from source) → per-speaker speed adjustment (threshold 1.5x/0.5x) → mix with instrumentals → mux with video.
 - Dub defaults to auto→English translation. No `translate` keyword is needed for English target; TranslateGemma automatically translates from auto-detected source to English.
 - VibeVoice ASR is always used (overdose is implied by dub).
 - Fish S2 Pro is always used for TTS synthesis (extreme is implied by dub).
@@ -340,7 +340,7 @@ Where `overdose` and `extreme` are auto-implied by `dub` but recommended to incl
 - VibeVoice ASR and Fish S2 Pro are loaded separately (never simultaneously) to fit within 24GB VRAM.
 - Video input produces MP4 output; audio input produces WAV output.
 - `subtitle` without lang spec uses the same text as the dubbed audio.
-- `subtitle (source-target)` applies an independent translation pass for subtitles.
+- `subtitle (source-target)` or `subtitle (target)` applies an independent translation pass for subtitles.
 - `se` enhances vocal audio before ASR for better transcription in noisy conditions (see [Section 5](#5-se--sound-enhancement) for full SE sub-modes).
 - TranslateGemma loads once for all translations (dub + subtitle) then unloads once.
 - Requires 24GB+ VRAM and FFmpeg.
@@ -1221,7 +1221,7 @@ Transcribe audio/video to text using Whisper.
 | `timestamp` | (flag) | Keep Whisper word-level timestamps in the output. |
 | `dialogue` | (flag) | Enable speaker diarization (requires HF_TOKEN and pyannote model access). |
 | `translate` | (flag) | Translate transcription to English (uses Whisper large-v3 model). |
-| `translate (source-target)` | `(auto-en)` / `(ja-en)` / `(auto-ar)` etc. | Any-to-any translation via TranslateGemma 12B (76 languages). Use `auto` for source auto-detection. Compatible with `overdose` and `subtitle`. |
+| `translate (source-target)` or `translate (target)` | `(auto-en)` / `(ja-en)` / `(ar)` etc. | Any-to-any translation via TranslateGemma 12B (76 languages). Use `auto` for source auto-detection. `(target)` is shorthand for `(auto-target)`. Compatible with `overdose` and `subtitle`. |
 | `se` | (flag) | Apply sound enhancement before transcription (denoise/dereverb input first). |
 | `overdose` | (flag) | Use VibeVoice ASR (requires 24GB+ VRAM or 48GB+ RAM). Falls back to Whisper + pyannote if unavailable. |
 | `subtitle` | (flag) | Burn VibeVoice ASR subtitles onto video (implies `overdose`; video/URL only; no `translate`). |
@@ -1230,7 +1230,7 @@ Transcribe audio/video to text using Whisper.
 ### Rules
 
 - `overdose` cannot be combined with bare `translate` (without parentheses).
-- `translate (source-target)` is compatible with `overdose` — TranslateGemma decouples translation from ASR.
+- `translate (source-target)` or `translate (target)` is compatible with `overdose` — TranslateGemma decouples translation from ASR.
 - `subtitle` implies `overdose`, cannot combine with bare `translate`, and only accepts video files/URLs.
 - Multiple files are processed sequentially.
 - Output is saved as `.txt` in the `results/` directory.

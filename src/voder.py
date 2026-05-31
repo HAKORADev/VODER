@@ -871,9 +871,15 @@ class AudioSREnhancer:
 
 def _parse_lang_spec(spec_str):
     m = re.match(r'^\(([a-zA-Z]{2,})-([a-zA-Z]{2,})\)$', spec_str)
-    if not m:
-        return None
-    return {'source': m.group(1).lower(), 'target': m.group(2).lower()}
+    if m:
+        return {'source': m.group(1).lower(), 'target': m.group(2).lower()}
+    m = re.match(r'^\(([a-zA-Z]{2,})\)$', spec_str)
+    if m:
+        lang = m.group(1).lower()
+        if lang == 'auto':
+            return None
+        return {'source': 'auto', 'target': lang}
+    return None
 
 
 def _translate_with_gemma(text, source_lang, target_lang):
@@ -7156,7 +7162,7 @@ def oneline_train(params):
             saved_path = _save_fish_voice(fish_tts.encoded_refs, voice_name)
             print(f"Extreme voice '{voice_name}' saved to: {saved_path}")
             if has_test:
-                script = test_script if test_script else TRAIN_TEST_SCRIPT
+                script = test_script if test_script else (ref_text if ref_text else TRAIN_TEST_SCRIPT)
                 print(f"Testing trained voice (extreme)...")
                 results_dir = os.path.join(os.getcwd(), "results")
                 os.makedirs(results_dir, exist_ok=True)

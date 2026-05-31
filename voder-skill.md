@@ -24,7 +24,7 @@ VODER is not a single AI model — it is an **orchestration layer** that coordin
 |-------|---------|---------------|
 | **Whisper large-v3-turbo** | Fast speech-to-text transcription | STT, Dialogue Source Analysis |
 | **Whisper large-v3** | High-accuracy transcription + translation to English | STT with `translate` flag, TTS `slc` sub-task (translation step), TTS `svc` sub-task (transcription step) |
-| **TranslateGemma 12B** | Any-to-any translation (76 languages) | STT with `translate (source-target)` syntax, TTS `slc` sub-task with `translate (source-target)`, TTS `dub` sub-task, TTS `dub` sub-task `subtitle (source-target)` |
+| **TranslateGemma 12B** | Any-to-any translation (76 languages) | STT with `translate (source-target)` or `translate (target)` syntax, TTS `slc` sub-task with `translate (source-target)` or `translate (target)`, TTS `dub` sub-task, TTS `dub` sub-task `subtitle (source-target)` or `subtitle (target)` |
 | **Qwen3-TTS VoiceDesign** | Generate speech from voice descriptions | TTS (voice design path) |
 | **Qwen3-TTS Base** | Text-to-speech with built-in voice cloning | TTS (voice clone path via `target`), TTS `slc` sub-task (resynthesis step), TTS `svc` sub-task (re-synthesis step), TTS interactive modify-speech |
 | **Seed-VC v2** | Voice conversion (22.05kHz speech) | STS, TTM with `vc` flag, TTS `slc overdose` (non-mimic pass), TTS `svc` sub-task (voice change pass) |
@@ -463,13 +463,13 @@ python src/voder.py tts script "First paragraph\nSecond paragraph" voice "profes
 
 ### SLC Sub-Task (Spoken Language Conversion / Dubbing)
 
-SLC (Spoken Language Conversion) is now a TTS oneline sub-task that translates spoken content from any language to English and re-synthesizes it with the original speaker's voice. It combines Whisper large-v3's translation capability with Qwen3-TTS's voice synthesis to produce **dubbed audio** — the content is translated but the voice character is preserved. Translation to English is performed by default; no separate `translate` flag is needed. For any-to-any translation (76 languages), use the `translate (source-target)` syntax which employs TranslateGemma 12B instead of Whisper for the translation step.
+SLC (Spoken Language Conversion) is now a TTS oneline sub-task that translates spoken content from any language to English and re-synthesizes it with the original speaker's voice. It combines Whisper large-v3's translation capability with Qwen3-TTS's voice synthesis to produce **dubbed audio** — the content is translated but the voice character is preserved. Translation to English is performed by default; no separate `translate` flag is needed. For any-to-any translation (76 languages), use the `translate (source-target)` syntax (or shorthand `translate (target)`, which auto-detects the source) which employs TranslateGemma 12B instead of Whisper for the translation step.
 
 **How It Works:**
 1. **Source Input**: Accepts audio files, video files, and YouTube/URL sources
 2. **SVS Voice Isolation**: BS-RoFormer isolates the voice from the source (handles mixed audio/video)
 3. **Music Extraction** (optional): When the `music` flag is used, SVS also extracts the instrumental track for later blending
-4. **Translation**: Whisper large-v3 (not turbo) transcribes and translates the isolated voice to English. If `translate (source-target)` is specified, TranslateGemma 12B handles any-to-any translation instead
+4. **Translation**: Whisper large-v3 (not turbo) transcribes and translates the isolated voice to English. If `translate (source-target)` or `translate (target)` is specified, TranslateGemma 12B handles any-to-any translation instead
 5. **Voice Extraction**: The source audio's voice characteristics are analyzed
 6. **Re-Synthesis**: Qwen3-TTS Base synthesizes the English text with the extracted voice
 7. **Overdose Post-Processing** (optional): When `tts overdose slc` is used, Seed-VC v2 runs a non-mimic pass after TTS output for better voice preservation
@@ -521,12 +521,12 @@ python src/voder.py tts slc translate (en-fr) "english_speech.wav"
 | Parameter | Required | Purpose | Default |
 |-----------|----------|---------|----------|
 | `music` | No | Preserve non-vocals (extract and blend instrumental back) | Off |
-| `translate (source-target)` | No | Any-to-any translation via TranslateGemma 12B (76 languages) | Off (English-only via Whisper) |
+| `translate (source-target)` or `translate (target)` | No | Any-to-any translation via TranslateGemma 12B (76 languages). `(target)` is shorthand for `(auto-target)` | Off (English-only via Whisper) |
 | `overdose` | No | Additional STS v2 non-mimic pass for better voice fidelity | Off |
 | `result` | No | Output destination | Auto-generated |
 
 **Limitations:**
-- Source language is auto-detected; output is **English** by default (use `translate (source-target)` for other target languages)
+- Source language is auto-detected; output is **English** by default (use `translate (source-target)` or `translate (target)` for other target languages)
 - Same-voice quality depends on how distinct the source voice features are
 - Very short audio segments (< 3 seconds) may produce lower quality voice matching
 - Heavy background noise reduces voice extraction accuracy
@@ -691,9 +691,9 @@ python src/voder.py tts dub translate (ja-en) "japanese_video.mp4"
 | Parameter | Required | Purpose | Default |
 |-----------|----------|---------|----------|
 | `dub` | Yes | Invoke dub sub-task with input path (auto‑implies extreme/Fish S2 Pro) | — |
-| `translate (source-target)` | No | Any-to-any translation via TranslateGemma 12B (76 languages). Overrides default auto→English | Off (auto→English) |
+| `translate (source-target)` or `translate (target)` | No | Any-to-any translation via TranslateGemma 12B (76 languages). Overrides default auto→English. `(target)` is shorthand for `(auto-target)` | Off (auto→English) |
 | `subtitle` | No | Burn subtitles onto output video. Uses dubbed audio text by default | Off |
-| `subtitle (source-target)` | No | Burn independently translated subtitles (separate from dub audio language) | Off |
+| `subtitle (source-target)` or `subtitle (target)` | No | Burn independently translated subtitles (separate from dub audio language). `(target)` is shorthand for `(auto-target)` | Off |
 | `se` | No | Enable sound enhancement before ASR | Off |
 | `video "path"` | No | Specify input video path | Auto from positional |
 | `overdose` | No | Auto‑implied by dub, can be specified for clarity | On (implied) |
@@ -1429,19 +1429,19 @@ STT supports translation and overdose flags with nuanced compatibility:
 | Flag | Model Used | What It Does |
 |------|-----------|--------------|
 | `translate` | Whisper large-v3 | Transcribes AND translates non-English audio to English text |
-| `translate (source-target)` | TranslateGemma 12B | Any-to-any translation across 76 languages. Use `auto` for source auto-detection. |
+| `translate (source-target)` or `translate (target)` | TranslateGemma 12B | Any-to-any translation across 76 languages. Use `auto` for source auto-detection. `(target)` is shorthand for `(auto-target)`. |
 | `overdose` | VibeVoice ASR | Advanced transcription with native speaker diarization built-in |
 
 **`translate` flag**: Uses Whisper large-v3 (not turbo) for maximum translation accuracy. The output is English text regardless of the source language. Useful for subtitling foreign content, translating meetings, or processing multilingual media.
 
-**`translate (source-target)` syntax**: Uses TranslateGemma 12B for true any-to-any translation across 76 languages. The `source` and `target` are language codes (e.g., `ja` for Japanese, `ar` for Arabic, `en` for English). Use `auto` for source language auto-detection. Examples: `translate (auto-ar)` auto-detects source and translates to Arabic, `translate (ja-en)` translates Japanese to English.
+**`translate (source-target)` syntax**: Uses TranslateGemma 12B for true any-to-any translation across 76 languages. The `source` and `target` are language codes (e.g., `ja` for Japanese, `ar` for Arabic, `en` for English). Use `auto` for source language auto-detection. A single language `(target)` is shorthand for `(auto-target)` — e.g., `translate (ar)` is equivalent to `translate (auto-ar)`. Examples: `translate (auto-ar)` auto-detects source and translates to Arabic, `translate (ar)` same shorthand, `translate (ja-en)` translates Japanese to English.
 
 **`overdose` flag**: Uses VibeVoice ASR which provides superior transcription quality with **native speaker diarization** — no separate Pyannote step needed. Ideal for challenging audio (multiple speakers, overlapping speech, noisy environments). Note: `overdose` implies diarization; the `dialogue` flag is redundant and ignored when `overdose` is active.
 
 **Compatibility Rules**:
 - `overdose` and bare `translate` (without parentheses) are **mutually exclusive** — Whisper's built-in translation conflicts with VibeVoice ASR
-- `overdose` and `translate (source-target)` are **compatible** — TranslateGemma decouples translation from ASR, running after VibeVoice completes
-- `translate (source-target)` works with `subtitle` — produces translated subtitles burned onto the video
+- `overdose` and `translate (source-target)` or `translate (target)` are **compatible** — TranslateGemma decouples translation from ASR, running after VibeVoice completes
+- `translate (source-target)` or `translate (target)` works with `subtitle` — produces translated subtitles burned onto the video
 
 ### Subtitle Flag
 
@@ -2766,7 +2766,7 @@ Total memory needed: 14GB
 | Music doesn't generate | Single mode used | music only works in dialogue mode |
 | SFX line ignored | Missing /duration | Add /duration:nn directive |
 | Cross-use conflict | Both voice and target for same character | Use one or the other per character |
-| `overdose` + `translate` error | Mutually exclusive flags | Bare `translate` is incompatible with `overdose`; use `translate (source-target)` instead for any-to-any translation with overdose |
+| `overdose` + `translate` error | Mutually exclusive flags | Bare `translate` is incompatible with `overdose`; use `translate (source-target)` or `translate (target)` instead for any-to-any translation with overdose |
 | TranslateGemma OOM | Insufficient VRAM for 12B model | Requires 24GB+ VRAM; ensure other models are offloaded first |
 | Dub speed misalignment | Dubbed speech timing differs from original | Speed adjustment is best-effort; very different language lengths may cause drift |
 | Dub overlapping speakers | Overlapping speech produces mixed quality | Overlapping speakers are best-effort; consider running SS first to pre-separate |
@@ -2803,8 +2803,8 @@ Total memory needed: 14GB
 19. **Extract for remixing**: Use `extract` to pull individual stems from existing songs
 20. **Remix for style transfer**: Use `remix` with `styling` and `bias` to create cover versions with adjustable style strength; add `lyrics` to guide new vocal content; use multi-source (up to 3) for creative composite sources and multi-reference (up to 3) for diverse style guidance
 21. **Repaint for section editing**: Use `repaint` with `time:start-end` to restyle specific sections of a song; add `voice`/`music` prefix to isolate source components; use multi-pass mode (`"start-end/styling(...)/..."`) for sequential edits that build on each previous result
-22. **Overdose XOR translate**: Bare `translate` (without parentheses) is incompatible with `overdose` in STT — use `translate (source-target)` instead for any-to-any translation with overdose quality
-23. **translate (source-target) for any-to-any**: Use `translate (auto-ar)` to auto-detect source and translate to Arabic, `translate (ja-en)` for Japanese-to-English, etc. TranslateGemma 12B supports 76 languages and is compatible with `overdose` and `subtitle`
+22. **Overdose XOR translate**: Bare `translate` (without parentheses) is incompatible with `overdose` in STT — use `translate (source-target)` or `translate (target)` instead for any-to-any translation with overdose quality
+23. **translate (source-target) for any-to-any**: Use `translate (auto-ar)` to auto-detect source and translate to Arabic, `translate (ar)` as shorthand for the same, `translate (ja-en)` for Japanese-to-English, etc. TranslateGemma 12B supports 76 languages and is compatible with `overdose` and `subtitle`
 24. **TTS overdose for cleaner cloning**: Use `overdose` flag with TTS when doing voice cloning from dialogue sources — the 2s/3s trim on extracted voice clips avoids cross-speaker contamination and produces cleaner reference audio
 25. **TTS overdose + music for premium output**: Combining `overdose` with `music` in TTS gives you both superior voice clip extraction (VibeVoice ASR) and higher quality background music (ACE-Step XL Turbo)
 26. **TTS svc for voice swapping**: Use `tts svc "source.wav" target "target.wav"` when you want to change who is speaking without changing the language or content. Unlike SLC, SVC keeps the original language intact
