@@ -46,23 +46,23 @@ VODER is not a single AI model — it is an **orchestration layer** that coordin
 ```
 INPUT TYPES:
 ┌──────────────────────────────────────────────────────────────────┐
-│ Text ──────────────────► TTS, TTM, SFX                            │
-│ Audio ─────────────────► STS, STT, SE, SVS, SS                  │
+│ Text ──────────────────► TTS, TTM, SFX                           │
+│ Audio ─────────────────► STS, STT, SE, SVS, SS                   │
 │ Audio/Video/URL ───────► TTS slc (language conversion sub-task)  │
 │ Audio/Video/URL ───────► TTS dub (dubbing sub-task)              │
 │ Audio + Audio ref ─────► TTS svc (speaker voice change sub-task) │
-│ Video ─────────────────► STS, STT, SE, SVS, SS (auto-extract)   │
-│ Image ─────────────────► STT (OCR text extraction)              │
-│ YouTube/URL ───────────► STT, STS, TTM, SVS (auto-dl)          │
+│ Video ─────────────────► STS, STT, SE, SVS, SS (auto-extract)    │
+│ Image ─────────────────► STT (OCR text extraction)               │
+│ YouTube/URL ───────────► STT, STS, TTM, SVS (auto-dl)            │
 └──────────────────────────────────────────────────────────────────┘
 
 OUTPUT TYPES:
 ┌──────────────────────────────────────────────────────────────────┐
-│ Audio Output: TTS, STS, TTM, SE, SFX, SVS                       │
+│ Audio Output: TTS, STS, TTM, SE, SFX, SVS                        │
 │ Audio Stems:  SVS (voice + instrumental)                         │
 │ Audio Files:  SS (per-speaker segments)                          │
 │ Text Output:  STT, SS (transcript)                               │
-│ Video Output: TTS dub (with subtitle)                             │
+│ Video Output: TTS dub (with subtitle)                            │
 │ Interactive:  TTS interactive modify-speech (requires text edit) │
 └──────────────────────────────────────────────────────────────────┘
 ```
