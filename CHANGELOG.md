@@ -33,6 +33,8 @@
 
 - **TTM Voice** — `ttm voice` keyword generates a song via ACE-Step then automatically extracts clean vocals via the SVS voice pipe. Output is the isolated vocal track. Supports `target` reference audio and `overdose` quality. Syntax: `voder.py ttm voice lyrics "..." styling "..." 30`
 
+- **TTM Reference Stem Extraction** — Reference and target paths in TTM now support optional stem extraction via ACE-Step XL-Base. Syntax: `stem/(path)` extracts a single stem, `stem-stem/(path)` extracts and mixes multiple stems, `stem/nn-nn(path)` combines stem extraction with time-range cutting. The 12 available stems are: `woodwinds`, `brass`, `fx`, `synth`, `strings`, `percussion`, `keyboard`, `guitar`, `bass`, `drums`, `backing_vocals`, `vocals`. Stem extraction runs after SVS (voice/music) and before time-range cutting. Examples: `reference "drums/(ref.wav)"`, `reference music "bass-drums/30-60(ref.wav)"`, `target voice "keyboard/(ref.wav)"`. Works across all TTM sub-tasks that accept references (remix, repaint, complete, lego, bgm) and the `target` keyword.
+
 #### TranslateGemma 12B Integration
 
 - **TranslateGemma 12B** — New translation model integrated into VODER (`google/translategemma-12b-it`, 12B parameters). Supports true any-to-any translation across 55 languages, replacing Whisper's any-to-English-only translation limitation. Requires 24GB+ VRAM. Stored at `src/models/checkpoints/translategemma/`.

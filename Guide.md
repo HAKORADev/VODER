@@ -1188,8 +1188,13 @@ The reference path can include an optional time spec to select a specific portio
 | `nn(path)` | `"50(ref.wav)"` | Start at nn seconds, extract up to slot max |
 | `nn-nn(path)` | `"20-30(ref.wav)"` | Use specified range; slides to reach slot max if shorter |
 | `nn-nn/nn-nn/nn-nn(path)` | `"20-30/40-50(ref.wav)"` | Multiple ranges from same audio, combined to reach slot max |
+| `stem/(path)` | `"drums/(ref.wav)"` | Extract a single stem from the reference audio via ACE-Step |
+| `stem-stem/(path)` | `"bass-drums/(ref.wav)"` | Extract multiple stems and mix them together |
+| `stem/nn-nn(path)` | `"drums/20-30(ref.wav)"` | Extract stem then cut to time range |
 
-The time spec is optional -- the old format `reference "ref.wav"` still works and uses the entire audio. It works with voice/music prefixes: `reference voice "50(ref.wav)"`, `reference music "20-30/40-50(ref.wav)"`. It also works inside repaint multi-pass specs: `"20-80/styling(jazz)/reference-voice(30-60(vocals.wav))"`.
+The time spec and stem spec are both optional -- the old format `reference "ref.wav"` still works and uses the entire audio. It works with voice/music prefixes: `reference voice "50(ref.wav)"`, `reference music "20-30/40-50(ref.wav)"`. It also works with stem extraction: `reference "drums/(ref.wav)"`, `reference voice "bass-drums/20-30(ref.wav)"`. It also works inside repaint multi-pass specs: `"20-80/styling(jazz)/reference-voice(30-60(vocals.wav))"`.
+
+**Stem extraction** uses the ACE-Step XL-Base model to extract specific instrument tracks from the reference audio. The 12 available stems are: `woodwinds`, `brass`, `fx`, `synth`, `strings`, `percussion`, `keyboard`, `guitar`, `bass`, `drums`, `backing_vocals`, `vocals`. Multiple stems joined by `-` are extracted individually then mixed together via ffmpeg. Stem extraction runs after SVS (voice/music) and before time-range cutting.
 
 **Slot max by reference count:** 1 reference = 30s, 2 references = 15s each, 3 references = 10s each.
 

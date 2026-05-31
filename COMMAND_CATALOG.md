@@ -604,8 +604,13 @@ The `reference` path value can include an optional time spec to select a specifi
 | `nn(path)` | `"50(ref.wav)"` | Start at nn seconds, extract up to slot max |
 | `nn-nn(path)` | `"20-30(ref.wav)"` | Use specified range; slides to reach slot max if shorter |
 | `nn-nn/nn-nn/nn-nn(path)` | `"20-30/40-50(ref.wav)"` | Multiple ranges from same audio, combined to reach slot max |
+| `stem/(path)` | `"drums/(ref.wav)"` | Extract a single stem from the reference audio via ACE-Step |
+| `stem-stem/(path)` | `"bass-drums/(ref.wav)"` | Extract multiple stems and mix them together |
+| `stem/nn-nn(path)` | `"drums/20-30(ref.wav)"` | Extract stem then cut to time range |
 
-The time spec is optional -- the old format `reference "ref.wav"` still works and uses the entire audio.
+The time spec and stem spec are both optional -- the old format `reference "ref.wav"` still works and uses the entire audio.
+
+**Stem extraction** uses the ACE-Step XL-Base model to extract specific instrument tracks from the reference audio. The 12 available stems are: `woodwinds`, `brass`, `fx`, `synth`, `strings`, `percussion`, `keyboard`, `guitar`, `bass`, `drums`, `backing_vocals`, `vocals`. Multiple stems joined by `-` are extracted individually then mixed together via ffmpeg. Stem extraction runs after SVS (voice/music) and before time-range cutting.
 
 **Slot max by reference count:**
 
@@ -630,6 +635,22 @@ reference music "20-30(ref1.wav)" "40-50(ref2.wav)"
 reference voice "20-30/40-50(ref.wav)"
 ```
 
+**With stem extraction:**
+
+```
+# Extract drums from reference audio
+reference "drums/(ref.wav)"
+
+# Extract vocals, then isolate the bass and drums, mixed together
+reference voice "bass-drums/(ref.wav)"
+
+# Extract keyboard from 20-30s of reference audio
+reference "keyboard/20-30(ref.wav)"
+
+# Extract bass and drums from music (SVS), then cut to 30-60s
+reference music "bass-drums/30-60(ref.wav)"
+```
+
 **In repaint multi-pass specs:**
 
 ```
@@ -645,9 +666,9 @@ Basic text-to-music generation. Supports optional reference audio via `target`.
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `target` | `"<path>"` | Reference audio (as-is). |
-| `target voice` | `"<path>"` | Reference audio — extract vocals via SVS first. |
-| `target music` | `"<path>"` | Reference audio — extract instruments via SVS first. |
+| `target` | `"<path>"` | Reference audio (as-is). Supports stem spec: `target "drums/(ref.wav)"`. |
+| `target voice` | `"<path>"` | Reference audio — extract vocals via SVS first. Supports stem spec: `target voice "bass/(ref.wav)"`. |
+| `target music` | `"<path>"` | Reference audio — extract instruments via SVS first. Supports stem spec: `target music "drums/(ref.wav)"`. |
 | `voice` | (flag) | Generate song then extract vocals via SVS voice pipe. Output is clean vocals only. |
 
 ```

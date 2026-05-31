@@ -1018,12 +1018,21 @@ def _extract_audio_segment(input_path, start, end, output_path):
 
 def _parse_ref_time_spec(spec):
     if '(' not in spec or not spec.endswith(')'):
-        return None, spec
+        return None, spec, None
     paren_start = spec.find('(')
     path = spec[paren_start + 1:-1].strip()
     if not path:
-        return None, spec
+        return None, spec, None
     time_part = spec[:paren_start].strip()
+    stem_names = None
+    if '/' in time_part:
+        first_slash = time_part.find('/')
+        potential_stems = time_part[:first_slash]
+        remaining_after_slash = time_part[first_slash + 1:]
+        stem_candidates = [s.strip().lower() for s in potential_stems.split('-')]
+        if stem_candidates and all(s in VALID_ACESTEP_TRACKS for s in stem_candidates):
+            stem_names = stem_candidates
+            time_part = remaining_after_slash
     stem_prefix = None
     if ':' in time_part:
         colon_idx = time_part.find(':')
@@ -1032,7 +1041,7 @@ def _parse_ref_time_spec(spec):
             stem_prefix = time_part[:colon_idx]
             time_part = after_colon
         elif after_colon and after_colon[0] == '/':
-            return None, spec
+            return None, spec, None
         else:
             before_colon = time_part[:colon_idx]
             if before_colon:
@@ -1040,8 +1049,8 @@ def _parse_ref_time_spec(spec):
                 time_part = after_colon
     if not time_part:
         if stem_prefix:
-            return None, f"{stem_prefix}:{path}"
-        return None, path
+            return None, f"{stem_prefix}:{path}", stem_names
+        return None, path, stem_names
     segments = time_part.split('/')
     ranges = []
     for seg in segments:
@@ -1054,23 +1063,23 @@ def _parse_ref_time_spec(spec):
                 start = float(parts[0])
                 end = float(parts[1])
                 if start < 0 or end < 0 or start >= end:
-                    return None, spec
+                    return None, spec, None
                 ranges.append((start, end))
             except (ValueError, IndexError):
-                return None, spec
+                return None, spec, None
         else:
             try:
                 start = float(seg)
                 if start < 0:
-                    return None, spec
+                    return None, spec, None
                 ranges.append((start, None))
             except ValueError:
-                return None, spec
+                return None, spec, None
     if not ranges:
-        return None, spec
+        return None, spec, None
     if stem_prefix:
         path = f"{stem_prefix}:{path}"
-    return ranges, path
+    return ranges, path, stem_names
 
 def _extract_ref_segments(audio_path, time_ranges, slot_max, cleanup_list):
     duration = _get_audio_duration(audio_path)
@@ -1158,7 +1167,60 @@ def _extract_ref_segments(audio_path, time_ranges, slot_max, cleanup_list):
     cleanup_list.append(out_path)
     return out_path
 
-def _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup_list, time_ranges=None, slot_max=30):
+def _extract_acestep_stems(audio_path, stem_names, cleanup_list, ace_step=None):
+    own_model = ace_step is None
+    if own_model:
+        ace_step = AceStepWrapper(use_overdose=False, complete_mode=True)
+        if ace_step.handler is None:
+            print("Warning: Failed to load ACE-Step model for stem extraction, using original audio")
+            del ace_step
+            gc.collect()
+            return audio_path
+    try:
+        _ts = time.strftime("%Y%m%d_%H%M%S")
+        generated_files = []
+        for stem in stem_names:
+            print(f"  Extracting stem: {stem}...")
+            temp_output = os.path.join(tempfile.gettempdir(), f"voder_stem_{stem}_{_ts}.wav")
+            success = ace_step.extract(
+                src_audio=audio_path,
+                track_name=stem,
+                output_path=temp_output
+            )
+            if success:
+                generated_files.append(temp_output)
+            else:
+                if os.path.exists(temp_output):
+                    try:
+                        os.unlink(temp_output)
+                    except:
+                        pass
+        if not generated_files:
+            return audio_path
+        if len(generated_files) == 1:
+            cleanup_list.append(generated_files[0])
+            return generated_files[0]
+        mix_output = os.path.join(tempfile.gettempdir(), f"voder_stem_mix_{_ts}.wav")
+        input_list = " ".join(f'-i "{f}"' for f in generated_files)
+        ret = os.system(f'ffmpeg -y {input_list} -filter_complex amix=inputs={len(generated_files)}:duration=longest "{mix_output}" 2>/dev/null')
+        for f in generated_files:
+            if os.path.exists(f):
+                try:
+                    os.unlink(f)
+                except:
+                    pass
+        if ret != 0 or not os.path.exists(mix_output):
+            return audio_path
+        cleanup_list.append(mix_output)
+        return mix_output
+    finally:
+        if own_model:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            del ace_step
+            gc.collect()
+
+def _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup_list, time_ranges=None, slot_max=30, stems=None, ace_step=None):
     resolved = None
     if not os.path.exists(raw_path) and not is_youtube_url(raw_path):
         print(f"Warning: Audio path not found: {raw_path}, skipping")
@@ -1187,8 +1249,6 @@ def _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup_list
                 print(f"Warning: Invalid audio file: {msg}, skipping")
                 return None
             resolved = raw_path
-    if time_ranges:
-        resolved = _extract_ref_segments(resolved, time_ranges, slot_max, cleanup_list)
     if sv_type == 'voice':
         print("Extracting vocals via SVS...")
         processed = svs_extract_vocals(resolved)
@@ -1199,6 +1259,11 @@ def _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup_list
         processed = resolved
     if processed and processed != resolved and processed not in cleanup_list:
         cleanup_list.append(processed)
+    if stems:
+        print(f"Extracting stem(s): {', '.join(stems)}...")
+        processed = _extract_acestep_stems(processed, stems, cleanup_list, ace_step=ace_step)
+    if time_ranges:
+        processed = _extract_ref_segments(processed, time_ranges, slot_max, cleanup_list)
     return processed
 
 def _compose_refs(ref_entries, results_dir):
@@ -1209,19 +1274,43 @@ def _compose_refs(ref_entries, results_dir):
     num_entries = len(ref_entries)
     slot_max = 30 // max(1, num_entries)
     has_time_spec = any(len(e) > 2 and e[2] is not None for e in ref_entries)
+    any_stems = any(len(e) > 3 and e[3] is not None for e in ref_entries)
+    ace_step_shared = None
+    if any_stems:
+        print("Loading ACE-Step XL-Base model (stem extraction)...")
+        ace_step_shared = AceStepWrapper(use_overdose=False, complete_mode=True)
+        if ace_step_shared.handler is None:
+            print("Warning: Failed to load ACE-Step model for stem extraction")
+            del ace_step_shared
+            ace_step_shared = None
+            gc.collect()
     processed = []
     for entry in ref_entries:
         sv_type = entry[0]
         raw_path = entry[1]
         tr = entry[2] if len(entry) > 2 else None
+        entry_stems = entry[3] if len(entry) > 3 else None
         if has_time_spec and tr is None:
             tr = [(0, None)]
-        audio_path = _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup, time_ranges=tr, slot_max=slot_max)
+        if entry_stems:
+            audio_path = _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup, time_ranges=tr, slot_max=slot_max, stems=entry_stems, ace_step=ace_step_shared)
+        else:
+            audio_path = _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup, time_ranges=tr, slot_max=slot_max)
         if audio_path is None:
             continue
         processed.append(audio_path)
     if not processed:
+        if ace_step_shared is not None:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            del ace_step_shared
+            gc.collect()
         return None, cleanup
+    if ace_step_shared is not None:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        del ace_step_shared
+        gc.collect()
     if len(processed) == 1:
         return processed[0], cleanup
     if has_time_spec:
@@ -1295,20 +1384,36 @@ def _compose_refs(ref_entries, results_dir):
 def _compose_sources(source_entries, results_dir):
     if not source_entries:
         return None, []
-    if len(source_entries) == 1:
-        sv_type, raw_path = source_entries[0]
-        cleanup = []
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        audio_path = _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup)
-        return audio_path, cleanup
     cleanup = []
     timestamp = time.strftime("%Y%m%d_%H%M%S")
+    any_stems = any(len(e) > 3 and e[3] is not None for e in source_entries)
+    ace_step_shared = None
+    if any_stems:
+        print("Loading ACE-Step XL-Base model (stem extraction)...")
+        ace_step_shared = AceStepWrapper(use_overdose=False, complete_mode=True)
+        if ace_step_shared.handler is None:
+            print("Warning: Failed to load ACE-Step model for stem extraction")
+            del ace_step_shared
+            ace_step_shared = None
+            gc.collect()
     processed = []
-    for sv_type, raw_path in source_entries:
-        audio_path = _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup)
+    for entry in source_entries:
+        sv_type = entry[0]
+        raw_path = entry[1]
+        entry_tr = entry[2] if len(entry) > 2 else None
+        entry_stems = entry[3] if len(entry) > 3 else None
+        if entry_stems:
+            audio_path = _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup, time_ranges=entry_tr, stems=entry_stems, ace_step=ace_step_shared)
+        else:
+            audio_path = _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup, time_ranges=entry_tr)
         if audio_path is None:
             continue
         processed.append(audio_path)
+    if ace_step_shared is not None:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        del ace_step_shared
+        gc.collect()
     if not processed:
         return None, cleanup
     print(f"Composing {len(processed)} sources into composite...")
@@ -1465,16 +1570,16 @@ def _parse_repaint_pass_spec(spec):
             styling = part[8:-1].replace('\\n', '\n')
         elif part.startswith('reference-voice(') and part.endswith(')'):
             inner = part[16:-1]
-            tr, rp = _parse_ref_time_spec(inner)
-            references.append(('voice', rp, tr))
+            tr, rp, ref_stems = _parse_ref_time_spec(inner)
+            references.append(('voice', rp, tr, ref_stems))
         elif part.startswith('reference-music(') and part.endswith(')'):
             inner = part[15:-1]
-            tr, rp = _parse_ref_time_spec(inner)
-            references.append(('music', rp, tr))
+            tr, rp, ref_stems = _parse_ref_time_spec(inner)
+            references.append(('music', rp, tr, ref_stems))
         elif part.startswith('reference(') and part.endswith(')'):
             inner = part[9:-1]
-            tr, rp = _parse_ref_time_spec(inner)
-            references.append(('asis', rp, tr))
+            tr, rp, ref_stems = _parse_ref_time_spec(inner)
+            references.append(('asis', rp, tr, ref_stems))
         elif part == 'bias' and j + 1 < len(parts):
             bias = parts[j + 1]
             j += 1
@@ -6278,12 +6383,12 @@ def parse_oneline_args(args):
                     if i >= len(args):
                         result['error'] = 'reference requires a path after voice/music'
                         return result
-                    tr, rp = _parse_ref_time_spec(args[i])
-                    ref_entries.append((sv_type, rp, tr))
+                    tr, rp, ref_stems = _parse_ref_time_spec(args[i])
+                    ref_entries.append((sv_type, rp, tr, ref_stems))
                     i += 1
                 else:
-                    tr, rp = _parse_ref_time_spec(args[i])
-                    ref_entries.append(('asis', rp, tr))
+                    tr, rp, ref_stems = _parse_ref_time_spec(args[i])
+                    ref_entries.append(('asis', rp, tr, ref_stems))
                     i += 1
             if not ref_entries:
                 result['error'] = 'reference requires at least one path'
@@ -6497,10 +6602,12 @@ def parse_oneline_args(args):
                     if i >= len(args):
                         result['error'] = 'remix source requires a path after voice/music'
                         return result
-                    remix_entries.append((sv_type, args[i]))
+                    _r_tr, _r_rp, _r_stems = _parse_ref_time_spec(args[i])
+                    remix_entries.append((sv_type, _r_rp, _r_tr, _r_stems))
                     i += 1
                 else:
-                    remix_entries.append(('asis', args[i]))
+                    _r_tr, _r_rp, _r_stems = _parse_ref_time_spec(args[i])
+                    remix_entries.append(('asis', _r_rp, _r_tr, _r_stems))
                     i += 1
             if not remix_entries:
                 result['error'] = 'remix requires at least one source path'
@@ -8984,7 +9091,7 @@ def oneline_ttm(params):
             else:
                 ref_type = 'asis'
                 ref_path_raw = _target_vals[0]
-            _vc_tr, ref_path = _parse_ref_time_spec(ref_path_raw)
+            _vc_tr, ref_path, _vc_stems = _parse_ref_time_spec(ref_path_raw)
             if not os.path.exists(ref_path) and not is_youtube_url(ref_path):
                 print(f"Error: Reference target not found: {ref_path}")
                 for f in _vc_cleanup:
@@ -9005,8 +9112,6 @@ def oneline_ttm(params):
                             pass
                 return False
             _vc_cleanup.extend(ref_cleanup)
-            if _vc_tr:
-                resolved_ref = _extract_ref_segments(resolved_ref, _vc_tr, 30, _vc_cleanup)
             if ref_type == 'voice':
                 processed_ref = svs_extract_vocals(resolved_ref)
             elif ref_type == 'music':
@@ -9016,8 +9121,11 @@ def oneline_ttm(params):
             if processed_ref and processed_ref != resolved_ref:
                 if processed_ref not in _vc_cleanup:
                     _vc_cleanup.append(processed_ref)
-            if resolved_ref not in _vc_cleanup and resolved_ref != processed_ref:
-                _vc_cleanup.append(resolved_ref)
+            if _vc_stems:
+                print(f"Extracting stem(s): {', '.join(_vc_stems)}...")
+                processed_ref = _extract_acestep_stems(processed_ref, _vc_stems, _vc_cleanup)
+            if _vc_tr:
+                processed_ref = _extract_ref_segments(processed_ref, _vc_tr, 30, _vc_cleanup)
             reference_audio = processed_ref
             if ref_type == 'asis':
                 print("Using reference audio for music generation (as-is)")
@@ -9493,7 +9601,7 @@ def oneline_ttm(params):
         else:
             ref_type = 'asis'
             ref_path_raw = _target_vals[0]
-        _ttm_tr, ref_path = _parse_ref_time_spec(ref_path_raw)
+        _ttm_tr, ref_path, _ttm_stems = _parse_ref_time_spec(ref_path_raw)
         if not os.path.exists(ref_path) and not is_youtube_url(ref_path):
             print(f"Error: Reference target not found: {ref_path}")
             return False
@@ -9502,8 +9610,6 @@ def oneline_ttm(params):
             print("Error: Could not resolve reference target")
             return False
         _ttm_cleanup.extend(cleanup)
-        if _ttm_tr:
-            resolved_audio = _extract_ref_segments(resolved_audio, _ttm_tr, 30, _ttm_cleanup)
         if ref_type == 'voice':
             processed = svs_extract_vocals(resolved_audio)
         elif ref_type == 'music':
@@ -9512,8 +9618,11 @@ def oneline_ttm(params):
             processed = resolved_audio
         if processed != resolved_audio and processed not in _ttm_cleanup:
             _ttm_cleanup.append(processed)
-        if resolved_audio not in _ttm_cleanup and resolved_audio != processed:
-            _ttm_cleanup.append(resolved_audio)
+        if _ttm_stems:
+            print(f"Extracting stem(s): {', '.join(_ttm_stems)}...")
+            processed = _extract_acestep_stems(processed, _ttm_stems, _ttm_cleanup)
+        if _ttm_tr:
+            processed = _extract_ref_segments(processed, _ttm_tr, 30, _ttm_cleanup)
         reference_audio = processed
     print("Loading ACE-Step model...")
     ace_step = AceStepWrapper(use_overdose=use_overdose)
@@ -9587,7 +9696,7 @@ def oneline_ttm_voice(params):
         else:
             ref_type = 'asis'
             ref_path_raw = _target_vals[0]
-        _tr, ref_path = _parse_ref_time_spec(ref_path_raw)
+        _tr, ref_path, _ref_stems = _parse_ref_time_spec(ref_path_raw)
         if not os.path.exists(ref_path) and not is_youtube_url(ref_path):
             print(f"Error: Reference target not found: {ref_path}")
             return False
@@ -9596,8 +9705,6 @@ def oneline_ttm_voice(params):
             print("Error: Could not resolve reference target")
             return False
         _cleanup.extend(cleanup)
-        if _tr:
-            resolved_audio = _extract_ref_segments(resolved_audio, _tr, 30, _cleanup)
         if ref_type == 'voice':
             processed = svs_extract_vocals(resolved_audio)
         elif ref_type == 'music':
@@ -9606,8 +9713,11 @@ def oneline_ttm_voice(params):
             processed = resolved_audio
         if processed != resolved_audio and processed not in _cleanup:
             _cleanup.append(processed)
-        if resolved_audio not in _cleanup and resolved_audio != processed:
-            _cleanup.append(resolved_audio)
+        if _ref_stems:
+            print(f"Extracting stem(s): {', '.join(_ref_stems)}...")
+            processed = _extract_acestep_stems(processed, _ref_stems, _cleanup)
+        if _tr:
+            processed = _extract_ref_segments(processed, _tr, 30, _cleanup)
         reference_audio = processed
     print("Loading ACE-Step model...")
     ace_step = AceStepWrapper(use_overdose=use_overdose)
@@ -10049,8 +10159,6 @@ def oneline_ttm_lego(params):
                             print(f"Warning: Invalid reference file: {msg}")
                             continue
                         ref_audio = ref_path
-                if lego_tr:
-                    ref_audio = _extract_ref_segments(ref_audio, lego_tr, lego_slot_max, _cleanup)
                 if sv_type == 'voice':
                     ref_processed = svs_extract_vocals(ref_audio)
                 elif sv_type == 'music':
@@ -10060,6 +10168,8 @@ def oneline_ttm_lego(params):
                 if ref_processed and ref_processed != ref_audio:
                     if ref_processed not in _cleanup:
                         _cleanup.append(ref_processed)
+                if lego_tr:
+                    ref_processed = _extract_ref_segments(ref_processed, lego_tr, lego_slot_max, _cleanup)
                 if ref_audio not in _cleanup and ref_audio != ref_processed:
                     _cleanup.append(ref_audio)
                 ref_cache[cache_key] = ref_processed

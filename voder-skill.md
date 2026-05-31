@@ -1326,13 +1326,13 @@ The automatic model offloading between ACE-Step and Seed-VC stages means voice c
 | `styling` | Yes** | Musical style description (optional for `complete`/`lego` sub-tasks) | — |
 | `duration` | Yes** | Target duration in seconds | — |
 | `clone` | No* | Voice clone source path (required when `vc` is set). Multi-reference format: `(path1)(path2)` concatenates multiple references into one. Add `first` keyword (`clone first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling | — |
-| `target` | No | Music reference audio (optional, with type prefix: `target voice "path"` or `target music "path"`) | — |
+| `target` | No | Music reference audio (optional, with type prefix: `target voice "path"` or `target music "path"`; supports stem spec: `target "drums/(ref.wav)"`) | — |
 | `remix` | No | Source audio for remix style transfer | — |
 | `repaint` | No | Source audio for section repaint; optional `voice`/`music` prefix for SVS isolation | — |
 | `time:start-end` | No† | Time range (for repaint, single-pass mode required) | — |
 | `"start-end/styling(...)/..."` | No | Multi-pass repaint spec (quoted): time range required; optional `/styling(text)`, `/lyrics(text)`, `/reference-voice(path)`, `/reference-music(path)`, `/reference(path)` (up to 3 per pass), `/bias/nn`. Multiple pass specs = multiple sequential repaint passes. | — |
 | `bias` | No | Cover strength 0-100 (for remix/repaint) | 40 |
-| `reference` | No | Reference audio for remix/repaint/bgm guidance (up to 3 entries with `voice`/`music` prefix; `reference voice "path"`, `reference music "path"`, or `reference "path"` for as-is; multiple refs composed into 30s composite) | — |
+| `reference` | No | Reference audio for remix/repaint/bgm guidance (up to 3 entries with `voice`/`music` prefix; `reference voice "path"`, `reference music "path"`, or `reference "path"` for as-is; multiple refs composed into 30s composite; supports stem spec `stem/(path)` and time spec) | — |
 | `complete` | No | Complete sub-task flag | Off |
 | `lego` | No | Lego sub-task flag | Off |
 | `extract` | No | Extract sub-task flag | Off |
@@ -1368,8 +1368,13 @@ The `reference` path value can include an optional time spec to select a specifi
 | `nn(path)` | `"50(ref.wav)"` | Start at nn seconds, extract up to slot max |
 | `nn-nn(path)` | `"20-30(ref.wav)"` | Use specified range; slides to reach slot max if shorter |
 | `nn-nn/nn-nn/nn-nn(path)` | `"20-30/40-50(ref.wav)"` | Multiple ranges from same audio, combined to reach slot max |
+| `stem/(path)` | `"drums/(ref.wav)"` | Extract a single stem from the reference audio via ACE-Step |
+| `stem-stem/(path)` | `"bass-drums/(ref.wav)"` | Extract multiple stems and mix them together |
+| `stem/nn-nn(path)` | `"drums/20-30(ref.wav)"` | Extract stem then cut to time range |
 
-The time spec is optional -- the old format `reference "ref.wav"` still works and uses the entire audio.
+The time spec and stem spec are both optional -- the old format `reference "ref.wav"` still works and uses the entire audio.
+
+**Stem extraction** uses the ACE-Step XL-Base model to extract specific instrument tracks from the reference audio. The 12 available stems are: `woodwinds`, `brass`, `fx`, `synth`, `strings`, `percussion`, `keyboard`, `guitar`, `bass`, `drums`, `backing_vocals`, `vocals`. Multiple stems joined by `-` are extracted individually then mixed together. Stem extraction runs after SVS (voice/music) and before time-range cutting.
 
 **Slot max by reference count:** 1 reference = 30s, 2 references = 15s each, 3 references = 10s each.
 
@@ -1386,6 +1391,19 @@ python src/voder.py ttm remix "song.wav" styling "pop" reference "20-30(ref1.wav
 
 # Multiple ranges from same audio, combined to reach slot max
 python src/voder.py ttm remix "song.wav" styling "rock" reference music "20-30/40-50(ref.wav)"
+```
+
+**With stem extraction:**
+
+```bash
+# Extract drums from reference audio
+python src/voder.py ttm remix "song.wav" styling "rock" reference "drums/(ref.wav)"
+
+# Extract bass and drums from music, then cut to 30-60s
+python src/voder.py ttm remix "song.wav" styling "funk" reference music "bass-drums/30-60(ref.wav)"
+
+# Extract keyboard from 20-30s of reference
+python src/voder.py ttm remix "song.wav" styling "jazz" reference "keyboard/20-30(ref.wav)"
 ```
 
 **In repaint multi-pass specs:**
