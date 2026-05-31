@@ -2053,8 +2053,8 @@ The cutting terminology can be confusing. Here's how to think about it:
 ```
 Original generated audio (10 seconds total):
 ┌────────────────────────────────────┐
-│ 0s        5s        10s           │
-│ [=========AUDIO CONTENT=========] │
+│ 0s        5s        10s            │
+│ [=========AUDIO CONTENT=========]  │
 └────────────────────────────────────┘
 
 /time:5-3 (start at 5s, cut 3s from end):
