@@ -10644,7 +10644,6 @@ def oneline_tts_dub(params):
         return False
 
     is_url = is_youtube_url(dub_source)
-    is_video_file = is_url or dub_source.lower().endswith(tuple(VIDEO_EXTENSIONS)) or dub_video or dub_subtitle
     has_video_path = is_url or dub_source.lower().endswith(tuple(VIDEO_EXTENSIONS))
 
     if dub_subtitle and not has_video_path and not dub_video:
@@ -10657,6 +10656,7 @@ def oneline_tts_dub(params):
     svs_vocal = None
     svs_music_track = None
     _dub_cleanup = []
+    _dub_cleanup_dirs = []
 
     try:
         if is_url:
@@ -10710,6 +10710,7 @@ def oneline_tts_dub(params):
             return False
         ts = time.strftime("%Y%m%d_%H%M%S")
         svs_vocal_dir = tempfile.mkdtemp()
+        _dub_cleanup_dirs.append(svs_vocal_dir)
         svs_vocal = os.path.join(svs_vocal_dir, f'_dub_vocal_{ts}.wav')
         svs_ok = svs_separator.separate(audio_path, 'voice', svs_vocal)
         svs_separator.cleanup()
@@ -10723,22 +10724,22 @@ def oneline_tts_dub(params):
         else:
             _dub_cleanup.append(svs_vocal)
 
-        if is_video_file or has_video_path:
-            print("Extracting music track via SVS music...")
-            svs_sep2 = BSRoformerSeparator(SVS_DIR)
-            svs_sep2.ensure_model(stem='music')
-            svs_music_dir = tempfile.mkdtemp()
-            svs_music_track = os.path.join(svs_music_dir, f'_dub_music_{ts}.wav')
-            svs_m_ok = svs_sep2.separate(audio_path, 'music', svs_music_track)
-            svs_sep2.cleanup()
-            del svs_sep2
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            if svs_m_ok and os.path.exists(svs_music_track):
-                _dub_cleanup.append(svs_music_track)
-            else:
-                svs_music_track = None
+        print("Extracting music track via SVS music...")
+        svs_sep2 = BSRoformerSeparator(SVS_DIR)
+        svs_sep2.ensure_model(stem='music')
+        svs_music_dir = tempfile.mkdtemp()
+        _dub_cleanup_dirs.append(svs_music_dir)
+        svs_music_track = os.path.join(svs_music_dir, f'_dub_music_{ts}.wav')
+        svs_m_ok = svs_sep2.separate(audio_path, 'music', svs_music_track)
+        svs_sep2.cleanup()
+        del svs_sep2
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        if svs_m_ok and os.path.exists(svs_music_track):
+            _dub_cleanup.append(svs_music_track)
+        else:
+            svs_music_track = None
 
         asr_input = svs_vocal
         if use_se:
@@ -10755,6 +10756,7 @@ def oneline_tts_dub(params):
                     torch.cuda.empty_cache()
             else:
                 se_temp_dir = tempfile.mkdtemp()
+                _dub_cleanup_dirs.append(se_temp_dir)
                 se_temp = os.path.join(se_temp_dir, f'_dub_se_{ts}.wav')
                 se_ok = se_enhancer.enhance(svs_vocal, se_temp)
                 se_enhancer.cleanup()
@@ -10879,6 +10881,7 @@ def oneline_tts_dub(params):
 
             print(f"Generating speech for segment {seg_idx+1}/{len(speech_segments)} ({len(seg_text)} chars)...")
             seg_output_dir = tempfile.mkdtemp()
+            _dub_cleanup_dirs.append(seg_output_dir)
             seg_output = os.path.join(seg_output_dir, f'_dub_seg{seg_idx}_{ts}.wav')
             syn_ok = _tts_synthesize(tts, seg_text, seg_output, language=None, use_extreme=True)
             if not syn_ok or not os.path.exists(seg_output):
@@ -10893,6 +10896,7 @@ def oneline_tts_dub(params):
                     if speed_ratio > 1.5 or speed_ratio < 0.5:
                         print(f"Adjusting speed for segment {seg_idx+1} (TTS: {tts_duration:.1f}s, target: {seg_duration:.1f}s)...")
                         adjusted_dir = tempfile.mkdtemp()
+                        _dub_cleanup_dirs.append(adjusted_dir)
                         adjusted_output = os.path.join(adjusted_dir, f'_dub_seg{seg_idx}_adj_{ts}.wav')
                         adj_ok = _adjust_audio_speed(seg_output, seg_duration, adjusted_output)
                         if adj_ok and os.path.exists(adjusted_output):
@@ -10929,6 +10933,7 @@ def oneline_tts_dub(params):
 
         import numpy as np
         timeline_dir = tempfile.mkdtemp()
+        _dub_cleanup_dirs.append(timeline_dir)
         silent_base = os.path.join(timeline_dir, f'_dub_silent_{ts}.wav')
         sr = 44100
         silence_samples = int(orig_duration * sr)
@@ -10940,6 +10945,7 @@ def oneline_tts_dub(params):
 
         for part_idx, part in enumerate(sorted(segment_tts_parts, key=lambda x: x['start'])):
             overlay_dir = tempfile.mkdtemp()
+            _dub_cleanup_dirs.append(overlay_dir)
             overlay_output = os.path.join(overlay_dir, f'_dub_overlay_{part_idx}_{ts}.wav')
             overlay_ok = _overlay_segment_on_base(current_base, part['path'], part['start'], overlay_output)
             if overlay_ok and os.path.exists(overlay_output):
@@ -10954,6 +10960,7 @@ def oneline_tts_dub(params):
         if svs_music_track and os.path.exists(svs_music_track):
             print("Mixing dubbed vocals with original music track...")
             mix_dir = tempfile.mkdtemp()
+            _dub_cleanup_dirs.append(mix_dir)
             mix_output = os.path.join(mix_dir, f'_dub_mixed_{ts}.wav')
             mix_cmd = [
                 'ffmpeg', '-i', dubbed_audio, '-i', svs_music_track,
@@ -11074,6 +11081,12 @@ def oneline_tts_dub(params):
             if f and os.path.exists(f):
                 try:
                     os.unlink(f)
+                except:
+                    pass
+        for d in _dub_cleanup_dirs:
+            if d and os.path.isdir(d):
+                try:
+                    shutil.rmtree(d, ignore_errors=True)
                 except:
                     pass
 
