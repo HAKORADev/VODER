@@ -2,6 +2,7 @@
 
 ## Table of Contents
 
+- [About VODER](#about-voder)
 - [Introduction & Vision](#introduction--vision)
 - [The Philosophy: Quality Over Speed](#the-philosophy-quality-over-speed)
 - [Why Hardcoded Models?](#why-hardcoded-models)
@@ -109,6 +110,22 @@ VODER was built to fill this gap. The goal from day one was to create a local, f
 **What Makes VODER Different:**
 
 Most voice processing tools focus on a single use case. VODER takes a different approach — it treats voice and audio processing as a unified problem space. The same interface that generates speech from text can also convert that speech between voices, and the same voice cloning technology can apply to both speech and singing. The same transcription engine that powers speech‑to‑text also drives speaker diarization for multi‑speaker analysis. The same voice separation engine that isolates vocals for cloning also cleans up inputs for STT and STS. The same sound generation model that creates background music can also produce custom sound effects. The same translation pipeline that handles language conversion can also preserve voice identity across languages. This integration enables workflows that would otherwise require multiple tools and significant manual effort.
+
+---
+
+## About VODER
+
+**Why This Name?**
+
+Before VODER became what it is today, the original idea was a simple prototype application that used math to make one audio file sound like another, and to transcribe speech via mathematical processing and attempt to "modify" it while keeping the same voice. That early project was called **Sohatch** — Sound Hertz Patcher. The name wasn't perfect, but it captured the essence of what the tool did at the time: patching sound at the hertz level.
+
+After a while, the approach shifted from pure math to AI. Qwen3‑TTS was added for speech generation, and Whisper was integrated for transcription. At that point, the project had outgrown its old name. The new name became **VODER** — Voice Blender — because at the time, that's exactly what it did: blend voices. The name also paired nicely with another tool in the same ecosystem: **IMDER** (IMage‑blenDER). VODER and IMDER, voice blender and image blender, side by side.
+
+But the project kept growing. STS mode was added for native voice‑to‑voice conversion, TTM mode brought music generation, SE added sound enhancement, SFX introduced sound effects, and the list goes on. The tool was no longer just a "voice blender" — it had become a full‑scale audio processing engine. At that moment, the name VODER needed a deeper meaning, and one was crafted to make each letter count: **Voice Operation and Design Engine with Reproduction capabilities**. It was a retrospective acronym — the letters were forced to make sense, and honestly, it shows — but it works.
+
+There's one more coincidence worth mentioning. VODER is also the name of an early speech synthesis device developed at Bell Labs (not IBM, as is sometimes assumed) and showcased at the 1939 World's Fair. That historical connection was completely unintentional — the name was already in use before that discovery — but it's a fitting parallel. Both are about synthesizing voice from new, just separated by nearly a century of technology.
+
+Today, VODER has grown far beyond just "voice" processing. It handles music, sound effects, enhancement, separation, speaker identification, and more. The name doesn't perfectly describe everything it does anymore, but it's the name it was born with and it's the name it keeps.
 
 ---
 
@@ -2931,45 +2948,7 @@ python src/voder.py ttm lego source "drums_only.wav" make "bass guitar" styling 
 
 ## Version Information
 
-**Current Version:** 04/18/2026 (voder_bleed/3)
-
-**Major Features:**
-- 8 processing modes (STT, TTS, STS, TTM, SE, SFX, SVS, SS) plus TTS sub-tasks (SLC, Modify Speech) and dialogue/sub-task modes
-- Unified TTS mode (VoiceDesign + voice cloning via target parameter)
-- Unified TTM mode (generation + voice conversion + sub-tasks)
-- SVS: Song Voice Separate with BS-RoFormer Resurrection
-- SLC: Speaker Language Conversion (now a TTS sub‑task) with voice preservation
-- SS: Speakers Separator with multi-stage pipeline
-- STT translation support (Whisper large-v3, 99 languages)
-- STT overdose mode (VibeVoice ASR)
-- STT SVS pre-cleanup for song transcription
-- TTS 10-language support via SUPPORTED_TTS_LANGUAGES
-- Auto vocal extraction via BS-RoFormer in STS, TTS, TTS (SLC), TTS (Modify Speech); SLC also supports music preservation via `music` flag
-- Video I/O support for STS (MP4 input → MP4 output)
-- TTM three-tier system (standard, overdose, complete)
-- TTM sub-tasks: complete, lego, extract, remix, repaint
-- TTM 12 instrument tracks with shorthand expansion
-- TTM SFX overlay for BGM and Complete sub-tasks
-- Script directives for per-line control
-- SFX character in dialogue
-- Music volume level control
-- TTM instrumental mode
-- Auto-clone trick for exact replica
-- SS target-based extraction
-
-**Model Versions:**
-- Whisper: large-v3-turbo (transcription), large-v3 (translation)
-- VibeVoice ASR: microsoft/VibeVoice-ASR (overdose STT/SS)
-- Qwen3-TTS: 12Hz-1.7B VoiceDesign (generated voices), 12Hz-1.7B Base (voice cloning)
-- Seed-VC: v1 (44.1kHz for music) and v2 (22.05kHz for speech)
-- ACE-Step: v15-turbo (standard), v15-xl-turbo (overdose/complete)
-- ACE-Step LM: 5Hz-lm-1.7B (standard), 5Hz-lm-4B (overdose)
-- Pyannote: speaker-diarization-community-1
-- BS-RoFormer: BS-RoFormer Resurrection (SVS voice separation)
-- UniSE: from alibaba/unified-audio (speech enhancement + TSE)
-- AudioSR: versatile_audio_super_resolution (audio super-resolution, 48kHz output, basic and speech model variants)
-- TangoFlux: from declare-lab/TangoFlux
-- EasyOCR: latest (image text extraction)
+VODER follows timestamped versioning and is always evolving.
 
 ---
 
