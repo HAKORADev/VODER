@@ -7215,19 +7215,23 @@ def oneline_train(params):
                     pass
 
 def _transcribe_for_fish_ref(audio_path):
-    stt = WhisperSTT(skip_turbo=True)
-    stt.ensure_translate_model()
-    if stt.translate_model is None:
+    asr = VibeVoiceASR()
+    asr.ensure_model()
+    if asr.model is None:
         return ""
     try:
-        result = stt.translate_model.transcribe(audio_path)
-        text = result.get("text", "").strip() if result else ""
+        text = asr.transcribe_plain_text(audio_path)
+        if text is None:
+            return ""
+        text = re.sub(r'\[?(?:Lyric|Silence|Music|Noise|Applause|Laughter|Cough|Breath)\]?\s*', '', text, flags=re.IGNORECASE).strip()
+        text = re.sub(r'\(?(?:silence|music|noise|applause|laughter|cough|breath)\)?\s*', '', text, flags=re.IGNORECASE).strip()
+        text = re.sub(r'\s+', ' ', text).strip()
         return text
     except Exception:
         return ""
     finally:
-        stt.translate_model = None
-        del stt
+        asr.cleanup()
+        del asr
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
