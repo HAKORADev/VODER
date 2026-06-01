@@ -1016,6 +1016,40 @@ def _extract_audio_segment(input_path, start, end, output_path):
     except Exception:
         return False
 
+def _validate_stems_for_svtype(stem_names, sv_type):
+    if not stem_names:
+        return stem_names
+    if sv_type == 'voice':
+        valid = ACESTEP_VOICE_TRACKS
+        invalid = [s for s in stem_names if s not in valid]
+        if invalid:
+            print(f"Error: Instrument stems ({', '.join(invalid)}) are not available with voice-only reference. Voice references only support: {', '.join(sorted(valid))}")
+            return None
+    elif sv_type == 'music':
+        valid = ACESTEP_INSTRUMENT_TRACKS
+        invalid = [s for s in stem_names if s not in valid]
+        if invalid:
+            print(f"Error: Vocal stems ({', '.join(invalid)}) are not available with music-only reference. Music references only support: {', '.join(sorted(valid))}")
+            return None
+    if 'everything' in stem_names:
+        print("Error: 'everything' stem keyword is not valid in references (as-is mode already provides the full audio). Specify individual stems instead.")
+        return None
+    unrecognized = [s for s in stem_names if s not in VALID_ACESTEP_TRACKS]
+    if unrecognized:
+        recognized = [s for s in stem_names if s in VALID_ACESTEP_TRACKS]
+        if unrecognized:
+            display = unrecognized[:5]
+            extra = len(unrecognized) - 5
+            if extra > 0:
+                print(f"Warning: Unrecognized keywords: {', '.join(display)} + {extra} others")
+            else:
+                print(f"Warning: Unrecognized keywords: {', '.join(display)}")
+            print(f"Valid stems: {', '.join(sorted(VALID_ACESTEP_TRACKS))}")
+        if not recognized:
+            return None
+        stem_names = recognized
+    return stem_names
+
 def _parse_ref_time_spec(spec):
     if '(' not in spec or not spec.endswith(')'):
         return None, spec, None
@@ -1030,9 +1064,32 @@ def _parse_ref_time_spec(spec):
         potential_stems = time_part[:first_slash]
         remaining_after_slash = time_part[first_slash + 1:]
         stem_candidates = [s.strip().lower() for s in potential_stems.split('-')]
-        if stem_candidates and all(s in VALID_ACESTEP_TRACKS for s in stem_candidates):
-            stem_names = stem_candidates
-            time_part = remaining_after_slash
+        if stem_candidates:
+            recognized = [s for s in stem_candidates if s in VALID_ACESTEP_TRACKS]
+            unrecognized = [s for s in stem_candidates if s not in VALID_ACESTEP_TRACKS and s != 'everything']
+            has_everything = 'everything' in stem_candidates
+            if has_everything:
+                print("Error: 'everything' stem keyword is not valid in references (as-is mode already provides the full audio). Specify individual stems instead.")
+                stem_names = None
+            elif unrecognized:
+                if unrecognized:
+                    display = unrecognized[:5]
+                    extra = len(unrecognized) - 5
+                    if extra > 0:
+                        print(f"Warning: Unrecognized keywords: {', '.join(display)} + {extra} others")
+                    else:
+                        print(f"Warning: Unrecognized keywords: {', '.join(display)}")
+                    print(f"Valid stems: {', '.join(sorted(VALID_ACESTEP_TRACKS))}")
+                if recognized:
+                    stem_names = recognized
+                else:
+                    stem_names = None
+            elif recognized:
+                stem_names = recognized
+            else:
+                stem_names = None
+            if stem_names is not None:
+                time_part = remaining_after_slash
     stem_prefix = None
     if ':' in time_part:
         colon_idx = time_part.find(':')
@@ -1260,8 +1317,12 @@ def _resolve_audio_entry(sv_type, raw_path, results_dir, timestamp, cleanup_list
     if processed and processed != resolved and processed not in cleanup_list:
         cleanup_list.append(processed)
     if stems:
-        print(f"Extracting stem(s): {', '.join(stems)}...")
-        processed = _extract_acestep_stems(processed, stems, cleanup_list, ace_step=ace_step)
+        validated = _validate_stems_for_svtype(stems, sv_type)
+        if validated:
+            print(f"Extracting stem(s): {', '.join(validated)}...")
+            processed = _extract_acestep_stems(processed, validated, cleanup_list, ace_step=ace_step)
+        else:
+            print("Warning: Stem extraction skipped due to validation errors")
     if time_ranges:
         processed = _extract_ref_segments(processed, time_ranges, slot_max, cleanup_list)
     return processed
@@ -6465,6 +6526,10 @@ def parse_oneline_args(args):
             result['nomusic'] = True
             current_keyword = None
             i += 1
+        elif mode == 'sts' and arg_lower == 'original':
+            result['use_original'] = True
+            current_keyword = None
+            i += 1
         elif mode == 'tts' and arg_lower == 'slc':
             result['params']['slc'] = True
             if i + 1 < len(args):
@@ -8796,6 +8861,7 @@ def oneline_sts(params):
     is_music = params.get('is_music', False)
     is_mimic = params.get('is_mimic', False)
     no_music = params.get('nomusic', False)
+    use_original = params.get('use_original', False)
 
     if 'base' not in params or len(params['base']) != 1:
         print("Error: STS mode requires exactly one 'base' parameter")
@@ -8852,12 +8918,17 @@ def oneline_sts(params):
                     except:
                         pass
             return False
-        print("Extracting vocals from source...")
-        base_vocals = svs_extract_vocals(base_path)
-        _target_cleanup.append(base_vocals)
-        print("Extracting music from source...")
-        base_music = svs_extract_music(base_path)
-        _target_cleanup.append(base_music)
+        if use_original:
+            print("Using original source audio (no SVS split)...")
+            base_vocals = base_path
+            base_music = None
+        else:
+            print("Extracting vocals from source...")
+            base_vocals = svs_extract_vocals(base_path)
+            _target_cleanup.append(base_vocals)
+            print("Extracting music from source...")
+            base_music = svs_extract_music(base_path)
+            _target_cleanup.append(base_music)
         print("Extracting clean vocals from target...")
         if target_pre_cleaned:
             clean_vocal_target = target_path
@@ -8921,14 +8992,19 @@ def oneline_sts(params):
                     except:
                         pass
     else:
-        print("Extracting vocals from source...")
-        base_vocals = svs_extract_vocals(base_path)
-        _target_cleanup.append(base_vocals)
-        base_music = None
-        if not no_music:
-            print("Extracting music from source...")
-            base_music = svs_extract_music(base_path)
-            _target_cleanup.append(base_music)
+        if use_original:
+            print("Using original source audio (no SVS split)...")
+            base_vocals = base_path
+            base_music = None
+        else:
+            print("Extracting vocals from source...")
+            base_vocals = svs_extract_vocals(base_path)
+            _target_cleanup.append(base_vocals)
+            base_music = None
+            if not no_music:
+                print("Extracting music from source...")
+                base_music = svs_extract_music(base_path)
+                _target_cleanup.append(base_music)
         print("Extracting clean vocals from target...")
         if target_pre_cleaned:
             clean_vocal_target = target_path

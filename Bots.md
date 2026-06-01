@@ -875,7 +875,7 @@ python src/voder.py tts script "Character1: line1" "Character2: line2" target "C
 
 ### Speech‑to‑Speech / Voice Conversion (sts)
 
-Convert voice from base audio to target voice without changing content using Seed‑VC v2. **MSTS (Music-STS)**: For musical inputs, add the `music` keyword to use Seed‑VC v1 at 44.1kHz for better quality. **Supports video input/output**: when a video file is provided as `base`, audio is auto‑extracted, processed, and re‑muxed into an `.mp4` output. **Automatic vocal extraction**: vocals are automatically extracted from both the source and the `target` before voice conversion. Source music is separated and mixed back after conversion. **`nomusic` flag**: outputs converted voice only without mixing back the source music.
+Convert voice from base audio to target voice without changing content using Seed‑VC v2. **MSTS (Music-STS)**: For musical inputs, add the `music` keyword to use Seed‑VC v1 at 44.1kHz for better quality. **Supports video input/output**: when a video file is provided as `base`, audio is auto‑extracted, processed, and re‑muxed into an `.mp4` output. **Automatic vocal extraction**: vocals are automatically extracted from both the source and the `target` before voice conversion. Source music is separated and mixed back after conversion. **`nomusic` flag**: outputs converted voice only without mixing back the source music. **`original` flag**: skips SVS split on the source, processing the full original audio directly with the SVS-cleaned target — useful when the separation step introduces artifacts.
 
 ```bash
 python src/voder.py sts base "source_audio.wav" target "voice_reference.wav"
@@ -883,6 +883,8 @@ python src/voder.py sts base "source_audio.wav" target "voice_reference.wav"
 python src/voder.py sts base "song.wav" target "voice_reference.wav" music
 
 python src/voder.py sts base "song.wav" target "voice_reference.wav" nomusic
+
+python src/voder.py sts original base "source_audio.wav" target "voice_reference.wav"
 ```
 
 **Parameters:**
@@ -894,6 +896,7 @@ python src/voder.py sts base "song.wav" target "voice_reference.wav" nomusic
 | `music` | Use Seed-VC v1 (44.1kHz) for musical inputs | No |
 | `mimic` | Transfer accent and speaking style from target voice | No |
 | `nomusic` | Output converted voice only (no music recombination) | No |
+| `original` | Skip SVS split on source — process full original source directly with SVS-cleaned target. Useful when SVS separation introduces artifacts | No |
 
 **Supported Input Formats:**
 - Audio: WAV, MP3, FLAC, OGG
@@ -1241,6 +1244,8 @@ The reference path can include an optional time spec to select a specific portio
 The time spec and stem spec are both optional -- `reference "ref.wav"` still works and uses the entire audio.
 
 **Stem extraction** uses the ACE-Step XL-Base model to extract specific instrument tracks from the reference audio. The 12 available stems are: `woodwinds`, `brass`, `fx`, `synth`, `strings`, `percussion`, `keyboard`, `guitar`, `bass`, `drums`, `backing_vocals`, `vocals`. Multiple stems joined by `-` are extracted individually then mixed together. Stem extraction runs after SVS (voice/music) and before time-range cutting.
+
+**Stem validation:** With `voice` prefix, only vocal stems (`vocals`, `backing_vocals`) are valid. With `music` prefix, only instrument stems are valid. As-is (no prefix) accepts all 12 stems. The `everything` keyword is rejected in references. Unrecognized stems are removed with a warning; valid stems proceed.
 
 **Slot max by reference count:** 1 reference = 30s, 2 references = 15s each, 3 references = 10s each.
 

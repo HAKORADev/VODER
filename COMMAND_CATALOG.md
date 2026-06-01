@@ -188,7 +188,7 @@ python voder.py tts extreme script "Hello" voice "my-character"
 - When `extreme` is used with a `voice` prompt (not `target`), VODER always generates placeholder English speech via VoiceDesign, clones it with Fish, then Fish speaks the actual text. This applies unconditionally to ensure consistent voice quality and preserve voice effects tags across all languages.
 - Trained voices for extreme mode use `.ttse` files (saved via `train extreme voice:name`). Using `.tts` with extreme or `.ttse` without extreme produces a clear error message.
 - Fish S2-Pro supports 80+ languages natively, far beyond Qwen3-TTS's 10.
-- STS voice pass (`sts:` prefix) is not applicable with extreme mode — Fish's integrated cloning already produces high-fidelity output.
+- STS voice pass (`sts:` prefix) is optionally applicable with extreme mode — Fish's integrated cloning already produces high-fidelity output, but the additional Seed-VC v2 pass can further refine voice matching if desired.
 
 ### SLC Sub-Task
 
@@ -255,7 +255,7 @@ Speaker Voice Change: transcribe single-speaker audio and re-synthesize with a d
 
 **Command format:** `voder.py tts [overdose] [extreme] svc "source_path" target "voice_ref"`
 
-**Pipeline:** SVS voice isolation → Whisper/VibeVoice transcription → Qwen-TTS/Fish synthesis with target voice → optional STS v2 pass (if `sts:` prefix on target, not applicable with extreme)
+**Pipeline:** SVS voice isolation → Whisper/VibeVoice transcription → Qwen-TTS/Fish synthesis with target voice → optional STS v2 pass (if `sts:` prefix on target; works with extreme mode for additional voice refinement)
 
 ```
 # Basic SVC
@@ -543,13 +543,15 @@ Convert voice from a base audio to match a target voice. Source vocals are autom
 | `music` | (flag) | Use Seed-VC v1 (44.1kHz music model) instead of v2 (22.05kHz speech model). Input must be audio (not video). Auto-extracts vocals from source and target. |
 | `mimic` | (flag) | Convert style + voice (not just voice). Uses Seed-VC v2 with `convert_style=True`. Cannot be combined with `music`. Input must be audio (not video). |
 | `nomusic` | (flag) | Output converted voice only without mixing back source music. Cannot be combined with `music`. |
+| `original` | (flag) | Skip SVS split on the source audio. The full original source is processed directly with the SVS-cleaned target reference. Useful when the source separation step introduces artifacts that degrade the final result. Cannot be combined with `nomusic` (no music to mix back). |
 
 ### Rules
 
 - `music` and `mimic` cannot be used together.
 - `nomusic` and `music` cannot be used together.
+- `original` and `nomusic` can be used together but `original` means no music is available to mix back regardless.
 - Base can be audio or video in standard mode. `music` and `mimic` require audio input only (video is rejected).
-- Source vocals and music are automatically separated via SVS before conversion; music is recombined after (unless `nomusic`).
+- By default, source vocals and music are automatically separated via SVS before conversion; music is recombined after (unless `nomusic`). With `original`, the source is used as-is without SVS splitting.
 - Target vocals are automatically cleaned via SVS before conversion.
 - Output is upsampled to 44100Hz.
 - Output filenames: music mode uses `voder_m_sts_*.wav`, standard/mimic/nomusic uses `voder_sts_*.wav`.
@@ -575,6 +577,12 @@ python voder.py sts base "input.wav" target "(voice1.wav)(voice2.wav)(voice3.wav
 
 # Multi-reference target with first keyword (extract only first ref's speaker from all others)
 python voder.py sts base "input.wav" target first "(voice1.wav)(voice2.wav)(voice3.wav)"
+
+# Use original source without SVS splitting (avoids separation artifacts)
+python voder.py sts original base "input.wav" target "voice.wav"
+
+# Original + mimic (process full source, mimic style and voice)
+python voder.py sts original mimic base "input.wav" target "voice.wav"
 ```
 
 ---
@@ -612,6 +620,12 @@ The time spec and stem spec are both optional -- the old format `reference "ref.
 
 **Stem extraction** uses the ACE-Step XL-Base model to extract specific instrument tracks from the reference audio. The 12 available stems are: `woodwinds`, `brass`, `fx`, `synth`, `strings`, `percussion`, `keyboard`, `guitar`, `bass`, `drums`, `backing_vocals`, `vocals`. Multiple stems joined by `-` are extracted individually then mixed together via ffmpeg. Stem extraction runs after SVS (voice/music) and before time-range cutting.
 
+**Stem validation rules:**
+- `voice` prefix: only vocal stems (`vocals`, `backing_vocals`) are valid. Instrument stems produce a clear error.
+- `music` prefix: only instrument stems (`woodwinds`, `brass`, `fx`, `synth`, `strings`, `percussion`, `keyboard`, `guitar`, `bass`, `drums`) are valid. Vocal stems produce a clear error.
+- As-is (no prefix): all 12 stems are valid. The `everything` keyword is rejected — as-is already provides the full audio.
+- Unrecognized stem names are removed with a warning listing the first 5 unrecognized keywords (+ count of remaining). If any recognized stems remain, extraction proceeds with only those. If no valid stems remain, the reference is skipped.
+
 **Slot max by reference count:**
 
 | Refs | Slot Max Each |
@@ -641,10 +655,10 @@ reference voice "20-30/40-50(ref.wav)"
 # Extract drums from reference audio
 reference "drums/(ref.wav)"
 
-# Extract vocals, then isolate the bass and drums, mixed together
-reference voice "bass-drums/(ref.wav)"
+# Extract vocals, then isolate the vocals stem
+reference voice "vocals/(ref.wav)"
 
-# Extract keyboard from 20-30s of reference audio
+# Extract keyboard stem then cut to 20-30s range
 reference "keyboard/20-30(ref.wav)"
 
 # Extract bass and drums from music (SVS), then cut to 30-60s
@@ -666,9 +680,9 @@ Basic text-to-music generation. Supports optional reference audio via `target`.
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `target` | `"<path>"` | Reference audio (as-is). Supports stem spec: `target "drums/(ref.wav)"`. |
-| `target voice` | `"<path>"` | Reference audio — extract vocals via SVS first. Supports stem spec: `target voice "bass/(ref.wav)"`. |
-| `target music` | `"<path>"` | Reference audio — extract instruments via SVS first. Supports stem spec: `target music "drums/(ref.wav)"`. |
+| `target` | `"<path>"` | Reference audio (as-is). Supports stem spec: `target "drums/(ref.wav)"`. All 12 stems valid. |
+| `target voice` | `"<path>"` | Reference audio — extract vocals via SVS first. Supports stem spec: `target voice "vocals/(ref.wav)"`. Only vocal stems (`vocals`, `backing_vocals`) valid. |
+| `target music` | `"<path>"` | Reference audio — extract instruments via SVS first. Supports stem spec: `target music "drums/(ref.wav)"`. Only instrument stems valid. |
 | `voice` | (flag) | Generate song then extract vocals via SVS voice pipe. Output is clean vocals only. |
 
 ```

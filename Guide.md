@@ -1078,6 +1078,15 @@ By default, STS separates vocals from the source, converts them, and mixes them 
 - **One-line CLI**: Add `nomusic` keyword: `voder.py sts base "source.wav" target "voice.wav" nomusic`
 - **Mutual exclusion**: `nomusic` and `music` cannot be used together — `music` already handles music content via VCv1
 
+**original (Skip Source SVS Split):**
+
+By default, STS separates the source audio into vocals and music via SVS before conversion — this prevents the VC model from being confused by background noise or instrumentation. However, the separation process itself can introduce subtle artifacts that slightly alter the source audio's character. The `original` keyword skips the SVS split on the source and processes the full original audio directly with the SVS-cleaned target reference. This preserves the source audio's exact character at the cost of potentially feeding background elements to the VC model.
+
+- **One-line CLI**: Add `original` keyword after the mode name: `voder.py sts original base "source.wav" target "voice.wav"`
+- Works with all STS sub-modes: standard, music, mimic
+- The target still gets SVS-cleaned regardless — only the source skips SVS splitting
+- No music is available to mix back (since the source wasn't split), making the output voice-only
+
 **Automatic Vocal Extraction:**
 
 VODER automatically runs BS‑RoFormer vocal isolation on both the source and target audio. For the source, vocals are separated so the VC model processes only the voice — producing cleaner conversion — and the instrumental is extracted separately for recombination after conversion (unless `nomusic` is used). For the target, clean vocals are extracted to improve cloning quality. If SVS extraction fails, the original audio is used as a fallback.
@@ -1209,9 +1218,11 @@ The reference path can include an optional time spec to select a specific portio
 | `stem-stem/(path)` | `"bass-drums/(ref.wav)"` | Extract multiple stems and mix them together |
 | `stem/nn-nn(path)` | `"drums/20-30(ref.wav)"` | Extract stem then cut to time range |
 
-The time spec and stem spec are both optional -- the old format `reference "ref.wav"` still works and uses the entire audio. It works with voice/music prefixes: `reference voice "50(ref.wav)"`, `reference music "20-30/40-50(ref.wav)"`. It also works with stem extraction: `reference "drums/(ref.wav)"`, `reference voice "bass-drums/20-30(ref.wav)"`. It also works inside repaint multi-pass specs: `"20-80/styling(jazz)/reference-voice(30-60(vocals.wav))"`.
+The time spec and stem spec are both optional -- the old format `reference "ref.wav"` still works and uses the entire audio. It works with voice/music prefixes: `reference voice "50(ref.wav)"`, `reference music "20-30/40-50(ref.wav)"`. It also works with stem extraction: `reference "drums/(ref.wav)"`, `reference voice "vocals/(ref.wav)"`. It also works inside repaint multi-pass specs: `"20-80/styling(jazz)/reference-voice(30-60(vocals.wav))"`.
 
 **Stem extraction** uses the ACE-Step XL-Base model to extract specific instrument tracks from the reference audio. The 12 available stems are: `woodwinds`, `brass`, `fx`, `synth`, `strings`, `percussion`, `keyboard`, `guitar`, `bass`, `drums`, `backing_vocals`, `vocals`. Multiple stems joined by `-` are extracted individually then mixed together via ffmpeg. Stem extraction runs after SVS (voice/music) and before time-range cutting.
+
+**Stem validation:** Stems are validated based on the SVS prefix used. With `voice` prefix, only vocal stems (`vocals`, `backing_vocals`) are valid — instrument stems produce a clear error. With `music` prefix, only instrument stems are valid — vocal stems produce a clear error. Without a prefix (as-is), all 12 stems are valid. The `everything` keyword is always rejected in references since as-is mode already provides the full audio. Unrecognized stem names are removed with a warning; if any valid stems remain, extraction proceeds with only those.
 
 **Slot max by reference count:** 1 reference = 30s, 2 references = 15s each, 3 references = 10s each.
 
@@ -2833,7 +2844,7 @@ python src/voder.py train extreme voice:narrator "ref.wav"
 
 **`.ttse` vs `.tts` files:** Extreme mode uses `.ttse` trained voice files (saved via `train extreme voice:name`). Standard mode uses `.tts` files. Using a `.tts` file with extreme or a `.ttse` file without extreme produces a clear error message explaining the mismatch.
 
-**STS voice pass with extreme:** The `sts:` prefix (which applies an additional Seed-VC v2 non-mimic pass) is not applicable with extreme mode. Fish S2-Pro's integrated cloning already produces high-fidelity output that doesn't benefit from an additional STS pass.
+**STS voice pass with extreme:** The `sts:` prefix (which applies an additional Seed-VC v2 non-mimic pass) is optionally applicable with extreme mode. While Fish S2-Pro's integrated cloning already produces high-fidelity output, the additional STS pass can further refine voice matching if desired — for example, when the target voice has distinctive characteristics that benefit from the extra conversion step.
 
 ### Video STS Trick
 

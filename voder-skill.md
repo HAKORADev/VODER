@@ -908,6 +908,17 @@ python src/voder.py sts base "song.wav" target "singer.wav" nomusic music
 # Error: nomusic cannot be used with music
 ```
 
+#### original (Skip Source SVS Split)
+```bash
+# Skip SVS split on source — process full original source directly with SVS-cleaned target
+python src/voder.py sts original base "source.wav" target "reference.wav"
+
+# Original + mimic (process full source, mimic style and voice)
+python src/voder.py sts original mimic base "source.wav" target "reference.wav"
+
+# Original avoids SVS separation artifacts on the source, but background elements may affect conversion quality
+```
+
 #### Multi-Reference Target (Oneline Only)
 ```bash
 # Multiple voice references concatenated for richer cloning
@@ -1375,6 +1386,8 @@ The `reference` path value can include an optional time spec to select a specifi
 The time spec and stem spec are both optional -- the old format `reference "ref.wav"` still works and uses the entire audio.
 
 **Stem extraction** uses the ACE-Step XL-Base model to extract specific instrument tracks from the reference audio. The 12 available stems are: `woodwinds`, `brass`, `fx`, `synth`, `strings`, `percussion`, `keyboard`, `guitar`, `bass`, `drums`, `backing_vocals`, `vocals`. Multiple stems joined by `-` are extracted individually then mixed together. Stem extraction runs after SVS (voice/music) and before time-range cutting.
+
+**Stem validation:** With `voice` prefix, only vocal stems (`vocals`, `backing_vocals`) are valid. With `music` prefix, only instrument stems are valid. As-is (no prefix) accepts all 12 stems. The `everything` keyword is rejected in references. Unrecognized stems are removed with a warning; valid stems proceed.
 
 **Slot max by reference count:** 1 reference = 30s, 2 references = 15s each, 3 references = 10s each.
 
