@@ -2458,7 +2458,7 @@ class FishTTS:
             if not all_audio:
                 return False
             final_audio = torch.cat(all_audio, dim=-1)
-            audio_np = final_audio.squeeze().numpy()
+            audio_np = final_audio.squeeze().float().numpy()
             sf.write(output_path, audio_np, 44100)
             return True
         except Exception as e:
