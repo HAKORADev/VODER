@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
-from timm.models.layers import to_2tuple
+try:
+    from timm.models.layers import to_2tuple
+except ImportError:
+    from timm.layers import to_2tuple
 
 
 class PatchEmbed_org(nn.Module):

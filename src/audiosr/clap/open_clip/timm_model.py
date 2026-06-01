@@ -8,11 +8,22 @@ import torch.nn as nn
 
 try:
     import timm
-    from timm.models.layers import Mlp, to_2tuple
-    from timm.models.layers.attention_pool2d import RotAttentionPool2d
-    from timm.models.layers.attention_pool2d import (
-        AttentionPool2d as AbsAttentionPool2d,
-    )
+    try:
+        from timm.models.layers import Mlp, to_2tuple
+        from timm.models.layers.attention_pool2d import RotAttentionPool2d
+        from timm.models.layers.attention_pool2d import (
+            AttentionPool2d as AbsAttentionPool2d,
+        )
+    except ImportError:
+        from timm.layers import Mlp, to_2tuple
+        try:
+            from timm.layers.attention_pool2d import RotAttentionPool2d
+            from timm.layers.attention_pool2d import (
+                AttentionPool2d as AbsAttentionPool2d,
+            )
+        except ImportError:
+            RotAttentionPool2d = None
+            AbsAttentionPool2d = None
 except ImportError:
     timm = None
 

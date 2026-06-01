@@ -14,7 +14,10 @@ from functools import partial
 import torch
 import torch.nn as nn
 
-from timm.models.vision_transformer import Block
+try:
+    from timm.models.vision_transformer import Block
+except ImportError:
+    from timm.layers import Block
 from audiosr.latent_diffusion.modules.audiomae.util.pos_embed import (
     get_2d_sincos_pos_embed,
     get_2d_sincos_pos_embed_flexible,

@@ -13,10 +13,13 @@ from functools import partial
 
 import torch
 import torch.nn as nn
-import timm.models.vision_transformer
+try:
+    import timm.models.vision_transformer as _vt
+except ImportError:
+    from timm.models import vision_transformer as _vt
 
 
-class VisionTransformer(timm.models.vision_transformer.VisionTransformer):
+class VisionTransformer(_vt.VisionTransformer):
     """Vision Transformer with support for global average pooling"""
 
     def __init__(
