@@ -15,8 +15,6 @@ from torch.nn import functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.utils.checkpoint import checkpoint
 
-from fish_speech.models.text2semantic.lora import LoraConfig, setup_lora
-
 
 def find_multiple(n: int, k: int) -> int:
     if n % k == 0:
@@ -481,7 +479,7 @@ class BaseTransformer(nn.Module):
         path: str,
         load_weights: bool = False,
         max_length: int | None = None,
-        lora_config: LoraConfig | None = None,
+        lora_config: "LoraConfig | None" = None,
         rope_base: int | None = None,
     ) -> "BaseTransformer":
         # Import wrapper locally to avoid circular dependency or global import issues
@@ -588,6 +586,7 @@ class BaseTransformer(nn.Module):
             logger.info(f"Model weights loaded - Status: {err}")
 
         if lora_config is not None:
+            from fish_speech.models.text2semantic.lora import setup_lora
             setup_lora(model, lora_config)
             logger.info(f"LoRA setup: {lora_config}")
 
