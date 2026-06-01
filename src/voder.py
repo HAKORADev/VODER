@@ -8395,20 +8395,64 @@ def oneline_tts(params):
                 print(f"✓ Success! Output saved to: {output_path}")
                 return True
             voice_prompt = voice_value
-            print("Loading Qwen-TTS VoiceDesign model...")
-            tts_design = QwenTTSVoiceDesign()
-            if tts_design.model is None:
-                print("Error: Failed to load VoiceDesign model")
-                return False
-            print("Generating speech...")
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            output_path = os.path.join(results_dir, f"voder_tts_{timestamp}.wav")
-            success = tts_design.synthesize(script, voice_prompt, output_path)
-            if not success:
-                print("Error: VoiceDesign synthesis failed")
-                return False
-            print(f"✓ Success! Output saved to: {output_path}")
-            return True
+            if use_extreme:
+                print("Loading Qwen-TTS VoiceDesign model (extreme: generating placeholder voice)...")
+                tts_design = QwenTTSVoiceDesign()
+                if tts_design.model is None:
+                    print("Error: Failed to load VoiceDesign model")
+                    return False
+                placeholder_text = "The quick brown fox jumps over the lazy dog. She sells seashells by the seashore, while the crystal clear waves gently lap against the warm golden sand. Every morning, the old lighthouse keeper climbs the winding stone stairs to check the beam that guides ships safely through the foggy harbor."
+                placeholder_path = os.path.join(tempfile.gettempdir(), f"voder_extreme_placeholder_{int(time.time())}.wav")
+                success = tts_design.synthesize(placeholder_text, voice_prompt, placeholder_path, language="English")
+                del tts_design
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                if not success or not os.path.exists(placeholder_path):
+                    print("Error: Failed to generate voice design placeholder for extreme mode")
+                    return False
+                try:
+                    print("Loading Fish-S2Pro model (extreme)...")
+                    tts = FishTTS()
+                    if not tts.ensure_model():
+                        print("Error: Failed to load Fish-S2Pro model")
+                        return False
+                    print("Encoding voice design audio as Fish reference...")
+                    success = tts.encode_voice(placeholder_path, ref_text=placeholder_text)
+                    if not success:
+                        print("Error: Fish voice encoding failed")
+                        return False
+                    print("Generating speech (extreme)...")
+                    timestamp = time.strftime("%Y%m%d_%H%M%S")
+                    output_path = os.path.join(results_dir, f"voder_tts_extreme_{timestamp}.wav")
+                    success = tts.synthesize(script, output_path)
+                    if not success:
+                        print("Error: Fish TTS synthesis failed")
+                        return False
+                    _tts_cleanup(tts, use_extreme=True)
+                    print(f"✓ Extreme output saved to: {output_path}")
+                    return True
+                finally:
+                    if os.path.exists(placeholder_path):
+                        try:
+                            os.unlink(placeholder_path)
+                        except:
+                            pass
+            else:
+                print("Loading Qwen-TTS VoiceDesign model...")
+                tts_design = QwenTTSVoiceDesign()
+                if tts_design.model is None:
+                    print("Error: Failed to load VoiceDesign model")
+                    return False
+                print("Generating speech...")
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                output_path = os.path.join(results_dir, f"voder_tts_{timestamp}.wav")
+                success = tts_design.synthesize(script, voice_prompt, output_path)
+                if not success:
+                    print("Error: VoiceDesign synthesis failed")
+                    return False
+                print(f"✓ Success! Output saved to: {output_path}")
+                return True
         else:
             target_value = targets[0]
             is_sts_target = target_value.lower().startswith('sts:')
