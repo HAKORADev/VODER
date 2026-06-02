@@ -48,6 +48,7 @@ unidecode
 phonemizer
 pandas
 chardet
+torchlibrosa==0.0.9
 
 # Configuration
 omegaconf>=2.3.0

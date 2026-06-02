@@ -714,17 +714,16 @@ class TranslateGemma:
             print("Loading TranslateGemma 12B model...")
             use_cuda = torch.cuda.is_available() and torch.cuda.get_device_properties(0).total_memory / (1024**3) >= 24.0
             dtype = torch.bfloat16 if use_cuda else torch.float32
-            device_map = "auto" if use_cuda else "cpu"
+            model_kwargs = {"cache_dir": self.model_dir, "device_map": "auto" if use_cuda else "cpu"}
+            pipe_kwargs = {
+                "model": model_id,
+                "torch_dtype": dtype,
+                "model_kwargs": model_kwargs,
+            }
             hf_token = os.environ.get("HF_TOKEN")
-            model_kwargs = {"cache_dir": self.model_dir, "device_map": device_map}
             if hf_token:
-                model_kwargs["token"] = hf_token
-            self.pipe = pipeline(
-                "image-text-to-text",
-                model=model_id,
-                torch_dtype=dtype,
-                model_kwargs=model_kwargs,
-            )
+                pipe_kwargs["token"] = hf_token
+            self.pipe = pipeline("image-text-to-text", **pipe_kwargs)
             self._loaded = True
             print(f"TranslateGemma loaded ({'GPU bfloat16' if use_cuda else 'CPU float32'})")
             return True
