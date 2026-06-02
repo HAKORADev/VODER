@@ -182,7 +182,7 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 
 ### Parameter Order Rules
 
-1. **Mode comes first**: `tts`, `stt`, `sts`, `ttm`, `svs`, `ss`, etc. Sub-tasks follow mode: `tts slc`, `tts overdose slc`, `tts extreme slc`, `tts slc music`, `tts svc`, `tts overdose svc`, `tts extreme svc`, `tts dub`, `tts dub subtitle`, `tts dub subtitle (auto-en)`, `tts dub translate (auto-ar)`, `tts overdose extreme se dub`
+1. **Mode comes first**: `tts`, `stt`, `sts`, `ttm`, `svs`, `ss`, etc. Sub-tasks follow mode: `tts slc`, `tts overdose slc`, `tts extreme slc`, `tts slc music`, `tts svc`, `tts overdose svc`, `tts extreme svc`, `tts dub`, `tts dub subtitle`, `tts dub subtitle "(auto-en)"`, `tts dub translate "(auto-ar)"`, `tts overdose extreme se dub`
 2. **Required parameters follow**: `script`, `voice`, `target`, `base`, `lyrics`, `styling`, etc.
 3. **Optional parameters come after**: `music`, `level`, `result`, `vc`, `stem`, `task`, etc.
 4. **Flags can appear anywhere after mode**: `timestamp`, `dialogue`, `music` (STS), `mimic` (STS), `nomusic` (STS), `translate` (STT), `overdose` (STT, TTM, TTS), `extreme` (TTS, SLC, SVC), `vc` (TTM)
@@ -504,16 +504,16 @@ python src/voder.py tts overdose slc music "foreign_speech.wav"
 
 ```bash
 # Translate to Arabic with original voice
-python src/voder.py tts slc translate (auto-ar) "foreign_speech.wav"
+python src/voder.py tts slc translate "(auto-ar)" "foreign_speech.wav"
 
 # Translate to Arabic with music preservation
-python src/voder.py tts slc translate (auto-ar) music "foreign_speech.wav"
+python src/voder.py tts slc translate "(auto-ar)" music "foreign_speech.wav"
 
 # Japanese to English
-python src/voder.py tts slc translate (ja-en) "japanese_speech.wav"
+python src/voder.py tts slc translate "(ja-en)" "japanese_speech.wav"
 
 # English to French
-python src/voder.py tts slc translate (en-fr) "english_speech.wav"
+python src/voder.py tts slc translate "(en-fr)" "english_speech.wav"
 ```
 
 **SLC Parameter Reference:**
@@ -640,9 +640,9 @@ TTS Dub is a sub‑task for dubbing video or audio content with voice cloning, o
 
 **Canonical full-form command:**
 ```
-python src/voder.py tts overdose extreme se dub subtitle (auto-en) translate (auto-ja) video "path"
+python src/voder.py tts overdose extreme se dub subtitle "(auto-en)" translate "(auto-ja)" video "path"
 ```
-Where `overdose` and `extreme` are auto‑implied by `dub` but recommended to include for clarity, `se` enables optional sound enhancement, `subtitle (auto-en)` burns subtitles with an independent translation to English, and `translate (auto-ja)` translates the dubbed audio to Japanese.
+Where `overdose` and `extreme` are auto‑implied by `dub` but recommended to include for clarity, `se` enables optional sound enhancement, `subtitle "(auto-en)"` burns subtitles with an independent translation to English, and `translate "(auto-ja)"` translates the dubbed audio to Japanese.
 
 **How It Works:**
 
@@ -671,25 +671,25 @@ python src/voder.py tts dub subtitle "video.mp4"
 python src/voder.py tts dub subtitle original "video.mp4"
 
 # Dub with translation to Arabic
-python src/voder.py tts dub translate (auto-ar) "video.mp4"
+python src/voder.py tts dub translate "(auto-ar)" "video.mp4"
 
 # Dub with translation and subtitles (transcribes dubbed audio)
-python src/voder.py tts dub translate (auto-ar) subtitle "video.mp4"
+python src/voder.py tts dub translate "(auto-ar)" subtitle "video.mp4"
 
 # Dub with independent subtitle and audio translations
-python src/voder.py tts dub subtitle (auto-en) translate (auto-ja) "video.mp4"
+python src/voder.py tts dub subtitle "(auto-en)" translate "(auto-ja)" "video.mp4"
 
 # Dub with original-chain subtitles independently translated to English
-python src/voder.py tts dub subtitle original (auto-en) translate (auto-ja) "video.mp4"
+python src/voder.py tts dub subtitle original "(auto-en)" translate "(auto-ja)" "video.mp4"
 
 # Full-form with all flags explicit
-python src/voder.py tts overdose extreme se dub translate (auto-ar) subtitle "video.mp4"
+python src/voder.py tts overdose extreme se dub translate "(auto-ar)" subtitle "video.mp4"
 
 # Dub audio file (output is WAV)
 python src/voder.py tts dub "audio.wav"
 
 # Dub with specific source-target translation
-python src/voder.py tts dub translate (ja-en) "japanese_video.mp4"
+python src/voder.py tts dub translate "(ja-en)" "japanese_video.mp4"
 ```
 
 **Dub Parameter Reference:**
@@ -1445,7 +1445,7 @@ STT mode converts audio, video, images, and URLs into text. It uses Whisper for 
 1. **Input Processing**: Audio extracted from video; text extracted from images via OCR; URLs downloaded via yt-dlp
 2. **Pre-Cleanup** (optional): BS-RoFormer can separate vocals from music/noise before transcription for cleaner results
 3. **Transcription**: Whisper transcribes with word-level timestamps (or VibeVoice ASR with `overdose`)
-4. **Translation** (optional): With `translate` flag, Whisper large-v3 translates non-English audio to English. With `translate (source-target)` syntax, TranslateGemma 12B performs any-to-any translation across 76 languages. Use `auto` for source language auto-detection (e.g., `translate (auto-ar)`). The bare `translate` flag is incompatible with `overdose`, but `translate (source-target)` is compatible with `overdose`.
+4. **Translation** (optional): With `translate` flag, Whisper large-v3 translates non-English audio to English. With `translate (source-target)` syntax, TranslateGemma 12B performs any-to-any translation across 76 languages. Use `auto` for source language auto-detection (e.g., `translate "(auto-ar)"`). The bare `translate` flag is incompatible with `overdose`, but `translate (source-target)` is compatible with `overdose`.
 5. **Optional Diarization**: Pyannote identifies speaker segments (or VibeVoice with `overdose`)
 6. **Alignment**: Transcription and diarization are aligned using three-tier overlap matching
 7. **Output**: Text file saved to results/ directory
@@ -1473,7 +1473,7 @@ STT supports translation and overdose flags with nuanced compatibility:
 
 **`translate` flag**: Uses Whisper large-v3 (not turbo) for maximum translation accuracy. The output is English text regardless of the source language. Useful for subtitling foreign content, translating meetings, or processing multilingual media.
 
-**`translate (source-target)` syntax**: Uses TranslateGemma 12B for true any-to-any translation across 76 languages. The `source` and `target` are language codes (e.g., `ja` for Japanese, `ar` for Arabic, `en` for English). Use `auto` for source language auto-detection. A single language `(target)` is shorthand for `(auto-target)` — e.g., `translate (ar)` is equivalent to `translate (auto-ar)`. Examples: `translate (auto-ar)` auto-detects source and translates to Arabic, `translate (ar)` same shorthand, `translate (ja-en)` translates Japanese to English.
+**`translate (source-target)` syntax**: Uses TranslateGemma 12B for true any-to-any translation across 76 languages. The `source` and `target` are language codes (e.g., `ja` for Japanese, `ar` for Arabic, `en` for English). Use `auto` for source language auto-detection. A single language `(target)` is shorthand for `(auto-target)` — e.g., `translate "(ar)"` is equivalent to `translate "(auto-ar)"`. Examples: `translate "(auto-ar)"` auto-detects source and translates to Arabic, `translate "(ar)"` same shorthand, `translate "(ja-en)"` translates Japanese to English.
 
 **`overdose` flag**: Uses VibeVoice ASR which provides superior transcription quality with **native speaker diarization** — no separate Pyannote step needed. Ideal for challenging audio (multiple speakers, overlapping speech, noisy environments). Note: `overdose` implies diarization; the `dialogue` flag is redundant and ignored when `overdose` is active.
 
@@ -1554,16 +1554,16 @@ python src/voder.py stt "french_meeting.wav" translate timestamp
 python src/voder.py stt "https://youtube.com/watch?v=VIDEO_ID" translate result "/output/english_transcript.txt"
 
 # Any-to-any translation (TranslateGemma 12B)
-python src/voder.py stt "audio.wav" translate (auto-ar)
+python src/voder.py stt "audio.wav" translate "(auto-ar)"
 
 # Japanese to English translation
-python src/voder.py stt "audio.wav" translate (ja-en)
+python src/voder.py stt "audio.wav" translate "(ja-en)"
 
 # Overdose + any-to-any translation (compatible)
-python src/voder.py stt "audio.wav" overdose translate (auto-fr)
+python src/voder.py stt "audio.wav" overdose translate "(auto-fr)"
 
 # Subtitle with translation
-python src/voder.py stt overdose subtitle translate (auto-ar) "video.mp4"
+python src/voder.py stt overdose subtitle translate "(auto-ar)" "video.mp4"
 ```
 
 #### With Overdose (VibeVoice ASR)
@@ -2846,12 +2846,12 @@ Total memory needed: 14GB
 20. **Remix for style transfer**: Use `remix` with `styling` and `bias` to create cover versions with adjustable style strength; add `lyrics` to guide new vocal content; use multi-source (up to 3) for creative composite sources and multi-reference (up to 3) for diverse style guidance
 21. **Repaint for section editing**: Use `repaint` with `time:start-end` to restyle specific sections of a song; add `voice`/`music` prefix to isolate source components; use multi-pass mode (`"start-end/styling(...)/..."`) for sequential edits that build on each previous result
 22. **Overdose XOR translate**: Bare `translate` (without parentheses) is incompatible with `overdose` in STT — use `translate (source-target)` or `translate (target)` instead for any-to-any translation with overdose quality
-23. **translate (source-target) for any-to-any**: Use `translate (auto-ar)` to auto-detect source and translate to Arabic, `translate (ar)` as shorthand for the same, `translate (ja-en)` for Japanese-to-English, etc. TranslateGemma 12B supports 76 languages and is compatible with `overdose` and `subtitle`
+23. **translate (source-target) for any-to-any**: Use `translate "(auto-ar)"` to auto-detect source and translate to Arabic, `translate "(ar)"` as shorthand for the same, `translate "(ja-en)"` for Japanese-to-English, etc. TranslateGemma 12B supports 76 languages and is compatible with `overdose` and `subtitle`
 24. **TTS overdose for cleaner cloning**: Use `overdose` flag with TTS when doing voice cloning from dialogue sources — the 2s/3s trim on extracted voice clips avoids cross-speaker contamination and produces cleaner reference audio
 25. **TTS overdose + music for premium output**: Combining `overdose` with `music` in TTS gives you both superior voice clip extraction (VibeVoice ASR) and higher quality background music (ACE-Step XL Turbo)
 26. **TTS svc for voice swapping**: Use `tts svc "source.wav" target "target.wav"` when you want to change who is speaking without changing the language or content. Unlike SLC, SVC keeps the original language intact
 27. **sts: prefix for better voice fidelity**: When standard Qwen-TTS voice cloning doesn't produce a close enough match, prefix the target reference with `sts:` (e.g., `target "sts:ref.wav"`) to run an additional Seed-VC v2 non-mimic pass after synthesis
-28. **TTS dub for video dubbing**: Use `tts dub "video.mp4"` for end-to-end video dubbing with voice cloning from source speakers (auto‑implies `overdose` and `extreme`). Add `translate (auto-ar)` for any-to-any translation, `subtitle` to burn subtitles matching the dubbed audio text, `subtitle (auto-en)` for independently translated subtitles, and `se` for sound enhancement on noisy input
+28. **TTS dub for video dubbing**: Use `tts dub "video.mp4"` for end-to-end video dubbing with voice cloning from source speakers (auto‑implies `overdose` and `extreme`). Add `translate "(auto-ar)"` for any-to-any translation, `subtitle` to burn subtitles matching the dubbed audio text, `subtitle "(auto-en)"` for independently translated subtitles, and `se` for sound enhancement on noisy input
 
 ---
 

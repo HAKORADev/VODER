@@ -240,13 +240,13 @@ python voder.py tts extreme slc "french_speech.wav"
 python voder.py tts overdose extreme slc "french_speech.wav"
 
 # SLC any-to-any: translate to Arabic with original voice (TranslateGemma 12B)
-python voder.py tts slc translate (auto-ar) "french_speech.wav"
+python voder.py tts slc translate "(auto-ar)" "french_speech.wav"
 
 # SLC any-to-any with music preservation
-python voder.py tts slc translate (auto-ar) music "french_speech.wav"
+python voder.py tts slc translate "(auto-ar)" music "french_speech.wav"
 
 # SLC any-to-any: Japanese to English
-python voder.py tts slc translate (ja-en) "japanese_speech.wav"
+python voder.py tts slc translate "(ja-en)" "japanese_speech.wav"
 ```
 
 ### SVC Sub-Task
@@ -313,9 +313,9 @@ Video/audio dubbing with voice cloning, optional translation, subtitle burning, 
 
 **Canonical full-form command:**
 ```
-python voder.py tts overdose extreme se dub subtitle (auto-en) translate (auto-ja) video "path"
+python voder.py tts overdose extreme se dub subtitle "(auto-en)" translate "(auto-ja)" video "path"
 ```
-Where `overdose` and `extreme` are auto-implied by `dub` but recommended to include for clarity, `se` enables sound enhancement, `subtitle (auto-en)` burns subtitles with an independent translation to English, `translate (auto-ja)` translates the dubbed audio to Japanese, and `video "path"` specifies the input.
+Where `overdose` and `extreme` are auto-implied by `dub` but recommended to include for clarity, `se` enables sound enhancement, `subtitle "(auto-en)"` burns subtitles with an independent translation to English, `translate "(auto-ja)"` translates the dubbed audio to Japanese, and `video "path"` specifies the input.
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
@@ -360,25 +360,25 @@ python voder.py tts dub subtitle "video.mp4"
 python voder.py tts dub subtitle original "video.mp4"
 
 # Dub with translation to Arabic
-python voder.py tts dub translate (auto-ar) "video.mp4"
+python voder.py tts dub translate "(auto-ar)" "video.mp4"
 
 # Dub with translation and subtitles (transcribes dubbed audio)
-python voder.py tts dub translate (auto-ar) subtitle "video.mp4"
+python voder.py tts dub translate "(auto-ar)" subtitle "video.mp4"
 
 # Dub with independent subtitle translation + dub audio translation
-python voder.py tts dub subtitle (auto-en) translate (auto-ja) "video.mp4"
+python voder.py tts dub subtitle "(auto-en)" translate "(auto-ja)" "video.mp4"
 
 # Dub with original-chain subtitles independently translated
-python voder.py tts dub subtitle original (auto-en) translate (auto-ja) "video.mp4"
+python voder.py tts dub subtitle original "(auto-en)" translate "(auto-ja)" "video.mp4"
 
 # Full-form with all keywords explicit
-python voder.py tts overdose extreme se dub translate (auto-ar) subtitle "video.mp4"
+python voder.py tts overdose extreme se dub translate "(auto-ar)" subtitle "video.mp4"
 
 # Dub audio file (output is WAV)
 python voder.py tts dub "audio.wav"
 
 # Dub with specific source-target translation
-python voder.py tts dub translate (ja-en) "japanese_video.mp4"
+python voder.py tts dub translate "(ja-en)" "japanese_video.mp4"
 ```
 
 ### Newline Support
@@ -1302,13 +1302,13 @@ python voder.py stt "audio.wav" timestamp dialogue
 python voder.py stt "audio.wav" translate
 
 # Any-to-any translation (TranslateGemma 12B)
-python voder.py stt "audio.wav" translate (auto-ar)
+python voder.py stt "audio.wav" translate "(auto-ar)"
 
 # Translate Japanese to English
-python voder.py stt "audio.wav" translate (ja-en)
+python voder.py stt "audio.wav" translate "(ja-en)"
 
 # Overdose + any-to-any translation (compatible)
-python voder.py stt "audio.wav" overdose translate (auto-fr)
+python voder.py stt "audio.wav" overdose translate "(auto-fr)"
 
 # Full combination
 python voder.py stt "audio.wav" translate timestamp dialogue
@@ -1326,10 +1326,10 @@ python voder.py stt overdose subtitle se "noisy_video.mp4"
 python voder.py stt overdose subtitle "https://youtube.com/watch?v=..."
 
 # Subtitle with any-to-any translation (auto-detect source, translate to Arabic)
-python voder.py stt overdose subtitle translate (auto-ar) "video.mp4"
+python voder.py stt overdose subtitle translate "(auto-ar)" "video.mp4"
 
 # Subtitle with Japanese-to-English translation
-python voder.py stt overdose subtitle translate (ja-en) "japanese_video.mp4"
+python voder.py stt overdose subtitle translate "(ja-en)" "japanese_video.mp4"
 ```
 
 ---

@@ -565,16 +565,16 @@ Use `translate (source-target)` or `translate (target)` to translate to any of 7
 
 ```bash
 # Translate to Arabic, preserving original voice
-python src/voder.py tts slc translate (auto-ar) "spanish_speech.wav"
+python src/voder.py tts slc translate "(auto-ar)" "spanish_speech.wav"
 
 # Translate to Arabic with music preservation
-python src/voder.py tts slc translate (auto-ar) music "spanish_speech.wav"
+python src/voder.py tts slc translate "(auto-ar)" music "spanish_speech.wav"
 
 # Japanese to English
-python src/voder.py tts slc translate (ja-en) "japanese_speech.wav"
+python src/voder.py tts slc translate "(ja-en)" "japanese_speech.wav"
 
 # English to French
-python src/voder.py tts slc translate (en-fr) "english_speech.wav"
+python src/voder.py tts slc translate "(en-fr)" "english_speech.wav"
 ```
 
 > **Note:** The standalone `slc` mode has been merged into TTS. The old `slc` command is no longer accepted — use `tts slc` instead. The `translate` keyword is no longer needed; SLC always translates to English.
@@ -648,28 +648,28 @@ python src/voder.py tts dub subtitle "video.mp4"
 python src/voder.py tts dub subtitle original "video.mp4"
 
 # Dub with translation to Arabic instead of English
-python src/voder.py tts dub translate (auto-ar) "video.mp4"
+python src/voder.py tts dub translate "(auto-ar)" "video.mp4"
 
 # Dub with translation and subtitles (transcribes dubbed audio)
-python src/voder.py tts dub translate (auto-ar) subtitle "video.mp4"
+python src/voder.py tts dub translate "(auto-ar)" subtitle "video.mp4"
 
 # Dub with independently translated subtitles (English) and audio (Japanese)
-python src/voder.py tts dub subtitle (auto-en) translate (auto-ja) "video.mp4"
+python src/voder.py tts dub subtitle "(auto-en)" translate "(auto-ja)" "video.mp4"
 
 # Dub with original-chain subtitles independently translated to English
-python src/voder.py tts dub subtitle original (auto-en) translate (auto-ja) "video.mp4"
+python src/voder.py tts dub subtitle original "(auto-en)" translate "(auto-ja)" "video.mp4"
 
 # Full-form canonical command (recommended for clarity — overdose/extreme auto-implied by dub)
-python src/voder.py tts overdose extreme se dub subtitle (auto-en) translate (auto-ja) video "video.mp4"
+python src/voder.py tts overdose extreme se dub subtitle "(auto-en)" translate "(auto-ja)" video "video.mp4"
 
 # Dub with sound enhancement, translation to Arabic, and subtitles
-python src/voder.py tts overdose extreme se dub translate (auto-ar) subtitle "video.mp4"
+python src/voder.py tts overdose extreme se dub translate "(auto-ar)" subtitle "video.mp4"
 
 # Dub audio file (output is WAV)
 python src/voder.py tts dub "audio.wav"
 
 # Dub with specific source-target translation
-python src/voder.py tts dub translate (ja-en) "japanese_video.mp4"
+python src/voder.py tts dub translate "(ja-en)" "japanese_video.mp4"
 ```
 
 **Dub Parameters:**
@@ -1412,13 +1412,13 @@ python src/voder.py stt "french_audio.wav" translate timestamp result "/output/t
 **Transcription with any-to-any translation (TranslateGemma 12B):**
 ```bash
 # Auto-detect source, translate to Arabic
-python src/voder.py stt "audio.wav" translate (auto-ar) timestamp result "/output/arabic.txt"
+python src/voder.py stt "audio.wav" translate "(auto-ar)" timestamp result "/output/arabic.txt"
 
 # Japanese to English
-python src/voder.py stt "audio.wav" translate (ja-en) result "/output/english.txt"
+python src/voder.py stt "audio.wav" translate "(ja-en)" result "/output/english.txt"
 
 # Overdose + any-to-any translation (now compatible)
-python src/voder.py stt "audio.wav" overdose translate (auto-fr) result "/output/french.txt"
+python src/voder.py stt "audio.wav" overdose translate "(auto-fr)" result "/output/french.txt"
 ```
 
 **Transcription with overdose quality:**
@@ -1434,10 +1434,10 @@ python src/voder.py stt overdose subtitle "video.mp4"
 **Subtitle with translated subtitles (any-to-any via TranslateGemma 12B):**
 ```bash
 # Translated subtitles: auto-detect source, translate to Arabic
-python src/voder.py stt overdose subtitle translate (auto-ar) "video.mp4"
+python src/voder.py stt overdose subtitle translate "(auto-ar)" "video.mp4"
 
 # Translated subtitles with specific source-target
-python src/voder.py stt overdose subtitle translate (ja-en) "japanese_video.mp4"
+python src/voder.py stt overdose subtitle translate "(ja-en)" "japanese_video.mp4"
 ```
 
 **Subtitle with sound enhancement:**
@@ -1863,7 +1863,7 @@ Burn VibeVoice ASR transcription as subtitles directly onto a video file. Auto�
 python src/voder.py stt overdose subtitle "video.mp4"
 python src/voder.py stt overdose subtitle se "noisy_video.mp4"
 python src/voder.py stt overdose subtitle "https://www.youtube.com/watch?v=VIDEO_ID"
-python src/voder.py stt overdose subtitle translate (auto-ar) "video.mp4"
+python src/voder.py stt overdose subtitle translate "(auto-ar)" "video.mp4"
 ```
 
 **Note:** `subtitle` cannot be used with bare `translate` or with non‑video files. `subtitle` with `translate (source-target)` or `translate (target)` is supported.

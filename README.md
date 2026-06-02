@@ -80,7 +80,7 @@ Translate speech from any language to English while **preserving the original sp
 
 ### Video/Audio Dubbing (TTS Sub-Task)
 
-Dub entire videos to another language with **per-segment timing alignment** — `tts dub "video.mp4"` auto-translates to English by default. Uses VibeVoice ASR with audio events, TranslateGemma per-segment translation, Fish S2 Pro voice cloning, speed adjustment, and timeline assembly. Add `subtitle` to burn translated subtitles. Add `translate (auto-ja)` to target any language. Preserves background music.
+Dub entire videos to another language with **per-segment timing alignment** — `tts dub "video.mp4"` auto-translates to English by default. Uses VibeVoice ASR with audio events, TranslateGemma per-segment translation, Fish S2 Pro voice cloning, speed adjustment, and timeline assembly. Add `subtitle` to burn translated subtitles. Add `translate "(auto-ja)"` to target any language. Preserves background music.
 
 ### Smart Input Pipeline
 
@@ -109,7 +109,7 @@ python src/voder.py svs "song.mp3" voice
 python src/voder.py ss "meeting.wav"
 python src/voder.py tts slc "foreign_speech.wav"
 python src/voder.py tts dub "video.mp4"
-python src/voder.py tts dub translate (auto-ja) "video.mp4"
+python src/voder.py tts dub translate "(auto-ja)" "video.mp4"
 python src/voder.py tts svc "speech.wav" target "voice_ref.wav"
 python src/voder.py se "noisy_recording.wav"
 python src/voder.py sfx sound "thunder rumbling" duration 10

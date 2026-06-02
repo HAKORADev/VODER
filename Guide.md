@@ -381,13 +381,13 @@ python src/voder.py stt "audio.wav" timestamp dialogue
 python src/voder.py stt "audio.wav" translate
 
 # With any-to-any translation (TranslateGemma 12B)
-python src/voder.py stt "audio.wav" translate (auto-ar)
+python src/voder.py stt "audio.wav" translate "(auto-ar)"
 
 # Translate Japanese to English
-python src/voder.py stt "audio.wav" translate (ja-en)
+python src/voder.py stt "audio.wav" translate "(ja-en)"
 
 # With overdose + any-to-any translation (now compatible)
-python src/voder.py stt "audio.wav" overdose translate (auto-fr)
+python src/voder.py stt "audio.wav" overdose translate "(auto-fr)"
 
 # With translation and diarization
 python src/voder.py stt "audio.wav" translate dialogue
@@ -690,13 +690,13 @@ python src/voder.py tts overdose slc "french_speech.wav"
 python src/voder.py tts overdose slc music "french_speech.wav"
 
 # SLC any-to-any: translate to Arabic with original voice (TranslateGemma 12B)
-python src/voder.py tts slc translate (auto-ar) "french_speech.wav"
+python src/voder.py tts slc translate "(auto-ar)" "french_speech.wav"
 
 # SLC any-to-any with music preservation
-python src/voder.py tts slc translate (auto-ar) music "french_speech.wav"
+python src/voder.py tts slc translate "(auto-ar)" music "french_speech.wav"
 
 # SLC any-to-any: Japanese to English
-python src/voder.py tts slc translate (ja-en) "japanese_speech.wav"
+python src/voder.py tts slc translate "(ja-en)" "japanese_speech.wav"
 ```
 
 **Why It's Like That:**
@@ -744,10 +744,10 @@ python src/voder.py tts overdose slc "path/to/audio.wav"
 python src/voder.py tts overdose slc music "path/to/audio.wav"
 
 # SLC any-to-any: translate to Arabic with original voice
-python src/voder.py tts slc translate (auto-ar) "path/to/audio.wav"
+python src/voder.py tts slc translate "(auto-ar)" "path/to/audio.wav"
 
 # SLC any-to-any with music preservation
-python src/voder.py tts slc translate (auto-ar) music "path/to/audio.wav"
+python src/voder.py tts slc translate "(auto-ar)" music "path/to/audio.wav"
 
 # Interactive CLI
 python src/voder.py cli
@@ -783,7 +783,7 @@ TTS Dub is a TTS sub‑task that dubs video or audio content by transcribing spe
 **Canonical Command Form:**
 
 ```
-python src/voder.py tts overdose extreme se dub subtitle (auto-en) translate (auto-ja) video "path"
+python src/voder.py tts overdose extreme se dub subtitle "(auto-en)" translate "(auto-ja)" video "path"
 ```
 
 `overdose` and `extreme` are auto‑implied by `dub` but recommended to include in documentation for clarity. Commands work with or without them.
@@ -817,28 +817,28 @@ python src/voder.py tts dub subtitle "video.mp4"
 python src/voder.py tts dub subtitle original "video.mp4"
 
 # Dub with translation to Arabic instead of English
-python src/voder.py tts dub translate (auto-ar) "video.mp4"
+python src/voder.py tts dub translate "(auto-ar)" "video.mp4"
 
 # Dub with translation and subtitles (transcribes dubbed audio)
-python src/voder.py tts dub translate (auto-ar) subtitle "video.mp4"
+python src/voder.py tts dub translate "(auto-ar)" subtitle "video.mp4"
 
 # Dub with independent subtitle translation to English and dub audio to Japanese
-python src/voder.py tts dub subtitle (auto-en) translate (auto-ja) "video.mp4"
+python src/voder.py tts dub subtitle "(auto-en)" translate "(auto-ja)" "video.mp4"
 
 # Dub with original-chain subtitles independently translated to English
-python src/voder.py tts dub subtitle original (auto-en) translate (auto-ja) "video.mp4"
+python src/voder.py tts dub subtitle original "(auto-en)" translate "(auto-ja)" "video.mp4"
 
 # Full canonical form with sound enhancement, translate, and subtitles
-python src/voder.py tts overdose extreme se dub translate (auto-ar) subtitle "video.mp4"
+python src/voder.py tts overdose extreme se dub translate "(auto-ar)" subtitle "video.mp4"
 
 # Dub audio file (output is WAV, not MP4)
 python src/voder.py tts dub "audio.wav"
 
 # Dub with translation from specific source language
-python src/voder.py tts dub translate (ja-en) "japanese_video.mp4"
+python src/voder.py tts dub translate "(ja-en)" "japanese_video.mp4"
 
 # Dub with auto->French translation
-python src/voder.py tts dub translate (auto-fr) "video.mp4"
+python src/voder.py tts dub translate "(auto-fr)" "video.mp4"
 ```
 
 **Features:**
@@ -2776,7 +2776,7 @@ Note: Overdose cannot be combined with the bare `translate` flag, as VibeVoice A
 
 ```bash
 # Overdose + any-to-any translation (compatible)
-python src/voder.py stt "audio.wav" overdose translate (auto-fr)
+python src/voder.py stt "audio.wav" overdose translate "(auto-fr)"
 ```
 
 ### Subtitle STT Trick
