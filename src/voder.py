@@ -882,6 +882,17 @@ def _parse_lang_spec(spec_str):
     return None
 
 
+def _detect_lang_from_text(text):
+    if not text or not text.strip():
+        return 'en'
+    try:
+        from langdetect import detect
+        detected = detect(text.strip()[:2000])
+        return detected[:2].lower() if detected else 'en'
+    except Exception:
+        return 'en'
+
+
 def _translate_with_gemma(text, source_lang, target_lang):
     translator = TranslateGemma()
     if not translator.ensure_model():
@@ -11045,11 +11056,15 @@ def oneline_tts_dub(params):
 
         print(f"Transcribed {len(speech_segments)} speech segments, {len(event_segments)} audio events")
 
-        src_lang = dub_translate_langs['source'] if dub_translate_langs['source'] != 'auto' else 'auto'
+        src_lang = dub_translate_langs['source']
+        if src_lang == 'auto':
+            all_speech_text = ' '.join(seg.get('text', '').strip() for seg in speech_segments if seg.get('text', '').strip())
+            src_lang = _detect_lang_from_text(all_speech_text)
+            print(f"Auto-detected source language: {src_lang}")
 
         tgt_lang = dub_translate_langs['target']
 
-        need_dub_translate = dub_translate_langs is not None and not (src_lang == tgt_lang and src_lang != 'auto')
+        need_dub_translate = dub_translate_langs is not None and src_lang != tgt_lang
 
         sub_src_lang = tgt_lang if need_dub_translate else src_lang
         sub_tgt_lang = None
@@ -12346,6 +12361,10 @@ def oneline_stt_subtitle(params):
             if translate_langs and translator:
                 src_lang = translate_langs['source']
                 tgt_lang = translate_langs['target']
+                if src_lang == 'auto':
+                    all_text = ' '.join(seg.get('text', '').strip() for seg in asr_segments if seg.get('text', '').strip())
+                    src_lang = _detect_lang_from_text(all_text)
+                    print(f"Auto-detected source language: {src_lang}")
                 print(f"Translating with TranslateGemma ({src_lang}->{tgt_lang})...")
                 translation_ok = True
                 for idx, seg in enumerate(asr_segments):

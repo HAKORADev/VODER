@@ -91,6 +91,9 @@ yt-dlp>=2026.3.17
 
 # OCR for image text extraction
 easyocr>=1.7.0
+
+# Language Detection (auto source language for TranslateGemma)
+langdetect>=1.0.9
 #IMPORTANT:
 #AFTER DOWNLOADING REQUIREMENTS
 #pip install --upgrade protobuf==5.29.6
