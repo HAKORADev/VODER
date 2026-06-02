@@ -702,27 +702,28 @@ TRANSLATE_GEMMA_SUPPORTED_LANGS = {
 class TranslateGemma:
     def __init__(self, model_dir=None):
         self.model_dir = TRANSLATE_GEMMA_DIR if model_dir is None else model_dir
-        self.model = None
-        self.processor = None
+        self.pipe = None
         self._loaded = False
 
     def ensure_model(self):
-        if self._loaded and self.model is not None and self.processor is not None:
+        if self._loaded and self.pipe is not None:
             return True
         try:
-            from transformers import AutoModelForImageTextToText, AutoProcessor
+            from transformers import pipeline
             model_id = "google/translategemma-12b-it"
             print("Loading TranslateGemma 12B model...")
             use_cuda = torch.cuda.is_available() and torch.cuda.get_device_properties(0).total_memory / (1024**3) >= 24.0
-            if use_cuda:
-                dtype = torch.bfloat16
-                device_map = "auto"
-            else:
-                dtype = torch.float32
-                device_map = "cpu"
-            self.processor = AutoProcessor.from_pretrained(model_id, cache_dir=self.model_dir)
-            self.model = AutoModelForImageTextToText.from_pretrained(
-                model_id, cache_dir=self.model_dir, device_map=device_map, torch_dtype=dtype
+            dtype = torch.bfloat16 if use_cuda else torch.float32
+            device_map = "auto" if use_cuda else "cpu"
+            hf_token = os.environ.get("HF_TOKEN")
+            model_kwargs = {"cache_dir": self.model_dir, "device_map": device_map}
+            if hf_token:
+                model_kwargs["token"] = hf_token
+            self.pipe = pipeline(
+                "image-text-to-text",
+                model=model_id,
+                torch_dtype=dtype,
+                model_kwargs=model_kwargs,
             )
             self._loaded = True
             print(f"TranslateGemma loaded ({'GPU bfloat16' if use_cuda else 'CPU float32'})")
@@ -733,7 +734,7 @@ class TranslateGemma:
             return False
 
     def translate(self, text, source_lang, target_lang):
-        if not self._loaded or self.model is None:
+        if not self._loaded or self.pipe is None:
             return None
         try:
             messages = [
@@ -749,20 +750,9 @@ class TranslateGemma:
                     ],
                 }
             ]
-            inputs = self.processor.apply_chat_template(
-                messages, tokenize=True, add_generation_prompt=True, return_dict=True, return_tensors="pt"
-            ).to(self.model.device)
-            if hasattr(inputs, 'dtype') and inputs.dtype != torch.bfloat16 and next(self.model.parameters()).dtype == torch.bfloat16:
-                inputs = {k: v.to(dtype=torch.bfloat16) if v.dtype == torch.float32 else v for k, v in inputs.items()}
-            input_len = inputs['input_ids'].shape[1] if 'input_ids' in inputs else len(inputs.get('input_ids', []))
-            with torch.inference_mode():
-                generation = self.model.generate(**inputs, do_sample=False, max_new_tokens=2048)
-            if isinstance(generation, torch.Tensor):
-                generation = generation[0][input_len:]
-                decoded = self.processor.decode(generation, skip_special_tokens=True)
-            else:
-                decoded = ""
-            return decoded.strip()
+            output = self.pipe(text=messages, max_new_tokens=2048, generate_kwargs={"do_sample": False})
+            translated = output[0]["generated_text"][-1]["content"]
+            return translated.strip() if translated else None
         except Exception as e:
             print(f"TranslateGemma translation error: {e}")
             return None
@@ -776,12 +766,9 @@ class TranslateGemma:
         return results
 
     def cleanup(self):
-        if self.model is not None:
-            del self.model
-            self.model = None
-        if self.processor is not None:
-            del self.processor
-            self.processor = None
+        if self.pipe is not None:
+            del self.pipe
+            self.pipe = None
         self._loaded = False
         gc.collect()
         if torch.cuda.is_available():
@@ -12098,8 +12085,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,{font_size},{primary_color},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_offset},2,10,10,{margin_v},1
-Style: Overlap,Arial,{font_size},{overlap_color},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_offset},2,10,10,{margin_v + font_size + 8},1
+Style: Default,Noto Sans,{font_size},{primary_color},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_offset},2,10,10,{margin_v},1
+Style: Overlap,Noto Sans,{font_size},{overlap_color},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_offset},2,10,10,{margin_v + font_size + 8},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
