@@ -764,7 +764,7 @@ SLC works on CPU without GPU acceleration. The pipeline is sequential: SVS voice
 
 **What It Does:**
 
-TTS Dub is a TTS sub‑task that dubs video or audio content by transcribing speech, optionally translating it, and re‑synthesizing with voice cloning from the original speakers. It uses a per‑segment pipeline with timeline‑based assembly to preserve audio events (silence, music, noise) and maintain accurate timing. The `dub` keyword auto‑implies `overdose` (VibeVoice ASR) and `extreme` (Fish S2 Pro) for maximum quality. The dub pipeline defaults to auto→English translation, so no `translate` keyword is needed for the common case of translating from any language to English. For video input, the dubbed audio is muxed back with the original video. Optional sound enhancement via the `se` keyword cleans the audio before ASR. Subtitles can be burned onto the output video via `subtitle`, and `subtitle (source-target)` enables an independent subtitle translation pass separate from the dub audio language.
+TTS Dub is a TTS sub‑task that dubs video or audio content by transcribing speech, optionally translating it, and re‑synthesizing with voice cloning from the original speakers. It uses a per‑segment pipeline with timeline‑based assembly to preserve audio events (silence, music, noise) and maintain accurate timing. The `dub` keyword auto‑implies `overdose` (VibeVoice ASR) and `extreme` (Fish S2 Pro) for maximum quality. The dub pipeline defaults to auto→English translation, so no `translate` keyword is needed for the common case of translating from any language to English. For video input, the dubbed audio is muxed back with the original video. Optional sound enhancement via the `se` keyword cleans the audio before ASR. Subtitles can be burned onto the output video via `subtitle`, which transcribes the dubbed audio using VibeVoice ASR for accurate subtitle timing and text that matches what was actually spoken. The `subtitle original` keyword preserves the previous behavior of deriving subtitles from the original audio processing chain (TTS text with original timing). The `subtitle (source-target)` variant enables an independent subtitle translation pass separate from the dub audio language.
 
 **How It Works:**
 
@@ -778,7 +778,7 @@ TTS Dub is a TTS sub‑task that dubs video or audio content by transcribing spe
 8. **Per‑Segment Speed Adjustment**: Each segment's dubbed audio is speed‑adjusted independently to match its original segment timing. The speed adjustment thresholds are 1.5 (maximum speed‑up) and 0.5 (maximum slow‑down), allowing more aggressive time compression or expansion than the previous 1.3/0.7 thresholds. Segments that cannot fit within the threshold are left at their natural duration.
 9. **Timeline‑Based Assembly**: Instead of simple concatenation, a silent base track matching the original audio duration is created. Each speed‑adjusted dubbed segment is overlaid at its original timeline position on the silent base. Audio events (silence gaps, music sections, noise) occupy their original positions naturally because they are part of the base timeline structure. This preserves the original pacing and event layout far more accurately than concatenation.
 10. **Mix with Instrumentals**: The assembled dubbed voice is mixed with the extracted instrumental track at the original music level.
-11. **Mux with Video** (video input only): The final audio is muxed with the original video via FFmpeg. If `subtitle` is specified, subtitles are burned onto the video. By default, subtitles use the same text as the dubbed audio. When `subtitle (source-target)` is specified, an independent translation is performed for the subtitles, allowing them to differ from the dub audio language (e.g., dub in Japanese, subtitles in English).
+11. **Mux with Video** (video input only): The final audio is muxed with the original video via FFmpeg. If `subtitle` is specified, subtitles are burned onto the video. By default (`subtitle` bare), VibeVoice ASR transcribes the dubbed audio to produce subtitles that accurately match what was actually spoken — this is the final step after dubbing. When `subtitle original` is specified, subtitles are derived from the original audio processing chain (TTS text with original timing) instead. When `subtitle (source-target)` is specified, an independent translation is performed for the subtitles, allowing them to differ from the dub audio language (e.g., dub in Japanese, subtitles in English).
 
 **Canonical Command Form:**
 
@@ -794,8 +794,10 @@ python src/voder.py tts overdose extreme se dub subtitle (auto-en) translate (au
 |---------|-------------|
 | `dub` | Invoke dub sub‑task (auto‑implies `extreme`/Fish S2 Pro) |
 | `translate (source-target)` or `translate (target)` | Override target language via TranslateGemma (76 languages). Defaults to auto→English. `(target)` is shorthand for `(auto-target)` |
-| `subtitle` | Burn subtitles onto output video. Uses dubbed audio text by default |
-| `subtitle (source-target)` or `subtitle (target)` | Burn independently translated subtitles onto output video (separate from dub audio language). `(target)` is shorthand for `(auto-target)` |
+| `subtitle` | Transcribe dubbed audio with VibeVoice ASR and burn subtitles onto output video (subtitle step is final, after dubbing) |
+| `subtitle original` | Burn subtitles derived from the original audio processing chain (TTS text with original timing) |
+| `subtitle (source-target)` or `subtitle (target)` | Transcribe dubbed audio and burn independently translated subtitles (separate from dub audio language). `(target)` is shorthand for `(auto-target)` |
+| `subtitle original (source-target)` or `subtitle original (target)` | Burn subtitles from the original audio chain with independent translation. `(target)` is shorthand for `(auto-target)` |
 | `se` | Enable sound enhancement before ASR (optional) |
 | `video "path"` | Specify input video path |
 | `overdose` | Auto‑implied by `dub` but can be specified for clarity |
@@ -808,17 +810,23 @@ python src/voder.py tts overdose extreme se dub subtitle (auto-en) translate (au
 # Basic dub (defaults to auto->English translation with voice cloning from source)
 python src/voder.py tts dub "video.mp4"
 
-# Dub with subtitle burning (subtitles use dubbed audio text)
+# Dub with subtitle burning (transcribes dubbed audio for accurate subtitles)
 python src/voder.py tts dub subtitle "video.mp4"
+
+# Dub with subtitles from original audio processing chain (TTS text, original timing)
+python src/voder.py tts dub subtitle original "video.mp4"
 
 # Dub with translation to Arabic instead of English
 python src/voder.py tts dub translate (auto-ar) "video.mp4"
 
-# Dub with translation and subtitles
+# Dub with translation and subtitles (transcribes dubbed audio)
 python src/voder.py tts dub translate (auto-ar) subtitle "video.mp4"
 
 # Dub with independent subtitle translation to English and dub audio to Japanese
 python src/voder.py tts dub subtitle (auto-en) translate (auto-ja) "video.mp4"
+
+# Dub with original-chain subtitles independently translated to English
+python src/voder.py tts dub subtitle original (auto-en) translate (auto-ja) "video.mp4"
 
 # Full canonical form with sound enhancement, translate, and subtitles
 python src/voder.py tts overdose extreme se dub translate (auto-ar) subtitle "video.mp4"
@@ -840,8 +848,9 @@ python src/voder.py tts dub translate (auto-fr) "video.mp4"
 - Timeline‑based assembly: Segments are overlaid at original positions on a silent base, preserving audio events and original pacing
 - Audio event preservation: Silence, music, and noise events from `transcribe_with_events()` are kept in their original positions and never translated
 - Music track preservation: The instrumental track from SVS separation is mixed back with the dubbed voice
-- Optional subtitle burning: When `subtitle` is specified, subtitles are burned onto the output video; by default subtitles use the same text as the dubbed audio
-- Independent subtitle translation: `subtitle (source-target)` performs a separate translation pass for subtitles, allowing subtitle language to differ from dub audio language (e.g., dub in Japanese, subtitles in English)
+- Dubbed audio subtitle transcription: `subtitle` (bare) transcribes the dubbed audio using VibeVoice ASR for subtitles that accurately match what was actually spoken; this is the final step after dubbing, ensuring subtitle timing aligns with the dubbed audio
+- Original audio subtitles: `subtitle original` derives subtitles from the original audio processing chain (TTS text with original timing), preserving the previous subtitle behavior
+- Independent subtitle translation: `subtitle (source-target)` performs a separate translation pass for subtitles, allowing subtitle language to differ from dub audio language (e.g., dub in Japanese, subtitles in English); works with both bare `subtitle` and `subtitle original`
 - Optional sound enhancement: The `se` keyword enables UniSE speech enhancement (denoising/dereverberation) before ASR for improved transcription on noisy input
 - Default auto→English translation: Dub translates to English by default; no `translate` keyword needed for the common case
 - Any-to-any translation: When `translate (source-target)` or `translate (target)` is used, TranslateGemma 12B translates across 76 languages; use `auto` for source auto‑detection (e.g., `translate (auto-ar)`, `translate (auto-en)`) or the shorthand (e.g., `translate (ar)` is equivalent to `translate (auto-ar)`)

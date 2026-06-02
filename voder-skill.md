@@ -24,7 +24,7 @@ VODER is not a single AI model — it is an **orchestration layer** that coordin
 |-------|---------|---------------|
 | **Whisper large-v3-turbo** | Fast speech-to-text transcription | STT, Dialogue Source Analysis |
 | **Whisper large-v3** | High-accuracy transcription + translation to English | STT with `translate` flag, TTS `slc` sub-task (translation step), TTS `svc` sub-task (transcription step) |
-| **TranslateGemma 12B** | Any-to-any translation (76 languages) | STT with `translate (source-target)` or `translate (target)` syntax, TTS `slc` sub-task with `translate (source-target)` or `translate (target)`, TTS `dub` sub-task, TTS `dub` sub-task `subtitle (source-target)` or `subtitle (target)` |
+| **TranslateGemma 12B** | Any-to-any translation (76 languages) | STT with `translate (source-target)` or `translate (target)` syntax, TTS `slc` sub-task with `translate (source-target)` or `translate (target)`, TTS `dub` sub-task, TTS `dub` sub-task `subtitle (source-target)` or `subtitle (target)`, TTS `dub` sub-task `subtitle original (source-target)` or `subtitle original (target)` |
 | **Qwen3-TTS VoiceDesign** | Generate speech from voice descriptions | TTS (voice design path) |
 | **Qwen3-TTS Base** | Text-to-speech with built-in voice cloning | TTS (voice clone path via `target`), TTS `slc` sub-task (resynthesis step), TTS `svc` sub-task (re-synthesis step), TTS interactive modify-speech |
 | **Seed-VC v2** | Voice conversion (22.05kHz speech) | STS, TTM with `vc` flag, TTS `slc overdose` (non-mimic pass), TTS `svc` sub-task (voice change pass) |
@@ -131,7 +131,7 @@ Source Audio/Video/URL → SVS Voice Isolation → Whisper large-v3 (Transcribe 
 [With translate (source-target): → TranslateGemma 12B translates to any target language instead of English-only]
 
 DUB PATH (TTS Dub Sub-Task):
-Source Audio/Video → SVS Voice+Music Separation → [Optional: SE sound enhancement] → VibeVoice ASR (speaker diarization) → Audio Event Detection (non-speech) → TranslateGemma 12B loads once → translates dub segments (auto→English by default; translate (source-target) for other targets) → (if subtitle with lang spec) translates subtitle segments independently → unloads once → Fish S2 Pro TTS Per-Segment (voice cloning, timeline-based assembly) → Speed Adjustment (threshold 1.5x/0.5x) → Mix with Instrumentals → Mux with Video
+Source Audio/Video → SVS Voice+Music Separation → [Optional: SE sound enhancement] → VibeVoice ASR (speaker diarization) → Audio Event Detection (non-speech) → TranslateGemma 12B loads once → translates dub segments (auto→English by default; translate (source-target) for other targets) → (if subtitle original with lang spec) translates subtitle segments independently → unloads once → Fish S2 Pro TTS Per-Segment (voice cloning, timeline-based assembly) → Speed Adjustment (threshold 1.5x/0.5x) → Mix with Instrumentals → [if subtitle bare] VibeVoice ASR on dubbed audio → [if subtitle (source-target)] TranslateGemma translates subtitles → Burn subtitles + Mux with Video (if subtitle) or Mux with Video (no subtitle)
 
 SPEAKER VOICE CHANGE PATH (TTS SVC Sub-Task):
 Source Audio → SVS Voice Isolation → Whisper large-v3 (Transcribe in original language) → Qwen3-TTS (with voice ref) → Seed-VC v2 (voice change pass using target reference) → [Audio with changed voice, same language]
@@ -158,7 +158,7 @@ VODER uses three types of parameters:
 |------|-------------|----------|
 | **Positional** | Mode name comes first, input files follow | `stt "audio.wav"` |
 | **Named** | Key-value pairs with space separation | `voice "male"` `duration 30` |
-| **Flags** | Standalone keywords that enable features | `timestamp` `dialogue` `music` `translate` `translate (source-target)` `overdose` `mimic` `vc` `nomusic` `slc` `svc` `dub` `se` `subtitle` `subtitle (source-target)` |
+| **Flags** | Standalone keywords that enable features | `timestamp` `dialogue` `music` `translate` `translate (source-target)` `overdose` `mimic` `vc` `nomusic` `slc` `svc` `dub` `se` `subtitle` `subtitle original` `subtitle (source-target)` |
 
 ### Parameter Multiplicity
 
@@ -195,7 +195,7 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 
 | Mode | Section | Input Type | Output Type | One-Liner Support |
 |------|---------|------------|-------------|-------------------|
-| TTS | 2.1 | Text [ + Audio ] | Audio | Full (single + dialogue, voice cloning via `target`, trained voices via `voice`, SLC sub-task via `slc`, SVC sub-task via `svc`, dub sub-task via `dub` with `subtitle`/`translate`/`se`) |
+| TTS | 2.1 | Text [ + Audio ] | Audio | Full (single + dialogue, voice cloning via `target`, trained voices via `voice`, SLC sub-task via `slc`, SVC sub-task via `svc`, dub sub-task via `dub` with `subtitle`/`subtitle original`/`translate`/`se`) |
 | Voice Training | 2.1a | Audio | .tts file | ✅ Full (oneline only) |
 | STS | 2.2 | Audio/Video + Audio | Audio/Video | ✅ Single only |
 | TTM | 2.3 | Text [ + Audio ] | Audio | ✅ Single only (voice cloning via `vc` + `clone`) |
@@ -656,7 +656,7 @@ Where `overdose` and `extreme` are auto‑implied by `dub` but recommended to in
 8. **Fish S2 Pro TTS (Per-Segment)**: Each speech segment is synthesized individually using Fish S2 Pro with voice cloning from that speaker's extracted audio reference. Segments are assembled on the original timeline
 9. **Speed Adjustment**: Per‑speaker dubbed audio is speed‑adjusted to match original segment timing. Speed adjustment is applied only when the ratio exceeds 1.5x or falls below 0.5x; otherwise original pacing is preserved
 10. **Mix with Instrumentals**: The dubbed voice is mixed with the extracted instrumental track
-11. **Mux with Video** (video input only): The final audio is muxed with the original video via FFmpeg. If `subtitle` is specified, subtitles are burned onto the video. Without a lang spec (`subtitle` bare), subtitles use the same text as the dubbed audio. With `subtitle (source-target)`, subtitles get an independent translation
+11. **Mux with Video** (video input only): The final audio is muxed with the original video via FFmpeg. If `subtitle` is specified (bare), VibeVoice ASR transcribes the dubbed audio to produce accurate subtitles — this is the final step after dubbing. If `subtitle original` is specified, subtitles are derived from the original audio processing chain (TTS text with original timing). With `subtitle (source-target)`, subtitles get an independent translation
 
 **Command Catalog:**
 
@@ -664,17 +664,23 @@ Where `overdose` and `extreme` are auto‑implied by `dub` but recommended to in
 # Basic dub (auto→English, voice cloning from source speakers)
 python src/voder.py tts dub "video.mp4"
 
-# Dub with subtitle burning (subtitles match dubbed audio text)
+# Dub with subtitle burning (transcribes dubbed audio for accurate subtitles)
 python src/voder.py tts dub subtitle "video.mp4"
+
+# Dub with subtitles from original audio processing chain
+python src/voder.py tts dub subtitle original "video.mp4"
 
 # Dub with translation to Arabic
 python src/voder.py tts dub translate (auto-ar) "video.mp4"
 
-# Dub with translation and subtitles (subtitles match dubbed audio text)
+# Dub with translation and subtitles (transcribes dubbed audio)
 python src/voder.py tts dub translate (auto-ar) subtitle "video.mp4"
 
 # Dub with independent subtitle and audio translations
 python src/voder.py tts dub subtitle (auto-en) translate (auto-ja) "video.mp4"
+
+# Dub with original-chain subtitles independently translated to English
+python src/voder.py tts dub subtitle original (auto-en) translate (auto-ja) "video.mp4"
 
 # Full-form with all flags explicit
 python src/voder.py tts overdose extreme se dub translate (auto-ar) subtitle "video.mp4"
@@ -692,8 +698,10 @@ python src/voder.py tts dub translate (ja-en) "japanese_video.mp4"
 |-----------|----------|---------|----------|
 | `dub` | Yes | Invoke dub sub-task with input path (auto‑implies extreme/Fish S2 Pro) | — |
 | `translate (source-target)` or `translate (target)` | No | Any-to-any translation via TranslateGemma 12B (76 languages). Overrides default auto→English. `(target)` is shorthand for `(auto-target)` | Off (auto→English) |
-| `subtitle` | No | Burn subtitles onto output video. Uses dubbed audio text by default | Off |
-| `subtitle (source-target)` or `subtitle (target)` | No | Burn independently translated subtitles (separate from dub audio language). `(target)` is shorthand for `(auto-target)` | Off |
+| `subtitle` | No | Transcribe dubbed audio with VibeVoice ASR and burn subtitles onto output video (final step after dubbing) | Off |
+| `subtitle original` | No | Burn subtitles derived from the original audio processing chain (TTS text with original timing) | Off |
+| `subtitle (source-target)` or `subtitle (target)` | No | Transcribe dubbed audio and burn independently translated subtitles (separate from dub audio language). `(target)` is shorthand for `(auto-target)` | Off |
+| `subtitle original (source-target)` or `subtitle original (target)` | No | Burn subtitles from the original audio chain with independent translation. `(target)` is shorthand for `(auto-target)` | Off |
 | `se` | No | Enable sound enhancement before ASR | Off |
 | `video "path"` | No | Specify input video path | Auto from positional |
 | `overdose` | No | Auto‑implied by dub, can be specified for clarity | On (implied) |
@@ -2763,9 +2771,12 @@ Total memory needed: 14GB
 Step 1: SVS — extract voice + music (14GB peak) → offloaded
 Step 1b: [Optional] SE — sound enhancement (6GB peak) → offloaded
 Step 2: VibeVoice ASR — transcribe with diarization (14GB peak) → offloaded
-Step 3: TranslateGemma 12B — translate dub segments (+ subtitle segments if subtitle (source-target)) (24GB peak) → offloaded
+Step 3: TranslateGemma 12B — translate dub segments (+ subtitle segments if subtitle original (source-target)) (24GB peak) → offloaded
 Step 4: Fish S2 Pro — synthesize with voice cloning (10GB peak) → offloaded
-Step 5: FFmpeg — speed adjustment + mux + subtitle burn
+Step 5: FFmpeg — speed adjustment + mux
+Step 5b: [If subtitle bare] VibeVoice ASR — transcribe dubbed audio for subtitles (14GB peak) → offloaded
+Step 5c: [If subtitle (source-target)] TranslateGemma 12B — translate subtitle segments (24GB peak) → offloaded
+Step 6: FFmpeg — subtitle burn + final mux
 
 Total memory needed: 24GB (peak at TranslateGemma)
 Note: VibeVoice ASR and Fish S2 Pro are never loaded simultaneously

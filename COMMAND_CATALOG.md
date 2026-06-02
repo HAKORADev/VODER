@@ -321,8 +321,10 @@ Where `overdose` and `extreme` are auto-implied by `dub` but recommended to incl
 |---------|-------|-------------|
 | `dub` | `"path"` | Enable dub sub-task. Input video or audio file path. Auto-implies extreme (Fish S2 Pro). |
 | `translate (source-target)` or `translate (target)` | `(auto-ar)` / `(ja-en)` / `(ar)` etc. | Any-to-any translation via TranslateGemma 12B (76 languages). Optional. Overrides default auto→English. `(target)` is shorthand for `(auto-target)`. |
-| `subtitle` | (flag) | Burn subtitles onto the output video. Uses dubbed audio text by default. |
-| `subtitle (source-target)` or `subtitle (target)` | `(auto-en)` / `(ja-en)` / `(en)` etc. | Burn independently translated subtitles (separate from dub audio language). Optional. `(target)` is shorthand for `(auto-target)`. |
+| `subtitle` | (flag) | Transcribe dubbed audio with VibeVoice ASR and burn subtitles onto the output video (final step after dubbing). |
+| `subtitle original` | (flag) | Burn subtitles derived from the original audio processing chain (TTS text with original timing). |
+| `subtitle (source-target)` or `subtitle (target)` | `(auto-en)` / `(ja-en)` / `(en)` etc. | Transcribe dubbed audio and burn independently translated subtitles (separate from dub audio language). Optional. `(target)` is shorthand for `(auto-target)`. |
+| `subtitle original (source-target)` or `subtitle original (target)` | `(auto-en)` / `(ja-en)` / `(en)` etc. | Burn subtitles from the original audio chain with independent translation. Optional. `(target)` is shorthand for `(auto-target)`. |
 | `se` | (flag) | Enable sound enhancement before ASR. Optional. |
 | `video "path"` | `"path"` | Specify input video path. |
 | `overdose` | (flag) | Auto-implied by dub. Can be specified for clarity. |
@@ -339,8 +341,10 @@ Where `overdose` and `extreme` are auto-implied by `dub` but recommended to incl
 - Speed adjustment threshold: segments are speed-adjusted only when the ratio exceeds 1.5x or falls below 0.5x; otherwise original pacing is preserved.
 - VibeVoice ASR and Fish S2 Pro are loaded separately (never simultaneously) to fit within 24GB VRAM.
 - Video input produces MP4 output; audio input produces WAV output.
-- `subtitle` without lang spec uses the same text as the dubbed audio.
-- `subtitle (source-target)` or `subtitle (target)` applies an independent translation pass for subtitles.
+- `subtitle` (bare) transcribes the dubbed audio using VibeVoice ASR and burns subtitles onto the output video; this is the final step after dubbing.
+- `subtitle original` derives subtitles from the original audio processing chain (TTS text with original timing).
+- `subtitle (source-target)` or `subtitle (target)` transcribes the dubbed audio and applies an independent translation pass for subtitles.
+- `subtitle original (source-target)` or `subtitle original (target)` derives subtitles from the original audio chain with an independent translation pass.
 - `se` enhances vocal audio before ASR for better transcription in noisy conditions (see [Section 5](#5-se--sound-enhancement) for full SE sub-modes).
 - TranslateGemma loads once for all translations (dub + subtitle) then unloads once.
 - Requires 24GB+ VRAM and FFmpeg.
@@ -349,17 +353,23 @@ Where `overdose` and `extreme` are auto-implied by `dub` but recommended to incl
 # Basic dub (voice cloning from source)
 python voder.py tts dub "video.mp4"
 
-# Dub with subtitle burning (uses dubbed audio text)
+# Dub with subtitle burning (transcribes dubbed audio for accurate subtitles)
 python voder.py tts dub subtitle "video.mp4"
+
+# Dub with subtitles from original audio processing chain
+python voder.py tts dub subtitle original "video.mp4"
 
 # Dub with translation to Arabic
 python voder.py tts dub translate (auto-ar) "video.mp4"
 
-# Dub with translation and subtitles
+# Dub with translation and subtitles (transcribes dubbed audio)
 python voder.py tts dub translate (auto-ar) subtitle "video.mp4"
 
 # Dub with independent subtitle translation + dub audio translation
 python voder.py tts dub subtitle (auto-en) translate (auto-ja) "video.mp4"
+
+# Dub with original-chain subtitles independently translated
+python voder.py tts dub subtitle original (auto-en) translate (auto-ja) "video.mp4"
 
 # Full-form with all keywords explicit
 python voder.py tts overdose extreme se dub translate (auto-ar) subtitle "video.mp4"

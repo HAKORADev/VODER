@@ -6587,6 +6587,9 @@ def parse_oneline_args(args):
                 if dub_lower == 'subtitle':
                     result['params']['dub_subtitle'] = True
                     i += 1
+                    if i < len(args) and args[i].lower() == 'original':
+                        result['params']['dub_subtitle_original'] = True
+                        i += 1
                     if i < len(args):
                         lang_spec = _parse_lang_spec(args[i])
                         if lang_spec:
@@ -7103,6 +7106,7 @@ def show_oneline_usage():
     print("TTS dub examples (Video/Audio Dubbing):")
     print('  python voder.py tts dub "video.mp4"')
     print('  python voder.py tts dub subtitle "video.mp4"')
+    print('  python voder.py tts dub subtitle original "video.mp4"')
     print('  python voder.py tts dub translate (auto-ar) "video.mp4"')
     print('  python voder.py tts dub translate (auto-ar) subtitle "video.mp4"')
     print('  python voder.py tts dub "audio.wav"')
@@ -10871,6 +10875,7 @@ def oneline_tts_dub(params):
 
     dub_source = params.get('dub_source')
     dub_subtitle = params.get('dub_subtitle', False)
+    dub_subtitle_original = params.get('dub_subtitle_original', False)
     dub_subtitle_langs = params.get('dub_subtitle_langs')
     dub_translate_langs = params.get('dub_translate_langs')
     dub_video = params.get('dub_video', False)
@@ -11219,25 +11224,95 @@ def oneline_tts_dub(params):
 
         if video_path and os.path.exists(video_path):
             if dub_subtitle:
-                subtitle_segments = []
-                for part in segment_tts_parts:
-                    subtitle_segments.append({
-                        'start': part['start'],
-                        'end': part['end'],
-                        'text': part['text'],
-                        'speaker': part['speaker']
-                    })
+                if dub_subtitle_original:
+                    subtitle_segments = []
+                    for part in segment_tts_parts:
+                        subtitle_segments.append({
+                            'start': part['start'],
+                            'end': part['end'],
+                            'text': part['text'],
+                            'speaker': part['speaker']
+                        })
 
-                if translator and need_sub_translate:
-                    print(f"Translating subtitles with TranslateGemma ({sub_src_lang}->{sub_tgt_lang})...")
-                    for sub_idx, sub_seg in enumerate(subtitle_segments):
-                        sub_text = sub_seg.get('text', '').strip()
-                        if sub_text:
-                            translated = translator.translate(sub_text, sub_src_lang, sub_tgt_lang)
-                            if translated:
-                                sub_seg['text'] = translated
-                            else:
-                                print(f"Warning: Subtitle translation failed for segment {sub_idx+1}")
+                    if translator and need_sub_translate:
+                        print(f"Translating subtitles with TranslateGemma ({sub_src_lang}->{sub_tgt_lang})...")
+                        for sub_idx, sub_seg in enumerate(subtitle_segments):
+                            sub_text = sub_seg.get('text', '').strip()
+                            if sub_text:
+                                translated = translator.translate(sub_text, sub_src_lang, sub_tgt_lang)
+                                if translated:
+                                    sub_seg['text'] = translated
+                                else:
+                                    print(f"Warning: Subtitle translation failed for segment {sub_idx+1}")
+                else:
+                    print("Transcribing dubbed audio for subtitles...")
+                    dub_asr = VibeVoiceASR()
+                    dub_asr.ensure_model()
+                    if dub_asr.model is None:
+                        print("Warning: ASR failed for subtitle transcription, falling back to TTS text")
+                        dub_asr.cleanup()
+                        del dub_asr
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        subtitle_segments = []
+                        for part in segment_tts_parts:
+                            subtitle_segments.append({
+                                'start': part['start'],
+                                'end': part['end'],
+                                'text': part['text'],
+                                'speaker': part['speaker']
+                            })
+                    else:
+                        dub_asr_segments = dub_asr.transcribe_with_events(final_audio)
+                        dub_asr.cleanup()
+                        del dub_asr
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        dub_speech_segs = [s for s in dub_asr_segments if not s.get('is_event', False) and s.get('text', '').strip()] if dub_asr_segments else []
+                        subtitle_segments = []
+                        for seg in dub_speech_segs:
+                            subtitle_segments.append({
+                                'start': seg.get('start', 0),
+                                'end': seg.get('end', 0),
+                                'text': seg.get('text', '').strip(),
+                                'speaker': seg.get('speaker', 'SPEAKER_00')
+                            })
+                        if not subtitle_segments:
+                            print("Warning: ASR on dubbed audio returned no segments, falling back to TTS text")
+                            for part in segment_tts_parts:
+                                subtitle_segments.append({
+                                    'start': part['start'],
+                                    'end': part['end'],
+                                    'text': part['text'],
+                                    'speaker': part['speaker']
+                                })
+                        elif dub_subtitle_langs:
+                            sub_tgt_lang_new = dub_subtitle_langs['target']
+                            sub_src_lang_new = dub_subtitle_langs.get('source', 'auto')
+                            if sub_src_lang_new == 'auto':
+                                sub_src_lang_new = tgt_lang
+                            if sub_src_lang_new != sub_tgt_lang_new:
+                                if not translator:
+                                    print("Loading TranslateGemma for subtitle translation...")
+                                    translator = TranslateGemma()
+                                    if not translator.ensure_model():
+                                        print("Warning: Failed to load TranslateGemma, subtitle translation skipped")
+                                        translator.cleanup()
+                                        del translator
+                                        translator = None
+                                        gc.collect()
+                                        if torch.cuda.is_available():
+                                            torch.cuda.empty_cache()
+                                if translator:
+                                    print(f"Translating subtitles with TranslateGemma ({sub_src_lang_new}->{sub_tgt_lang_new})...")
+                                    for sub_idx, sub_seg in enumerate(subtitle_segments):
+                                        sub_text = sub_seg.get('text', '').strip()
+                                        if sub_text:
+                                            translated = translator.translate(sub_text, sub_src_lang_new, sub_tgt_lang_new)
+                                            if translated:
+                                                sub_seg['text'] = translated
 
                 if translator:
                     translator.cleanup()
@@ -11250,7 +11325,10 @@ def oneline_tts_dub(params):
                 base_name = os.path.splitext(os.path.basename(dub_source))[0] if not is_url else "youtube_dub"
                 output_filename = f"voder_tts_dub{lang_tag}_{timestamp_str}_{base_name}.mp4"
                 output_path = os.path.join(results_dir, output_filename)
-                burn_ok = _burn_subtitles_on_video(video_path, subtitle_segments, output_path)
+                if dub_subtitle_original:
+                    burn_ok = _burn_subtitles_on_video(video_path, subtitle_segments, output_path)
+                else:
+                    burn_ok = _burn_subtitles_with_audio(video_path, final_audio, subtitle_segments, output_path)
                 if burn_ok:
                     print(f"✓ Success! Dubbed+subtitled video saved to: {output_path}")
                 else:
@@ -12066,6 +12144,35 @@ def _burn_subtitles_on_video(video_path, segments, output_path):
         return os.path.exists(output_path)
     except Exception as e:
         print(f"Error burning subtitles: {e}")
+        return False
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+def _burn_subtitles_with_audio(video_path, audio_path, segments, output_path):
+    video_width, video_height = _get_video_resolution_ffmpeg(video_path)
+    ass_content = _build_ass_subtitles(segments, video_width, video_height)
+    temp_dir = tempfile.mkdtemp()
+    ass_path = os.path.join(temp_dir, "subtitles.ass")
+    try:
+        with open(ass_path, 'w', encoding='utf-8') as f:
+            f.write(ass_content)
+        escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
+        cmd = ['ffmpeg', '-i', video_path, '-i', audio_path,
+               '-vf', f"ass={escaped_ass}",
+               '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0',
+               '-shortest', '-y', output_path]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if result.returncode != 0:
+            cmd = ['ffmpeg', '-i', video_path, '-i', audio_path,
+                   '-vf', f"subtitles={escaped_ass}",
+                   '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0',
+                   '-shortest', '-y', output_path]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            if result.returncode != 0:
+                return False
+        return os.path.exists(output_path)
+    except Exception as e:
+        print(f"Error burning subtitles with audio: {e}")
         return False
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
