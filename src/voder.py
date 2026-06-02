@@ -713,7 +713,7 @@ class TranslateGemma:
             from transformers import AutoModelForImageTextToText, AutoProcessor
             model_id = "google/translategemma-12b-it"
             print("Loading TranslateGemma 12B model...")
-            use_cuda = torch.cuda.is_available() and torch.cuda.get_device_properties(0).total_mem / (1024**3) >= 24.0
+            use_cuda = torch.cuda.is_available() and torch.cuda.get_device_properties(0).total_memory / (1024**3) >= 24.0
             if use_cuda:
                 dtype = torch.bfloat16
                 device_map = "auto"
