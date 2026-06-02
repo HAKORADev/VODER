@@ -1269,14 +1269,14 @@ Transcribe audio/video to text using Whisper.
 | `translate (source-target)` or `translate (target)` | `(auto-en)` / `(ja-en)` / `(ar)` etc. | Any-to-any translation via TranslateGemma 12B (76 languages). Use `auto` for source auto-detection. `(target)` is shorthand for `(auto-target)`. Compatible with `overdose` and `subtitle`. |
 | `se` | (flag) | Apply sound enhancement before transcription (denoise/dereverb input first). |
 | `overdose` | (flag) | Use VibeVoice ASR (requires 24GB+ VRAM or 48GB+ RAM). Falls back to Whisper + pyannote if unavailable. |
-| `subtitle` | (flag) | Burn VibeVoice ASR subtitles onto video (implies `overdose`; video/URL only; no `translate`). |
+| `subtitle` | (flag) | Burn VibeVoice ASR subtitles onto video (auto‑implies `overdose`; video/URL only; no `translate`). Use `stt overdose subtitle` for clarity. |
 | `result` | `"<path>"` | Copy output to custom path. |
 
 ### Rules
 
 - `overdose` cannot be combined with bare `translate` (without parentheses).
 - `translate (source-target)` or `translate (target)` is compatible with `overdose` — TranslateGemma decouples translation from ASR.
-- `subtitle` implies `overdose`, cannot combine with bare `translate`, and only accepts video files/URLs.
+- `subtitle` auto‑implies `overdose`, so `stt subtitle` and `stt overdose subtitle` are equivalent (explicit form recommended for clarity); cannot combine with bare `translate`; only accepts video files/URLs.
 - Multiple files are processed sequentially.
 - Output is saved as `.txt` in the `results/` directory.
 - **Pipeline:** SVS voice isolation is always applied before transcription. With `se`, sound enhancement runs first.
@@ -1317,19 +1317,19 @@ python voder.py stt "audio.wav" translate timestamp dialogue
 python voder.py stt "https://youtube.com/watch?v=..."
 
 # Subtitle sub-task: burn subtitles onto video
-python voder.py stt subtitle "video.mp4"
+python voder.py stt overdose subtitle "video.mp4"
 
 # Subtitle with sound enhancement
-python voder.py stt subtitle se "noisy_video.mp4"
+python voder.py stt overdose subtitle se "noisy_video.mp4"
 
 # Subtitle from YouTube URL
-python voder.py stt subtitle "https://youtube.com/watch?v=..."
+python voder.py stt overdose subtitle "https://youtube.com/watch?v=..."
 
 # Subtitle with any-to-any translation (auto-detect source, translate to Arabic)
-python voder.py stt subtitle translate (auto-ar) "video.mp4"
+python voder.py stt overdose subtitle translate (auto-ar) "video.mp4"
 
 # Subtitle with Japanese-to-English translation
-python voder.py stt subtitle translate (ja-en) "japanese_video.mp4"
+python voder.py stt overdose subtitle translate (ja-en) "japanese_video.mp4"
 ```
 
 ---

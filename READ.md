@@ -833,7 +833,7 @@ python src/voder.py stt "audio.wav" translate (ar-fr)
 python src/voder.py stt "audio.wav" overdose translate (auto-ja)
 
 # Subtitle a video with translated text
-python src/voder.py stt subtitle translate (auto-en) "video.mp4"
+python src/voder.py stt overdose subtitle translate (auto-en) "video.mp4"
 
 # With overdose mode (VibeVoice ASR)
 python src/voder.py stt "audio.wav" overdose

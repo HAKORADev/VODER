@@ -1428,21 +1428,21 @@ python src/voder.py stt "meeting.wav" overdose dialogue
 
 **Subtitle sub‑task (burn subtitles onto video):**
 ```bash
-python src/voder.py stt subtitle "video.mp4"
+python src/voder.py stt overdose subtitle "video.mp4"
 ```
 
 **Subtitle with translated subtitles (any-to-any via TranslateGemma 12B):**
 ```bash
 # Translated subtitles: auto-detect source, translate to Arabic
-python src/voder.py stt subtitle translate (auto-ar) "video.mp4"
+python src/voder.py stt overdose subtitle translate (auto-ar) "video.mp4"
 
 # Translated subtitles with specific source-target
-python src/voder.py stt subtitle translate (ja-en) "japanese_video.mp4"
+python src/voder.py stt overdose subtitle translate (ja-en) "japanese_video.mp4"
 ```
 
 **Subtitle with sound enhancement:**
 ```bash
-python src/voder.py stt subtitle se "noisy_video.mp4"
+python src/voder.py stt overdose subtitle se "noisy_video.mp4"
 ```
 
 **Transcribe a YouTube video:**
@@ -1470,10 +1470,10 @@ python src/voder.py stt "file1.wav" "file2.mp3" "file3.mp4" timestamp result "/o
 | `translate` | Translate transcribed speech to English (Whisper large-v3) | No |
 | `translate (source-target)` or `translate (target)` | Any-to-any translation via TranslateGemma 12B (76 languages). Use `auto` for source auto-detection. `(target)` is shorthand for `(auto-target)`. Examples: `translate (auto-ar)`, `translate (ar)`, `translate (ja-en)` | No |
 | `overdose` | Use enhanced transcription quality (VibeVoice ASR) | No |
-| `subtitle` | Burn VibeVoice ASR subtitles onto a video (implies `overdose`; video/URL only) | No |
+| `subtitle` | Burn VibeVoice ASR subtitles onto a video (auto‑implies `overdose`; video/URL only). Use `stt overdose subtitle` for clarity | No |
 | `result` | Copy result file(s) to the specified path (file or directory) | No |
 
-**Important:** `overdose` and bare `translate` (without parentheses) are mutually exclusive and cannot be used together. However, `overdose` and `translate (source-target)` or `translate (target)` are compatible — TranslateGemma decouples translation from ASR, allowing overdose-quality transcription with any-to-any translation. `subtitle` implies `overdose` and cannot be used with bare `translate` or with audio/text/image files.
+**Important:** `overdose` and bare `translate` (without parentheses) are mutually exclusive and cannot be used together. However, `overdose` and `translate (source-target)` or `translate (target)` are compatible — TranslateGemma decouples translation from ASR, allowing overdose-quality transcription with any-to-any translation. `subtitle` auto‑implies `overdose` (so `stt subtitle` and `stt overdose subtitle` are equivalent; explicit form recommended for clarity) and cannot be used with bare `translate` or with audio/text/image files.
 
 **Supported Input Formats:**
 - **Audio**: WAV, MP3, FLAC, OGG, AAC, M4A, WMA
@@ -1497,7 +1497,7 @@ The transcription result is saved as a `.txt` file in the `results/` directory. 
 | `translate timestamp` | Timestamped transcript translated to English |
 | `overdose` | Enhanced accuracy plain text transcript (VibeVoice ASR) |
 | `overdose dialogue` | Enhanced accuracy with speaker labels |
-| `subtitle` | Subtitled MP4 video (VibeVoice ASR, video/URL input only) |
+| `overdose subtitle` | Subtitled MP4 video (VibeVoice ASR, video/URL input only) |
 
 **Diarization Output Example:**
 ```
@@ -1857,13 +1857,13 @@ python src/voder.py stt "meeting.wav" overdose dialogue
 
 ### STT‑Only: `subtitle` Flag
 
-Burn VibeVoice ASR transcription as subtitles directly onto a video file. Implies `overdose` (VibeVoice ASR is required). Only accepts video files and URLs — audio, text, and image files are rejected. Overlapping speech from different speakers is shown on a second line beneath the primary speaker in cyan. Subtitles are dynamically positioned at the bottom of the frame regardless of resolution. Use `translate (source-target)` or `translate (target)` to produce translated subtitles (76 languages via TranslateGemma 12B).
+Burn VibeVoice ASR transcription as subtitles directly onto a video file. Auto‑implies `overdose` (VibeVoice ASR is required), so `stt subtitle` and `stt overdose subtitle` are equivalent; the explicit form is recommended for clarity. Only accepts video files and URLs — audio, text, and image files are rejected. Overlapping speech from different speakers is shown on a second line beneath the primary speaker in cyan. Subtitles are dynamically positioned at the bottom of the frame regardless of resolution. Use `translate (source-target)` or `translate (target)` to produce translated subtitles (76 languages via TranslateGemma 12B).
 
 ```bash
-python src/voder.py stt subtitle "video.mp4"
-python src/voder.py stt subtitle se "noisy_video.mp4"
-python src/voder.py stt subtitle "https://www.youtube.com/watch?v=VIDEO_ID"
-python src/voder.py stt subtitle translate (auto-ar) "video.mp4"
+python src/voder.py stt overdose subtitle "video.mp4"
+python src/voder.py stt overdose subtitle se "noisy_video.mp4"
+python src/voder.py stt overdose subtitle "https://www.youtube.com/watch?v=VIDEO_ID"
+python src/voder.py stt overdose subtitle translate (auto-ar) "video.mp4"
 ```
 
 **Note:** `subtitle` cannot be used with bare `translate` or with non‑video files. `subtitle` with `translate (source-target)` or `translate (target)` is supported.

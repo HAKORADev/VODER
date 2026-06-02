@@ -1484,7 +1484,7 @@ STT supports translation and overdose flags with nuanced compatibility:
 
 ### Subtitle Flag
 
-The `subtitle` keyword is an STT sub‑task that produces a subtitled video instead of a text file. It automatically implies `overdose` (uses VibeVoice ASR for transcription) and only accepts **video files and URLs** — audio, text, and image files are rejected with an error.
+The `subtitle` keyword is an STT sub‑task that produces a subtitled video instead of a text file. It auto‑implies `overdose` (uses VibeVoice ASR for transcription), so `stt subtitle` and `stt overdose subtitle` are equivalent; the explicit form is recommended for clarity. It only accepts **video files and URLs** — audio, text, and image files are rejected with an error.
 
 **Pipeline:** Download video (if URL) → Extract audio → SVS voice isolation → Optional `se` sound enhancement → VibeVoice ASR transcription → Burn ASS subtitles onto video → Output MP4.
 
@@ -1563,7 +1563,7 @@ python src/voder.py stt "audio.wav" translate (ja-en)
 python src/voder.py stt "audio.wav" overdose translate (auto-fr)
 
 # Subtitle with translation
-python src/voder.py stt subtitle translate (auto-ar) "video.mp4"
+python src/voder.py stt overdose subtitle translate (auto-ar) "video.mp4"
 ```
 
 #### With Overdose (VibeVoice ASR)
@@ -1581,13 +1581,13 @@ python src/voder.py stt "https://youtube.com/watch?v=VIDEO_ID" overdose result "
 #### With Subtitle (Video Subtitles)
 ```bash
 # Burn subtitles onto a local video
-python src/voder.py stt subtitle "video.mp4"
+python src/voder.py stt overdose subtitle "video.mp4"
 
 # Subtitle with sound enhancement for noisy videos
-python src/voder.py stt subtitle se "noisy_interview.mp4"
+python src/voder.py stt overdose subtitle se "noisy_interview.mp4"
 
 # Burn subtitles onto a YouTube video
-python src/voder.py stt subtitle "https://youtube.com/watch?v=VIDEO_ID"
+python src/voder.py stt overdose subtitle "https://youtube.com/watch?v=VIDEO_ID"
 ```
 
 #### Full Transcription
@@ -1619,7 +1619,7 @@ python src/voder.py stt "spanish_ep1.wav" "spanish_ep2.wav" translate result "/o
 | `translate timestamp` | Translated + timestamps | `[00:00.000 → 00:03.500] Hello everyone` |
 | `overdose` | Enhanced + speaker-labeled | `Speaker 1 (00:00): Hello everyone` |
 | `overdose timestamp` | Enhanced + timestamps + speakers | `[00:00.000 → 00:03.500] Speaker 1: Hello everyone` |
-| `subtitle` | Subtitled MP4 video | Video file with burned‑in ASS subtitles |
+| `overdose subtitle` | Subtitled MP4 video | Video file with burned‑in ASS subtitles |
 
 ### HF_TOKEN Requirement
 Speaker diarization (`dialogue` flag) requires:

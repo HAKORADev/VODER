@@ -323,7 +323,7 @@ This is VODER's first mode that doesn't produce audio output — its output is a
 3. **Transcription**: Whisper Turbo loads the audio and produces a transcript with word‑level timestamps
 4. **Translation** (optional): When the `translate` flag is set, Whisper large‑v3 translates the audio to English with word‑level timestamps. This supports all 99 languages that Whisper large‑v3 handles. When the `translate (source-target)` syntax is used, TranslateGemma 12B performs any-to-any translation across 76 languages instead of Whisper's any-to-English limitation. Use `auto` for source language auto-detection (e.g., `translate (auto-ar)` to auto-detect source and translate to Arabic), or use the shorthand `(target)` (e.g., `translate (ar)` is equivalent to `translate (auto-ar)`). The bare `translate` flag (without parentheses) is backward compatible and still uses Whisper.
 5. **Overdose Mode** (optional): When the `overdose` flag is set, VibeVoice ASR replaces Whisper for transcription. VibeVoice provides higher‑quality speaker‑aware transcription with built‑in speaker identification, but requires 24GB+ VRAM or 48GB+ combined system memory. VibeVoice ASR exposes two methods: `transcribe()` for standard transcription and `transcribe_with_events()` for event‑aware transcription that also captures silence, music, and noise markers alongside speech segments (used by the dub pipeline). The bare `translate` flag is incompatible with `overdose` (Whisper's built-in translation conflicts with VibeVoice ASR). However, `translate (source-target)` is compatible with `overdose` — TranslateGemma runs after VibeVoice ASR transcription, allowing overdose-quality transcription with any-to-any translation.
-6. **Subtitle Sub‑Task** (optional): When the `subtitle` keyword is used, VODER transcribes the video's speech using VibeVoice ASR (overdose is implied) and burns the resulting subtitles directly onto the video as ASS‑format overlays. Only video files and URLs are accepted — audio, text, and image files are rejected. Overlapping speech from different speakers is shown on a second line beneath the primary speaker in a different color (cyan). Subtitles are dynamically positioned at the bottom of the frame at a consistent visual position regardless of the video resolution. The pipeline runs SVS voice isolation and optional sound enhancement (`se`) before transcription. The output is a new MP4 video file with burned‑in subtitles.
+6. **Subtitle Sub‑Task** (optional): When the `overdose subtitle` keywords are used, VODER transcribes the video's speech using VibeVoice ASR and burns the resulting subtitles directly onto the video as ASS‑format overlays. Only video files and URLs are accepted — audio, text, and image files are rejected. Overlapping speech from different speakers is shown on a second line beneath the primary speaker in a different color (cyan). Subtitles are dynamically positioned at the bottom of the frame at a consistent visual position regardless of the video resolution. The pipeline runs SVS voice isolation and optional sound enhancement (`se`) before transcription. The output is a new MP4 video file with burned‑in subtitles. The `subtitle` keyword auto‑implies `overdose`, so `stt subtitle` and `stt overdose subtitle` are equivalent; the explicit form is recommended for clarity.
 7. **Optional Timestamps**: The `timestamp` flag adds formatted timestamps to the output
 8. **Optional Diarization**: The `dialogue` flag runs Pyannote speaker diarization and attributes each segment to a speaker
 9. **Output**: Results are saved as `.txt` files in the `results/` directory (or `.mp4` for subtitle)
@@ -396,13 +396,13 @@ python src/voder.py stt "audio.wav" translate dialogue
 python src/voder.py stt "audio.wav" overdose
 
 # Subtitle sub-task: burn subtitles onto a video
-python src/voder.py stt subtitle "video.mp4"
+python src/voder.py stt overdose subtitle "video.mp4"
 
 # Subtitle with sound enhancement
-python src/voder.py stt subtitle se "video.mp4"
+python src/voder.py stt overdose subtitle se "video.mp4"
 
 # Subtitle a YouTube video
-python src/voder.py stt subtitle "https://www.youtube.com/watch?v=VIDEO_ID"
+python src/voder.py stt overdose subtitle "https://www.youtube.com/watch?v=VIDEO_ID"
 
 # Transcribe a YouTube video
 python src/voder.py stt "https://www.youtube.com/watch?v=VIDEO_ID" timestamp dialogue
@@ -2781,17 +2781,17 @@ python src/voder.py stt "audio.wav" overdose translate (auto-fr)
 
 ### Subtitle STT Trick
 
-The `subtitle` keyword is a sub‑task within STT that goes beyond plain text output — it burns the transcription directly onto the video as subtitles. It implies `overdose` (uses VibeVoice ASR for the best transcription quality) and only accepts video files or URLs. Overlapping speech is automatically detected and rendered on a second line beneath the primary speaker in cyan, making it easy to follow multi‑speaker conversations. Subtitles are dynamically scaled and positioned at the bottom of the frame regardless of resolution.
+The `subtitle` keyword is a sub‑task within STT that goes beyond plain text output — it burns the transcription directly onto the video as subtitles. It auto‑implies `overdose` (uses VibeVoice ASR for the best transcription quality), so `stt subtitle` and `stt overdose subtitle` are equivalent; the explicit form is recommended for clarity. Only video files or URLs are accepted. Overlapping speech is automatically detected and rendered on a second line beneath the primary speaker in cyan, making it easy to follow multi‑speaker conversations. Subtitles are dynamically scaled and positioned at the bottom of the frame regardless of resolution.
 
 ```bash
 # Burn subtitles onto a local video
-python src/voder.py stt subtitle "movie_clip.mp4"
+python src/voder.py stt overdose subtitle "movie_clip.mp4"
 
 # With sound enhancement for noisy videos
-python src/voder.py stt subtitle se "noisy_interview.mp4"
+python src/voder.py stt overdose subtitle se "noisy_interview.mp4"
 
 # Burn subtitles onto a YouTube video
-python src/voder.py stt subtitle "https://www.youtube.com/watch?v=VIDEO_ID"
+python src/voder.py stt overdose subtitle "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
 Note: `subtitle` cannot be used with `translate` or with audio/text/image files. It only produces video output (MP4 with burned‑in subtitles).
