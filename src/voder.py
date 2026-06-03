@@ -2098,7 +2098,8 @@ def _assemble_enhanced_dialogue(dialogue_items, voice_data, tts_design_obj=None,
                                     extracted = svs_extract_vocals(concat_path)
                                     clone_src = extracted if extracted and extracted != concat_path else concat_path
                                     try:
-                                        clone_success = tts_vc_obj.extract_voice(clone_src)
+                                        clone_ref_text = _transcribe_for_qwen_ref(clone_src)
+                                        clone_success = tts_vc_obj.extract_voice(clone_src, ref_text=clone_ref_text if clone_ref_text else None)
                                         if clone_success and tts_vc_obj.voice_prompt is not None:
                                             design_cloned_prompts[char_lower] = tts_vc_obj.voice_prompt
                                     except:
@@ -2331,16 +2332,18 @@ class QwenTTS:
             except Exception as e:
                 print(f"Error loading Qwen-TTS: {e}")
 
-    def extract_voice(self, audio_path):
+    def extract_voice(self, audio_path, ref_text=None):
         if self.model is None:
             return None
         try:
             import torchaudio
             waveform, sample_rate = torchaudio.load(audio_path)
             waveform_np = waveform.cpu().numpy().flatten()
+            use_icl = ref_text is not None and ref_text.strip() != ""
             self.voice_prompt = self.model.create_voice_clone_prompt(
                 ref_audio=(waveform_np, sample_rate),
-                x_vector_only_mode=True
+                ref_text=ref_text if use_icl else None,
+                x_vector_only_mode=not use_icl
             )
             return True
         except Exception as e:
@@ -4254,7 +4257,8 @@ def cli_tts_mode():
                 print("\nLoading Qwen-TTS model...")
                 tts = QwenTTS()
                 print("Extracting voice characteristics...")
-                success = tts.extract_voice(voice_ref)
+                ref_text = _transcribe_for_qwen_ref(voice_ref)
+                success = tts.extract_voice(voice_ref, ref_text=ref_text if ref_text else None)
                 if not success:
                     print("Error: Voice extraction failed")
                     return False
@@ -4504,7 +4508,8 @@ def cli_tts_mode():
                     print("Loading Qwen-TTS model...")
                     tts = QwenTTS()
                     print("Extracting voice characteristics...")
-                    success = tts.extract_voice(clean_vocal)
+                    ref_text = _transcribe_for_qwen_ref(clean_vocal)
+                    success = tts.extract_voice(clean_vocal, ref_text=ref_text if ref_text else None)
                     if not success:
                         print("Error: Voice extraction failed")
                         return False
@@ -4844,7 +4849,8 @@ def cli_tts_mode():
                 vc_voice_prompts = {}
                 for char_lower, audio_path in target_assignments.items():
                     print(f"Extracting voice for '{char_lower}'...")
-                    success = tts_obj.extract_voice(audio_path)
+                    ref_text = _transcribe_for_qwen_ref(audio_path)
+                    success = tts_obj.extract_voice(audio_path, ref_text=ref_text if ref_text else None)
                     if not success:
                         print(f"Error: Failed to extract voice from {audio_path}")
                         return False
@@ -7354,7 +7360,8 @@ def oneline_train(params):
                 return False
 
             print("Extracting voice characteristics...")
-            success = tts.extract_voice(clean_vocal)
+            ref_text = _transcribe_for_qwen_ref(clean_vocal)
+            success = tts.extract_voice(clean_vocal, ref_text=ref_text if ref_text else None)
             if not success:
                 print("Error: Voice extraction failed")
                 return False
@@ -7414,10 +7421,30 @@ def _transcribe_for_fish_ref(audio_path):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+def _transcribe_for_qwen_ref(audio_path):
+    stt = WhisperSTT()
+    if stt.model is None:
+        return ""
+    try:
+        result = stt.transcribe(audio_path)
+        if result is None:
+            return ""
+        text = result.get("text", "").strip()
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
+    except Exception:
+        return ""
+    finally:
+        stt.cleanup()
+        del stt
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
 def _tts_extract_voice(engine, audio_path, use_extreme=False, ref_text=None):
     if use_extreme and isinstance(engine, FishTTS):
         return engine.encode_voice(audio_path, ref_text=ref_text)
-    return engine.extract_voice(audio_path)
+    return engine.extract_voice(audio_path, ref_text=ref_text)
 
 def _tts_synthesize(engine, text, output_path, language="Auto", use_extreme=False):
     if use_extreme and isinstance(engine, FishTTS):
@@ -7659,7 +7686,7 @@ def oneline_tts(params):
             print("Loading Qwen-TTS model...")
             tts = QwenTTS()
         print("Extracting voice characteristics...")
-        ref_text = _transcribe_for_fish_ref(clean_vocal) if use_extreme else None
+        ref_text = _transcribe_for_fish_ref(clean_vocal) if use_extreme else (_transcribe_for_qwen_ref(clean_vocal) if isinstance(tts, QwenTTS) else None)
         success = _tts_extract_voice(tts, clean_vocal, use_extreme=use_extreme, ref_text=ref_text)
         if not success:
             print("Error: Voice extraction failed")
@@ -7986,7 +8013,7 @@ def oneline_tts(params):
                     print("Loading Qwen-TTS model...")
                     tts = QwenTTS()
                 print("Extracting voice characteristics from STS target...")
-                ref_text = _transcribe_for_fish_ref(target_voice_path) if use_extreme else None
+                ref_text = _transcribe_for_fish_ref(target_voice_path) if use_extreme else (_transcribe_for_qwen_ref(target_voice_path) if isinstance(tts, QwenTTS) else None)
                 success = _tts_extract_voice(tts, target_voice_path, use_extreme=use_extreme, ref_text=ref_text)
                 if not success:
                     print("Error: Voice extraction from STS target failed")
@@ -8052,7 +8079,7 @@ def oneline_tts(params):
                         print("Loading Qwen-TTS model...")
                         tts = QwenTTS()
                     print("Extracting voice characteristics...")
-                    ref_text = _transcribe_for_fish_ref(target_voice_path) if use_extreme else None
+                    ref_text = _transcribe_for_fish_ref(target_voice_path) if use_extreme else (_transcribe_for_qwen_ref(target_voice_path) if isinstance(tts, QwenTTS) else None)
                     success = _tts_extract_voice(tts, target_voice_path, use_extreme=use_extreme, ref_text=ref_text)
                     if not success:
                         print("Error: Voice extraction failed")
@@ -8095,7 +8122,7 @@ def oneline_tts(params):
                         print("Loading Qwen-TTS model...")
                         tts = QwenTTS()
                     print("Extracting voice characteristics...")
-                    ref_text = _transcribe_for_fish_ref(target_voice_path) if use_extreme else None
+                    ref_text = _transcribe_for_fish_ref(target_voice_path) if use_extreme else (_transcribe_for_qwen_ref(target_voice_path) if isinstance(tts, QwenTTS) else None)
                     success = _tts_extract_voice(tts, target_voice_path, use_extreme=use_extreme, ref_text=ref_text)
                     if not success:
                         print("Error: Voice extraction failed")
@@ -8488,7 +8515,7 @@ def oneline_tts(params):
                     print("Loading Qwen-TTS model...")
                     tts = QwenTTS()
                 print("Extracting voice characteristics...")
-                ref_text = _transcribe_for_fish_ref(clean_vocal) if use_extreme else None
+                ref_text = _transcribe_for_fish_ref(clean_vocal) if use_extreme else (_transcribe_for_qwen_ref(clean_vocal) if isinstance(tts, QwenTTS) else None)
                 success = _tts_extract_voice(tts, clean_vocal, use_extreme=use_extreme, ref_text=ref_text)
                 if not success:
                     print("Error: Voice extraction failed")
@@ -8807,7 +8834,8 @@ def oneline_tts(params):
                     vc_voice_prompts = {}
                     for char_lower, audio_path in target_assignments.items():
                         print(f"Extracting voice for '{char_lower}'...")
-                        success = tts_obj.extract_voice(audio_path)
+                        ref_text = _transcribe_for_qwen_ref(audio_path)
+                        success = tts_obj.extract_voice(audio_path, ref_text=ref_text if ref_text else None)
                         if not success:
                             print(f"Error: Failed to extract voice from {audio_path}")
                             return False
