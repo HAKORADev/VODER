@@ -95,54 +95,32 @@ class VibeVoiceASRProcessor:
         
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
-        """
-        Load processor from a pretrained model path.
-        
-        Args:
-            pretrained_model_name_or_path: Path to the pretrained model
-            **kwargs: Additional keyword arguments
-            
-        Returns:
-            VibeVoiceASRProcessor: The loaded processor
-        """
         import json
-        from transformers.utils import cached_file
         from .modular_vibevoice_text_tokenizer import VibeVoiceASRTextTokenizerFast
         
-        # Try to load configuration
-        config_path = os.path.join(pretrained_model_name_or_path, "preprocessor_config.json")
         config = {}
         
+        config_path = os.path.join(pretrained_model_name_or_path, "preprocessor_config.json")
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
                 config = json.load(f)
-        else:
-            try:
-                config_file = cached_file(
-                    pretrained_model_name_or_path,
-                    "preprocessor_config.json",
-                    **kwargs
-                )
-                with open(config_file, 'r') as f:
-                    config = json.load(f)
-            except Exception as e:
-                logger.warning(f"Could not load preprocessor_config.json: {e}")
-                logger.warning("Using default configuration")
         
-        # Extract parameters
         speech_tok_compress_ratio = config.get("speech_tok_compress_ratio", 3200)
         target_sample_rate = config.get("target_sample_rate", 24000)
         normalize_audio = config.get("normalize_audio", True)
         
-        # Load tokenizer
         language_model_pretrained_name = config.get("language_model_pretrained_name", None) or kwargs.pop("language_model_pretrained_name", "Qwen/Qwen2.5-1.5B")
         logger.info(f"Loading tokenizer from {language_model_pretrained_name}")
         
         if 'qwen' in language_model_pretrained_name.lower():
-            tokenizer = VibeVoiceASRTextTokenizerFast.from_pretrained(
+            from transformers.models.qwen2.tokenization_qwen2_fast import Qwen2TokenizerFast
+            tokenizer = Qwen2TokenizerFast.from_pretrained(
                 language_model_pretrained_name,
                 **kwargs
             )
+            tokenizer.__class__ = VibeVoiceASRTextTokenizerFast
+            tokenizer._add_vibevoice_special_tokens()
+            tokenizer.chat_template = "{% for message in messages %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n'}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\n' }}{% endif %}"
         else:
             raise ValueError(f"Unsupported tokenizer type for {language_model_pretrained_name}")
         
