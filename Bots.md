@@ -48,6 +48,7 @@ VODER is a professional‑grade voice processing tool that enables seamless conv
 - **Translation in STT**: Translate transcribed speech to English automatically
 - **Overdose Quality Mode**: Enhanced transcription, dialogue source analysis, and music generation using VibeVoice ASR
 - **Extreme TTS Mode**: Higher quality voice cloning and broader language support using Fish Audio S2-Pro (80+ languages, voice effects via `[tag]` syntax including 64 S1 Pro tags)
+- **Extreme STS Mode**: Pre-process target voice reference through Fish S2 Pro for cleaner Seed-VC conversion — extracts dominant voice from mixed/noisy references
 - **Video I/O**: Video input with automatic audio extraction; video output with replaced audio (STS)
 
 ---
@@ -357,7 +358,7 @@ python src/voder.py <mode> [parameters]
 |------|-------------|--------------|-----------|
 | `tts` | Text‑to‑Speech with Voice Design & Voice Cloning (via `target`), SLC sub‑task (`tts slc`), SVC sub‑task (`tts svc`), Dub sub‑task (`tts dub`), optional `overdose` for VibeVoice ASR and enhanced music | No | ✅ Yes (single & dialogue + optional music + SFX + overdose + SLC + SVC + Dub support) |
 | `tts+vc` | Text‑to‑Speech + Voice Cloning — **REMOVED** (use `tts` with `target`) | No | ❌ No longer accepted |
-| `sts` | Speech‑to‑Speech (Voice Conversion) with video I/O & auto vocal extraction | No | ✅ Yes (single only) |
+| `sts` | Speech‑to‑Speech (Voice Conversion) with video I/O, auto vocal extraction & optional `extreme` flag | No | ✅ Yes (single only) |
 | `ttm` | Text‑to‑Music Generation with sub‑tasks (`complete`, `lego`, `extract`, `remix`, `repaint`, `bgm`), `vc` flag, SFX overlay (`bgm`/`complete`), three‑tier ACE‑Step | No | ✅ Yes (single only) |
 | `ttm+vc` | Text‑to‑Music + Voice Conversion — **REMOVED** (use `ttm vc` with `clone`) | No | ❌ No longer accepted |
 | `stt` | Speech‑to‑Text Transcription with translation, overdose, video/URL input | No | ✅ Yes (single, batch, timestamps, diarization, URLs) |
@@ -883,7 +884,7 @@ python src/voder.py tts script "Character1: line1" "Character2: line2" target "C
 
 ### Speech‑to‑Speech / Voice Conversion (sts)
 
-Convert voice from base audio to target voice without changing content using Seed‑VC v2. **MSTS (Music-STS)**: For musical inputs, add the `music` keyword to use Seed‑VC v1 at 44.1kHz for better quality. **Supports video input/output**: when a video file is provided as `base`, audio is auto‑extracted, processed, and re‑muxed into an `.mp4` output. **Automatic vocal extraction**: vocals are automatically extracted from both the source and the `target` before voice conversion. Source music is separated and mixed back after conversion. **`nomusic` flag**: outputs converted voice only without mixing back the source music. **`original` flag**: skips SVS split on the source, processing the full original audio directly with the SVS-cleaned target — useful when the separation step introduces artifacts.
+Convert voice from base audio to target voice without changing content using Seed‑VC v2. **MSTS (Music-STS)**: For musical inputs, add the `music` keyword to use Seed‑VC v1 at 44.1kHz for better quality. **Supports video input/output**: when a video file is provided as `base`, audio is auto‑extracted, processed, and re‑muxed into an `.mp4` output. **Automatic vocal extraction**: vocals are automatically extracted from both the source and the `target` before voice conversion. Source music is separated and mixed back after conversion. **`nomusic` flag**: outputs converted voice only without mixing back the source music. **`original` flag**: skips SVS split on the source, processing the full original audio directly with the SVS-cleaned target — useful when the separation step introduces artifacts. **`extreme` flag**: pre-processes the target voice reference through Fish S2 Pro before Seed-VC conversion — transcribes the compiled reference with VibeVoice ASR, re-synthesizes it with Fish S2 Pro to produce a cleaner, more natural voice profile that extracts the dominant voice and removes background artifacts/noise, giving Seed-VC a cleaner input. Works with both Seed-VC v1 (music) and v2 (standard/mimic). Oneline mode only.
 
 ```bash
 python src/voder.py sts base "source_audio.wav" target "voice_reference.wav"
@@ -893,6 +894,12 @@ python src/voder.py sts base "song.wav" target "voice_reference.wav" music
 python src/voder.py sts base "song.wav" target "voice_reference.wav" nomusic
 
 python src/voder.py sts original base "source_audio.wav" target "voice_reference.wav"
+
+python src/voder.py sts extreme base "source_audio.wav" target "voice_reference.wav"
+
+python src/voder.py sts extreme base "song.wav" target "voice_reference.wav" music
+
+python src/voder.py sts extreme base "source.wav" target "voice.wav" mimic
 ```
 
 **Parameters:**
@@ -905,6 +912,7 @@ python src/voder.py sts original base "source_audio.wav" target "voice_reference
 | `mimic` | Transfer accent and speaking style from target voice | No |
 | `nomusic` | Output converted voice only (no music recombination) | No |
 | `original` | Skip SVS split on source — process full original source directly with SVS-cleaned target. Useful when SVS separation introduces artifacts | No |
+| `extreme` | Pre-process target reference through Fish S2 Pro before Seed-VC — transcribes with VibeVoice ASR, re-synthesizes with Fish S2 Pro for a cleaner, more natural voice profile that extracts the dominant voice from mixed/noisy references. Oneline mode only | No |
 
 **Supported Input Formats:**
 - Audio: WAV, MP3, FLAC, OGG

@@ -11,7 +11,7 @@
 
 #### Extreme TTS Mode
 
-- **`extreme` Keyword** — New keyword for TTS mode and its sub-tasks (TTS, SLC, SVC, Modify Speech) that switches the TTS engine from Qwen3-TTS to Fish Audio S2-Pro for higher quality voice cloning and broader language support. Can be used alongside `overdose` (they serve different purposes: overdose = STT/TTM model selection, extreme = TTS model upgrade). Placed after `overdose` in syntax and prompts.
+- **`extreme` Keyword** — New keyword for TTS mode and its sub-tasks (TTS, SLC, SVC, Modify Speech) that switches the TTS engine from Qwen3-TTS to Fish Audio S2-Pro for higher quality voice cloning and broader language support. Can be used alongside `overdose` (they serve different purposes: overdose = STT/TTM model selection, extreme = TTS model upgrade). Placed after `overdose` in syntax and prompts. Also available for STS mode to pre-process the target voice reference through Fish S2 Pro before Seed-VC conversion, producing a cleaner voice profile that extracts the dominant voice and removes background artifacts/noise.
 
 - **Fish Audio S2-Pro** — New TTS model integrated into VODER. A dual-autoregressive (4B + 400M) model with RVQ-based codec supporting 80+ languages, voice effects via `[tag]` syntax, and superior voice cloning quality.
   - Model: `fishaudio/s2-pro` from HuggingFace, stored at `src/models/checkpoints/fish_s2pro/`
@@ -30,6 +30,8 @@
 - **Extreme in SVC** — `tts extreme svc "path.wav" target "ref.wav"` uses Fish S2-Pro for the re-synthesis step. Supports `.ttse` premade voice files.
 
 - **Extreme in Modify Speech** — TTS interactive modify speech now includes an "Enable extreme? (Y/N)" prompt after overdose. When enabled, Fish S2-Pro replaces Qwen3-TTS for voice extraction and synthesis.
+
+- **Extreme in STS** — `sts extreme base "source.wav" target "voice.wav"` pre-processes the target voice reference through Fish S2 Pro before Seed-VC conversion. The compiled target reference is transcribed with VibeVoice ASR, then re-synthesized with Fish S2 Pro to produce a cleaner, more natural voice profile that extracts the dominant voice and removes background artifacts/noise. This gives Seed-VC a cleaner reference input, improving voice conversion quality especially when the reference contains mixed audio or background noise. Works with both Seed-VC v1 (`music` flag) and v2 (standard/mimic). Oneline mode only. If the extreme pass fails, the original target reference is used as fallback.
 
 - **TTM Voice** — `ttm voice` keyword generates a song via ACE-Step then automatically extracts clean vocals via the SVS voice pipe. Output is the isolated vocal track. Supports `target` reference audio and `overdose` quality. Syntax: `voder.py ttm voice lyrics "..." styling "..." 30`
 

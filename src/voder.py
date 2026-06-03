@@ -7478,6 +7478,35 @@ def _tts_cleanup(engine, use_extreme=False):
         except Exception:
             pass
 
+def _sts_extreme_pass(audio_path):
+    fish_tts = FishTTS()
+    if not fish_tts.ensure_model():
+        print("Error: Failed to load Fish-S2Pro model for STS extreme pass")
+        return None
+    print("Transcribing target reference (extreme)...")
+    ref_text = _transcribe_for_fish_ref(audio_path)
+    if not ref_text:
+        print("Warning: STS extreme transcription empty, falling back to original reference")
+        fish_tts.cleanup()
+        return None
+    print("Encoding target reference (extreme)...")
+    success = fish_tts.encode_voice(audio_path, ref_text=ref_text)
+    if not success:
+        print("Warning: STS extreme voice encoding failed, falling back to original reference")
+        fish_tts.cleanup()
+        return None
+    temp_output = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    temp_output.close()
+    print("Synthesizing clean reference (extreme)...")
+    success = fish_tts.synthesize(ref_text, temp_output.name)
+    fish_tts.cleanup()
+    if not success or not os.path.exists(temp_output.name):
+        print("Warning: STS extreme synthesis failed, falling back to original reference")
+        if os.path.exists(temp_output.name):
+            os.unlink(temp_output.name)
+        return None
+    return temp_output.name
+
 def oneline_tts(params):
     original_cwd = os.getcwd()
     results_dir = os.path.join(original_cwd, "results")
@@ -8934,6 +8963,7 @@ def oneline_sts(params):
     is_mimic = params.get('is_mimic', False)
     no_music = params.get('nomusic', False)
     use_original = params.get('use_original', False)
+    use_extreme = params.get('extreme', False)
 
     if 'base' not in params or len(params['base']) != 1:
         print("Error: STS mode requires exactly one 'base' parameter")
@@ -9007,6 +9037,13 @@ def oneline_sts(params):
         else:
             clean_vocal_target = svs_extract_vocals(target_path)
             _target_cleanup.append(clean_vocal_target)
+        _extreme_cleanup = None
+        if use_extreme:
+            print("Running STS extreme pass on target reference...")
+            extreme_result = _sts_extreme_pass(clean_vocal_target)
+            if extreme_result:
+                _extreme_cleanup = extreme_result
+                clean_vocal_target = extreme_result
         print("Resampling inputs to 44100Hz...")
         import torchaudio
         waveform_vocals, sr_vocals = torchaudio.load(base_vocals)
@@ -9055,6 +9092,8 @@ def oneline_sts(params):
             for temp_file in [temp_vocals.name, temp_target.name, temp_output_44k.name]:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
+            if _extreme_cleanup and os.path.exists(_extreme_cleanup):
+                os.unlink(_extreme_cleanup)
             if temp_base_extracted and os.path.exists(temp_base_extracted):
                 os.remove(temp_base_extracted)
             for f in _target_cleanup:
@@ -9083,6 +9122,13 @@ def oneline_sts(params):
         else:
             clean_vocal_target = svs_extract_vocals(target_path)
             _target_cleanup.append(clean_vocal_target)
+        _extreme_cleanup = None
+        if use_extreme:
+            print("Running STS extreme pass on target reference...")
+            extreme_result = _sts_extreme_pass(clean_vocal_target)
+            if extreme_result:
+                _extreme_cleanup = extreme_result
+                clean_vocal_target = extreme_result
         print("Loading Seed-VC v2 model...")
         seed_vc = SeedVCV2()
         if seed_vc.model is None:
@@ -9158,6 +9204,8 @@ def oneline_sts(params):
             for temp_file in [temp_vocals.name, temp_target.name, temp_output_22k.name, temp_output_44k.name]:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
+            if _extreme_cleanup and os.path.exists(_extreme_cleanup):
+                os.unlink(_extreme_cleanup)
             if temp_base_extracted and os.path.exists(temp_base_extracted):
                 os.remove(temp_base_extracted)
             for f in _target_cleanup:

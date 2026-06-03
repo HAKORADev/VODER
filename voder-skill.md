@@ -33,8 +33,8 @@ VODER is not a single AI model — it is an **orchestration layer** that coordin
 | **ACE-Step XL-Base** | Music generation (complete-mode sub-tasks) | TTM (`complete`, `extract`, `lego`) |
 | **ACE-Step 1.5** | Music generation (legacy / background music) | TTM (default), Background Music (dialogue `music` param) |
 | **BS-RoFormer Resurrection** | Vocal/music separation (stem extraction) | SVS, STS (auto vocal extraction), STT (pre-cleanup), TTS (voice clone cleanup, SLC voice isolation, SVC voice isolation, dub voice+music separation), TTM `bgm` (strip music + reference cleanup) |
-| **VibeVoice ASR** | Advanced ASR with native speaker diarization | STT with `overdose` flag, TTS with `overdose` flag, SS, TTS `dub` sub-task, Fish S2 Pro reference transcription |
-| **Fish Audio S2-Pro** | High quality TTS with 80+ language support | TTS with `extreme` flag, SLC/SVC/Modify Speech with `extreme`, `train extreme`, TTS `dub` sub-task |
+| **VibeVoice ASR** | Advanced ASR with native speaker diarization | STT with `overdose` flag, TTS with `overdose` flag, SS, TTS `dub` sub-task, Fish S2 Pro reference transcription, STS `extreme` flag |
+| **Fish Audio S2-Pro** | High quality TTS with 80+ language support | TTS with `extreme` flag, SLC/SVC/Modify Speech with `extreme`, `train extreme`, TTS `dub` sub-task, STS with `extreme` flag |
 | **Pyannote** | Speaker diarization (who spoke when) | STT with `dialogue` flag |
 | **EasyOCR** | Text extraction from images | STT with image input |
 | **UniSE** | Speech enhancement/denoising | SE (default/voice sub-mode), TTS `dub` sub-task with `se` flag |
@@ -185,7 +185,7 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 1. **Mode comes first**: `tts`, `stt`, `sts`, `ttm`, `svs`, `ss`, etc. Sub-tasks follow mode: `tts slc`, `tts overdose slc`, `tts extreme slc`, `tts slc music`, `tts svc`, `tts overdose svc`, `tts extreme svc`, `tts dub`, `tts dub subtitle`, `tts dub subtitle "(auto-en)"`, `tts dub translate "(auto-ar)"`, `tts overdose extreme se dub`
 2. **Required parameters follow**: `script`, `voice`, `target`, `base`, `lyrics`, `styling`, etc.
 3. **Optional parameters come after**: `music`, `level`, `result`, `vc`, `stem`, `task`, etc.
-4. **Flags can appear anywhere after mode**: `timestamp`, `dialogue`, `music` (STS), `mimic` (STS), `nomusic` (STS), `translate` (STT), `overdose` (STT, TTM, TTS), `extreme` (TTS, SLC, SVC), `vc` (TTM)
+4. **Flags can appear anywhere after mode**: `timestamp`, `dialogue`, `music` (STS), `mimic` (STS), `nomusic` (STS), `translate` (STT), `overdose` (STT, TTM, TTS), `extreme` (TTS, SLC, SVC, STS), `vc` (TTM)
 
 ---
 
@@ -927,6 +927,23 @@ python src/voder.py sts original mimic base "source.wav" target "reference.wav"
 # Original avoids SVS separation artifacts on the source, but background elements may affect conversion quality
 ```
 
+#### extreme (Fish S2 Pro Reference Cleaning)
+Pre-process the target voice reference through Fish S2 Pro before Seed-VC conversion. The extreme pass transcribes the compiled target reference with VibeVoice ASR, then synthesizes it with Fish S2 Pro using the transcription as `ref_text`. This produces a cleaner, more natural voice profile that extracts the dominant voice and removes background artifacts/noise from the reference, giving Seed-VC a cleaner input. Works with both Seed-VC v1 (music) and v2 (standard/mimic). Oneline mode only. If the extreme pass fails (empty transcription, encoding failure, or synthesis failure), the original target reference is used as fallback.
+
+```bash
+# Extreme pass: clean target reference with Fish S2 Pro before Seed-VC
+python src/voder.py sts extreme base "source.wav" target "voice.wav"
+
+# Extreme + music (Fish S2 Pro clean reference, then Seed-VC v1)
+python src/voder.py sts extreme base "song.wav" target "singer.wav" music
+
+# Extreme + mimic (Fish S2 Pro clean reference, then Seed-VC v2 style transfer)
+python src/voder.py sts extreme base "source.wav" target "voice.wav" mimic
+
+# Extreme + original (Fish S2 Pro clean reference, no SVS on source)
+python src/voder.py sts extreme original base "source.wav" target "voice.wav"
+```
+
 #### Multi-Reference Target (Oneline Only)
 ```bash
 # Multiple voice references concatenated for richer cloning
@@ -947,6 +964,7 @@ python src/voder.py sts base "source.wav" target first "(voice1.wav)(voice2.wav)
 | `music` | Seed-VC v1 | 44.1kHz | Songs, musical content, singing |
 | `nomusic` | Seed-VC v2 | 22.05kHz | Voice-only output (no music recombination) |
 | `mimic` | Seed-VC v2 (AR+CFM) | 22.05kHz | Style transfer (voice + accent + delivery) |
+| `extreme` | Fish S2 Pro + Seed-VC | varies | Pre-processes target reference through Fish S2 Pro for cleaner voice extraction, then Seed-VC (v1 or v2 depending on `music`/`mimic`) |
 
 ### Video I/O Support
 

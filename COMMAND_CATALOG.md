@@ -554,6 +554,7 @@ Convert voice from a base audio to match a target voice. Source vocals are autom
 | `mimic` | (flag) | Convert style + voice (not just voice). Uses Seed-VC v2 with `convert_style=True`. Cannot be combined with `music`. Input must be audio (not video). |
 | `nomusic` | (flag) | Output converted voice only without mixing back source music. Cannot be combined with `music`. |
 | `original` | (flag) | Skip SVS split on the source audio. The full original source is processed directly with the SVS-cleaned target reference. Useful when the source separation step introduces artifacts that degrade the final result. Cannot be combined with `nomusic` (no music to mix back). |
+| `extreme` | (flag) | Pre-process the target voice reference through Fish S2 Pro before Seed-VC conversion. Transcribes the compiled target reference with VibeVoice ASR, then synthesizes it with Fish S2 Pro to produce a cleaner, more natural voice profile. This extracts the dominant voice and removes background artifacts/noise from the reference, giving Seed-VC a cleaner input. Works with both Seed-VC v1 (music) and v2 (standard/mimic). Oneline mode only. |
 
 ### Rules
 
@@ -564,6 +565,7 @@ Convert voice from a base audio to match a target voice. Source vocals are autom
 - By default, source vocals and music are automatically separated via SVS before conversion; music is recombined after (unless `nomusic`). With `original`, the source is used as-is without SVS splitting.
 - Target vocals are automatically cleaned via SVS before conversion.
 - Output is upsampled to 44100Hz.
+- `extreme` pre-processes the target reference (not the source) through Fish S2 Pro. The extreme pass transcribes and re-synthesizes the target reference, producing a cleaner voice profile for Seed-VC. If the extreme pass fails (transcription empty, encoding failure, or synthesis failure), the original target reference is used as fallback.
 - Output filenames: music mode uses `voder_m_sts_*.wav`, standard/mimic/nomusic uses `voder_sts_*.wav`.
 
 ```
@@ -593,6 +595,18 @@ python voder.py sts original base "input.wav" target "voice.wav"
 
 # Original + mimic (process full source, mimic style and voice)
 python voder.py sts original mimic base "input.wav" target "voice.wav"
+
+# Extreme pass: clean target reference with Fish S2 Pro before Seed-VC
+python voder.py sts extreme base "input.wav" target "voice.wav"
+
+# Extreme + music (Fish S2 Pro clean reference, then Seed-VC v1)
+python voder.py sts extreme base "song.wav" target "voice.wav" music
+
+# Extreme + mimic (Fish S2 Pro clean reference, then Seed-VC v2 style transfer)
+python voder.py sts extreme base "input.wav" target "voice.wav" mimic
+
+# Extreme + original (Fish S2 Pro clean reference, no SVS on source)
+python voder.py sts extreme original base "input.wav" target "voice.wav"
 ```
 
 ---
