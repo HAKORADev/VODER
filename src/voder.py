@@ -7518,17 +7518,300 @@ def _group_words_to_segments(word_timestamps, chunk_size=4, speaker=None):
         i = end_idx
     return segments
 
+def _extract_speakers_for_subtitles(audio_path):
+    clean_source = audio_path
+    svs_temp_dir = None
+    try:
+        _bs_roformer_lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bs_roformer', 'lib')
+        if _bs_roformer_lib not in sys.path:
+            sys.path.insert(0, _bs_roformer_lib)
+        from bs_roformer import BSRoformerSeparator
+        svs_sep = BSRoformerSeparator(SVS_DIR)
+        svs_sep.ensure_model(stem='voice')
+        svs_temp_dir = tempfile.mkdtemp()
+        svs_temp = os.path.join(svs_temp_dir, 'svs_vocals.wav')
+        svs_ok = svs_sep.separate(audio_path, 'voice', svs_temp)
+        svs_sep.cleanup()
+        del svs_sep
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        if svs_ok and os.path.exists(svs_temp):
+            clean_source = svs_temp
+    except Exception:
+        pass
+    try:
+        diarization = SpeakerDiarization()
+        if diarization.pipeline is None:
+            return None
+        diar_full = diarization.diarize_full(clean_source)
+        diarization.cleanup()
+        del diarization
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        return None
+    if diar_full is None:
+        return None
+    if hasattr(diar_full, 'exclusive_speaker_diarization'):
+        inclusive_diar = diar_full.speaker_diarization
+        exclusive_diar = diar_full.exclusive_speaker_diarization
+    else:
+        inclusive_diar = diar_full
+        exclusive_diar = diar_full
+    speaker_segments = {}
+    for turn in inclusive_diar.itertracks(yield_label=True):
+        segment, _, speaker = turn
+        if speaker not in speaker_segments:
+            speaker_segments[speaker] = []
+        speaker_segments[speaker].append({"start": float(segment.start), "end": float(segment.end)})
+    for spk in speaker_segments:
+        speaker_segments[spk].sort(key=lambda x: x["start"])
+        merged = []
+        for s in speaker_segments[spk]:
+            if merged and s["start"] - merged[-1]["end"] < 0.3:
+                merged[-1]["end"] = s["end"]
+            else:
+                merged.append({"start": s["start"], "end": s["end"]})
+        speaker_segments[spk] = merged
+    sorted_speakers = sorted(speaker_segments.keys(), key=lambda spk: speaker_segments[spk][0]["start"])
+    if len(sorted_speakers) < 2:
+        return None
+    exclusive_segments = {}
+    for turn in exclusive_diar.itertracks(yield_label=True):
+        segment, _, speaker = turn
+        if speaker not in exclusive_segments:
+            exclusive_segments[speaker] = []
+        exclusive_segments[speaker].append({
+            "start": float(segment.start),
+            "end": float(segment.end),
+            "duration": float(segment.end) - float(segment.start)
+        })
+    for spk in exclusive_segments:
+        exclusive_segments[spk].sort(key=lambda x: x["duration"], reverse=True)
+    overlap_regions = []
+    try:
+        overlap_tl = inclusive_diar.get_overlap()
+        for seg in overlap_tl:
+            overlap_regions.append({"start": float(seg.start), "end": float(seg.end)})
+    except Exception:
+        pass
+    from unise import UniSEEnhancer
+    tse_enhancer = UniSEEnhancer(UNISE_DIR)
+    tse_enhancer.ensure_model()
+    if tse_enhancer.model is None:
+        tse_enhancer.cleanup()
+        del tse_enhancer
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        return None
+    temp_dir = tempfile.mkdtemp()
+    speaker_files = {}
+    speaker_to_idx = {}
+    for idx, spk in enumerate(sorted_speakers, 1):
+        speaker_to_idx[spk] = idx
+    for spk in sorted_speakers:
+        spk_num = speaker_to_idx[spk]
+        clean_segs = exclusive_segments.get(spk, [])
+        enroll_parts = []
+        collected = 0.0
+        target_enroll = 5.0
+        for seg in clean_segs:
+            if collected >= target_enroll:
+                break
+            remaining = target_enroll - collected
+            take_dur = min(seg["duration"], remaining)
+            enroll_parts.append({"start": seg["start"], "duration": take_dur})
+            collected += take_dur
+        if not enroll_parts:
+            segs = speaker_segments[spk]
+            longest = max(segs, key=lambda x: x["end"] - x["start"])
+            start_t = longest["start"]
+            dur_t = longest["end"] - longest["start"]
+            if dur_t > 5.0:
+                mid = start_t + dur_t / 2.0
+                start_t = mid - 2.5
+                dur_t = 5.0
+                if start_t < 0:
+                    start_t = 0.0
+            enroll_parts.append({"start": start_t, "duration": dur_t})
+        enroll_clip = os.path.join(temp_dir, f"enroll_spk{spk_num}.wav")
+        if len(enroll_parts) == 1:
+            part = enroll_parts[0]
+            cmd = ['ffmpeg', '-i', clean_source, '-ss', str(part["start"]),
+                   '-t', str(part["duration"]), '-ar', '16000', '-ac', '1', '-y', enroll_clip]
+            ret = subprocess.run(cmd, capture_output=True, text=True)
+            if ret.returncode != 0 or not os.path.exists(enroll_clip):
+                continue
+        else:
+            part_files = []
+            for pi, part in enumerate(enroll_parts):
+                part_file = os.path.join(temp_dir, f"enroll_spk{spk_num}_part{pi}.wav")
+                cmd = ['ffmpeg', '-i', clean_source, '-ss', str(part["start"]),
+                       '-t', str(part["duration"]), '-ar', '16000', '-ac', '1', '-y', part_file]
+                ret = subprocess.run(cmd, capture_output=True, text=True)
+                if ret.returncode != 0 or not os.path.exists(part_file):
+                    continue
+                part_files.append(part_file)
+            if not part_files:
+                continue
+            concat_list = os.path.join(temp_dir, f"enroll_spk{spk_num}_concat.txt")
+            with open(concat_list, 'w') as f:
+                for pf in part_files:
+                    f.write(f"file '{pf}'\n")
+            cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_list,
+                   '-ar', '16000', '-ac', '1', '-y', enroll_clip]
+            ret = subprocess.run(cmd, capture_output=True, text=True)
+            if ret.returncode != 0 or not os.path.exists(enroll_clip):
+                continue
+        spk_output = os.path.join(temp_dir, f"spk{spk_num}_extracted.wav")
+        tse_ok = tse_enhancer.tse_extract(clean_source, enroll_clip, spk_output)
+        if tse_ok and os.path.exists(spk_output):
+            speaker_files[spk] = spk_output
+    tse_enhancer.cleanup()
+    del tse_enhancer
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    if not speaker_files:
+        try:
+            shutil.rmtree(temp_dir)
+        except Exception:
+            pass
+        return None
+    return {
+        "speaker_files": speaker_files,
+        "speaker_segments": speaker_segments,
+        "overlap_regions": overlap_regions,
+        "temp_dir": temp_dir,
+        "svs_temp_dir": svs_temp_dir,
+        "speaker_to_idx": speaker_to_idx
+    }
+
+def _cleanup_speaker_extraction(extraction_result):
+    if extraction_result is None:
+        return
+    temp_dir = extraction_result.get("temp_dir")
+    if temp_dir and os.path.exists(temp_dir):
+        try:
+            shutil.rmtree(temp_dir)
+        except Exception:
+            pass
+    svs_temp_dir = extraction_result.get("svs_temp_dir")
+    if svs_temp_dir and os.path.exists(svs_temp_dir):
+        try:
+            shutil.rmtree(svs_temp_dir)
+        except Exception:
+            pass
+
 def _align_subtitle_segments(audio_path, segments):
     if not segments:
         return segments
-    all_text = " ".join(seg.get("text", "").strip() for seg in segments if seg.get("text", "").strip())
-    if not all_text:
-        return segments
-    speaker = segments[0].get("speaker") if segments else None
-    word_timestamps = _forced_align_words(audio_path, all_text)
-    if not word_timestamps:
-        return segments
-    return _group_words_to_segments(word_timestamps, chunk_size=4, speaker=speaker)
+    speakers = {}
+    for seg in segments:
+        spk = seg.get("speaker")
+        if spk not in speakers:
+            speakers[spk] = []
+        speakers[spk].append(seg)
+    if len(speakers) < 2:
+        all_text = " ".join(seg.get("text", "").strip() for seg in segments if seg.get("text", "").strip())
+        if not all_text:
+            return segments
+        speaker = segments[0].get("speaker") if segments else None
+        word_timestamps = _forced_align_words(audio_path, all_text)
+        if not word_timestamps:
+            return segments
+        result = _group_words_to_segments(word_timestamps, chunk_size=8, speaker=speaker)
+        for seg in result:
+            seg["overlap"] = False
+        return result
+    extraction = _extract_speakers_for_subtitles(audio_path)
+    if extraction is None:
+        all_text = " ".join(seg.get("text", "").strip() for seg in segments if seg.get("text", "").strip())
+        if not all_text:
+            return segments
+        word_timestamps = _forced_align_words(audio_path, all_text)
+        if not word_timestamps:
+            return segments
+        result = _group_words_to_segments(word_timestamps, chunk_size=8, speaker=segments[0].get("speaker"))
+        for seg in result:
+            seg["overlap"] = False
+        return result
+    try:
+        speaker_files = extraction["speaker_files"]
+        speaker_segs = extraction["speaker_segments"]
+        overlap_regions = extraction["overlap_regions"]
+        diar_speakers = sorted(speaker_segs.keys(), key=lambda spk: speaker_segs[spk][0]["start"])
+        asr_speakers = sorted(speakers.keys())
+        speaker_map = {}
+        for i, asr_spk in enumerate(asr_speakers):
+            speaker_map[asr_spk] = diar_speakers[i] if i < len(diar_speakers) else diar_speakers[-1]
+        all_aligned = []
+        for asr_spk, spk_segs in speakers.items():
+            diar_spk = speaker_map.get(asr_spk)
+            if diar_spk is None:
+                continue
+            spk_text = " ".join(seg.get("text", "").strip() for seg in spk_segs if seg.get("text", "").strip())
+            if not spk_text:
+                continue
+            separated_audio = speaker_files.get(diar_spk)
+            if separated_audio and os.path.exists(separated_audio):
+                word_ts = _forced_align_words(separated_audio, spk_text)
+            else:
+                word_ts = _forced_align_words(audio_path, spk_text)
+            if not word_ts:
+                for seg in spk_segs:
+                    seg_copy = dict(seg)
+                    seg_copy["overlap"] = False
+                    all_aligned.append(seg_copy)
+                continue
+            windows = speaker_segs.get(diar_spk, [])
+            if windows:
+                filtered = []
+                for w in word_ts:
+                    for win in windows:
+                        if w["start"] >= win["start"] - 0.3 and w["end"] <= win["end"] + 0.3:
+                            filtered.append(w)
+                            break
+                if filtered:
+                    word_ts = filtered
+            chunked = _group_words_to_segments(word_ts, chunk_size=8, speaker=asr_spk)
+            for chunk in chunked:
+                is_overlap = False
+                for ov in overlap_regions:
+                    if chunk["start"] < ov["end"] and chunk["end"] > ov["start"]:
+                        is_overlap = True
+                        break
+                chunk["overlap"] = is_overlap
+            all_aligned.extend(chunked)
+        all_aligned.sort(key=lambda x: x["start"])
+        if not all_aligned:
+            all_text = " ".join(seg.get("text", "").strip() for seg in segments if seg.get("text", "").strip())
+            if all_text:
+                word_timestamps = _forced_align_words(audio_path, all_text)
+                if word_timestamps:
+                    result = _group_words_to_segments(word_timestamps, chunk_size=8, speaker=segments[0].get("speaker"))
+                    for seg in result:
+                        seg["overlap"] = False
+                    return result
+            return segments
+        return all_aligned
+    except Exception as e:
+        print(f"Warning: Per-speaker alignment failed: {e}")
+        all_text = " ".join(seg.get("text", "").strip() for seg in segments if seg.get("text", "").strip())
+        if not all_text:
+            return segments
+        word_timestamps = _forced_align_words(audio_path, all_text)
+        if not word_timestamps:
+            return segments
+        result = _group_words_to_segments(word_timestamps, chunk_size=8, speaker=segments[0].get("speaker"))
+        for seg in result:
+            seg["overlap"] = False
+        return result
+    finally:
+        _cleanup_speaker_extraction(extraction)
 
 def _tts_extract_voice(engine, audio_path, use_extreme=False, ref_text=None):
     if use_extreme and isinstance(engine, FishTTS):
@@ -11440,13 +11723,18 @@ def oneline_tts_dub(params):
                                 'speaker': part['speaker']
                             })
                     else:
-                        dub_asr_segments = dub_asr.transcribe_with_events(final_audio)
+                        dub_asr_segments = dub_asr.transcribe(final_audio)
+                        if not dub_asr_segments:
+                            dub_asr_segments = dub_asr.transcribe_with_events(final_audio)
                         dub_asr.cleanup()
                         del dub_asr
                         gc.collect()
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
-                        dub_speech_segs = [s for s in dub_asr_segments if not s.get('is_event', False) and s.get('text', '').strip()] if dub_asr_segments else []
+                        if dub_asr_segments:
+                            dub_speech_segs = [s for s in dub_asr_segments if s.get('text', '').strip()]
+                        else:
+                            dub_speech_segs = []
                         subtitle_segments = []
                         for seg in dub_speech_segs:
                             subtitle_segments.append({
@@ -12279,30 +12567,60 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     events = []
     overlaps = []
-    for i, seg in enumerate(segments):
-        start = seg.get("start", 0) or 0
-        end = seg.get("end", 0) or 0
-        text = seg.get("text", "").strip()
-        if not text or end <= start:
-            continue
-        for j, other in enumerate(segments):
-            if i == j:
+    has_overlap_flag = any(seg.get("overlap") is not None for seg in segments if seg.get("text", "").strip())
+    if has_overlap_flag:
+        for i, seg in enumerate(segments):
+            start = seg.get("start", 0) or 0
+            end = seg.get("end", 0) or 0
+            text = seg.get("text", "").strip()
+            if not text or end <= start:
                 continue
-            o_start = other.get("start", 0) or 0
-            o_end = other.get("end", 0) or 0
-            if o_start < end and o_end > start and j > i:
-                overlap_start = max(start, o_start)
-                overlap_end = min(end, o_end)
-                o_text = other.get("text", "").strip()
-                if o_text:
-                    overlaps.append({
-                        "start": overlap_start,
-                        "end": overlap_end,
-                        "text": o_text
-                    })
-
-        text_escaped = text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
-        events.append(f"Dialogue: 0,{_format_ass_time(start)},{_format_ass_time(end)},Default,,0,0,0,,{text_escaped}")
+            is_overlap = seg.get("overlap", False)
+            if is_overlap:
+                for j, other in enumerate(segments):
+                    if i == j:
+                        continue
+                    o_start = other.get("start", 0) or 0
+                    o_end = other.get("end", 0) or 0
+                    if o_start < end and o_end > start and other.get("text", "").strip():
+                        overlap_start = max(start, o_start)
+                        overlap_end = min(end, o_end)
+                        o_text = other.get("text", "").strip()
+                        if o_text and not any(
+                            abs(ov["start"] - overlap_start) < 0.1 and abs(ov["end"] - overlap_end) < 0.1
+                            for ov in overlaps
+                        ):
+                            overlaps.append({
+                                "start": overlap_start,
+                                "end": overlap_end,
+                                "text": o_text
+                            })
+            text_escaped = text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
+            events.append(f"Dialogue: 0,{_format_ass_time(start)},{_format_ass_time(end)},Default,,0,0,0,,{text_escaped}")
+    else:
+        for i, seg in enumerate(segments):
+            start = seg.get("start", 0) or 0
+            end = seg.get("end", 0) or 0
+            text = seg.get("text", "").strip()
+            if not text or end <= start:
+                continue
+            for j, other in enumerate(segments):
+                if i == j:
+                    continue
+                o_start = other.get("start", 0) or 0
+                o_end = other.get("end", 0) or 0
+                if o_start < end and o_end > start and j > i:
+                    overlap_start = max(start, o_start)
+                    overlap_end = min(end, o_end)
+                    o_text = other.get("text", "").strip()
+                    if o_text:
+                        overlaps.append({
+                            "start": overlap_start,
+                            "end": overlap_end,
+                            "text": o_text
+                        })
+            text_escaped = text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
+            events.append(f"Dialogue: 0,{_format_ass_time(start)},{_format_ass_time(end)},Default,,0,0,0,,{text_escaped}")
 
     for ov in overlaps:
         text_escaped = ov["text"].replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
