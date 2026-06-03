@@ -1096,6 +1096,16 @@ By default, STS separates the source audio into vocals and music via SVS before 
 - The target still gets SVS-cleaned regardless — only the source skips SVS splitting
 - No music is available to mix back (since the source wasn't split), making the output voice-only
 
+**extreme (Fish S2 Pro Reference Cleaning):**
+
+The `extreme` keyword pre-processes the target voice reference through Fish S2 Pro before Seed-VC conversion. After the target reference is compiled (and SVS-cleaned if needed), VibeVoice ASR transcribes it, then Fish S2 Pro re-synthesizes that transcription using the original reference as the voice source. This produces a cleaner, more natural voice profile that extracts the dominant voice and removes background artifacts or noise from the reference. Seed-VC then receives this cleaned audio as its target input instead of the original, resulting in better voice conversion quality — especially when the reference contains mixed audio, slight background noise, or glitching.
+
+- **One-line CLI**: Add `extreme` keyword after the mode name: `voder.py sts extreme base "source.wav" target "voice.wav"`
+- Works with both Seed-VC v1 (`music` flag) and v2 (standard/mimic): `voder.py sts extreme base "song.wav" target "voice.wav" music`
+- Can be combined with `original`: `voder.py sts extreme original base "source.wav" target "voice.wav"`
+- Oneline mode only — this is not available in interactive CLI
+- If the extreme pass fails (empty transcription, encoding failure, or synthesis failure), the original target reference is used as fallback with a warning
+
 **Automatic Vocal Extraction:**
 
 VODER automatically runs BS‑RoFormer vocal isolation on both the source and target audio. For the source, vocals are separated so the VC model processes only the voice — producing cleaner conversion — and the instrumental is extracted separately for recombination after conversion (unless `nomusic` is used). For the target, clean vocals are extracted to improve cloning quality. If SVS extraction fails, the original audio is used as a fallback.
@@ -2805,6 +2815,7 @@ The `extreme` keyword switches the TTS engine from Qwen3-TTS to **Fish Audio S2-
 - You want the highest possible voice cloning quality
 - You want to use voice effects in your script text
 - You're doing SLC or SVC and want better resynthesis quality
+- You're doing STS and the target reference has background noise, mixed audio, or glitching — `sts extreme` cleans the reference through Fish S2 Pro before Seed-VC conversion
 
 **Voice effects (`[tag]` syntax):**
 Fish S2-Pro supports over 15,000 free-form voice effect tags embedded directly in your text. These tags control emotions, tones, vocal sounds, pacing, and special effects at the sub-word level. Tags are placed in `[brackets]` and affect the text from their position onward. The model also accepts all S1 Pro tags (listed below) inside `[brackets]`.
@@ -2845,6 +2856,9 @@ python src/voder.py tts overdose extreme script "James: Hello" target "James: ja
 
 # Extreme voice training (saves .ttse)
 python src/voder.py train extreme voice:narrator "ref.wav"
+
+# Extreme STS: clean target reference before Seed-VC conversion
+python src/voder.py sts extreme base "source.wav" target "noisy_voice.wav"
 ```
 
 **Voice Design with extreme mode:** When `extreme` is used with a `voice` prompt (not `target`), VODER always generates ~30 seconds of placeholder English text, has VoiceDesign speak it, feeds that audio to Fish S2-Pro for voice cloning, then Fish speaks the actual text. This applies unconditionally — even for languages VoiceDesign already supports — because it ensures consistent voice quality across all languages, preserves voice effects tags (like `[whispering]`, `[angry]`) that VoiceDesign would misinterpret, and eliminates the need for language detection. This makes voice design available for 70+ additional languages that VoiceDesign doesn't natively support, while also improving results for the 10 supported ones.
