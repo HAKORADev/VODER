@@ -61,6 +61,7 @@ opentelemetry-exporter-otlp-proto-grpc==1.0.0
 # source contains "qwen-tts==0.1.1"
 sox
 onnxruntime
+ctc-forced-aligner>=1.0.0
 
 # Voice Conversion & Music Generation
 munch>=4.0.0

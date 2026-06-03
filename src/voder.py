@@ -23,6 +23,7 @@ SVS_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "svs")
 VIBEVOICE_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "vibevoice_asr")
 TRANSLATE_GEMMA_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "translate_gemma")
 AUDIOSR_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "audiosr")
+ALIGNER_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "aligner")
 
 os.environ["HF_HOME"] = MODELS_DIR
 os.environ["HF_HUB_CACHE"] = MODELS_TMP_DIR
@@ -47,6 +48,7 @@ os.makedirs(SVS_DIR, exist_ok=True)
 os.makedirs(VIBEVOICE_DIR, exist_ok=True)
 os.makedirs(TRANSLATE_GEMMA_DIR, exist_ok=True)
 os.makedirs(AUDIOSR_DIR, exist_ok=True)
+os.makedirs(ALIGNER_DIR, exist_ok=True)
 
 import time
 import math
@@ -7441,81 +7443,57 @@ def _transcribe_for_qwen_ref(audio_path):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-_MMS_FA_MODEL = None
+_ALIGNER_ONNX_PATH = os.path.join(ALIGNER_DIR, "model.onnx")
+_ALIGNER_MODEL_URL = 'https://huggingface.co/deskpai/ctc_forced_aligner/resolve/main/04ac86b67129634da93aea76e0147ef3.onnx'
+_ALIGNER_SESSION = None
 
-def _get_mms_fa_model():
-    global _MMS_FA_MODEL
-    if _MMS_FA_MODEL is not None:
-        return _MMS_FA_MODEL
+def _get_aligner_model():
+    global _ALIGNER_SESSION
+    if _ALIGNER_SESSION is not None:
+        return _ALIGNER_SESSION
     try:
-        bundle = torchaudio.pipelines.MMS_FA
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        model = bundle.get_model(with_star=False).to(device)
-        _MMS_FA_MODEL = (model, bundle, device)
-        return _MMS_FA_MODEL
+        if not os.path.exists(_ALIGNER_ONNX_PATH):
+            print("Downloading aligner model...")
+            import requests
+            response = requests.get(_ALIGNER_MODEL_URL, stream=True)
+            response.raise_for_status()
+            with open(_ALIGNER_ONNX_PATH, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            print("Aligner model downloaded")
+        import onnxruntime
+        _ALIGNER_SESSION = onnxruntime.InferenceSession(_ALIGNER_ONNX_PATH)
+        return _ALIGNER_SESSION
     except Exception as e:
-        print(f"Warning: Failed to load MMS-FA alignment model: {e}")
+        print(f"Warning: Failed to load aligner model: {e}")
         return None
 
-def _cleanup_mms_fa_model():
-    global _MMS_FA_MODEL
-    if _MMS_FA_MODEL is not None:
-        model, bundle, device = _MMS_FA_MODEL
-        del model
-        _MMS_FA_MODEL = None
+def _cleanup_aligner_model():
+    global _ALIGNER_SESSION
+    if _ALIGNER_SESSION is not None:
+        del _ALIGNER_SESSION
+        _ALIGNER_SESSION = None
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
 
 def _forced_align_words(audio_path, text):
     if not text or not text.strip():
         return []
-    result = _get_mms_fa_model()
-    if result is None:
+    session = _get_aligner_model()
+    if session is None:
         return []
-    model, bundle, device = result
     try:
-        dictionary = bundle.get_dict(star=None)
-        words = text.strip().lower().split()
-        cleaned = []
-        for w in words:
-            chars = [c for c in w if c in dictionary and dictionary[c] != 0]
-            if chars:
-                cleaned.append("".join(chars))
-        if not cleaned:
-            return []
-        transcript = cleaned
-        tokenized = [dictionary[c] for word in transcript for c in word if c in dictionary and dictionary[c] != 0]
-        if not tokenized:
-            return []
-        waveform, sr = torchaudio.load(audio_path)
-        if sr != bundle.sample_rate:
-            waveform = torchaudio.functional.resample(waveform, sr, bundle.sample_rate)
-        if waveform.dim() > 1:
-            waveform = waveform.mean(dim=0, keepdim=True)
-        waveform = waveform.to(device)
-        with torch.inference_mode():
-            emission, _ = model(waveform)
-        from ctc_forced_aligner import align as _ctc_align
-        aligned_tokens, alignment_scores = _ctc_align(emission, tokenized, device)
-        import torchaudio.functional as F
-        token_spans = F.merge_tokens(aligned_tokens[0], alignment_scores[0])
-        word_lengths = [len(word) for word in transcript]
-        word_spans = []
-        idx = 0
-        for wl in word_lengths:
-            word_spans.append(token_spans[idx:idx + wl])
-            idx += wl
-        ratio = waveform.size(1) / emission.size(1)
-        word_timestamps = []
-        for i, t in enumerate(transcript):
-            span = word_spans[i]
-            x0 = int(ratio * span[0].start)
-            x1 = int(ratio * span[-1].end)
-            start_sec = x0 / bundle.sample_rate
-            end_sec = x1 / bundle.sample_rate
-            word_timestamps.append({"word": words[i] if i < len(words) else t, "start": start_sec, "end": end_sec})
-        return word_timestamps
+        from ctc_forced_aligner import (
+            load_audio, generate_emissions, preprocess_text,
+            get_alignments, get_spans, postprocess_results, Tokenizer
+        )
+        waveform = load_audio(audio_path)
+        emissions, stride = generate_emissions(session, waveform, batch_size=4)
+        tokenizer = Tokenizer()
+        tokens_starred, text_starred = preprocess_text(text, romanize=True, language="eng")
+        segments, scores, blank_token = get_alignments(emissions, tokens_starred, tokenizer)
+        spans = get_spans(tokens_starred, segments, blank_token)
+        word_timestamps = postprocess_results(text_starred, spans, stride, scores)
+        return [{"text": w["text"], "start": w["start"], "end": w["end"]} for w in word_timestamps]
     except Exception as e:
         print(f"Warning: Forced alignment failed: {e}")
         return []
@@ -7530,7 +7508,7 @@ def _group_words_to_segments(word_timestamps, chunk_size=4, speaker=None):
         chunk = word_timestamps[i:end_idx]
         if not chunk:
             break
-        text = " ".join(w["word"] for w in chunk)
+        text = " ".join(w["text"] for w in chunk)
         start = chunk[0]["start"]
         end = chunk[-1]["end"]
         seg = {"text": text, "start": start, "end": end}
@@ -11425,7 +11403,7 @@ def oneline_tts_dub(params):
                     if original_audio_for_align:
                         print("Running forced alignment on original audio for accurate subtitle timing...")
                         aligned_subs = _align_subtitle_segments(original_audio_for_align, subtitle_segments)
-                        _cleanup_mms_fa_model()
+                        _cleanup_aligner_model()
                         if aligned_subs:
                             subtitle_segments = aligned_subs
                             print(f"Forced alignment produced {len(subtitle_segments)} subtitle segments")
@@ -11490,7 +11468,7 @@ def oneline_tts_dub(params):
                     if subtitle_segments and final_audio and os.path.exists(final_audio):
                         print("Running forced alignment on dubbed audio for accurate subtitle timing...")
                         aligned_subs = _align_subtitle_segments(final_audio, subtitle_segments)
-                        _cleanup_mms_fa_model()
+                        _cleanup_aligner_model()
                         if aligned_subs:
                             subtitle_segments = aligned_subs
                             print(f"Forced alignment produced {len(subtitle_segments)} subtitle segments")
@@ -12554,7 +12532,7 @@ def oneline_stt_subtitle(params):
 
             print("Running forced alignment for accurate subtitle timing...")
             aligned_segments = _align_subtitle_segments(audio_path, asr_segments)
-            _cleanup_mms_fa_model()
+            _cleanup_aligner_model()
             if aligned_segments:
                 asr_segments = aligned_segments
                 print(f"Forced alignment produced {len(asr_segments)} subtitle segments")
