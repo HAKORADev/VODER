@@ -1865,7 +1865,7 @@ python src/voder.py stt "meeting.wav" overdose dialogue
 
 ### STT‑Only: `subtitle` Flag
 
-Burn VibeVoice ASR transcription as subtitles directly onto a video file. Auto‑implies `overdose` (VibeVoice ASR is required), so `stt subtitle` and `stt overdose subtitle` are equivalent; the explicit form is recommended for clarity. Only accepts video files and URLs — audio, text, and image files are rejected. Overlapping speech from different speakers is shown on a second line beneath the primary speaker in cyan. Subtitles are dynamically positioned at the bottom of the frame regardless of resolution. Use `translate (source-target)` or `translate (target)` to produce translated subtitles (76 languages via TranslateGemma 12B).
+Burn VibeVoice ASR transcription as subtitles directly onto a video file. Auto‑implies `overdose` (VibeVoice ASR is required), so `stt subtitle` and `stt overdose subtitle` are equivalent; the explicit form is recommended for clarity. Only accepts video files and URLs — audio, text, and image files are rejected. Subtitles use Meta MMS-FA forced alignment for per-word timestamps, grouped into 3-5 word segments with accurate timing — no more whole-segment blocks that display for 10+ seconds. Overlapping speech from different speakers is shown on a second line beneath the primary speaker in cyan. Subtitles are dynamically positioned at the bottom of the frame regardless of resolution. Use `translate (source-target)` or `translate (target)` to produce translated subtitles (76 languages via TranslateGemma 12B) — the original text is aligned first for accurate timing, then each chunk is translated while preserving the original timing.
 
 ```bash
 python src/voder.py stt overdose subtitle "video.mp4"

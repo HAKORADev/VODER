@@ -34,6 +34,7 @@ VODER is not a single AI model — it is an **orchestration layer** that coordin
 | **ACE-Step 1.5** | Music generation (legacy / background music) | TTM (default), Background Music (dialogue `music` param) |
 | **BS-RoFormer Resurrection** | Vocal/music separation (stem extraction) | SVS, STS (auto vocal extraction), STT (pre-cleanup), TTS (voice clone cleanup, SLC voice isolation, SVC voice isolation, dub voice+music separation), TTM `bgm` (strip music + reference cleanup) |
 | **VibeVoice ASR** | Advanced ASR with native speaker diarization | STT with `overdose` flag, TTS with `overdose` flag, SS, TTS `dub` sub-task, Fish S2 Pro reference transcription, STS `extreme` flag |
+| **Meta MMS-FA** | Multilingual forced alignment (1130+ languages) | STT subtitle per-word timing, TTS `dub` subtitle per-word timing |
 | **Fish Audio S2-Pro** | High quality TTS with 80+ language support | TTS with `extreme` flag, SLC/SVC/Modify Speech with `extreme`, `train extreme`, TTS `dub` sub-task, STS with `extreme` flag |
 | **Pyannote** | Speaker diarization (who spoke when) | STT with `dialogue` flag |
 | **EasyOCR** | Text extraction from images | STT with image input |

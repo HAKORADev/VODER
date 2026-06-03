@@ -7441,6 +7441,117 @@ def _transcribe_for_qwen_ref(audio_path):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+_MMS_FA_MODEL = None
+
+def _get_mms_fa_model():
+    global _MMS_FA_MODEL
+    if _MMS_FA_MODEL is not None:
+        return _MMS_FA_MODEL
+    try:
+        bundle = torchaudio.pipelines.MMS_FA
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        model = bundle.get_model(with_star=False).to(device)
+        _MMS_FA_MODEL = (model, bundle, device)
+        return _MMS_FA_MODEL
+    except Exception as e:
+        print(f"Warning: Failed to load MMS-FA alignment model: {e}")
+        return None
+
+def _cleanup_mms_fa_model():
+    global _MMS_FA_MODEL
+    if _MMS_FA_MODEL is not None:
+        model, bundle, device = _MMS_FA_MODEL
+        del model
+        _MMS_FA_MODEL = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+def _forced_align_words(audio_path, text):
+    if not text or not text.strip():
+        return []
+    result = _get_mms_fa_model()
+    if result is None:
+        return []
+    model, bundle, device = result
+    try:
+        dictionary = bundle.get_dict(star=None)
+        words = text.strip().lower().split()
+        cleaned = []
+        for w in words:
+            chars = [c for c in w if c in dictionary and dictionary[c] != 0]
+            if chars:
+                cleaned.append("".join(chars))
+        if not cleaned:
+            return []
+        transcript = cleaned
+        tokenized = [dictionary[c] for word in transcript for c in word if c in dictionary and dictionary[c] != 0]
+        if not tokenized:
+            return []
+        waveform, sr = torchaudio.load(audio_path)
+        if sr != bundle.sample_rate:
+            waveform = torchaudio.functional.resample(waveform, sr, bundle.sample_rate)
+        if waveform.dim() > 1:
+            waveform = waveform.mean(dim=0, keepdim=True)
+        waveform = waveform.to(device)
+        with torch.inference_mode():
+            emission, _ = model(waveform)
+        from ctc_forced_aligner import align as _ctc_align
+        aligned_tokens, alignment_scores = _ctc_align(emission, tokenized, device)
+        import torchaudio.functional as F
+        token_spans = F.merge_tokens(aligned_tokens[0], alignment_scores[0])
+        word_lengths = [len(word) for word in transcript]
+        word_spans = []
+        idx = 0
+        for wl in word_lengths:
+            word_spans.append(token_spans[idx:idx + wl])
+            idx += wl
+        ratio = waveform.size(1) / emission.size(1)
+        word_timestamps = []
+        for i, t in enumerate(transcript):
+            span = word_spans[i]
+            x0 = int(ratio * span[0].start)
+            x1 = int(ratio * span[-1].end)
+            start_sec = x0 / bundle.sample_rate
+            end_sec = x1 / bundle.sample_rate
+            word_timestamps.append({"word": words[i] if i < len(words) else t, "start": start_sec, "end": end_sec})
+        return word_timestamps
+    except Exception as e:
+        print(f"Warning: Forced alignment failed: {e}")
+        return []
+
+def _group_words_to_segments(word_timestamps, chunk_size=4, speaker=None):
+    if not word_timestamps:
+        return []
+    segments = []
+    i = 0
+    while i < len(word_timestamps):
+        end_idx = min(i + chunk_size, len(word_timestamps))
+        chunk = word_timestamps[i:end_idx]
+        if not chunk:
+            break
+        text = " ".join(w["word"] for w in chunk)
+        start = chunk[0]["start"]
+        end = chunk[-1]["end"]
+        seg = {"text": text, "start": start, "end": end}
+        if speaker is not None:
+            seg["speaker"] = speaker
+        segments.append(seg)
+        i = end_idx
+    return segments
+
+def _align_subtitle_segments(audio_path, segments):
+    if not segments:
+        return segments
+    all_text = " ".join(seg.get("text", "").strip() for seg in segments if seg.get("text", "").strip())
+    if not all_text:
+        return segments
+    speaker = segments[0].get("speaker") if segments else None
+    word_timestamps = _forced_align_words(audio_path, all_text)
+    if not word_timestamps:
+        return segments
+    return _group_words_to_segments(word_timestamps, chunk_size=4, speaker=speaker)
+
 def _tts_extract_voice(engine, audio_path, use_extreme=False, ref_text=None):
     if use_extreme and isinstance(engine, FishTTS):
         return engine.encode_voice(audio_path, ref_text=ref_text)
@@ -11306,9 +11417,20 @@ def oneline_tts_dub(params):
                         subtitle_segments.append({
                             'start': part['start'],
                             'end': part['end'],
-                            'text': part['text'],
+                            'text': part.get('original_text', part['text']),
                             'speaker': part['speaker']
                         })
+
+                    original_audio_for_align = audio_path if audio_path and os.path.exists(audio_path) else None
+                    if original_audio_for_align:
+                        print("Running forced alignment on original audio for accurate subtitle timing...")
+                        aligned_subs = _align_subtitle_segments(original_audio_for_align, subtitle_segments)
+                        _cleanup_mms_fa_model()
+                        if aligned_subs:
+                            subtitle_segments = aligned_subs
+                            print(f"Forced alignment produced {len(subtitle_segments)} subtitle segments")
+                        else:
+                            print("Warning: Forced alignment failed, using original segment timings")
 
                     if translator and need_sub_translate:
                         print(f"Translating subtitles with TranslateGemma ({sub_src_lang}->{sub_tgt_lang})...")
@@ -11364,31 +11486,42 @@ def oneline_tts_dub(params):
                                     'text': part['text'],
                                     'speaker': part['speaker']
                                 })
-                        elif dub_subtitle_langs:
-                            sub_tgt_lang_new = dub_subtitle_langs['target']
-                            sub_src_lang_new = dub_subtitle_langs.get('source', 'auto')
-                            if sub_src_lang_new == 'auto':
-                                sub_src_lang_new = tgt_lang
-                            if sub_src_lang_new != sub_tgt_lang_new:
-                                if not translator:
-                                    print("Loading TranslateGemma for subtitle translation...")
-                                    translator = TranslateGemma()
-                                    if not translator.ensure_model():
-                                        print("Warning: Failed to load TranslateGemma, subtitle translation skipped")
-                                        translator.cleanup()
-                                        del translator
-                                        translator = None
-                                        gc.collect()
-                                        if torch.cuda.is_available():
-                                            torch.cuda.empty_cache()
-                                if translator:
-                                    print(f"Translating subtitles with TranslateGemma ({sub_src_lang_new}->{sub_tgt_lang_new})...")
-                                    for sub_idx, sub_seg in enumerate(subtitle_segments):
-                                        sub_text = sub_seg.get('text', '').strip()
-                                        if sub_text:
-                                            translated = translator.translate(sub_text, sub_src_lang_new, sub_tgt_lang_new)
-                                            if translated:
-                                                sub_seg['text'] = translated
+
+                    if subtitle_segments and final_audio and os.path.exists(final_audio):
+                        print("Running forced alignment on dubbed audio for accurate subtitle timing...")
+                        aligned_subs = _align_subtitle_segments(final_audio, subtitle_segments)
+                        _cleanup_mms_fa_model()
+                        if aligned_subs:
+                            subtitle_segments = aligned_subs
+                            print(f"Forced alignment produced {len(subtitle_segments)} subtitle segments")
+                        else:
+                            print("Warning: Forced alignment failed, using original segment timings")
+
+                    if dub_subtitle_langs:
+                        sub_tgt_lang_new = dub_subtitle_langs['target']
+                        sub_src_lang_new = dub_subtitle_langs.get('source', 'auto')
+                        if sub_src_lang_new == 'auto':
+                            sub_src_lang_new = tgt_lang
+                        if sub_src_lang_new != sub_tgt_lang_new:
+                            if not translator:
+                                print("Loading TranslateGemma for subtitle translation...")
+                                translator = TranslateGemma()
+                                if not translator.ensure_model():
+                                    print("Warning: Failed to load TranslateGemma, subtitle translation skipped")
+                                    translator.cleanup()
+                                    del translator
+                                    translator = None
+                                    gc.collect()
+                                    if torch.cuda.is_available():
+                                        torch.cuda.empty_cache()
+                            if translator:
+                                print(f"Translating subtitles with TranslateGemma ({sub_src_lang_new}->{sub_tgt_lang_new})...")
+                                for sub_idx, sub_seg in enumerate(subtitle_segments):
+                                    sub_text = sub_seg.get('text', '').strip()
+                                    if sub_text:
+                                        translated = translator.translate(sub_text, sub_src_lang_new, sub_tgt_lang_new)
+                                        if translated:
+                                            sub_seg['text'] = translated
 
                 if translator:
                     translator.cleanup()
@@ -12418,6 +12551,15 @@ def oneline_stt_subtitle(params):
             if not asr_segments:
                 print("Error: ASR transcription returned no segments")
                 continue
+
+            print("Running forced alignment for accurate subtitle timing...")
+            aligned_segments = _align_subtitle_segments(audio_path, asr_segments)
+            _cleanup_mms_fa_model()
+            if aligned_segments:
+                asr_segments = aligned_segments
+                print(f"Forced alignment produced {len(asr_segments)} subtitle segments")
+            else:
+                print("Warning: Forced alignment failed, using original ASR segment timings")
 
             if translate_langs and translator:
                 src_lang = translate_langs['source']
