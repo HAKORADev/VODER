@@ -941,6 +941,78 @@ def _mix_audio_at_target_sr(vocals_path, music_path, output_path, target_sr=4800
         return False
 
 
+def _split_segments_into_sentences(segments, max_duration=12.0):
+    if not segments:
+        return segments
+    sentence_end_re = re.compile(
+        r'([.!?。！？؟،\u060C\u061F\u06D4]\s*)'
+    )
+    comma_re = re.compile(r'([,،；;]\s*)')
+    result = []
+    for seg in segments:
+        text = seg.get('text', '').strip()
+        start = seg.get('start', 0) or 0
+        end = seg.get('end', 0) or 0
+        speaker = seg.get('speaker', seg.get('speaker_id', 'SPEAKER_00'))
+        duration = end - start
+        if not text or duration <= max_duration:
+            result.append(seg)
+            continue
+        parts = sentence_end_re.split(text)
+        sentences = []
+        current = ""
+        for part in parts:
+            current += part
+            if sentence_end_re.match(part):
+                sentences.append(current.strip())
+                current = ""
+        if current.strip():
+            sentences.append(current.strip())
+        if len(sentences) <= 1 and duration > max_duration:
+            parts = comma_re.split(text)
+            sentences = []
+            current = ""
+            for part in parts:
+                current += part
+                if comma_re.match(part):
+                    sentences.append(current.strip())
+                    current = ""
+            if current.strip():
+                sentences.append(current.strip())
+        if len(sentences) <= 1:
+            words = text.split()
+            if len(words) > 12 and duration > max_duration:
+                chunk_size = max(8, len(words) // max(1, int(duration / max_duration)))
+                sentences = []
+                for j in range(0, len(words), chunk_size):
+                    chunk = " ".join(words[j:j+chunk_size])
+                    if chunk.strip():
+                        sentences.append(chunk.strip())
+        if len(sentences) <= 1:
+            result.append(seg)
+            continue
+        char_counts = [len(s) for s in sentences]
+        total_chars = sum(char_counts)
+        if total_chars == 0:
+            result.append(seg)
+            continue
+        accumulated = 0
+        for i, sentence in enumerate(sentences):
+            ratio = char_counts[i] / total_chars
+            sent_start = start + (accumulated / total_chars) * duration
+            accumulated += char_counts[i]
+            sent_end = start + (accumulated / total_chars) * duration
+            if i == len(sentences) - 1:
+                sent_end = end
+            result.append({
+                'start': round(sent_start, 3),
+                'end': round(sent_end, 3),
+                'speaker': speaker,
+                'text': sentence
+            })
+    return result
+
+
 def _adjust_audio_speed(input_path, target_duration, output_path):
     try:
         probe_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
@@ -11040,6 +11112,8 @@ def oneline_tts_dub(params):
         speech_segments = [s for s in asr_segments if not s.get('is_event', False) and s.get('text', '').strip()]
         event_segments = [s for s in asr_segments if s.get('is_event', False)]
 
+        speech_segments = _split_segments_into_sentences(speech_segments)
+
         print(f"Transcribed {len(speech_segments)} speech segments, {len(event_segments)} audio events")
 
         src_lang = dub_translate_langs['source']
@@ -11139,7 +11213,7 @@ def oneline_tts_dub(params):
                 tts_duration = _get_audio_duration(seg_output)
                 if tts_duration > 0:
                     speed_ratio = tts_duration / seg_duration
-                    if speed_ratio > 1.5 or speed_ratio < 0.5:
+                    if speed_ratio > 1.05 or speed_ratio < 0.5:
                         print(f"Adjusting speed for segment {seg_idx+1} (TTS: {tts_duration:.1f}s, target: {seg_duration:.1f}s)...")
                         adjusted_dir = tempfile.mkdtemp()
                         _dub_cleanup_dirs.append(adjusted_dir)
@@ -11272,6 +11346,7 @@ def oneline_tts_dub(params):
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
                         dub_speech_segs = [s for s in dub_asr_segments if not s.get('is_event', False) and s.get('text', '').strip()] if dub_asr_segments else []
+                        dub_speech_segs = _split_segments_into_sentences(dub_speech_segs)
                         subtitle_segments = []
                         for seg in dub_speech_segs:
                             subtitle_segments.append({
@@ -12343,6 +12418,8 @@ def oneline_stt_subtitle(params):
             if not asr_segments:
                 print("Error: ASR transcription returned no segments")
                 continue
+
+            asr_segments = _split_segments_into_sentences(asr_segments)
 
             if translate_langs and translator:
                 src_lang = translate_langs['source']
