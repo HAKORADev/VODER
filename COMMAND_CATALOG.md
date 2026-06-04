@@ -245,6 +245,9 @@ python voder.py tts slc translate "(auto-ar)" "french_speech.wav"
 # SLC any-to-any with music preservation
 python voder.py tts slc translate "(auto-ar)" music "french_speech.wav"
 
+# Shorthand: (ar) is equivalent to (auto-ar)
+python voder.py tts slc translate "(ar)" "french_speech.wav"
+
 # SLC any-to-any: Japanese to English
 python voder.py tts slc translate "(ja-en)" "japanese_speech.wav"
 ```
@@ -362,11 +365,17 @@ python voder.py tts dub subtitle original "video.mp4"
 # Dub with translation to Arabic
 python voder.py tts dub translate "(auto-ar)" "video.mp4"
 
+# Shorthand: (ar) is equivalent to (auto-ar)
+python voder.py tts dub translate "(ar)" "video.mp4"
+
 # Dub with translation and subtitles (transcribes dubbed audio)
 python voder.py tts dub translate "(auto-ar)" subtitle "video.mp4"
 
 # Dub with independent subtitle translation + dub audio translation
 python voder.py tts dub subtitle "(auto-en)" translate "(auto-ja)" "video.mp4"
+
+# Shorthand: (en) and (ja) equivalent to (auto-en) and (auto-ja)
+python voder.py tts dub subtitle "(en)" translate "(ja)" "video.mp4"
 
 # Dub with original-chain subtitles independently translated
 python voder.py tts dub subtitle original "(auto-en)" translate "(auto-ja)" "video.mp4"
@@ -1318,6 +1327,9 @@ python voder.py stt "audio.wav" translate
 # Any-to-any translation (TranslateGemma 12B)
 python voder.py stt "audio.wav" translate "(auto-ar)"
 
+# Shorthand: (ar) is equivalent to (auto-ar)
+python voder.py stt "audio.wav" translate "(ar)"
+
 # Translate Japanese to English
 python voder.py stt "audio.wav" translate "(ja-en)"
 
@@ -1341,6 +1353,9 @@ python voder.py stt overdose subtitle "https://youtube.com/watch?v=..."
 
 # Subtitle with any-to-any translation (auto-detect source, translate to Arabic)
 python voder.py stt overdose subtitle translate "(auto-ar)" "video.mp4"
+
+# Shorthand: (ar) is equivalent to (auto-ar)
+python voder.py stt overdose subtitle translate "(ar)" "video.mp4"
 
 # Subtitle with Japanese-to-English translation
 python voder.py stt overdose subtitle translate "(ja-en)" "japanese_video.mp4"

@@ -383,6 +383,9 @@ python src/voder.py stt "audio.wav" translate
 # With any-to-any translation (TranslateGemma 12B)
 python src/voder.py stt "audio.wav" translate "(auto-ar)"
 
+# Shorthand: (ar) is equivalent to (auto-ar)
+python src/voder.py stt "audio.wav" translate "(ar)"
+
 # Translate Japanese to English
 python src/voder.py stt "audio.wav" translate "(ja-en)"
 
@@ -695,6 +698,9 @@ python src/voder.py tts slc translate "(auto-ar)" "french_speech.wav"
 # SLC any-to-any with music preservation
 python src/voder.py tts slc translate "(auto-ar)" music "french_speech.wav"
 
+# Shorthand: (ar) is equivalent to (auto-ar)
+python src/voder.py tts slc translate "(ar)" "french_speech.wav"
+
 # SLC any-to-any: Japanese to English
 python src/voder.py tts slc translate "(ja-en)" "japanese_speech.wav"
 ```
@@ -748,6 +754,9 @@ python src/voder.py tts slc translate "(auto-ar)" "path/to/audio.wav"
 
 # SLC any-to-any with music preservation
 python src/voder.py tts slc translate "(auto-ar)" music "path/to/audio.wav"
+
+# Shorthand: (ar) is equivalent to (auto-ar)
+python src/voder.py tts slc translate "(ar)" "path/to/audio.wav"
 
 # Interactive CLI
 python src/voder.py cli
@@ -825,6 +834,9 @@ python src/voder.py tts dub translate "(auto-ar)" subtitle "video.mp4"
 # Dub with independent subtitle translation to English and dub audio to Japanese
 python src/voder.py tts dub subtitle "(auto-en)" translate "(auto-ja)" "video.mp4"
 
+# Shorthand: (en) and (ja) equivalent to (auto-en) and (auto-ja)
+python src/voder.py tts dub subtitle "(en)" translate "(ja)" "video.mp4"
+
 # Dub with original-chain subtitles independently translated to English
 python src/voder.py tts dub subtitle original "(auto-en)" translate "(auto-ja)" "video.mp4"
 
@@ -839,6 +851,9 @@ python src/voder.py tts dub translate "(ja-en)" "japanese_video.mp4"
 
 # Dub with auto->French translation
 python src/voder.py tts dub translate "(auto-fr)" "video.mp4"
+
+# Shorthand: (fr) is equivalent to (auto-fr)
+python src/voder.py tts dub translate "(fr)" "video.mp4"
 ```
 
 **Features:**
@@ -2787,6 +2802,9 @@ Note: Overdose cannot be combined with the bare `translate` flag, as VibeVoice A
 ```bash
 # Overdose + any-to-any translation (compatible)
 python src/voder.py stt "audio.wav" overdose translate "(auto-fr)"
+
+# Shorthand: (fr) is equivalent to (auto-fr)
+python src/voder.py stt "audio.wav" overdose translate "(fr)"
 ```
 
 ### Subtitle STT Trick

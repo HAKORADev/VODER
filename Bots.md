@@ -571,6 +571,9 @@ python src/voder.py tts slc translate "(auto-ar)" "spanish_speech.wav"
 # Translate to Arabic with music preservation
 python src/voder.py tts slc translate "(auto-ar)" music "spanish_speech.wav"
 
+# Shorthand: (ar) is equivalent to (auto-ar)
+python src/voder.py tts slc translate "(ar)" "spanish_speech.wav"
+
 # Japanese to English
 python src/voder.py tts slc translate "(ja-en)" "japanese_speech.wav"
 
@@ -651,11 +654,17 @@ python src/voder.py tts dub subtitle original "video.mp4"
 # Dub with translation to Arabic instead of English
 python src/voder.py tts dub translate "(auto-ar)" "video.mp4"
 
+# Shorthand: (ar) is equivalent to (auto-ar)
+python src/voder.py tts dub translate "(ar)" "video.mp4"
+
 # Dub with translation and subtitles (transcribes dubbed audio)
 python src/voder.py tts dub translate "(auto-ar)" subtitle "video.mp4"
 
 # Dub with independently translated subtitles (English) and audio (Japanese)
 python src/voder.py tts dub subtitle "(auto-en)" translate "(auto-ja)" "video.mp4"
+
+# Shorthand: (en) and (ja) equivalent to (auto-en) and (auto-ja)
+python src/voder.py tts dub subtitle "(en)" translate "(ja)" "video.mp4"
 
 # Dub with original-chain subtitles independently translated to English
 python src/voder.py tts dub subtitle original "(auto-en)" translate "(auto-ja)" "video.mp4"
@@ -1422,6 +1431,9 @@ python src/voder.py stt "french_audio.wav" translate timestamp result "/output/t
 # Auto-detect source, translate to Arabic
 python src/voder.py stt "audio.wav" translate "(auto-ar)" timestamp result "/output/arabic.txt"
 
+# Shorthand: (ar) is equivalent to (auto-ar)
+python src/voder.py stt "audio.wav" translate "(ar)" timestamp result "/output/arabic.txt"
+
 # Japanese to English
 python src/voder.py stt "audio.wav" translate "(ja-en)" result "/output/english.txt"
 
@@ -1443,6 +1455,9 @@ python src/voder.py stt overdose subtitle "video.mp4"
 ```bash
 # Translated subtitles: auto-detect source, translate to Arabic
 python src/voder.py stt overdose subtitle translate "(auto-ar)" "video.mp4"
+
+# Shorthand: (ar) is equivalent to (auto-ar)
+python src/voder.py stt overdose subtitle translate "(ar)" "video.mp4"
 
 # Translated subtitles with specific source-target
 python src/voder.py stt overdose subtitle translate "(ja-en)" "japanese_video.mp4"
@@ -1872,6 +1887,7 @@ python src/voder.py stt overdose subtitle "video.mp4"
 python src/voder.py stt overdose subtitle se "noisy_video.mp4"
 python src/voder.py stt overdose subtitle "https://www.youtube.com/watch?v=VIDEO_ID"
 python src/voder.py stt overdose subtitle translate "(auto-ar)" "video.mp4"
+python src/voder.py stt overdose subtitle translate "(ar)" "video.mp4"
 ```
 
 **Note:** `subtitle` cannot be used with bare `translate` or with non‑video files. `subtitle` with `translate (source-target)` or `translate (target)` is supported.

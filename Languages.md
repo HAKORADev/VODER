@@ -144,7 +144,9 @@ yo  Yoruba         zh  Chinese
 **Syntax:**
 - `translate` (bare) — Uses Whisper's built-in any-to-English translation (backward compatible, limited to English output)
 - `translate "(auto-en)"` — Auto-detect source language, translate to English via TranslateGemma
+- `translate "(en)"` — Shorthand for `translate "(auto-en)"`
 - `translate "(auto-ja)"` — Auto-detect source language, translate to Japanese via TranslateGemma
+- `translate "(ja)"` — Shorthand for `translate "(auto-ja)"`
 - `translate "(ja-en)"` — Translate Japanese to English via TranslateGemma
 - `translate "(ar-fr)"` — Translate Arabic to French via TranslateGemma
 

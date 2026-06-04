@@ -510,6 +510,9 @@ python src/voder.py tts slc translate "(auto-ar)" "foreign_speech.wav"
 # Translate to Arabic with music preservation
 python src/voder.py tts slc translate "(auto-ar)" music "foreign_speech.wav"
 
+# Shorthand: (ar) is equivalent to (auto-ar)
+python src/voder.py tts slc translate "(ar)" "foreign_speech.wav"
+
 # Japanese to English
 python src/voder.py tts slc translate "(ja-en)" "japanese_speech.wav"
 
@@ -674,11 +677,17 @@ python src/voder.py tts dub subtitle original "video.mp4"
 # Dub with translation to Arabic
 python src/voder.py tts dub translate "(auto-ar)" "video.mp4"
 
+# Shorthand: (ar) is equivalent to (auto-ar)
+python src/voder.py tts dub translate "(ar)" "video.mp4"
+
 # Dub with translation and subtitles (transcribes dubbed audio)
 python src/voder.py tts dub translate "(auto-ar)" subtitle "video.mp4"
 
 # Dub with independent subtitle and audio translations
 python src/voder.py tts dub subtitle "(auto-en)" translate "(auto-ja)" "video.mp4"
+
+# Shorthand: (en) and (ja) equivalent to (auto-en) and (auto-ja)
+python src/voder.py tts dub subtitle "(en)" translate "(ja)" "video.mp4"
 
 # Dub with original-chain subtitles independently translated to English
 python src/voder.py tts dub subtitle original "(auto-en)" translate "(auto-ja)" "video.mp4"
@@ -1575,6 +1584,9 @@ python src/voder.py stt "https://youtube.com/watch?v=VIDEO_ID" translate result 
 # Any-to-any translation (TranslateGemma 12B)
 python src/voder.py stt "audio.wav" translate "(auto-ar)"
 
+# Shorthand: (ar) is equivalent to (auto-ar)
+python src/voder.py stt "audio.wav" translate "(ar)"
+
 # Japanese to English translation
 python src/voder.py stt "audio.wav" translate "(ja-en)"
 
@@ -1583,6 +1595,9 @@ python src/voder.py stt "audio.wav" overdose translate "(auto-fr)"
 
 # Subtitle with translation
 python src/voder.py stt overdose subtitle translate "(auto-ar)" "video.mp4"
+
+# Shorthand: (ar) is equivalent to (auto-ar)
+python src/voder.py stt overdose subtitle translate "(ar)" "video.mp4"
 ```
 
 #### With Overdose (VibeVoice ASR)

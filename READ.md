@@ -245,6 +245,9 @@ python src/voder.py tts slc translate "spanish_speech.wav"
 # Translate to Arabic with TranslateGemma
 python src/voder.py tts slc translate "(auto-ar)" "english_speech.wav"
 
+# Shorthand: (ar) is equivalent to (auto-ar)
+python src/voder.py tts slc translate "(ar)" "english_speech.wav"
+
 # Overdose mode: STS v2 non-mimic pass after TTS for better voice preservation
 python src/voder.py tts overdose slc translate "speech.wav"
 ```
@@ -284,6 +287,9 @@ python src/voder.py tts dub "video.mp4"
 
 # Dub video to Japanese
 python src/voder.py tts dub translate "(auto-ja)" "video.mp4"
+
+# Shorthand: (ja) is equivalent to (auto-ja)
+python src/voder.py tts dub translate "(ja)" "video.mp4"
 
 # Dub video with translated subtitles burned on
 python src/voder.py tts dub subtitle "video.mp4"
@@ -787,6 +793,9 @@ python src/voder.py tts dub "video.mp4"
 # Dub video to Japanese with TranslateGemma
 python src/voder.py tts dub translate "(auto-ja)" "video.mp4"
 
+# Shorthand: (ja) is equivalent to (auto-ja)
+python src/voder.py tts dub translate "(ja)" "video.mp4"
+
 # Dub video with translated subtitles
 python src/voder.py tts dub subtitle "video.mp4"
 
@@ -829,11 +838,17 @@ python src/voder.py stt "audio.wav" translate
 python src/voder.py stt "audio.wav" translate "(auto-ja)"
 python src/voder.py stt "audio.wav" translate "(ar-fr)"
 
+# Shorthand: (ja) is equivalent to (auto-ja)
+python src/voder.py stt "audio.wav" translate "(ja)"
+
 # Overdose + translate to Japanese
 python src/voder.py stt "audio.wav" overdose translate "(auto-ja)"
 
 # Subtitle a video with translated text
 python src/voder.py stt overdose subtitle translate "(auto-en)" "video.mp4"
+
+# Shorthand: (en) is equivalent to (auto-en)
+python src/voder.py stt overdose subtitle translate "(en)" "video.mp4"
 
 # With overdose mode (VibeVoice ASR)
 python src/voder.py stt "audio.wav" overdose
