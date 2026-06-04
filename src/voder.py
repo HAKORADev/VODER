@@ -7654,7 +7654,7 @@ def _group_words_to_segments(word_timestamps, chunk_size=8, speaker=None):
         text = " ".join(w["text"] for w in chunk)
         start = chunk[0]["start"]
         end = chunk[-1]["end"]
-        seg = {"text": text, "start": start, "end": end}
+        seg = {"text": text, "start": start, "end": end, "word_count": len(chunk)}
         if speaker is not None:
             seg["speaker"] = speaker
         segments.append(seg)
@@ -12839,8 +12839,9 @@ def _build_ass_subtitles(segments, video_width, video_height):
     margin_v = max(20, int(video_height * 0.03))
     outline_width = max(1, int(font_size * 0.12))
     shadow_offset = max(1, int(font_size * 0.08))
+    line_gap = font_size + 8
+    max_slots = 4
 
-    primary_color = "&H00FFFFFF"
     speaker_outline_colors = [
         "&H00DD5500",
         "&H0000AAFF",
@@ -12849,7 +12850,6 @@ def _build_ass_subtitles(segments, video_width, video_height):
         "&H00FFCC00",
         "&H00CC00BB",
     ]
-    line_gap = font_size + 8
 
     valid_segments = []
     for seg in segments:
@@ -12863,7 +12863,10 @@ def _build_ass_subtitles(segments, video_width, video_height):
             "end": end,
             "text": text,
             "speaker": seg.get("speaker"),
+            "word_count": seg.get("word_count", len(text.split())),
         })
+
+    valid_segments.sort(key=lambda x: x["start"])
 
     speaker_order = []
     seen_speakers = set()
@@ -12873,16 +12876,9 @@ def _build_ass_subtitles(segments, video_width, video_height):
             speaker_order.append(spk)
             seen_speakers.add(spk)
 
-    speaker_styles = {}
-    if not speaker_order:
-        speaker_styles[None] = ("Default", margin_v, "&H00000000")
-    else:
-        for idx, spk in enumerate(speaker_order):
-            style_name = f"Speaker{idx + 1}"
-            spk_margin_v = margin_v + idx * line_gap
-            outline_color = speaker_outline_colors[idx % len(speaker_outline_colors)]
-            speaker_styles[spk] = (style_name, spk_margin_v, outline_color)
-        speaker_styles[None] = ("Default", margin_v, "&H00000000")
+    speaker_color_map = {}
+    for idx, spk in enumerate(speaker_order):
+        speaker_color_map[spk] = speaker_outline_colors[idx % len(speaker_outline_colors)]
 
     speaker_by_spk = {}
     for seg in valid_segments:
@@ -12897,22 +12893,48 @@ def _build_ass_subtitles(segments, video_width, video_height):
         for idx, seg in enumerate(segs):
             if idx < len(segs) - 1:
                 gap = segs[idx + 1]["start"] - seg["end"]
-                extension = min(3.0, max(0, gap))
+                gap_extension = min(3.0, max(0, gap))
             else:
-                extension = 3.0
-            seg["display_end"] = seg["end"] + extension
+                gap_extension = 3.0
+            speech_duration = seg["end"] - seg["start"]
+            min_reading = seg["word_count"] * 0.4
+            display_end = max(seg["end"] + gap_extension, seg["start"] + min_reading)
+            if idx < len(segs) - 1:
+                display_end = min(display_end, segs[idx + 1]["start"])
+            seg["display_end"] = display_end
+
+    active_slots = {}
+    slot_segments = {}
+    for seg in valid_segments:
+        expired = [s for s, t in active_slots.items() if t <= seg["start"]]
+        for s in expired:
+            del active_slots[s]
+            del slot_segments[s]
+        assigned = None
+        for s in range(1, max_slots + 1):
+            if s not in active_slots:
+                assigned = s
+                break
+        if assigned is None:
+            earliest_slot = min(active_slots, key=active_slots.get)
+            evicted = slot_segments[earliest_slot]
+            evicted["display_end"] = min(evicted["display_end"], seg["start"])
+            del active_slots[earliest_slot]
+            del slot_segments[earliest_slot]
+            assigned = earliest_slot
+        seg["slot"] = assigned
+        active_slots[assigned] = seg["display_end"]
+        slot_segments[assigned] = seg
 
     style_lines = []
-    for spk in speaker_order:
-        style_name, spk_margin_v, outline_color = speaker_styles[spk]
+    for s in range(1, max_slots + 1):
+        slot_margin_v = margin_v + (s - 1) * line_gap
         style_lines.append(
-            f"Style: {style_name},Noto Sans,{font_size},{primary_color},&H000000FF,{outline_color},&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_offset},2,10,10,{spk_margin_v},1"
+            f"Style: Slot{s},Noto Sans,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_offset},2,10,10,{slot_margin_v},1"
         )
-    if None in speaker_styles and None not in speaker_order:
-        style_name, spk_margin_v, outline_color = speaker_styles[None]
-        style_lines.append(
-            f"Style: {style_name},Noto Sans,{font_size},{primary_color},&H000000FF,{outline_color},&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_offset},2,10,10,{spk_margin_v},1"
-        )
+    style_lines.append(
+        f"Style: Default,Noto Sans,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_offset},2,10,10,{margin_v},1"
+    )
 
     ass_header = f"""[Script Info]
 Title: VODER Transcription
@@ -12932,10 +12954,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     events = []
     for seg in valid_segments:
+        slot = seg.get("slot", 1)
+        style_name = f"Slot{slot}" if seg.get("speaker") is not None else "Default"
         spk = seg.get("speaker")
-        style_info = speaker_styles.get(spk, speaker_styles.get(None, ("Default", margin_v, "&H00000000")))
-        style_name = style_info[0]
+        outline_color = speaker_color_map.get(spk, "&H00000000")
         text_escaped = seg["text"].replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
+        if spk is not None:
+            text_escaped = f"{{\\3c{outline_color}}}{text_escaped}"
         events.append(f"Dialogue: 0,{_format_ass_time(seg['start'])},{_format_ass_time(seg['display_end'])},{style_name},,0,0,0,,{text_escaped}")
 
     return ass_header + "\n".join(events) + "\n"
