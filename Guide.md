@@ -1868,7 +1868,7 @@ SVS works on both CPU and GPU. GPU acceleration significantly speeds up separati
 
 **What It Does:**
 
-SS (Speakers Separator) extracts individual speakers from multi‑speaker audio. Given an audio file with multiple people talking, SS identifies each speaker, isolates their speech, and produces a separate audio file for each speaker. It uses a multi‑stage pipeline combining voice separation, sound enhancement, speaker diarization, and target speaker extraction.
+SS (Speakers Separator) extracts individual speakers from multi‑speaker audio. Given an audio file with multiple people talking, SS identifies each speaker, isolates their speech, and produces a separate audio file for each speaker. It uses a multi‑stage pipeline combining voice separation, sound enhancement, speaker diarization, and target speaker extraction. With the `blend` keyword, each separated speaker's audio is mixed with the original non‑vocals (instrumental/background) track — useful for vlogs or recordings where you want to isolate a speaker while preserving background audio.
 
 **How It Works:**
 
@@ -1878,13 +1878,17 @@ SS uses a sophisticated multi‑stage pipeline:
 
 2. **Stage 1b — Sound Enhancement** (optional, when `se` flag is set): UniSE further enhances the isolated vocals, removing remaining noise and reverberation for even cleaner speaker separation.
 
-3. **Stage 2 — Speaker Identification**:
+3. **Stage 1c — Music Extraction** (optional, when `blend` flag is set): BS‑RoFormer extracts the non‑vocals (instrumental/background) track from the source audio. This is blended with each speaker's output after extraction.
+
+4. **Stage 2 — Speaker Identification**:
    - **Standard mode**: Whisper transcribes the audio, then Pyannote performs speaker diarization to identify who spoke when. The two outputs are aligned using VODER's three‑tier system.
    - **Overdose mode**: VibeVoice ASR handles both transcription and speaker identification in a single pass, providing higher quality segmentation with built‑in speaker labels. Requires 24GB+ VRAM or 48GB+ combined system memory.
 
-4. **Stage 3 — Target Speaker Extraction**: For each detected speaker, UniSE's Target Speaker Extraction (TSE) capability isolates that speaker's voice from the full audio. The longest speech segment per speaker is used as an enrollment clip, and TSE extracts that speaker's voice across the entire recording.
+5. **Stage 3 — Target Speaker Extraction**: For each detected speaker, UniSE's Target Speaker Extraction (TSE) capability isolates that speaker's voice from the full audio. The longest speech segment per speaker is used as an enrollment clip, and TSE extracts that speaker's voice across the entire recording.
 
-5. **Output**: Each speaker is saved as a separate WAV file: `voder_ss_<name>_<timestamp>_speaker1.wav`, `voder_ss_<name>_<timestamp>_speaker2.wav`, etc.
+6. **Stage 4 — Blend** (optional, when `blend` flag is set): Each speaker's extracted audio is mixed with the non‑vocals track at 48kHz via `_mix_audio_at_target_sr()`. The blend happens after SE (if enabled). Output files carry a `_blend` suffix.
+
+7. **Output**: Each speaker is saved as a separate WAV file: `voder_ss_<name>_<timestamp>_speaker1.wav`, `voder_ss_<name>_<timestamp>_speaker2.wav`, etc. (or `*_blend.wav` when blend is used).
 
 **Standard vs Overdose Mode:**
 
@@ -1923,6 +1927,15 @@ python src/voder.py ss "path/to/audio.wav" overdose
 
 # Extract a specific voice using a target reference
 python src/voder.py ss "path/to/multi_speaker.wav" target "target_voice.wav"
+
+# With blend (each speaker + non-vocals, useful for vlogs)
+python src/voder.py ss blend "path/to/vlog.wav"
+
+# Target extraction with blend (target speaker + non-vocals)
+python src/voder.py ss target "speaker_ref.wav" blend "conversation.wav"
+
+# Full pipeline: overdose + sound enhancement + blend
+python src/voder.py ss overdose se blend "noisy_conversation.wav"
 
 # From a video file
 python src/voder.py ss "interview.mp4"

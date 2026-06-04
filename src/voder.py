@@ -6557,6 +6557,7 @@ def parse_oneline_args(args):
         file_path = None
         target_path = None
         use_overdose = False
+        use_blend = False
         while i < len(args):
             arg = args[i]
             arg_lower = arg.lower()
@@ -6565,6 +6566,9 @@ def parse_oneline_args(args):
                 i += 1
             elif arg_lower == 'overdose':
                 use_overdose = True
+                i += 1
+            elif arg_lower == 'blend':
+                use_blend = True
                 i += 1
             elif arg_lower == 'extreme':
                 use_extreme = True
@@ -6596,6 +6600,7 @@ def parse_oneline_args(args):
         result['params']['file_path'] = file_path
         result['params']['target_path'] = target_path
         result['params']['overdose'] = use_overdose
+        result['params']['use_blend'] = use_blend
         result['params']['result_path'] = result_path
         return result
 
@@ -7427,6 +7432,8 @@ def show_oneline_usage():
     print('  python voder.py ss "path/to/video.mp4"')
     print('  python voder.py ss "https://youtube.com/watch?v=..."')
     print('  python voder.py ss se "path/to/audio.wav"')
+    print('  python voder.py ss overdose se blend "path/to/audio.wav"')
+    print('  python voder.py ss target "ref.wav" blend "path/to/audio.wav"')
     print()
     print("Single mode examples:")
     print('  python voder.py tts script "hello world" voice "male voice"')
@@ -14271,7 +14278,7 @@ def _ss_resolve_input(file_path, results_dir, timestamp):
 
     return audio_path, original_name, is_url, cleanup_list, None
 
-def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, target_path=None, use_overdose=False):
+def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, target_path=None, use_overdose=False, use_blend=False):
     all_outputs = []
     temp_dirs = []
 
@@ -14307,6 +14314,14 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
         return None
 
     clean_source = svs_temp
+
+    blend_music_path = None
+    if use_blend:
+        print("Stage 1b: SVS music extraction for blend...")
+        blend_music_path = svs_extract_music(audio_path)
+        if not blend_music_path or not os.path.exists(blend_music_path):
+            print("Warning: SVS music extraction failed, blend will be skipped")
+            blend_music_path = None
 
     if target_path and os.path.exists(target_path):
         print("Stage 2: Target-based extraction (UniSE TSE)...")
@@ -14352,10 +14367,27 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
                 torch.cuda.empty_cache()
 
         if tse_ok and os.path.exists(tse_temp_path):
-            final_path = os.path.join(results_dir, output_filename)
-            shutil.copy2(tse_temp_path, final_path)
-            all_outputs.append(final_path)
-            print(f"  Extracted voice saved to: {final_path}")
+            if blend_music_path:
+                blend_filename = f"voder_ss_{original_name}_{timestamp}_extracted_blend.wav"
+                blend_out = os.path.join(tse_temp_dir, blend_filename)
+                print("Blending extracted voice with non-vocals...")
+                mix_ok = _mix_audio_at_target_sr(tse_temp_path, blend_music_path, blend_out, target_sr=48000)
+                if mix_ok:
+                    final_path = os.path.join(results_dir, blend_filename)
+                    shutil.copy2(blend_out, final_path)
+                    all_outputs.append(final_path)
+                    print(f"  Blended voice saved to: {final_path}")
+                else:
+                    print("Warning: Blend failed, saving extracted voice only")
+                    final_path = os.path.join(results_dir, output_filename)
+                    shutil.copy2(tse_temp_path, final_path)
+                    all_outputs.append(final_path)
+                    print(f"  Extracted voice saved to: {final_path}")
+            else:
+                final_path = os.path.join(results_dir, output_filename)
+                shutil.copy2(tse_temp_path, final_path)
+                all_outputs.append(final_path)
+                print(f"  Extracted voice saved to: {final_path}")
         else:
             print(f"  Warning: TSE extraction failed for target voice")
 
@@ -14503,10 +14535,27 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-        final_path = os.path.join(results_dir, output_filename)
-        shutil.copy2(single_temp, final_path)
-        all_outputs.append(final_path)
-        print(f"Output saved to: {final_path}")
+        if blend_music_path:
+            blend_filename = f"voder_ss_{original_name}_{timestamp}_speaker1_blend.wav"
+            blend_out = os.path.join(single_temp_dir, blend_filename)
+            print("Blending extracted voice with non-vocals...")
+            mix_ok = _mix_audio_at_target_sr(single_temp, blend_music_path, blend_out, target_sr=48000)
+            if mix_ok:
+                final_path = os.path.join(results_dir, blend_filename)
+                shutil.copy2(blend_out, final_path)
+                all_outputs.append(final_path)
+                print(f"Blended output saved to: {final_path}")
+            else:
+                print("Warning: Blend failed, saving extracted voice only")
+                final_path = os.path.join(results_dir, output_filename)
+                shutil.copy2(single_temp, final_path)
+                all_outputs.append(final_path)
+                print(f"Output saved to: {final_path}")
+        else:
+            final_path = os.path.join(results_dir, output_filename)
+            shutil.copy2(single_temp, final_path)
+            all_outputs.append(final_path)
+            print(f"Output saved to: {final_path}")
 
         for td in temp_dirs:
             try:
@@ -14685,9 +14734,24 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
                 torch.cuda.empty_cache()
 
         for spk_num, (temp_f, fname) in speaker_temp_files.items():
-            final_path = os.path.join(results_dir, fname)
-            shutil.copy2(temp_f, final_path)
-            all_outputs.append(final_path)
+            if blend_music_path:
+                blend_fname = fname.replace('.wav', '_blend.wav')
+                blend_out = os.path.join(tse_temp_dir, blend_fname)
+                print(f"  Blending speaker {spk_num} with non-vocals...")
+                mix_ok = _mix_audio_at_target_sr(temp_f, blend_music_path, blend_out, target_sr=48000)
+                if mix_ok:
+                    final_path = os.path.join(results_dir, blend_fname)
+                    shutil.copy2(blend_out, final_path)
+                    all_outputs.append(final_path)
+                else:
+                    print(f"  Warning: Blend failed for speaker {spk_num}, saving voice only")
+                    final_path = os.path.join(results_dir, fname)
+                    shutil.copy2(temp_f, final_path)
+                    all_outputs.append(final_path)
+            else:
+                final_path = os.path.join(results_dir, fname)
+                shutil.copy2(temp_f, final_path)
+                all_outputs.append(final_path)
 
         for td in temp_dirs:
             try:
@@ -14932,9 +14996,24 @@ def _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, 
                 torch.cuda.empty_cache()
 
         for spk_num, (temp_f, fname) in speaker_temp_files.items():
-            final_path = os.path.join(results_dir, fname)
-            shutil.copy2(temp_f, final_path)
-            all_outputs.append(final_path)
+            if blend_music_path:
+                blend_fname = fname.replace('.wav', '_blend.wav')
+                blend_out = os.path.join(tse_temp_dir, blend_fname)
+                print(f"  Blending speaker {spk_num} with non-vocals...")
+                mix_ok = _mix_audio_at_target_sr(temp_f, blend_music_path, blend_out, target_sr=48000)
+                if mix_ok:
+                    final_path = os.path.join(results_dir, blend_fname)
+                    shutil.copy2(blend_out, final_path)
+                    all_outputs.append(final_path)
+                else:
+                    print(f"  Warning: Blend failed for speaker {spk_num}, saving voice only")
+                    final_path = os.path.join(results_dir, fname)
+                    shutil.copy2(temp_f, final_path)
+                    all_outputs.append(final_path)
+            else:
+                final_path = os.path.join(results_dir, fname)
+                shutil.copy2(temp_f, final_path)
+                all_outputs.append(final_path)
 
         for td in temp_dirs:
             try:
@@ -14958,6 +15037,7 @@ def oneline_ss(params):
     use_se = params.get('use_se', False)
     target_path = params.get('target_path')
     use_overdose = params.get('overdose', False)
+    use_blend = params.get('use_blend', False)
 
     if not file_path:
         print("Error: SS mode requires an audio/video file path or URL")
@@ -15001,7 +15081,7 @@ def oneline_ss(params):
         return False
 
     try:
-        pipeline_outputs = _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, target_audio, use_overdose)
+        pipeline_outputs = _ss_run_pipeline(audio_path, use_se, results_dir, original_name, timestamp, target_audio, use_overdose, use_blend)
         if pipeline_outputs is None:
             print("SS pipeline failed")
             return False

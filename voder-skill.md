@@ -138,7 +138,7 @@ SPEAKER VOICE CHANGE PATH (TTS SVC Sub-Task):
 Source Audio → SVS Voice Isolation → Whisper large-v3 (Transcribe in original language) → Qwen3-TTS (with voice ref) → Seed-VC v2 (voice change pass using target reference) → [Audio with changed voice, same language]
 
 SPEAKER SEPARATION PATH (SS):
-Multi-Speaker Audio → VibeVoice ASR → Speaker Segments → Individual Audio Files
+Multi-Speaker Audio → VibeVoice ASR → Speaker Segments → Individual Audio Files (+ optional blend with non-vocals via `blend` flag)
 
 BGM REPLACEMENT PATH (TTM BGM):
 Source Audio/Video → SVS Voice Pipe (strip music) → Detect Duration → ACE-Step (generate new bgm) → Mix at level → [SFX overlay via TangoFlux] → [Re-mux if video]
@@ -2505,7 +2505,7 @@ python src/voder.py svs "input.wav" [stem voice|music] [result "path"]
 
 ### SS Mode
 ```
-python src/voder.py ss "input.wav" ["input2.wav" ...] [timestamp] [result "path"]
+python src/voder.py ss "input.wav" [se] [overdose] [blend] [target "ref.wav"] [result "path"]
 ```
 
 ## Feature Combo Catalog
