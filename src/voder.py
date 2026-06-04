@@ -13108,44 +13108,91 @@ def oneline_stt_subtitle(params):
                 continue
 
             num_asr_speakers = len(set(seg.get('speaker', 'SPEAKER_00') for seg in asr_segments))
-            if num_asr_speakers < 2:
-                print("Stage 1.5: Per-speaker detection for overlap-aware subtitling...")
+            if num_asr_speakers >= 2:
+                print(f"Detected {num_asr_speakers} speakers from ASR")
+                print("Stage 1.5: Per-speaker separation for overlap-aware subtitling...")
                 stt_speaker_extraction = _extract_speakers_for_subtitles(audio_path)
                 if stt_speaker_extraction:
-                    diar_segs = stt_speaker_extraction.get("speaker_segments", {})
-                    diar_speakers = sorted(diar_segs.keys(), key=lambda spk: diar_segs[spk][0]["start"])
-                    if len(diar_speakers) >= 2:
-                        for seg in asr_segments:
-                            seg_start = seg.get('start', 0)
-                            seg_end = seg.get('end', 0)
-                            best_spk = None
-                            best_overlap = 0
-                            for spk in diar_speakers:
-                                for dseg in diar_segs[spk]:
-                                    ov_start = max(seg_start, dseg["start"])
-                                    ov_end = min(seg_end, dseg["end"])
-                                    ov_dur = max(0, ov_end - ov_start)
-                                    if ov_dur > best_overlap:
-                                        best_overlap = ov_dur
-                                        best_spk = spk
-                            if best_spk:
-                                seg['speaker'] = best_spk
+                    speaker_files = stt_speaker_extraction.get("speaker_files", {})
+                    diar_speakers = sorted(stt_speaker_extraction.get("speaker_segments", {}).keys(),
+                                           key=lambda spk: stt_speaker_extraction["speaker_segments"][spk][0]["start"])
+                    asr_speakers_sorted = sorted(set(seg.get('speaker', 'SPEAKER_00') for seg in asr_segments),
+                                                 key=lambda spk: next((seg.get('start', 0) for seg in asr_segments if seg.get('speaker') == spk), 0))
+                    asr_to_diar = {}
+                    for idx, asr_spk in enumerate(asr_speakers_sorted):
+                        asr_to_diar[asr_spk] = diar_speakers[idx] if idx < len(diar_speakers) else diar_speakers[-1]
+
+                    spk_texts = {}
+                    for seg in asr_segments:
+                        spk = seg.get('speaker', 'SPEAKER_00')
+                        if spk not in spk_texts:
+                            spk_texts[spk] = []
+                        spk_texts[spk].append(seg.get('text', '').strip())
+
+                    all_aligned_subs = []
+                    for asr_spk in asr_speakers_sorted:
+                        diar_spk = asr_to_diar.get(asr_spk)
+                        spk_audio = speaker_files.get(diar_spk) if diar_spk else None
+                        spk_text = " ".join(spk_texts.get(asr_spk, []))
+                        if not spk_text:
+                            continue
+                        align_audio = spk_audio if spk_audio and os.path.exists(spk_audio) else audio_path
+                        word_ts = _forced_align_words(align_audio, spk_text, language="auto")
+                        if word_ts:
+                            chunked = _group_words_to_segments(word_ts, chunk_size=8, speaker=asr_spk)
+                            for chunk in chunked:
+                                chunk["overlap"] = False
+                            all_aligned_subs.extend(chunked)
+                        else:
+                            for seg in asr_segments:
+                                if seg.get('speaker') == asr_spk:
+                                    all_aligned_subs.append({
+                                        'start': seg.get('start', 0),
+                                        'end': seg.get('end', 0),
+                                        'text': seg.get('text', '').strip(),
+                                        'speaker': asr_spk,
+                                        'overlap': False
+                                    })
+
+                    _cleanup_aligner_model()
+
+                    if all_aligned_subs:
+                        all_aligned_subs.sort(key=lambda x: x["start"])
+                        for i, seg_a in enumerate(all_aligned_subs):
+                            for j, seg_b in enumerate(all_aligned_subs):
+                                if i == j:
+                                    continue
+                                if seg_a.get("speaker") == seg_b.get("speaker"):
+                                    continue
+                                if seg_a["start"] < seg_b["end"] and seg_a["end"] > seg_b["start"]:
+                                    if seg_a["start"] <= seg_b["start"]:
+                                        seg_b["overlap"] = True
+                                    else:
+                                        seg_a["overlap"] = True
+                        asr_segments = all_aligned_subs
+                        print(f"Per-speaker alignment produced {len(asr_segments)} subtitle segments")
+
+                    _cleanup_speaker_extraction(stt_speaker_extraction)
+                    stt_speaker_extraction = None
+                else:
+                    print("Warning: Speaker extraction failed, falling back to single-speaker alignment")
+                    print("Running forced alignment for accurate subtitle timing...")
+                    aligned_segments = _align_subtitle_segments(audio_path, asr_segments, language="auto")
+                    _cleanup_aligner_model()
+                    if aligned_segments:
+                        asr_segments = aligned_segments
+                        print(f"Forced alignment produced {len(asr_segments)} subtitle segments")
                     else:
-                        _cleanup_speaker_extraction(stt_speaker_extraction)
-                        stt_speaker_extraction = None
-
-            if stt_speaker_extraction:
-                _cleanup_speaker_extraction(stt_speaker_extraction)
-                stt_speaker_extraction = None
-
-            print("Running forced alignment for accurate subtitle timing...")
-            aligned_segments = _align_subtitle_segments(audio_path, asr_segments, language="auto")
-            _cleanup_aligner_model()
-            if aligned_segments:
-                asr_segments = aligned_segments
-                print(f"Forced alignment produced {len(asr_segments)} subtitle segments")
+                        print("Warning: Forced alignment failed, using original ASR segment timings")
             else:
-                print("Warning: Forced alignment failed, using original ASR segment timings")
+                print("Running forced alignment for accurate subtitle timing...")
+                aligned_segments = _align_subtitle_segments(audio_path, asr_segments, language="auto")
+                _cleanup_aligner_model()
+                if aligned_segments:
+                    asr_segments = aligned_segments
+                    print(f"Forced alignment produced {len(asr_segments)} subtitle segments")
+                else:
+                    print("Warning: Forced alignment failed, using original ASR segment timings")
 
             if translate_langs and translator:
                 src_lang = translate_langs['source']
