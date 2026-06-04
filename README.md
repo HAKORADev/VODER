@@ -2,7 +2,7 @@
   <img src="src/voder.png" alt="VODER Logo" width="256" height="256"/>
 </p>
 
-<h1 align="center">VODER — Voice Blender</h1>
+<h1 align="center">VODER</h1>
 
 <p align="center">
   <strong>Local &bull; Free &bull; Offline</strong><br/>

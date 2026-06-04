@@ -1,15 +1,15 @@
 # CHANGELOG
 
-- All notable changes to VODER - Voice Blender will be documented in this file.
+- All notable changes to VODER will be documented in this file.
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 
 ## 05/29/2026
 - Status: Stable, all features work, still developing
-- **Extreme TTS Mode (Fish Audio S2-Pro)**
+- **Major Integrations and Modernifications**
 
 ### Added
 
-#### Extreme TTS Mode
+#### Fish Audio S2-Pro Integration
 
 - **`extreme` Keyword** — New keyword for TTS mode and its sub-tasks (TTS, SLC, SVC, Modify Speech) that switches the TTS engine from Qwen3-TTS to Fish Audio S2-Pro for higher quality voice cloning and broader language support. Can be used alongside `overdose` (they serve different purposes: overdose = STT/TTM model selection, extreme = TTS model upgrade). Placed after `overdose` in syntax and prompts. Also available for STS mode to pre-process the target voice reference through Fish S2 Pro before Seed-VC conversion, producing a cleaner voice profile that extracts the dominant voice and removes background artifacts/noise.
 
