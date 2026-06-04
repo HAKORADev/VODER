@@ -3977,13 +3977,13 @@ def validate_dialogue_source_file(file_path):
 
 def analyze_dialogue_source(file_path, source_type="audio", use_overdose=False):
     if source_type == "txt":
-        return True, None, None, None
+        return True, None, None, None, None
 
     if source_type == "image":
         print("Loading EasyOCR model...")
         ocr = EasyOCRReader()
         if ocr.reader is None:
-            return False, "Failed to load EasyOCR model", None, None
+            return False, "Failed to load EasyOCR model", None, None, None
 
         print(f"Extracting text from image: {os.path.basename(file_path)}")
         success, text, error_msg = ocr.extract_text_from_image(file_path)
@@ -3993,19 +3993,19 @@ def analyze_dialogue_source(file_path, source_type="audio", use_overdose=False):
         gc.collect()
 
         if not success:
-            return False, error_msg or "Failed to extract text from image", None, None
+            return False, error_msg or "Failed to extract text from image", None, None, None
 
         if not text:
-            return False, "No text found in image", None, None
+            return False, "No text found in image", None, None, None
 
-        dialogue_items = [(1, 'text', text)]
-        return True, None, dialogue_items, None
+        dialogue_items = [(1, 'text', text, {})]
+        return True, None, dialogue_items, None, None
 
     if source_type == "youtube":
         print(f"Downloading audio from YouTube...")
         success, error_msg, audio_path = download_youtube_audio(file_path)
         if not success:
-            return False, error_msg, None, None
+            return False, error_msg, None, None, None
 
         file_path = audio_path
 
@@ -4015,12 +4015,13 @@ def analyze_dialogue_source(file_path, source_type="audio", use_overdose=False):
         print("Extracting audio from video...")
         audio_path = extract_audio_from_video_cli(file_path)
         if not audio_path:
-            return False, "Failed to extract audio from video", None, None
+            return False, "Failed to extract audio from video", None, None, None
         needs_cleanup = True
     elif not file_path.lower().endswith(('.wav', '.mp3', '.flac', '.m4a')):
-        return False, f"Unsupported audio format: {file_path}", None, None
+        return False, f"Unsupported audio format: {file_path}", None, None, None
 
     try:
+        speech_segments = None
         if use_overdose:
             asr = VibeVoiceASR()
             asr.ensure_model()
@@ -4031,141 +4032,202 @@ def analyze_dialogue_source(file_path, source_type="audio", use_overdose=False):
                 use_overdose = False
             else:
                 print("Transcribing with VibeVoice ASR...")
-                asr_segments = asr.transcribe(audio_path)
+                speech_segments = asr.transcribe(audio_path)
                 asr.cleanup()
                 del asr
                 gc.collect()
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-                if not asr_segments:
-                    return False, "VibeVoice ASR transcription returned no segments", None, None
+                if not speech_segments:
+                    return False, "VibeVoice ASR transcription returned no segments", None, None, None
 
-                original_speakers = []
-                for seg in asr_segments:
-                    speaker = seg["speaker"]
-                    if speaker not in original_speakers:
-                        original_speakers.append(speaker)
+        if speech_segments is None:
+            print("Loading Whisper model...")
+            stt = WhisperSTT()
+            if stt.model is None:
+                return False, "Failed to load Whisper model", None, None, None
 
-                speaker_mapping = {spk: idx for idx, spk in enumerate(original_speakers, 1)}
+            print("Transcribing audio...")
+            result = stt.transcribe(audio_path)
 
-                if len(original_speakers) == 1:
-                    content = " ".join(seg["text"] for seg in asr_segments)
-                    dialogue_items = [(1, 'text', content)]
-                else:
-                    dialogue_items = []
-                    current_speaker_num = None
-                    current_text_parts = []
+            del stt
+            stt = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
-                    for seg in asr_segments:
-                        speaker_num = speaker_mapping[seg["speaker"]]
-                        text = seg["text"]
+            if not result:
+                return False, "Transcription failed", None, None, None
 
-                        if current_speaker_num is None:
-                            current_speaker_num = speaker_num
-                            current_text_parts = [text]
-                        elif speaker_num == current_speaker_num:
-                            current_text_parts.append(text)
-                        else:
-                            if current_text_parts:
-                                content = " ".join(current_text_parts)
-                                dialogue_items.append((current_speaker_num, str(current_speaker_num), content))
-                            current_speaker_num = speaker_num
-                            current_text_parts = [text]
+            print("Performing speaker diarization...")
+            diarization = SpeakerDiarization()
 
-                    if current_text_parts:
-                        content = " ".join(current_text_parts)
-                        dialogue_items.append((current_speaker_num, str(current_speaker_num), content))
+            if diarization.pipeline is None:
+                text = result.get("text", "").strip()
+                if not text:
+                    return False, "No text transcribed", None, None, None
+                dialogue_items = [(1, 'text', text, {})]
+                return True, None, dialogue_items, audio_path, None
 
-                return True, None, dialogue_items, audio_path
+            diar_result = diarization.diarize(audio_path)
+            formatted_segments = diarization.format_diarization(diar_result, result)
 
-        print("Loading Whisper model...")
-        stt = WhisperSTT()
-        if stt.model is None:
-            return False, "Failed to load Whisper model", None, None
+            del diarization
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
-        print("Transcribing audio...")
-        result = stt.transcribe(audio_path)
+            if not formatted_segments:
+                text = result.get("text", "").strip()
+                dialogue_items = [(1, 'text', text, {})]
+                return True, None, dialogue_items, audio_path, None
 
-        del stt
-        stt = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        if not result:
-            return False, "Transcription failed", None, None
-
-        print("Performing speaker diarization...")
-        diarization = SpeakerDiarization()
-
-        if diarization.pipeline is None:
-            text = result.get("text", "").strip()
-            if not text:
-                return False, "No text transcribed", None, None
-            dialogue_items = [(1, 'text', text)]
-            return True, None, dialogue_items, audio_path
-
-        diar_result = diarization.diarize(audio_path)
-
-        formatted_segments = diarization.format_diarization(diar_result, result)
-
-        del diarization
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        if not formatted_segments:
-            text = result.get("text", "").strip()
-            dialogue_items = [(1, 'text', text)]
-            return True, None, dialogue_items, audio_path
+            speech_segments = []
+            for seg in formatted_segments:
+                speech_segments.append({
+                    "speaker": seg["speaker"],
+                    "text": seg["text"],
+                    "start": seg.get("start", 0),
+                    "end": seg.get("end", 0)
+                })
 
         original_speakers = []
-        for seg in formatted_segments:
-            speaker = seg["speaker"]
+        for seg in speech_segments:
+            speaker = seg.get("speaker", "SPEAKER_00")
             if speaker not in original_speakers:
                 original_speakers.append(speaker)
 
-        speaker_mapping = {spk: idx for idx, spk in enumerate(original_speakers, 1)}
+        if len(original_speakers) < 2:
+            content = " ".join(seg.get("text", "") for seg in speech_segments)
+            dialogue_items = [(1, 'text', content.strip(), {})]
+            return True, None, dialogue_items, audio_path, None
 
-        if len(original_speakers) == 1:
-            content = " ".join(seg["text"] for seg in formatted_segments)
-            dialogue_items = [(1, 'text', content)]
-        else:
+        print(f"Detected {len(original_speakers)} speakers, running TSE per-speaker extraction...")
+        speaker_extraction = _extract_speakers_for_subtitles(audio_path)
+        if speaker_extraction is None:
+            speaker_mapping = {spk: idx for idx, spk in enumerate(original_speakers, 1)}
             dialogue_items = []
-            current_speaker_num = None
+            current_speaker = None
             current_text_parts = []
-            current_start_time = None
-            last_end_time = None
-
-            for seg in formatted_segments:
-                speaker_num = speaker_mapping[seg["speaker"]]
-                text = seg["text"]
-
-                if current_speaker_num is None:
-                    current_speaker_num = speaker_num
+            for seg in speech_segments:
+                spk_label = speaker_mapping.get(seg.get("speaker", "SPEAKER_00"), 1)
+                text = seg.get("text", "")
+                if current_speaker is None:
+                    current_speaker = spk_label
                     current_text_parts = [text]
-                    last_end_time = seg["end"]
-                elif speaker_num == current_speaker_num:
+                elif spk_label == current_speaker:
                     current_text_parts.append(text)
-                    last_end_time = seg["end"]
                 else:
                     if current_text_parts:
-                        content = " ".join(current_text_parts)
-                        dialogue_items.append((current_speaker_num, str(current_speaker_num), content))
-                    current_speaker_num = speaker_num
+                        dialogue_items.append((len(dialogue_items) + 1, str(current_speaker), " ".join(current_text_parts), {}))
+                    current_speaker = spk_label
                     current_text_parts = [text]
-                    current_start_time = seg["start"]
-                    last_end_time = seg["end"]
-
             if current_text_parts:
-                content = " ".join(current_text_parts)
-                dialogue_items.append((current_speaker_num, str(current_speaker_num), content))
+                dialogue_items.append((len(dialogue_items) + 1, str(current_speaker), " ".join(current_text_parts), {}))
+            return True, None, dialogue_items, audio_path, None
 
-        return True, None, dialogue_items, audio_path
+        speaker_files = speaker_extraction.get("speaker_files", {})
+        diar_speakers = sorted(speaker_extraction.get("speaker_segments", {}).keys(),
+                               key=lambda spk: speaker_extraction["speaker_segments"][spk][0]["start"])
+        asr_speakers_sorted = sorted(original_speakers,
+                                     key=lambda spk: next((seg.get('start', 0) for seg in speech_segments if seg.get('speaker') == spk), 0))
+        asr_to_diar = {}
+        for idx, asr_spk in enumerate(asr_speakers_sorted):
+            asr_to_diar[asr_spk] = diar_speakers[idx] if idx < len(diar_speakers) else diar_speakers[-1]
+
+        spk_texts = {}
+        spk_segments_data = {}
+        for seg in speech_segments:
+            spk = seg.get("speaker", "SPEAKER_00")
+            if spk not in spk_texts:
+                spk_texts[spk] = []
+                spk_segments_data[spk] = []
+            spk_texts[spk].append(seg.get("text", "").strip())
+            spk_segments_data[spk].append({"start": seg.get("start", 0), "end": seg.get("end", 0)})
+
+        print("Running per-speaker forced alignment...")
+        all_aligned_segments = []
+        for asr_spk in asr_speakers_sorted:
+            diar_spk = asr_to_diar.get(asr_spk)
+            spk_audio = speaker_files.get(diar_spk) if diar_spk else None
+            spk_text = " ".join(spk_texts.get(asr_spk, []))
+            if not spk_text or not spk_audio or not os.path.exists(spk_audio):
+                for seg_data in spk_segments_data.get(asr_spk, []):
+                    all_aligned_segments.append({
+                        "speaker": asr_spk,
+                        "text": "",
+                        "start": seg_data["start"],
+                        "end": seg_data["end"]
+                    })
+                continue
+
+            lang_code = _detect_lang_from_text(spk_text)
+            iso3 = _LANG_TO_ISO3.get(lang_code, "eng")
+            word_ts = _forced_align_words(spk_audio, spk_text, language=iso3)
+            if word_ts:
+                grouped = _group_words_to_segments(word_ts, chunk_size=8, speaker=asr_spk)
+                all_aligned_segments.extend(grouped)
+            else:
+                for seg_data in spk_segments_data.get(asr_spk, []):
+                    all_aligned_segments.append({
+                        "speaker": asr_spk,
+                        "text": "",
+                        "start": seg_data["start"],
+                        "end": seg_data["end"]
+                    })
+
+        all_aligned_segments.sort(key=lambda s: s.get("start", 0))
+
+        dialogue_items = []
+        current_speaker = None
+        current_text_parts = []
+        seg_start = 0
+        seg_end = 0
+        for seg in all_aligned_segments:
+            spk = seg.get("speaker", "SPEAKER_00")
+            text = seg.get("text", "").strip()
+            if not text:
+                continue
+            if current_speaker is None:
+                current_speaker = spk
+                current_text_parts = [text]
+                seg_start = seg.get("start", 0)
+                seg_end = seg.get("end", 0)
+            elif spk == current_speaker:
+                current_text_parts.append(text)
+                seg_end = seg.get("end", 0)
+            else:
+                if current_text_parts:
+                    directives = {"time_pad": seg_start, "has_time": True}
+                    dialogue_items.append((len(dialogue_items) + 1, current_speaker, " ".join(current_text_parts), directives))
+                current_speaker = spk
+                current_text_parts = [text]
+                seg_start = seg.get("start", 0)
+                seg_end = seg.get("end", 0)
+
+        if current_text_parts:
+            directives = {"time_pad": seg_start, "has_time": True}
+            dialogue_items.append((len(dialogue_items) + 1, current_speaker, " ".join(current_text_parts), directives))
+
+        if not dialogue_items:
+            _cleanup_speaker_extraction(speaker_extraction)
+            content = " ".join(seg.get("text", "") for seg in speech_segments)
+            dialogue_items = [(1, 'text', content.strip(), {})]
+            return True, None, dialogue_items, audio_path, None
+
+        speaker_name_mapping = {}
+        for idx, asr_spk in enumerate(asr_speakers_sorted):
+            speaker_name_mapping[asr_spk] = str(idx + 1)
+        mapped_items = []
+        for item_idx, spk, text, directives in dialogue_items:
+            mapped_spk = speaker_name_mapping.get(spk, spk)
+            mapped_items.append((item_idx, mapped_spk, text, directives))
+
+        return True, None, mapped_items, audio_path, speaker_extraction
 
     except Exception as e:
-        return False, f"Error analyzing audio: {str(e)}", None, None
+        return False, f"Error analyzing audio: {str(e)}", None, None, None
 
 def cli_tts_mode():
     original_cwd = os.getcwd()
@@ -4515,6 +4577,7 @@ def cli_tts_mode():
     dialogue_items = None
     mode_detected = None
     resolved_audio_path = None
+    _dialogue_speaker_extraction = None
 
     if has_source in ['y', 'yes']:
         while True:
@@ -4533,12 +4596,17 @@ def cli_tts_mode():
                 continue
 
             if msg == "txt":
-                dialogue_items = items
-                mode_detected = 'dialogue' if len(items) > 1 or (len(items) == 1 and items[0][1] != 'text') else 'single'
+                dialogue_items = []
+                for item in items:
+                    if len(item) == 3:
+                        dialogue_items.append((item[0], item[1], item[2], {}))
+                    else:
+                        dialogue_items.append(item)
+                mode_detected = 'dialogue' if len(dialogue_items) > 1 or (len(dialogue_items) == 1 and dialogue_items[0][1] != 'text') else 'single'
                 break
             elif msg == "image":
                 print(f"\nAnalyzing image: {os.path.basename(file_path)}...")
-                success, error_msg, items, _audio_path = analyze_dialogue_source(file_path, source_type="image", use_overdose=use_overdose)
+                success, error_msg, items, _audio_path, _spk_ext = analyze_dialogue_source(file_path, source_type="image", use_overdose=use_overdose)
                 if not success:
                     print(f"Error: {error_msg}")
                     retry = input("Try another source? (Y/N): ").strip().lower()
@@ -4548,15 +4616,19 @@ def cli_tts_mode():
 
                 dialogue_items = items
                 mode_detected = 'dialogue' if len(items) > 1 else 'single'
+                if _spk_ext:
+                    _dialogue_speaker_extraction = _spk_ext
 
                 print(f"\nDetected {len(items)} speaker(s):")
-                for idx, speaker_num, content in dialogue_items:
+                for item in dialogue_items:
+                    speaker_num = item[1]
+                    content = item[2]
                     preview = content[:50] + "..." if len(content) > 50 else content
                     print(f"  {speaker_num}: {preview}")
                 break
             elif msg == "youtube":
                 print(f"\nProcessing YouTube video...")
-                success, error_msg, items, _audio_path = analyze_dialogue_source(file_path, source_type="youtube", use_overdose=use_overdose)
+                success, error_msg, items, _audio_path, _spk_ext = analyze_dialogue_source(file_path, source_type="youtube", use_overdose=use_overdose)
                 if not success:
                     print(f"Error: {error_msg}")
                     retry = input("Try another source? (Y/N): ").strip().lower()
@@ -4568,15 +4640,19 @@ def cli_tts_mode():
                 mode_detected = 'dialogue' if len(items) > 1 else 'single'
                 if _audio_path:
                     resolved_audio_path = _audio_path
+                if _spk_ext:
+                    _dialogue_speaker_extraction = _spk_ext
 
                 print(f"\nDetected {len(items)} speaker(s):")
-                for idx, speaker_num, content in dialogue_items:
+                for item in dialogue_items:
+                    speaker_num = item[1]
+                    content = item[2]
                     preview = content[:50] + "..." if len(content) > 50 else content
                     print(f"  {speaker_num}: {preview}")
                 break
             else:
                 print(f"\nAnalyzing {os.path.basename(file_path)}...")
-                success, error_msg, items, _audio_path = analyze_dialogue_source(file_path, source_type="audio", use_overdose=use_overdose)
+                success, error_msg, items, _audio_path, _spk_ext = analyze_dialogue_source(file_path, source_type="audio", use_overdose=use_overdose)
                 if not success:
                     print(f"Error: {error_msg}")
                     retry = input("Try another source? (Y/N): ").strip().lower()
@@ -4588,9 +4664,13 @@ def cli_tts_mode():
                 mode_detected = 'dialogue' if len(items) > 1 else 'single'
                 if _audio_path:
                     resolved_audio_path = _audio_path
+                if _spk_ext:
+                    _dialogue_speaker_extraction = _spk_ext
 
                 print(f"\nDetected {len(items)} speaker(s):")
-                for idx, speaker_num, content in dialogue_items:
+                for item in dialogue_items:
+                    speaker_num = item[1]
+                    content = item[2]
                     preview = content[:50] + "..." if len(content) > 50 else content
                     print(f"  {speaker_num}: {preview}")
                 break
@@ -4810,108 +4890,254 @@ def cli_tts_mode():
         trained_voice_refs = {}
         sts_refs = {}
         _dialogue_cleanup = []
-        ss_clips = {}
-        ss_temp_dir = None
+
+        if _dialogue_speaker_extraction is not None:
+            _dialogue_cleanup.append(_dialogue_speaker_extraction.get("temp_dir"))
+            svs_temp = _dialogue_speaker_extraction.get("svs_temp_dir")
+            if svs_temp and svs_temp != _dialogue_speaker_extraction.get("temp_dir"):
+                _dialogue_cleanup.append(svs_temp)
 
         if not _is_all_sfx_interactive:
             sorted_chars = sorted(chars)
 
-            print(f"\nDo you have a multi-speaker audio source? (for auto voice cloning)")
-            print("Press Y to provide a file, or N to enter manually for each character")
-            has_multispeaker = input("> ").strip().lower()
+            if _dialogue_speaker_extraction is not None:
+                speaker_files = _dialogue_speaker_extraction.get("speaker_files", {})
+                diar_speakers = sorted(speaker_files.keys(),
+                                       key=lambda spk: _dialogue_speaker_extraction.get("speaker_segments", {}).get(spk, [{"start": 0}])[0]["start"])
+                spk_to_char = {}
+                for idx, char_lower in enumerate(sorted_chars):
+                    if idx < len(diar_speakers):
+                        spk_to_char[diar_speakers[idx]] = char_lower
 
-            if has_multispeaker in ['y', 'yes']:
-                while True:
-                    print("\nEnter the path to your multi-speaker audio source (file path or YouTube URL):")
-                    file_path = input("> ").strip()
-                    if not file_path:
-                        print("Error: No file path provided")
+                for diar_spk, char_lower in spk_to_char.items():
+                    spk_audio = speaker_files.get(diar_spk)
+                    orig_char = next((c for _, c, _, _ in dialogue_items if c.lower() == char_lower), char_lower)
+                    if spk_audio and os.path.exists(spk_audio):
+                        target_assignments[char_lower] = spk_audio
+                        print(f"  {orig_char} -> {diar_spk} (TSE extracted)")
+
+                for i, char_lower in enumerate(sorted_chars):
+                    if char_lower in target_assignments:
                         continue
-
-                    ss_source_audio = None
-                    ss_source_cleanup = []
-
-                    if is_youtube_url(file_path):
-                        print(f"Downloading audio from YouTube...")
-                        _dl_ok, _dl_err, _dl_path = download_youtube_audio(file_path)
-                        if not _dl_ok:
-                            print(f"Error: {_dl_err}")
-                            retry = input("Try another source? (Y/N): ").strip().lower()
-                            if retry not in ['y', 'yes']:
-                                return False
+                    orig_char = next((c for _, c, _, _ in dialogue_items if c.lower() == char_lower), char_lower)
+                    print(f"  No TSE audio for {orig_char}, requesting reference...")
+                    first_path = None
+                    ref_paths = []
+                    while True:
+                        label = f"{orig_char} reference 1" if first_path is None else f"{orig_char} reference (Enter to finish)"
+                        path = input(f"{label}: ").strip()
+                        if not path:
+                            if first_path is None:
+                                print(f"Warning: At least one reference required for {orig_char}")
+                                continue
+                            break
+                        if not os.path.exists(path) and not is_youtube_url(path):
+                            print(f"Warning: File not found: {path}, skipping")
                             continue
-                        ss_source_audio = _dl_path
-                        ss_source_cleanup.append(_dl_path)
-                    elif os.path.exists(file_path):
-                        ss_source_audio = file_path
-                        if file_path.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
-                            print("Extracting audio from video...")
-                            ss_source_audio = extract_audio_from_video_cli(file_path)
-                            if not ss_source_audio:
-                                print("Error: Failed to extract audio from video")
+                        if first_path is None:
+                            first_path = path
+                            ref_paths = [path]
+                        else:
+                            ref_paths.append(path)
+                    if len(ref_paths) > 1:
+                        clean_vocal = _resolve_multi_refs(ref_paths, _dialogue_cleanup)
+                        if not clean_vocal:
+                            return False
+                    else:
+                        resolved_audio, _cl = resolve_target_to_audio(ref_paths[0])
+                        if not resolved_audio:
+                            return False
+                        _dialogue_cleanup.extend(_cl)
+                        clean_vocal = svs_extract_vocals(resolved_audio)
+                        if clean_vocal and clean_vocal != resolved_audio:
+                            _dialogue_cleanup.append(clean_vocal)
+                    target_assignments[char_lower] = clean_vocal
+                    print(f"  {orig_char} -> manual ({len(ref_paths)} ref{'s' if len(ref_paths) > 1 else ''})")
+            else:
+                print(f"\nDo you have a multi-speaker audio source? (for auto voice cloning)")
+                print("Press Y to provide a file, or N to enter manually for each character")
+                has_multispeaker = input("> ").strip().lower()
+
+                if has_multispeaker in ['y', 'yes']:
+                    while True:
+                        print("\nEnter the path to your multi-speaker audio source (file path or YouTube URL):")
+                        file_path = input("> ").strip()
+                        if not file_path:
+                            print("Error: No file path provided")
+                            continue
+
+                        ss_source_audio = None
+                        ss_source_cleanup = []
+
+                        if is_youtube_url(file_path):
+                            print(f"Downloading audio from YouTube...")
+                            _dl_ok, _dl_err, _dl_path = download_youtube_audio(file_path)
+                            if not _dl_ok:
+                                print(f"Error: {_dl_err}")
                                 retry = input("Try another source? (Y/N): ").strip().lower()
                                 if retry not in ['y', 'yes']:
                                     return False
                                 continue
-                            ss_source_cleanup.append(ss_source_audio)
-                    else:
-                        print(f"Error: File not found: {file_path}")
-                        retry = input("Try another source? (Y/N): ").strip().lower()
-                        if retry not in ['y', 'yes']:
-                            return False
-                        continue
+                            ss_source_audio = _dl_path
+                            ss_source_cleanup.append(_dl_path)
+                        elif os.path.exists(file_path):
+                            ss_source_audio = file_path
+                            if file_path.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+                                print("Extracting audio from video...")
+                                ss_source_audio = extract_audio_from_video_cli(file_path)
+                                if not ss_source_audio:
+                                    print("Error: Failed to extract audio from video")
+                                    retry = input("Try another source? (Y/N): ").strip().lower()
+                                    if retry not in ['y', 'yes']:
+                                        return False
+                                    continue
+                                ss_source_cleanup.append(ss_source_audio)
+                        else:
+                            print(f"Error: File not found: {file_path}")
+                            retry = input("Try another source? (Y/N): ").strip().lower()
+                            if retry not in ['y', 'yes']:
+                                return False
+                            continue
 
-                    print(f"\nExtracting speaker clips via SS pipe...")
-                    ss_clips, ss_temp_dir = ss_extract_speakers(ss_source_audio, use_overdose=use_overdose)
+                        print(f"\nExtracting speakers via TSE...")
+                        _ms_speaker_extraction = _extract_speakers_for_subtitles(ss_source_audio)
+                        for _cf in ss_source_cleanup:
+                            _dialogue_cleanup.append(_cf)
 
-                    if ss_clips:
-                        print(f"\nExtracted {len(ss_clips)} speaker clip(s) via SS pipe.")
-                        for spk_num in sorted(ss_clips.keys(), key=lambda x: int(x)):
-                            print(f"  Speaker {spk_num}: {os.path.basename(ss_clips[spk_num])}")
-                    else:
-                        print("SS pipe returned no speaker clips.")
+                        if _ms_speaker_extraction:
+                            _dialogue_cleanup.append(_ms_speaker_extraction.get("temp_dir"))
+                            svs_temp = _ms_speaker_extraction.get("svs_temp_dir")
+                            if svs_temp and svs_temp != _ms_speaker_extraction.get("temp_dir"):
+                                _dialogue_cleanup.append(svs_temp)
+                            ms_speaker_files = _ms_speaker_extraction.get("speaker_files", {})
+                            ms_diar_speakers = sorted(ms_speaker_files.keys(),
+                                                       key=lambda spk: _ms_speaker_extraction.get("speaker_segments", {}).get(spk, [{"start": 0}])[0]["start"])
+                            print(f"\nExtracted {len(ms_diar_speakers)} speaker(s) via TSE.")
+                            for diar_spk in ms_diar_speakers:
+                                print(f"  {diar_spk}: {os.path.basename(ms_speaker_files[diar_spk])}")
 
-                    if ss_temp_dir:
-                        _dialogue_cleanup.append(ss_temp_dir)
-                    for _cf in ss_source_cleanup:
-                        _dialogue_cleanup.append(_cf)
+                            spk_to_char = {}
+                            for idx, char_lower in enumerate(sorted_chars):
+                                if idx < len(ms_diar_speakers):
+                                    spk_to_char[ms_diar_speakers[idx]] = char_lower
 
+                            for diar_spk, char_lower in spk_to_char.items():
+                                spk_audio = ms_speaker_files.get(diar_spk)
+                                orig_char = next((c for _, c, _, _ in dialogue_items if c.lower() == char_lower), char_lower)
+                                if spk_audio and os.path.exists(spk_audio):
+                                    target_assignments[char_lower] = spk_audio
+                                    print(f"  {orig_char} -> {diar_spk} (TSE extracted)")
+
+                            for i, char_lower in enumerate(sorted_chars):
+                                if char_lower in target_assignments:
+                                    continue
+                                orig_char = next((c for _, c, _, _ in dialogue_items if c.lower() == char_lower), char_lower)
+                                print(f"  No TSE audio for {orig_char}, requesting reference...")
+                                first_path = None
+                                ref_paths = []
+                                while True:
+                                    label = f"{orig_char} reference 1" if first_path is None else f"{orig_char} reference (Enter to finish)"
+                                    path = input(f"{label}: ").strip()
+                                    if not path:
+                                        if first_path is None:
+                                            print(f"Warning: At least one reference required for {orig_char}")
+                                            continue
+                                        break
+                                    if not os.path.exists(path) and not is_youtube_url(path):
+                                        print(f"Warning: File not found: {path}, skipping")
+                                        continue
+                                    if first_path is None:
+                                        first_path = path
+                                        ref_paths = [path]
+                                    else:
+                                        ref_paths.append(path)
+                                if len(ref_paths) > 1:
+                                    clean_vocal = _resolve_multi_refs(ref_paths, _dialogue_cleanup)
+                                    if not clean_vocal:
+                                        return False
+                                else:
+                                    resolved_audio, _cl = resolve_target_to_audio(ref_paths[0])
+                                    if not resolved_audio:
+                                        return False
+                                    _dialogue_cleanup.extend(_cl)
+                                    clean_vocal = svs_extract_vocals(resolved_audio)
+                                    if clean_vocal and clean_vocal != resolved_audio:
+                                        _dialogue_cleanup.append(clean_vocal)
+                                target_assignments[char_lower] = clean_vocal
+                                print(f"  {orig_char} -> manual ({len(ref_paths)} ref{'s' if len(ref_paths) > 1 else ''})")
+                        else:
+                            print("TSE extraction failed, falling back to manual reference for each character.")
+                            for i, char_lower in enumerate(sorted_chars):
+                                orig_char = next((c for _, c, _, _ in dialogue_items if c.lower() == char_lower), char_lower)
+                                first_path = None
+                                ref_paths = []
+                                while True:
+                                    label = f"{orig_char} reference 1" if first_path is None else f"{orig_char} reference (Enter to finish)"
+                                    path = input(f"{label}: ").strip()
+                                    if not path:
+                                        if first_path is None:
+                                            print(f"Warning: At least one reference required for {orig_char}")
+                                            continue
+                                        break
+                                    if not os.path.exists(path) and not is_youtube_url(path):
+                                        print(f"Warning: File not found: {path}, skipping")
+                                        continue
+                                    if first_path is None:
+                                        first_path = path
+                                        ref_paths = [path]
+                                    else:
+                                        ref_paths.append(path)
+                                if len(ref_paths) > 1:
+                                    clean_vocal = _resolve_multi_refs(ref_paths, _dialogue_cleanup)
+                                    if not clean_vocal:
+                                        return False
+                                else:
+                                    resolved_audio, _cl = resolve_target_to_audio(ref_paths[0])
+                                    if not resolved_audio:
+                                        return False
+                                    _dialogue_cleanup.extend(_cl)
+                                    clean_vocal = svs_extract_vocals(resolved_audio)
+                                    if clean_vocal and clean_vocal != resolved_audio:
+                                        _dialogue_cleanup.append(clean_vocal)
+                                target_assignments[char_lower] = clean_vocal
+                                print(f"  {orig_char} -> manual ({len(ref_paths)} ref{'s' if len(ref_paths) > 1 else ''})")
+
+                        break
+                else:
+                    print(f"\nVoice prompts or audio file paths for {len(chars)} character(s):")
+                    print("(Enter text for voice prompt, a path/URL to clone a voice, or a trained voice name)")
                     for i, char_lower in enumerate(sorted_chars):
                         orig_char = next((c for _, c, _, _ in dialogue_items if c.lower() == char_lower), char_lower)
-                        if char_lower in ss_clips:
-                            clip_path = ss_clips[char_lower]
-                            clean_vocal = svs_extract_vocals(clip_path)
-                            if clean_vocal and clean_vocal != clip_path:
-                                _dialogue_cleanup.append(clean_vocal)
-                                target_assignments[char_lower] = clean_vocal
-                            else:
-                                target_assignments[char_lower] = clip_path
-                            print(f"  {orig_char} -> speaker {char_lower} (SS pipe)")
-                        else:
-                            first_path = None
-                            ref_paths = []
+                        prompt = input(f"{orig_char}: ").strip()
+                        if not prompt:
+                            print(f"Error: No voice prompt or audio path provided for {orig_char}")
+                            return False
+                        trained_file = _resolve_voice_ref(prompt)
+                        if trained_file:
+                            voice_items = _load_voice_prompt(trained_file)
+                            if voice_items is None:
+                                print(f"Error: Failed to load trained voice: {trained_file}")
+                                return False
+                            trained_voice_refs[char_lower] = trained_file
+                            print(f"  {orig_char} -> trained voice ({os.path.basename(trained_file)})")
+                        elif os.path.exists(prompt) or is_youtube_url(prompt):
+                            ref_paths = [prompt]
+                            ref_num = 2
                             while True:
-                                label = f"{orig_char} reference 1" if first_path is None else f"{orig_char} reference (Enter to finish)"
-                                path = input(f"{label}: ").strip()
-                                if not path:
-                                    if first_path is None:
-                                        print(f"Warning: At least one reference required for {orig_char}")
-                                        continue
+                                more = input(f"{orig_char} reference {ref_num} (Enter to finish): ").strip()
+                                if not more:
                                     break
-                                if not os.path.exists(path) and not is_youtube_url(path):
-                                    print(f"Warning: File not found: {path}, skipping")
-                                    continue
-                                if first_path is None:
-                                    first_path = path
-                                    ref_paths = [path]
+                                if os.path.exists(more) or is_youtube_url(more):
+                                    ref_paths.append(more)
+                                    ref_num += 1
                                 else:
-                                    ref_paths.append(path)
+                                    print(f"Warning: File not found: {more}, skipping")
                             if len(ref_paths) > 1:
                                 clean_vocal = _resolve_multi_refs(ref_paths, _dialogue_cleanup)
                                 if not clean_vocal:
                                     return False
                             else:
-                                resolved_audio, _cl = resolve_target_to_audio(ref_paths[0])
+                                resolved_audio, _cl = resolve_target_to_audio(prompt)
                                 if not resolved_audio:
                                     return False
                                 _dialogue_cleanup.extend(_cl)
@@ -4919,55 +5145,10 @@ def cli_tts_mode():
                                 if clean_vocal and clean_vocal != resolved_audio:
                                     _dialogue_cleanup.append(clean_vocal)
                             target_assignments[char_lower] = clean_vocal
-                            print(f"  {orig_char} -> manual ({len(ref_paths)} ref{'s' if len(ref_paths) > 1 else ''})")
-
-                    break
-            else:
-                print(f"\nVoice prompts or audio file paths for {len(chars)} character(s):")
-                print("(Enter text for voice prompt, a path/URL to clone a voice, or a trained voice name)")
-                for i, char_lower in enumerate(sorted_chars):
-                    orig_char = next((c for _, c, _, _ in dialogue_items if c.lower() == char_lower), char_lower)
-                    prompt = input(f"{orig_char}: ").strip()
-                    if not prompt:
-                        print(f"Error: No voice prompt or audio path provided for {orig_char}")
-                        return False
-                    trained_file = _resolve_voice_ref(prompt)
-                    if trained_file:
-                        voice_items = _load_voice_prompt(trained_file)
-                        if voice_items is None:
-                            print(f"Error: Failed to load trained voice: {trained_file}")
-                            return False
-                        trained_voice_refs[char_lower] = trained_file
-                        print(f"  {orig_char} -> trained voice ({os.path.basename(trained_file)})")
-                    elif os.path.exists(prompt) or is_youtube_url(prompt):
-                        ref_paths = [prompt]
-                        ref_num = 2
-                        while True:
-                            more = input(f"{orig_char} reference {ref_num} (Enter to finish): ").strip()
-                            if not more:
-                                break
-                            if os.path.exists(more) or is_youtube_url(more):
-                                ref_paths.append(more)
-                                ref_num += 1
-                            else:
-                                print(f"Warning: File not found: {more}, skipping")
-                        if len(ref_paths) > 1:
-                            clean_vocal = _resolve_multi_refs(ref_paths, _dialogue_cleanup)
-                            if not clean_vocal:
-                                return False
+                            print(f"  {orig_char} -> voice clone ({len(ref_paths)} ref{'s' if len(ref_paths) > 1 else ''})")
                         else:
-                            resolved_audio, _cl = resolve_target_to_audio(prompt)
-                            if not resolved_audio:
-                                return False
-                            _dialogue_cleanup.extend(_cl)
-                            clean_vocal = svs_extract_vocals(resolved_audio)
-                            if clean_vocal and clean_vocal != resolved_audio:
-                                _dialogue_cleanup.append(clean_vocal)
-                        target_assignments[char_lower] = clean_vocal
-                        print(f"  {orig_char} -> voice clone ({len(ref_paths)} ref{'s' if len(ref_paths) > 1 else ''})")
-                    else:
-                        voice_prompts[char_lower] = prompt
-                    print(f"Progress: {i+1}/{len(chars)} completed")
+                            voice_prompts[char_lower] = prompt
+                        print(f"Progress: {i+1}/{len(chars)} completed")
 
         has_tts_chars = len(voice_prompts) > 0
         has_vc_chars = len(target_assignments) > 0 or len(trained_voice_refs) > 0
@@ -5019,25 +5200,81 @@ def cli_tts_mode():
 
             tts_obj = None
             vc_voice_prompts = None
+            fish_voice_data = None
             if has_vc_chars:
-                print("Loading Qwen-TTS model...")
-                tts_obj = QwenTTS()
-                vc_voice_prompts = {}
-                for char_lower, audio_path in target_assignments.items():
-                    print(f"Extracting voice for '{char_lower}'...")
-                    ref_text = _transcribe_for_qwen_ref(audio_path)
-                    success = tts_obj.extract_voice(audio_path, ref_text=ref_text if ref_text else None)
-                    if not success:
-                        print(f"Error: Failed to extract voice from {audio_path}")
+                if use_extreme:
+                    print("Loading Fish-S2Pro model (extreme)...")
+                    tts_obj = FishTTS()
+                    if not tts_obj.ensure_model():
+                        print("Error: Failed to load Fish-S2Pro model")
                         return False
-                    vc_voice_prompts[char_lower] = tts_obj.voice_prompt
-                for char_lower, trained_file in trained_voice_refs.items():
-                    print(f"Loading trained voice for '{char_lower}' from: {trained_file}")
-                    voice_items = _load_voice_prompt(trained_file)
-                    if voice_items is None:
-                        print(f"Error: Failed to load trained voice: {trained_file}")
-                        return False
-                    vc_voice_prompts[char_lower] = voice_items
+                    fish_voice_data = {}
+                    for char_lower, audio_path in target_assignments.items():
+                        print(f"Encoding voice for '{char_lower}' (extreme)...")
+                        ref_text = _transcribe_for_fish_ref(audio_path)
+                        voice_ok = _tts_extract_voice(tts_obj, audio_path, use_extreme=True, ref_text=ref_text)
+                        if voice_ok:
+                            fish_voice_data[char_lower] = {
+                                "tokens": tts_obj.encoded_refs["tokens"].cpu().clone(),
+                                "text": tts_obj.encoded_refs["text"]
+                            }
+                            print(f"  Encoded voice for {char_lower}")
+                        else:
+                            print(f"Warning: Voice encoding failed for '{char_lower}', falling back to Qwen-TTS")
+                            tts_obj.cleanup()
+                            del tts_obj
+                            gc.collect()
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                            tts_obj = None
+                            fish_voice_data = None
+                            break
+
+                    if tts_obj is None and fish_voice_data is None:
+                        print("Loading Qwen-TTS model...")
+                        tts_obj = QwenTTS()
+                        vc_voice_prompts = {}
+                        for char_lower, audio_path in target_assignments.items():
+                            print(f"Extracting voice for '{char_lower}'...")
+                            ref_text = _transcribe_for_qwen_ref(audio_path)
+                            success = tts_obj.extract_voice(audio_path, ref_text=ref_text if ref_text else None)
+                            if not success:
+                                print(f"Error: Failed to extract voice from {audio_path}")
+                                return False
+                            vc_voice_prompts[char_lower] = tts_obj.voice_prompt
+
+                    for char_lower, trained_file in trained_voice_refs.items():
+                        if fish_voice_data is not None:
+                            payload = _load_fish_voice(trained_file)
+                            if payload is not None:
+                                fish_voice_data[char_lower] = payload
+                            else:
+                                print(f"Warning: Failed to load trained voice for '{char_lower}'")
+                        elif vc_voice_prompts is not None:
+                            voice_items = _load_voice_prompt(trained_file)
+                            if voice_items is None:
+                                print(f"Error: Failed to load trained voice: {trained_file}")
+                                return False
+                            vc_voice_prompts[char_lower] = voice_items
+                else:
+                    print("Loading Qwen-TTS model...")
+                    tts_obj = QwenTTS()
+                    vc_voice_prompts = {}
+                    for char_lower, audio_path in target_assignments.items():
+                        print(f"Extracting voice for '{char_lower}'...")
+                        ref_text = _transcribe_for_qwen_ref(audio_path)
+                        success = tts_obj.extract_voice(audio_path, ref_text=ref_text if ref_text else None)
+                        if not success:
+                            print(f"Error: Failed to extract voice from {audio_path}")
+                            return False
+                        vc_voice_prompts[char_lower] = tts_obj.voice_prompt
+                    for char_lower, trained_file in trained_voice_refs.items():
+                        print(f"Loading trained voice for '{char_lower}' from: {trained_file}")
+                        voice_items = _load_voice_prompt(trained_file)
+                        if voice_items is None:
+                            print(f"Error: Failed to load trained voice: {trained_file}")
+                            return False
+                        vc_voice_prompts[char_lower] = voice_items
 
             if has_tts_chars and tts_obj is None:
                 print("Loading Qwen-TTS model for voice stabilization...")
@@ -5063,13 +5300,14 @@ def cli_tts_mode():
                     dialogue_items, voice_prompts, tts_design_obj=tts_design,
                     tts_vc_obj=tts_obj, vc_voice_data=vc_voice_prompts,
                     output_path=dialogue_temp.name, mode='tts',
-                    sts_refs=sts_refs if sts_refs else None
+                    sts_refs=sts_refs if sts_refs else None,
+                    use_extreme=use_extreme, fish_voice_data=fish_voice_data
                 )
                 if not success:
                     print(f"Error: {msg}")
                     return False
             elif len(dialogue_items) == 1:
-                _, char, text = dialogue_items[0]
+                _, char, text, _ = dialogue_items[0]
                 voice_instruct = voice_prompts[char.lower()]
                 success = tts_design.synthesize(text, voice_instruct, dialogue_temp.name)
                 if not success:
