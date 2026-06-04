@@ -12837,7 +12837,7 @@ def _format_ass_time(seconds):
 def _build_ass_subtitles(segments, video_width, video_height):
     font_size = max(16, int(video_height * 0.035))
     margin_v = max(20, int(video_height * 0.03))
-    outline_width = max(1, int(font_size * 0.12))
+    outline_width = max(1, int(font_size * 0.04))
     shadow_offset = max(1, int(font_size * 0.08))
     line_gap = font_size + 8
     max_slots = 4
