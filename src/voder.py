@@ -8137,6 +8137,7 @@ def _extract_speakers_for_subtitles(audio_path):
         print("Pass 2: Refining TSE with per-speaker aligned enrollment...")
         p2_asr = VibeVoiceASR()
         p2_asr.ensure_model()
+        speaker_transcriptions = {}
         for spk in list(speaker_files.keys()):
             spk_num = speaker_to_idx[spk]
             p1_audio = speaker_files[spk]
@@ -8150,6 +8151,8 @@ def _extract_speakers_for_subtitles(audio_path):
                         spk_text = re.sub(r'\s+', ' ', spk_text).strip()
                 except Exception:
                     pass
+            if spk_text:
+                speaker_transcriptions[spk] = spk_text
             if not spk_text:
                 continue
             detected_lang = _detect_lang_from_text(spk_text)
@@ -8216,12 +8219,26 @@ def _extract_speakers_for_subtitles(audio_path):
                 except Exception:
                     pass
                 speaker_files[spk] = spk_output2
+        for spk in speaker_files:
+            if spk not in speaker_transcriptions and p2_asr.model is not None:
+                try:
+                    raw_text = p2_asr.transcribe_plain_text(speaker_files[spk])
+                    if raw_text:
+                        t = re.sub(r'\[?(?:Lyric|Silence|Music|Noise|Applause|Laughter|Cough|Breath)\]?\s*', '', raw_text, flags=re.IGNORECASE).strip()
+                        t = re.sub(r'\(?(?:silence|music|noise|applause|laughter|cough|breath)\)?\s*', '', t, flags=re.IGNORECASE).strip()
+                        t = re.sub(r'\s+', ' ', t).strip()
+                        if t:
+                            speaker_transcriptions[spk] = t
+                except Exception:
+                    pass
         p2_asr.cleanup()
         del p2_asr
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         _cleanup_aligner_model()
+    else:
+        speaker_transcriptions = {}
 
     tse_enhancer.cleanup()
     del tse_enhancer
@@ -8240,7 +8257,8 @@ def _extract_speakers_for_subtitles(audio_path):
         "overlap_regions": overlap_regions,
         "temp_dir": temp_dir,
         "svs_temp_dir": svs_temp_dir,
-        "speaker_to_idx": speaker_to_idx
+        "speaker_to_idx": speaker_to_idx,
+        "speaker_transcriptions": speaker_transcriptions
     }
 
 def _cleanup_speaker_extraction(extraction_result):
@@ -12128,6 +12146,7 @@ def oneline_tts_dub(params):
             speaker_extraction = _extract_speakers_for_subtitles(audio_path)
             if speaker_extraction:
                 speaker_files = speaker_extraction.get("speaker_files", {})
+                speaker_transcriptions = speaker_extraction.get("speaker_transcriptions", {})
                 diar_speakers = sorted(speaker_extraction.get("speaker_segments", {}).keys(),
                                        key=lambda spk: speaker_extraction["speaker_segments"][spk][0]["start"])
                 asr_speakers_sorted = sorted(set(seg.get('speaker', 'SPEAKER_00') for seg in speech_segments),
@@ -12161,7 +12180,9 @@ def oneline_tts_dub(params):
                     diar_spk = asr_to_diar.get(asr_spk)
                     spk_audio = speaker_files.get(diar_spk) if diar_spk else None
                     if spk_audio and os.path.exists(spk_audio):
-                        spk_ref_text = " ".join(spk_texts.get(asr_spk, []))
+                        spk_ref_text = speaker_transcriptions.get(diar_spk, "")
+                        if not spk_ref_text:
+                            spk_ref_text = " ".join(spk_texts.get(asr_spk, []))
                         if not spk_ref_text:
                             spk_ref_text = _transcribe_for_fish_ref(spk_audio)
                         voice_ok = _tts_extract_voice(tts, spk_audio, use_extreme=True, ref_text=spk_ref_text)
