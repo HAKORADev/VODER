@@ -7635,6 +7635,10 @@ def _group_words_to_segments(word_timestamps, chunk_size=8, speaker=None):
     i = 0
     while i < len(word_timestamps):
         end_idx = min(i + chunk_size, len(word_timestamps))
+        for k in range(i + 1, end_idx):
+            if word_timestamps[k]["start"] - word_timestamps[k - 1]["end"] > 1.5:
+                end_idx = k
+                break
         chunk = word_timestamps[i:end_idx]
         if not chunk:
             break
