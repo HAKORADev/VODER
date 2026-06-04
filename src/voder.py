@@ -737,6 +737,11 @@ class TranslateGemma:
     def translate(self, text, source_lang, target_lang):
         if not self._loaded or self.pipe is None:
             return None
+        if source_lang != 'auto':
+            detected = _detect_lang_from_text(text)
+            if detected != source_lang:
+                print(f"Wrong source language input, auto-detected {detected}, overriding")
+                source_lang = detected
         try:
             messages = [
                 {
@@ -759,6 +764,12 @@ class TranslateGemma:
             return None
 
     def translate_segments(self, segments, source_lang, target_lang):
+        if source_lang != 'auto':
+            all_text = ' '.join((seg if isinstance(seg, str) else seg.get('text', '')) for seg in segments)
+            detected = _detect_lang_from_text(all_text)
+            if detected != source_lang:
+                print(f"Wrong source language input, auto-detected {detected}, overriding")
+                source_lang = detected
         results = []
         for seg in segments:
             text = seg if isinstance(seg, str) else seg.get('text', '')
