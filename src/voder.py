@@ -2171,6 +2171,9 @@ def _assemble_enhanced_dialogue(dialogue_items, voice_data, tts_design_obj=None,
                 if duration is None:
                     print(f"Error: SFX line {num} requires /duration:nn (1-30)")
                     return False, "Missing duration for SFX line"
+                sfx_valid, _ = _validate_text_language(text, SUPPORTED_TANGOFLUX_LANGS, "SFX")
+                if not sfx_valid:
+                    return False, f"Unsupported language for SFX line {num}"
                 if sfx_generator is None:
                     from tangoflux import TangoFluxGenerator
                     sfx_generator = TangoFluxGenerator(TANGOFLUX_DIR)
@@ -3522,6 +3525,34 @@ SUPPORTED_TTS_LANGUAGES = {
     "es": "Spanish", "it": "Italian"
 }
 
+SUPPORTED_ACESTEP_LANGS = {
+    'ar', 'az', 'bg', 'bn', 'ca', 'cs', 'da', 'de', 'el', 'en', 'es', 'fa',
+    'fi', 'fr', 'he', 'hi', 'hr', 'ht', 'hu', 'id', 'is', 'it', 'ja', 'ko',
+    'la', 'lt', 'ms', 'ne', 'nl', 'no', 'pa', 'pl', 'pt', 'ro', 'ru', 'sa',
+    'sk', 'sr', 'sv', 'sw', 'ta', 'te', 'th', 'tl', 'tr', 'uk', 'ur', 'vi',
+    'yue', 'zh'
+}
+
+SUPPORTED_FISH_LANGS = {
+    'af', 'am', 'ar', 'as', 'az', 'be', 'bg', 'bn', 'bo', 'br', 'bs', 'ca',
+    'cs', 'cy', 'da', 'de', 'el', 'en', 'es', 'et', 'eu', 'fa', 'fi', 'fr',
+    'gl', 'gu', 'he', 'hi', 'hr', 'ht', 'hu', 'id', 'is', 'it', 'ja', 'jw',
+    'ka', 'kk', 'km', 'kn', 'ko', 'lt', 'lv', 'mi', 'ml', 'mn', 'mr', 'ms',
+    'my', 'ne', 'nl', 'nn', 'no', 'pa', 'pl', 'ps', 'pt', 'ro', 'ru', 'sd',
+    'sk', 'sl', 'sn', 'sq', 'sr', 'sv', 'sw', 'ta', 'te', 'th', 'tl', 'tr',
+    'uk', 'ur', 'vi', 'yo', 'zh'
+}
+
+SUPPORTED_TANGOFLUX_LANGS = {'en'}
+
+def _validate_text_language(text, supported_langs, context_name):
+    detected = _detect_lang_from_text(text)
+    if detected not in supported_langs:
+        lang_name = SUPPORTED_TTS_LANGUAGES.get(detected) or detected.upper()
+        print(f"Unsupported language ({lang_name}) for {context_name}")
+        return False, detected
+    return True, detected
+
 def validate_audio_file(path):
     if not os.path.exists(path):
         return False, "File does not exist."
@@ -4289,18 +4320,25 @@ def cli_tts_mode():
             print(display_text)
             print()
 
-        edited_text = input("Edit text (or press Enter to keep as is): ").strip()
-        if edited_text:
-            text = edited_text.replace('\\n', '\n')
-        if not text:
-            print("Error: No text to synthesize")
-            for f in _ms_cleanup:
-                if f and os.path.exists(f):
-                    try:
-                        os.unlink(f)
-                    except:
-                        pass
-            return False
+        while True:
+            edited_text = input("Edit text (or press Enter to keep as is): ").strip()
+            if edited_text:
+                text = edited_text.replace('\\n', '\n')
+            if not text:
+                print("Error: No text to synthesize")
+                for f in _ms_cleanup:
+                    if f and os.path.exists(f):
+                        try:
+                            os.unlink(f)
+                        except:
+                            pass
+                return False
+            ms_lang_set = SUPPORTED_FISH_LANGS if ms_extreme else set(SUPPORTED_TTS_LANGUAGES.keys())
+            ms_lang_ctx = "TTS (extreme)" if ms_extreme else "TTS"
+            ms_valid, ms_detected = _validate_text_language(text, ms_lang_set, ms_lang_ctx)
+            if ms_valid:
+                break
+            print("Try again with a supported language")
 
         use_source = input("Want to use source audio as voice reference? (Y/N): ").strip().lower()
         voice_ref = None
@@ -4578,6 +4616,14 @@ def cli_tts_mode():
             return False
 
         lines = [l.replace('\\n', '\n') for l in lines]
+
+        tts_lang_set = SUPPORTED_FISH_LANGS if use_extreme else set(SUPPORTED_TTS_LANGUAGES.keys())
+        tts_lang_ctx = "TTS (extreme)" if use_extreme else "TTS"
+        all_script_text = " ".join(l.split(':', 1)[1].strip() if ':' in l else l for l in lines)
+        tts_valid, _ = _validate_text_language(all_script_text, tts_lang_set, tts_lang_ctx)
+        if not tts_valid:
+            print("Try again with a supported language")
+            return False
 
         if mode_detected == 'single':
             script = "\n".join(lines)
@@ -5856,12 +5902,17 @@ def cli_ttm_mode():
         else:
             print("Please enter Y or N")
     if use_vc:
-        print("Enter song lyrics (use \\n for new lines):")
-        lyrics = input("> ").strip()
-        if not lyrics:
-            print("Error: No lyrics provided")
-            return False
-        lyrics = lyrics.replace('\\n', '\n')
+        while True:
+            print("Enter song lyrics (use \\n for new lines):")
+            lyrics = input("> ").strip()
+            if not lyrics:
+                print("Error: No lyrics provided")
+                return False
+            lyrics = lyrics.replace('\\n', '\n')
+            lyrics_valid, _ = _validate_text_language(lyrics, SUPPORTED_ACESTEP_LANGS, "TTM")
+            if lyrics_valid:
+                break
+            print("Try again with a supported language")
         print()
         print("Enter style prompt (use \\n for new lines, e.g., 'upbeat pop, female vocals'):")
         style = input("> ").strip()
@@ -6002,12 +6053,17 @@ def cli_ttm_mode():
                         os.unlink(f)
                     except:
                         pass
-    print("Enter song lyrics (use \\n for new lines):")
-    lyrics = input("> ").strip()
-    if not lyrics:
-        print("Error: No lyrics provided")
-        return False
-    lyrics = lyrics.replace('\\n', '\n')
+    while True:
+        print("Enter song lyrics (use \\n for new lines):")
+        lyrics = input("> ").strip()
+        if not lyrics:
+            print("Error: No lyrics provided")
+            return False
+        lyrics = lyrics.replace('\\n', '\n')
+        lyrics_valid, _ = _validate_text_language(lyrics, SUPPORTED_ACESTEP_LANGS, "TTM")
+        if lyrics_valid:
+            break
+        print("Try again with a supported language")
     print()
     print("Enter style prompt (use \\n for new lines, e.g., 'upbeat pop, female vocals'):")
     style = input("> ").strip()
@@ -8225,6 +8281,17 @@ def oneline_tts(params):
                 torch.cuda.empty_cache()
 
         print(f"TTS language: {tts_lang}")
+        slc_lang_set = SUPPORTED_FISH_LANGS if use_extreme else set(SUPPORTED_TTS_LANGUAGES.keys())
+        slc_lang_ctx = "TTS (extreme)" if use_extreme else "TTS"
+        slc_valid, _ = _validate_text_language(final_text, slc_lang_set, slc_lang_ctx)
+        if not slc_valid:
+            for f in _slc_cleanup:
+                if f and os.path.exists(f):
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+            return False
         if use_extreme:
             print("Loading Fish-S2Pro model (extreme)...")
             tts = FishTTS()
@@ -8923,6 +8990,11 @@ def oneline_tts(params):
         if reference_source:
             print("Warning: Music reference is only supported for dialogue mode. Ignoring reference parameter.")
         script = scripts[0].replace('\\n', '\n')
+        tts_lang_set = SUPPORTED_FISH_LANGS if use_extreme else set(SUPPORTED_TTS_LANGUAGES.keys())
+        tts_lang_ctx = "TTS (extreme)" if use_extreme else "TTS"
+        tts_valid, _ = _validate_text_language(script, tts_lang_set, tts_lang_ctx)
+        if not tts_valid:
+            return False
         if voices:
             voice_value = voices[0]
             trained_file = _resolve_voice_ref(voice_value)
@@ -9157,6 +9229,14 @@ def oneline_tts(params):
                 print(f"Error: Empty text in script: {s}")
                 return False
             dialogue_items.append((idx, char, clean_text, parsed_directives))
+
+        tts_lang_set = SUPPORTED_FISH_LANGS if use_extreme else set(SUPPORTED_TTS_LANGUAGES.keys())
+        tts_lang_ctx = "TTS (extreme)" if use_extreme else "TTS"
+        all_dial_text = " ".join(di[2] for di in dialogue_items if di[1].lower() != 'sfx')
+        if all_dial_text.strip():
+            tts_valid, _ = _validate_text_language(all_dial_text, tts_lang_set, tts_lang_ctx)
+            if not tts_valid:
+                return False
 
         voice_prompts = {}
         trained_voice_refs = {}
@@ -9776,6 +9856,9 @@ def oneline_ttm(params):
             return False
         lyrics = params['lyrics'][0].replace('\\n', '\n')
         style = params['styling'][0].replace('\\n', '\n')
+        ttm_valid, _ = _validate_text_language(lyrics, SUPPORTED_ACESTEP_LANGS, "TTM")
+        if not ttm_valid:
+            return False
         _vc_cleanup = []
         use_first = params.get('clone_first', False)
         clone_multi = _parse_multi_refs(clone_path)
@@ -9969,6 +10052,10 @@ def oneline_ttm(params):
         _remix_lyrics = "..."
         if 'lyrics' in params and len(params['lyrics']) == 1:
             _remix_lyrics = params['lyrics'][0].replace('\\n', '\n')
+            if _remix_lyrics.strip() and _remix_lyrics.strip() != '...':
+                ttm_valid, _ = _validate_text_language(_remix_lyrics, SUPPORTED_ACESTEP_LANGS, "TTM")
+                if not ttm_valid:
+                    return False
         _remix_cleanup = []
         resolved_audio, src_cl = _compose_sources(_remix_entries, results_dir)
         if resolved_audio is None:
@@ -10212,6 +10299,10 @@ def oneline_ttm(params):
             _lyrics_content = "..."
             if 'lyrics' in params and len(params['lyrics']) == 1:
                 _lyrics_content = params['lyrics'][0].replace('\\n', '\n')
+                if _lyrics_content.strip() and _lyrics_content.strip() != '...':
+                    ttm_valid, _ = _validate_text_language(_lyrics_content, SUPPORTED_ACESTEP_LANGS, "TTM")
+                    if not ttm_valid:
+                        return False
             _rp_ref_entries = params.get('ref_entries', [])
             _repaint_ref_audio = None
             if _rp_ref_entries:
@@ -10310,6 +10401,9 @@ def oneline_ttm(params):
         return False
     lyrics = params['lyrics'][0].replace('\\n', '\n')
     style = params['styling'][0].replace('\\n', '\n')
+    ttm_valid, _ = _validate_text_language(lyrics, SUPPORTED_ACESTEP_LANGS, "TTM")
+    if not ttm_valid:
+        return False
     _ttm_cleanup = []
     reference_audio = None
     _target_vals = params.get('target', [])
@@ -10405,6 +10499,9 @@ def oneline_ttm_voice(params):
         return False
     lyrics = params['lyrics'][0].replace('\\n', '\n')
     style = params['styling'][0].replace('\\n', '\n')
+    ttm_valid, _ = _validate_text_language(lyrics, SUPPORTED_ACESTEP_LANGS, "TTM")
+    if not ttm_valid:
+        return False
     _cleanup = []
     reference_audio = None
     _target_vals = params.get('target', [])
@@ -14998,6 +15095,11 @@ def oneline_sfx(params):
     steps = params.get('steps', 30)
     guide = params.get('guide', 4.5)
 
+    if prompt:
+        sfx_valid, _ = _validate_text_language(prompt, SUPPORTED_TANGOFLUX_LANGS, "SFX")
+        if not sfx_valid:
+            return False
+
     if duration > 30:
         print("Warning: Duration >30s clamped to 30s (model maximum).")
         duration = 30
@@ -15058,9 +15160,13 @@ def cli_sfx_mode():
 
     while True:
         prompt = input("Enter sound prompt: ").strip()
-        if prompt:
+        if not prompt:
+            print("Error: Prompt cannot be empty. Please try again.")
+            continue
+        sfx_valid, _ = _validate_text_language(prompt, SUPPORTED_TANGOFLUX_LANGS, "SFX")
+        if sfx_valid:
             break
-        print("Error: Prompt cannot be empty. Please try again.")
+        print("Try again with English prompts (SFX only supports English)")
 
     while True:
         duration_input = input("Enter duration in seconds (1-30): ").strip()
