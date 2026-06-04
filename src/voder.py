@@ -992,11 +992,59 @@ def _overlay_segment_on_base(base_path, segment_path, start_time, output_path):
             'ffmpeg', '-i', base_path, '-i', segment_path,
             '-filter_complex',
             f'[1:a]adelay={int(start_time * 1000)}|{int(start_time * 1000)}[delayed];'
-            f'[0:a][delayed]amix=inputs=2:duration=first:dropout_transition=0[out]',
+            f'[0:a][delayed]amix=inputs=2:duration=first:dropout_transition=0,volume=2.0[out]',
             '-map', '[out]', '-y', output_path
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         return result.returncode == 0 and os.path.exists(output_path)
+    except Exception:
+        return False
+
+def _assemble_dubbed_audio(parts, total_duration, output_path, target_sr=44100):
+    try:
+        import numpy as np
+        total_samples = int(total_duration * target_sr) + target_sr
+        output = np.zeros(total_samples, dtype=np.float64)
+        for part in sorted(parts, key=lambda x: x['start']):
+            seg_path = part['path']
+            if not seg_path or not os.path.exists(seg_path):
+                continue
+            try:
+                data, seg_sr = sf.read(seg_path, dtype='float32')
+            except Exception:
+                try:
+                    wav, seg_sr = torchaudio.load(seg_path)
+                    data = wav.squeeze().float().numpy()
+                except Exception:
+                    continue
+            if data.ndim > 1:
+                data = np.mean(data, axis=1)
+            if seg_sr != target_sr:
+                try:
+                    resample_dir = tempfile.mkdtemp()
+                    resampled = os.path.join(resample_dir, 'resampled.wav')
+                    cmd = ['ffmpeg', '-i', seg_path, '-ar', str(target_sr), '-ac', '1', '-y', resampled]
+                    subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                    data, seg_sr = sf.read(resampled, dtype='float32')
+                    shutil.rmtree(resample_dir, ignore_errors=True)
+                    if data.ndim > 1:
+                        data = np.mean(data, axis=1)
+                except Exception:
+                    continue
+            start_sample = int(part['start'] * target_sr)
+            end_sample = start_sample + len(data)
+            if end_sample > total_samples:
+                new_total = end_sample + target_sr
+                output = np.resize(output, new_total)
+                total_samples = new_total
+            actual_len = min(len(data), total_samples - start_sample)
+            if actual_len > 0:
+                output[start_sample:start_sample + actual_len] += data[:actual_len]
+        peak = np.max(np.abs(output))
+        if peak > 0.95:
+            output = output * (0.95 / peak)
+        sf.write(output_path, output.astype(np.float32), target_sr)
+        return os.path.exists(output_path)
     except Exception:
         return False
 
@@ -7498,7 +7546,7 @@ def _forced_align_words(audio_path, text):
         print(f"Warning: Forced alignment failed: {e}")
         return []
 
-def _group_words_to_segments(word_timestamps, chunk_size=4, speaker=None):
+def _group_words_to_segments(word_timestamps, chunk_size=16, speaker=None):
     if not word_timestamps:
         return []
     segments = []
@@ -7723,7 +7771,7 @@ def _align_subtitle_segments(audio_path, segments):
         word_timestamps = _forced_align_words(audio_path, all_text)
         if not word_timestamps:
             return segments
-        result = _group_words_to_segments(word_timestamps, chunk_size=8, speaker=speaker)
+        result = _group_words_to_segments(word_timestamps, chunk_size=16, speaker=speaker)
         for seg in result:
             seg["overlap"] = False
         return result
@@ -7735,7 +7783,7 @@ def _align_subtitle_segments(audio_path, segments):
         word_timestamps = _forced_align_words(audio_path, all_text)
         if not word_timestamps:
             return segments
-        result = _group_words_to_segments(word_timestamps, chunk_size=8, speaker=segments[0].get("speaker"))
+        result = _group_words_to_segments(word_timestamps, chunk_size=16, speaker=segments[0].get("speaker"))
         for seg in result:
             seg["overlap"] = False
         return result
@@ -7777,7 +7825,7 @@ def _align_subtitle_segments(audio_path, segments):
                             break
                 if filtered:
                     word_ts = filtered
-            chunked = _group_words_to_segments(word_ts, chunk_size=8, speaker=asr_spk)
+            chunked = _group_words_to_segments(word_ts, chunk_size=16, speaker=asr_spk)
             for chunk in chunked:
                 is_overlap = False
                 for ov in overlap_regions:
@@ -7792,7 +7840,7 @@ def _align_subtitle_segments(audio_path, segments):
             if all_text:
                 word_timestamps = _forced_align_words(audio_path, all_text)
                 if word_timestamps:
-                    result = _group_words_to_segments(word_timestamps, chunk_size=8, speaker=segments[0].get("speaker"))
+                    result = _group_words_to_segments(word_timestamps, chunk_size=16, speaker=segments[0].get("speaker"))
                     for seg in result:
                         seg["overlap"] = False
                     return result
@@ -7806,7 +7854,7 @@ def _align_subtitle_segments(audio_path, segments):
         word_timestamps = _forced_align_words(audio_path, all_text)
         if not word_timestamps:
             return segments
-        result = _group_words_to_segments(word_timestamps, chunk_size=8, speaker=segments[0].get("speaker"))
+        result = _group_words_to_segments(word_timestamps, chunk_size=16, speaker=segments[0].get("speaker"))
         for seg in result:
             seg["overlap"] = False
         return result
@@ -11346,6 +11394,7 @@ def oneline_tts_dub(params):
     svs_music_track = None
     _dub_cleanup = []
     _dub_cleanup_dirs = []
+    speaker_extraction = None
 
     try:
         if is_url:
@@ -11524,6 +11573,67 @@ def oneline_tts_dub(params):
         num_speakers = len(set(seg.get('speaker', 'SPEAKER_00') for seg in speech_segments))
         print(f"Detected {num_speakers} speaker(s), source language: {src_lang}, target language: {tgt_lang}")
 
+        speaker_voices = {}
+        if num_speakers >= 2:
+            print("Stage 2.5: Per-speaker separation for voice cloning and overlap detection...")
+            speaker_extraction = _extract_speakers_for_subtitles(audio_path)
+            if speaker_extraction:
+                speaker_files = speaker_extraction.get("speaker_files", {})
+                diar_speakers = sorted(speaker_extraction.get("speaker_segments", {}).keys(),
+                                       key=lambda spk: speaker_extraction["speaker_segments"][spk][0]["start"])
+                asr_speakers_sorted = sorted(set(seg.get('speaker', 'SPEAKER_00') for seg in speech_segments),
+                                             key=lambda spk: next((seg.get('start', 0) for seg in speech_segments if seg.get('speaker') == spk), 0))
+                asr_to_diar = {}
+                for idx, asr_spk in enumerate(asr_speakers_sorted):
+                    asr_to_diar[asr_spk] = diar_speakers[idx] if idx < len(diar_speakers) else diar_speakers[-1]
+
+                spk_texts = {}
+                for seg in speech_segments:
+                    spk = seg.get('speaker', 'SPEAKER_00')
+                    if spk not in spk_texts:
+                        spk_texts[spk] = []
+                    spk_texts[spk].append(seg.get('text', '').strip())
+
+                print("Stage 2.5: Loading Fish-S2Pro model (extreme)...")
+                tts = FishTTS()
+                if not tts.ensure_model():
+                    print("Error: Failed to load Fish-S2Pro model")
+                    _cleanup_speaker_extraction(speaker_extraction)
+                    speaker_extraction = None
+                    if translator:
+                        translator.cleanup()
+                        del translator
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    return False
+
+                for asr_spk in asr_speakers_sorted:
+                    diar_spk = asr_to_diar.get(asr_spk)
+                    spk_audio = speaker_files.get(diar_spk) if diar_spk else None
+                    if spk_audio and os.path.exists(spk_audio):
+                        spk_ref_text = " ".join(spk_texts.get(asr_spk, []))
+                        if not spk_ref_text:
+                            spk_ref_text = _transcribe_for_fish_ref(spk_audio)
+                        voice_ok = _tts_extract_voice(tts, spk_audio, use_extreme=True, ref_text=spk_ref_text)
+                        if voice_ok:
+                            speaker_voices[asr_spk] = {
+                                "tokens": tts.encoded_refs["tokens"].cpu().clone(),
+                                "text": tts.encoded_refs["text"]
+                            }
+                            print(f"Encoded voice for {asr_spk}")
+
+                tts.cleanup()
+                del tts
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+                if not speaker_voices:
+                    print("Warning: Per-speaker voice encoding failed, falling back to single voice")
+                    _cleanup_speaker_extraction(speaker_extraction)
+                    speaker_extraction = None
+
         print("Stage 3: Loading Fish-S2Pro model (extreme)...")
         tts = FishTTS()
         if not tts.ensure_model():
@@ -11531,25 +11641,26 @@ def oneline_tts_dub(params):
             if translator:
                 translator.cleanup()
                 del translator
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            return False
-
-        print("Extracting voice from source audio...")
-        ref_text = _transcribe_for_fish_ref(svs_vocal)
-        voice_ok = _tts_extract_voice(tts, svs_vocal, use_extreme=True, ref_text=ref_text)
-        if not voice_ok:
-            print("Error: Voice extraction failed")
-            tts.cleanup()
-            del tts
-            if translator:
-                translator.cleanup()
-                del translator
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             return False
+
+        if not speaker_voices:
+            print("Extracting voice from source audio...")
+            ref_text = _transcribe_for_fish_ref(svs_vocal)
+            voice_ok = _tts_extract_voice(tts, svs_vocal, use_extreme=True, ref_text=ref_text)
+            if not voice_ok:
+                print("Error: Voice extraction failed")
+                tts.cleanup()
+                del tts
+                if translator:
+                    translator.cleanup()
+                    del translator
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                return False
 
         segment_tts_parts = []
 
@@ -11571,6 +11682,12 @@ def oneline_tts_dub(params):
                     seg_text = translated
                 else:
                     print(f"Warning: Translation failed for segment {seg_idx+1}, using original text")
+
+            if speaker_voices and seg_speaker in speaker_voices:
+                tts.encoded_refs = {
+                    "tokens": speaker_voices[seg_speaker]["tokens"].to(tts.device),
+                    "text": speaker_voices[seg_speaker]["text"]
+                }
 
             print(f"Generating speech for segment {seg_idx+1}/{len(speech_segments)} ({len(seg_text)} chars)...")
             seg_output_dir = tempfile.mkdtemp()
@@ -11624,30 +11741,33 @@ def oneline_tts_dub(params):
         print("Stage 4: Assembling dubbed audio on timeline...")
         orig_duration = _get_audio_duration(audio_path)
 
-        import numpy as np
-        timeline_dir = tempfile.mkdtemp()
-        _dub_cleanup_dirs.append(timeline_dir)
-        silent_base = os.path.join(timeline_dir, f'_dub_silent_{ts}.wav')
-        sr = 44100
-        silence_samples = int(orig_duration * sr)
-        silence_data = np.zeros((1, silence_samples), dtype=np.float32)
-        sf.write(silent_base, silence_data.T, sr)
-        _dub_cleanup.append(silent_base)
-
-        current_base = silent_base
-
-        for part_idx, part in enumerate(sorted(segment_tts_parts, key=lambda x: x['start'])):
-            overlay_dir = tempfile.mkdtemp()
-            _dub_cleanup_dirs.append(overlay_dir)
-            overlay_output = os.path.join(overlay_dir, f'_dub_overlay_{part_idx}_{ts}.wav')
-            overlay_ok = _overlay_segment_on_base(current_base, part['path'], part['start'], overlay_output)
-            if overlay_ok and os.path.exists(overlay_output):
-                _dub_cleanup.append(overlay_output)
-                current_base = overlay_output
-            else:
-                print(f"Warning: Failed to overlay segment {part_idx+1}")
-
-        dubbed_audio = current_base
+        assemble_dir = tempfile.mkdtemp()
+        _dub_cleanup_dirs.append(assemble_dir)
+        dubbed_audio = os.path.join(assemble_dir, f'_dub_assembled_{ts}.wav')
+        assemble_ok = _assemble_dubbed_audio(segment_tts_parts, orig_duration, dubbed_audio)
+        if not assemble_ok or not os.path.exists(dubbed_audio):
+            print("Warning: Numpy assembly failed, falling back to sequential overlay...")
+            import numpy as np
+            timeline_dir = tempfile.mkdtemp()
+            _dub_cleanup_dirs.append(timeline_dir)
+            silent_base = os.path.join(timeline_dir, f'_dub_silent_{ts}.wav')
+            sr = 44100
+            silence_samples = int(orig_duration * sr)
+            silence_data = np.zeros((1, silence_samples), dtype=np.float32)
+            sf.write(silent_base, silence_data.T, sr)
+            _dub_cleanup.append(silent_base)
+            current_base = silent_base
+            for part_idx, part in enumerate(sorted(segment_tts_parts, key=lambda x: x['start'])):
+                overlay_dir = tempfile.mkdtemp()
+                _dub_cleanup_dirs.append(overlay_dir)
+                overlay_output = os.path.join(overlay_dir, f'_dub_overlay_{part_idx}_{ts}.wav')
+                overlay_ok = _overlay_segment_on_base(current_base, part['path'], part['start'], overlay_output)
+                if overlay_ok and os.path.exists(overlay_output):
+                    _dub_cleanup.append(overlay_output)
+                    current_base = overlay_output
+                else:
+                    print(f"Warning: Failed to overlay segment {part_idx+1}")
+            dubbed_audio = current_base
 
         final_audio = dubbed_audio
         if svs_music_track and os.path.exists(svs_music_track):
@@ -11655,13 +11775,8 @@ def oneline_tts_dub(params):
             mix_dir = tempfile.mkdtemp()
             _dub_cleanup_dirs.append(mix_dir)
             mix_output = os.path.join(mix_dir, f'_dub_mixed_{ts}.wav')
-            mix_cmd = [
-                'ffmpeg', '-i', dubbed_audio, '-i', svs_music_track,
-                '-filter_complex', '[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=0[out]',
-                '-map', '[out]', '-y', mix_output
-            ]
-            mix_result = subprocess.run(mix_cmd, capture_output=True, text=True, timeout=300)
-            if mix_result.returncode == 0 and os.path.exists(mix_output):
+            mix_ok = _mix_audio_at_target_sr(dubbed_audio, svs_music_track, mix_output, target_sr=44100)
+            if mix_ok and os.path.exists(mix_output):
                 final_audio = mix_output
                 _dub_cleanup.append(mix_output)
             else:
@@ -11670,18 +11785,75 @@ def oneline_tts_dub(params):
         timestamp_str = time.strftime("%Y%m%d_%H%M%S")
         lang_tag = f"_{tgt_lang}" if tgt_lang != 'en' else ""
 
-        if video_path and os.path.exists(video_path):
-            if dub_subtitle:
-                if dub_subtitle_original:
-                    subtitle_segments = []
+        subtitle_segments = None
+        if dub_subtitle and video_path and os.path.exists(video_path):
+            if dub_subtitle_original:
+                subtitle_segments = []
+                for part in segment_tts_parts:
+                    subtitle_segments.append({
+                        'start': part['start'],
+                        'end': part['end'],
+                        'text': part.get('original_text', part['text']),
+                        'speaker': part['speaker'],
+                        'overlap': False
+                    })
+                if speaker_extraction:
+                    spk_texts_orig = {}
                     for part in segment_tts_parts:
-                        subtitle_segments.append({
-                            'start': part['start'],
-                            'end': part['end'],
-                            'text': part.get('original_text', part['text']),
-                            'speaker': part['speaker']
-                        })
+                        spk = part['speaker']
+                        if spk not in spk_texts_orig:
+                            spk_texts_orig[spk] = []
+                        spk_texts_orig[spk].append(part.get('original_text', part['text']))
 
+                    speaker_files = speaker_extraction.get("speaker_files", {})
+                    diar_speakers = sorted(speaker_extraction.get("speaker_segments", {}).keys(),
+                                           key=lambda spk: speaker_extraction["speaker_segments"][spk][0]["start"])
+                    asr_speakers_sorted = sorted(set(seg.get('speaker', 'SPEAKER_00') for seg in speech_segments),
+                                                 key=lambda spk: next((seg.get('start', 0) for seg in speech_segments if seg.get('speaker') == spk), 0))
+                    asr_to_diar = {}
+                    for idx, asr_spk in enumerate(asr_speakers_sorted):
+                        asr_to_diar[asr_spk] = diar_speakers[idx] if idx < len(diar_speakers) else diar_speakers[-1]
+
+                    all_aligned_subs = []
+                    for asr_spk in asr_speakers_sorted:
+                        diar_spk = asr_to_diar.get(asr_spk)
+                        spk_audio = speaker_files.get(diar_spk) if diar_spk else None
+                        spk_text = " ".join(spk_texts_orig.get(asr_spk, []))
+                        if not spk_text:
+                            continue
+                        align_audio = spk_audio if spk_audio and os.path.exists(spk_audio) else audio_path
+                        word_ts = _forced_align_words(align_audio, spk_text)
+                        if word_ts:
+                            chunked = _group_words_to_segments(word_ts, chunk_size=16, speaker=asr_spk)
+                            for chunk in chunked:
+                                chunk["overlap"] = False
+                            all_aligned_subs.extend(chunked)
+                        else:
+                            for seg in speech_segments:
+                                if seg.get('speaker') == asr_spk:
+                                    all_aligned_subs.append({
+                                        'start': seg.get('start', 0),
+                                        'end': seg.get('end', 0),
+                                        'text': seg.get('text', '').strip(),
+                                        'speaker': asr_spk,
+                                        'overlap': False
+                                    })
+
+                    _cleanup_aligner_model()
+
+                    if all_aligned_subs:
+                        all_aligned_subs.sort(key=lambda x: x["start"])
+                        for i, seg_a in enumerate(all_aligned_subs):
+                            for j, seg_b in enumerate(all_aligned_subs):
+                                if i == j:
+                                    continue
+                                if seg_a.get("speaker") == seg_b.get("speaker"):
+                                    continue
+                                if seg_a["start"] < seg_b["end"] and seg_a["end"] > seg_b["start"]:
+                                    seg_a["overlap"] = True
+                                    break
+                        subtitle_segments = all_aligned_subs
+                else:
                     original_audio_for_align = audio_path if audio_path and os.path.exists(audio_path) else None
                     if original_audio_for_align:
                         print("Running forced alignment on original audio for accurate subtitle timing...")
@@ -11693,68 +11865,91 @@ def oneline_tts_dub(params):
                         else:
                             print("Warning: Forced alignment failed, using original segment timings")
 
-                    if translator and need_sub_translate:
-                        print(f"Translating subtitles with TranslateGemma ({sub_src_lang}->{sub_tgt_lang})...")
-                        for sub_idx, sub_seg in enumerate(subtitle_segments):
-                            sub_text = sub_seg.get('text', '').strip()
-                            if sub_text:
-                                translated = translator.translate(sub_text, sub_src_lang, sub_tgt_lang)
-                                if translated:
-                                    sub_seg['text'] = translated
-                                else:
-                                    print(f"Warning: Subtitle translation failed for segment {sub_idx+1}")
-                else:
-                    print("Transcribing dubbed audio for subtitles...")
-                    dub_asr = VibeVoiceASR()
-                    dub_asr.ensure_model()
-                    if dub_asr.model is None:
-                        print("Warning: ASR failed for subtitle transcription, falling back to TTS text")
-                        dub_asr.cleanup()
-                        del dub_asr
-                        gc.collect()
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                        subtitle_segments = []
-                        for part in segment_tts_parts:
-                            subtitle_segments.append({
-                                'start': part['start'],
-                                'end': part['end'],
-                                'text': part['text'],
-                                'speaker': part['speaker']
-                            })
-                    else:
-                        dub_asr_segments = dub_asr.transcribe(final_audio)
-                        if not dub_asr_segments:
-                            dub_asr_segments = dub_asr.transcribe_with_events(final_audio)
-                        dub_asr.cleanup()
-                        del dub_asr
-                        gc.collect()
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                        if dub_asr_segments:
-                            dub_speech_segs = [s for s in dub_asr_segments if s.get('text', '').strip()]
-                        else:
-                            dub_speech_segs = []
-                        subtitle_segments = []
-                        for seg in dub_speech_segs:
-                            subtitle_segments.append({
-                                'start': seg.get('start', 0),
-                                'end': seg.get('end', 0),
-                                'text': seg.get('text', '').strip(),
-                                'speaker': seg.get('speaker', 'SPEAKER_00')
-                            })
-                        if not subtitle_segments:
-                            print("Warning: ASR on dubbed audio returned no segments, falling back to TTS text")
-                            for part in segment_tts_parts:
-                                subtitle_segments.append({
-                                    'start': part['start'],
-                                    'end': part['end'],
-                                    'text': part['text'],
-                                    'speaker': part['speaker']
-                                })
+                if translator and need_sub_translate:
+                    print(f"Translating subtitles with TranslateGemma ({sub_src_lang}->{sub_tgt_lang})...")
+                    for sub_idx, sub_seg in enumerate(subtitle_segments):
+                        sub_text = sub_seg.get('text', '').strip()
+                        if sub_text:
+                            translated = translator.translate(sub_text, sub_src_lang, sub_tgt_lang)
+                            if translated:
+                                sub_seg['text'] = translated
+                            else:
+                                print(f"Warning: Subtitle translation failed for segment {sub_idx+1}")
+            else:
+                subtitle_segments = []
+                for part in segment_tts_parts:
+                    subtitle_segments.append({
+                        'start': part['start'],
+                        'end': part['end'],
+                        'text': part['text'],
+                        'speaker': part['speaker'],
+                        'overlap': False
+                    })
 
-                    if subtitle_segments and final_audio and os.path.exists(final_audio):
-                        print("Running forced alignment on dubbed audio for accurate subtitle timing...")
+                if speaker_extraction:
+                    spk_texts_dub = {}
+                    for part in segment_tts_parts:
+                        spk = part['speaker']
+                        if spk not in spk_texts_dub:
+                            spk_texts_dub[spk] = []
+                        spk_texts_dub[spk].append(part['text'])
+
+                    speaker_files = speaker_extraction.get("speaker_files", {})
+                    diar_speakers = sorted(speaker_extraction.get("speaker_segments", {}).keys(),
+                                           key=lambda spk: speaker_extraction["speaker_segments"][spk][0]["start"])
+                    asr_speakers_sorted = sorted(set(seg.get('speaker', 'SPEAKER_00') for seg in speech_segments),
+                                                 key=lambda spk: next((seg.get('start', 0) for seg in speech_segments if seg.get('speaker') == spk), 0))
+                    asr_to_diar = {}
+                    for idx, asr_spk in enumerate(asr_speakers_sorted):
+                        asr_to_diar[asr_spk] = diar_speakers[idx] if idx < len(diar_speakers) else diar_speakers[-1]
+
+                    all_aligned_subs = []
+                    for asr_spk in asr_speakers_sorted:
+                        diar_spk = asr_to_diar.get(asr_spk)
+                        spk_audio = speaker_files.get(diar_spk) if diar_spk else None
+                        spk_text = " ".join(spk_texts_dub.get(asr_spk, []))
+                        if not spk_text:
+                            continue
+                        align_audio = spk_audio if spk_audio and os.path.exists(spk_audio) else audio_path
+                        word_ts = _forced_align_words(align_audio, spk_text)
+                        if word_ts:
+                            chunked = _group_words_to_segments(word_ts, chunk_size=16, speaker=asr_spk)
+                            for chunk in chunked:
+                                chunk["overlap"] = False
+                            all_aligned_subs.extend(chunked)
+                        else:
+                            for seg in speech_segments:
+                                if seg.get('speaker') == asr_spk:
+                                    subtitle_text = seg.get('text', '').strip()
+                                    for part in segment_tts_parts:
+                                        if part.get('original_text', part['text']) == seg.get('text', '').strip():
+                                            subtitle_text = part['text']
+                                            break
+                                    all_aligned_subs.append({
+                                        'start': seg.get('start', 0),
+                                        'end': seg.get('end', 0),
+                                        'text': subtitle_text,
+                                        'speaker': asr_spk,
+                                        'overlap': False
+                                    })
+
+                    _cleanup_aligner_model()
+
+                    if all_aligned_subs:
+                        all_aligned_subs.sort(key=lambda x: x["start"])
+                        for i, seg_a in enumerate(all_aligned_subs):
+                            for j, seg_b in enumerate(all_aligned_subs):
+                                if i == j:
+                                    continue
+                                if seg_a.get("speaker") == seg_b.get("speaker"):
+                                    continue
+                                if seg_a["start"] < seg_b["end"] and seg_a["end"] > seg_b["start"]:
+                                    seg_a["overlap"] = True
+                                    break
+                        subtitle_segments = all_aligned_subs
+                else:
+                    if final_audio and os.path.exists(final_audio):
+                        print("Running forced alignment for subtitle timing...")
                         aligned_subs = _align_subtitle_segments(final_audio, subtitle_segments)
                         _cleanup_aligner_model()
                         if aligned_subs:
@@ -11763,40 +11958,46 @@ def oneline_tts_dub(params):
                         else:
                             print("Warning: Forced alignment failed, using original segment timings")
 
-                    if dub_subtitle_langs:
-                        sub_tgt_lang_new = dub_subtitle_langs['target']
-                        sub_src_lang_new = dub_subtitle_langs.get('source', 'auto')
-                        if sub_src_lang_new == 'auto':
-                            sub_src_lang_new = tgt_lang
-                        if sub_src_lang_new != sub_tgt_lang_new:
-                            if not translator:
-                                print("Loading TranslateGemma for subtitle translation...")
-                                translator = TranslateGemma()
-                                if not translator.ensure_model():
-                                    print("Warning: Failed to load TranslateGemma, subtitle translation skipped")
-                                    translator.cleanup()
-                                    del translator
-                                    translator = None
-                                    gc.collect()
-                                    if torch.cuda.is_available():
-                                        torch.cuda.empty_cache()
-                            if translator:
-                                print(f"Translating subtitles with TranslateGemma ({sub_src_lang_new}->{sub_tgt_lang_new})...")
-                                for sub_idx, sub_seg in enumerate(subtitle_segments):
-                                    sub_text = sub_seg.get('text', '').strip()
-                                    if sub_text:
-                                        translated = translator.translate(sub_text, sub_src_lang_new, sub_tgt_lang_new)
-                                        if translated:
-                                            sub_seg['text'] = translated
+                if dub_subtitle_langs:
+                    sub_tgt_lang_new = dub_subtitle_langs['target']
+                    sub_src_lang_new = dub_subtitle_langs.get('source', 'auto')
+                    if sub_src_lang_new == 'auto':
+                        sub_src_lang_new = tgt_lang
+                    if sub_src_lang_new != sub_tgt_lang_new:
+                        if not translator:
+                            print("Loading TranslateGemma for subtitle translation...")
+                            translator = TranslateGemma()
+                            if not translator.ensure_model():
+                                print("Warning: Failed to load TranslateGemma, subtitle translation skipped")
+                                translator.cleanup()
+                                del translator
+                                translator = None
+                                gc.collect()
+                                if torch.cuda.is_available():
+                                    torch.cuda.empty_cache()
+                        if translator:
+                            print(f"Translating subtitles with TranslateGemma ({sub_src_lang_new}->{sub_tgt_lang_new})...")
+                            for sub_idx, sub_seg in enumerate(subtitle_segments):
+                                sub_text = sub_seg.get('text', '').strip()
+                                if sub_text:
+                                    translated = translator.translate(sub_text, sub_src_lang_new, sub_tgt_lang_new)
+                                    if translated:
+                                        sub_seg['text'] = translated
 
-                if translator:
-                    translator.cleanup()
-                    del translator
-                    translator = None
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
+        if speaker_extraction:
+            _cleanup_speaker_extraction(speaker_extraction)
+            speaker_extraction = None
 
+        if translator:
+            translator.cleanup()
+            del translator
+            translator = None
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        if video_path and os.path.exists(video_path):
+            if dub_subtitle and subtitle_segments:
                 base_name = os.path.splitext(os.path.basename(dub_source))[0] if not is_url else "youtube_dub"
                 output_filename = f"voder_tts_dub{lang_tag}_{timestamp_str}_{base_name}.mp4"
                 output_path = os.path.join(results_dir, output_filename)
@@ -11819,14 +12020,6 @@ def oneline_tts_dub(params):
                         print("Error: Failed to create output video")
                         return False
             else:
-                if translator:
-                    translator.cleanup()
-                    del translator
-                    translator = None
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-
                 base_name = os.path.splitext(os.path.basename(dub_source))[0] if not is_url else "youtube_dub"
                 output_filename = f"voder_tts_dub{lang_tag}_{timestamp_str}_{base_name}.mp4"
                 output_path = os.path.join(results_dir, output_filename)
@@ -11842,14 +12035,6 @@ def oneline_tts_dub(params):
                     print("Error: Failed to mux dubbed audio into video")
                     return False
         else:
-            if translator:
-                translator.cleanup()
-                del translator
-                translator = None
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-
             base_name = os.path.splitext(os.path.basename(dub_source))[0]
             output_filename = f"voder_tts_dub{lang_tag}_{timestamp_str}_{base_name}.wav"
             output_path = os.path.join(results_dir, output_filename)
@@ -11861,6 +12046,8 @@ def oneline_tts_dub(params):
     except Exception as e:
         print(f"Error in dub pipeline: {e}")
         traceback.print_exc()
+        if speaker_extraction:
+            _cleanup_speaker_extraction(speaker_extraction)
         if translator:
             translator.cleanup()
             del translator
@@ -12565,66 +12752,42 @@ Style: Overlap,Noto Sans,{font_size},{overlap_color},&H000000FF,&H00000000,&H800
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
-    events = []
-    overlaps = []
-    has_overlap_flag = any(seg.get("overlap") is not None for seg in segments if seg.get("text", "").strip())
-    if has_overlap_flag:
-        for i, seg in enumerate(segments):
-            start = seg.get("start", 0) or 0
-            end = seg.get("end", 0) or 0
-            text = seg.get("text", "").strip()
-            if not text or end <= start:
-                continue
-            is_overlap = seg.get("overlap", False)
-            if is_overlap:
-                for j, other in enumerate(segments):
-                    if i == j:
-                        continue
-                    o_start = other.get("start", 0) or 0
-                    o_end = other.get("end", 0) or 0
-                    if o_start < end and o_end > start and other.get("text", "").strip():
-                        overlap_start = max(start, o_start)
-                        overlap_end = min(end, o_end)
-                        o_text = other.get("text", "").strip()
-                        if o_text and not any(
-                            abs(ov["start"] - overlap_start) < 0.1 and abs(ov["end"] - overlap_end) < 0.1
-                            for ov in overlaps
-                        ):
-                            overlaps.append({
-                                "start": overlap_start,
-                                "end": overlap_end,
-                                "text": o_text
-                            })
-            text_escaped = text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
-            events.append(f"Dialogue: 0,{_format_ass_time(start)},{_format_ass_time(end)},Default,,0,0,0,,{text_escaped}")
-    else:
-        for i, seg in enumerate(segments):
-            start = seg.get("start", 0) or 0
-            end = seg.get("end", 0) or 0
-            text = seg.get("text", "").strip()
-            if not text or end <= start:
-                continue
-            for j, other in enumerate(segments):
-                if i == j:
-                    continue
-                o_start = other.get("start", 0) or 0
-                o_end = other.get("end", 0) or 0
-                if o_start < end and o_end > start and j > i:
-                    overlap_start = max(start, o_start)
-                    overlap_end = min(end, o_end)
-                    o_text = other.get("text", "").strip()
-                    if o_text:
-                        overlaps.append({
-                            "start": overlap_start,
-                            "end": overlap_end,
-                            "text": o_text
-                        })
-            text_escaped = text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
-            events.append(f"Dialogue: 0,{_format_ass_time(start)},{_format_ass_time(end)},Default,,0,0,0,,{text_escaped}")
+    valid_segments = []
+    for seg in segments:
+        start = seg.get("start", 0) or 0
+        end = seg.get("end", 0) or 0
+        text = seg.get("text", "").strip()
+        if not text or end <= start:
+            continue
+        valid_segments.append({
+            "start": start,
+            "end": end,
+            "text": text,
+            "speaker": seg.get("speaker"),
+            "overlap": seg.get("overlap", False)
+        })
 
-    for ov in overlaps:
-        text_escaped = ov["text"].replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
-        events.append(f"Dialogue: 1,{_format_ass_time(ov['start'])},{_format_ass_time(ov['end'])},Overlap,,0,0,0,,{text_escaped}")
+    for i, seg in enumerate(valid_segments):
+        if seg["overlap"]:
+            continue
+        spk_i = seg.get("speaker")
+        for j, other in enumerate(valid_segments):
+            if i == j:
+                continue
+            spk_j = other.get("speaker")
+            if spk_i is not None and spk_j is not None and spk_i == spk_j:
+                continue
+            if other["start"] < seg["end"] and other["end"] > seg["start"]:
+                seg["overlap"] = True
+                break
+
+    events = []
+    for seg in valid_segments:
+        text_escaped = seg["text"].replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
+        if seg["overlap"]:
+            events.append(f"Dialogue: 1,{_format_ass_time(seg['start'])},{_format_ass_time(seg['end'])},Overlap,,0,0,0,,{text_escaped}")
+        else:
+            events.append(f"Dialogue: 0,{_format_ass_time(seg['start'])},{_format_ass_time(seg['end'])},Default,,0,0,0,,{text_escaped}")
 
     return ass_header + "\n".join(events) + "\n"
 
