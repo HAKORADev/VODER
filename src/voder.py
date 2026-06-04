@@ -7675,7 +7675,7 @@ def _extract_speakers_for_subtitles(audio_path):
         if diarization.pipeline is None:
             return None
         diar_full = diarization.diarize_full(clean_source)
-        diarization.cleanup()
+        diarization.pipeline = None
         del diarization
         gc.collect()
         if torch.cuda.is_available():
