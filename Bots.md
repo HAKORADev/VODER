@@ -44,12 +44,12 @@ VODER is a professional‑grade voice processing tool that enables seamless conv
 - **Song Voice Separation (SVS)**: Separate vocals from music using BS‑RoFormer
 - **Speaker Language Conversion (SLC)**: Translate speech to English while preserving speaker voice (TTS sub‑task: `tts slc`, `tts slc music` for music preservation)
 - **Speaker Voice Change (SVC)**: Transcribe single-speaker audio and re-synthesize with a different voice (TTS sub-task: `tts svc "path" target "voice_ref"`)
-- **Speakers Separator (SS)**: Extract individual speakers from multi‑speaker audio, with optional `blend` to preserve non‑vocals
+- **Speakers Separator (SS)**: Extract individual speakers from multi‑speaker audio, with optional `blend` to preserve non‑vocals and `video` for video output
 - **Translation in STT**: Translate transcribed speech to English automatically
 - **Overdose Quality Mode**: Enhanced transcription, dialogue source analysis, and music generation using VibeVoice ASR
 - **Extreme TTS Mode**: Higher quality voice cloning and broader language support using Fish Audio S2-Pro (80+ languages, voice effects via `[tag]` syntax including 64 S1 Pro tags)
 - **Extreme STS Mode**: Pre-process target voice reference through Fish S2 Pro for cleaner Seed-VC conversion — extracts dominant voice from mixed/noisy references
-- **Video I/O**: Video input with automatic audio extraction; video output with replaced audio (STS)
+- **Video I/O**: Video input with automatic audio extraction; video output with replaced audio (STS, SS with `video` flag)
 
 ---
 
@@ -1581,7 +1581,7 @@ python src/voder.py svs "https://youtube.com/watch?v=..." voice
 
 ### Speakers Separator (ss)
 
-Extract individual speakers from multi‑speaker audio using VibeVoice ASR. Each speaker's audio is saved as a separate file. With `blend`, each speaker's audio is mixed with the original non‑vocals (instrumental/background) track — useful for vlogs or recordings where you want to isolate a speaker while preserving background audio.
+Extract individual speakers from multi‑speaker audio using VibeVoice ASR. Each speaker's audio is saved as a separate file. With `blend`, each speaker's audio is mixed with the original non‑vocals (instrumental/background) track — useful for vlogs or recordings where you want to isolate a speaker while preserving background audio. With `video`, separated audio is muxed with the original video to produce MP4 output — useful for removing unwanted speakers from a video while keeping the visuals.
 
 **Separate speakers from a meeting:**
 ```bash
@@ -1612,6 +1612,17 @@ python src/voder.py ss overdose se blend "noisy_conversation.wav"
 python src/voder.py ss target "speaker_ref.wav" blend "conversation.wav"
 ```
 
+**With video output (mux separated audio with original video):**
+```bash
+python src/voder.py ss video "interview.mp4"
+
+python src/voder.py ss target "speaker_ref.wav" video "interview.mp4"
+
+python src/voder.py ss video "https://youtube.com/watch?v=..."
+
+python src/voder.py ss overdose se blend video "vlog.mp4"
+```
+
 **Parameters:**
 
 | Parameter | Description | Required |
@@ -1621,6 +1632,7 @@ python src/voder.py ss target "speaker_ref.wav" blend "conversation.wav"
 | `overdose` | Use VibeVoice ASR instead of Whisper+Pyannote for enhanced separation | No |
 | `se` | Apply sound enhancement before separation | No |
 | `blend` | Blend each separated speaker with the original non-vocals (instrumental/background) track | No |
+| `video` | Produce video output by muxing separated audio with original video frames (ignored for audio-only input) | No |
 | `target` | Target voice reference for extracting a specific speaker | No |
 
 **Note:** Requires 24GB+ VRAM or 48GB+ system memory for VibeVoice ASR model.
@@ -1977,7 +1989,7 @@ VODER offers different experiences depending on the interface. Understanding the
 | **Song Voice Separation** | Separate vocals from music using BS‑RoFormer |
 | **Speaker Language Conversion** | Translate speech to English preserving voice (TTS sub‑task: `tts slc`, `tts slc music` for music preservation) |
 | **Speakers Separator** | Extract individual speakers from multi‑speaker audio |
-| **Video I/O** | Video input with audio extraction; video output with replaced audio (STS) |
+| **Video I/O** | Video input with audio extraction; video output with replaced audio (STS, SS with `video` flag) |
 | **TTM Sub-tasks** | Complete, lego, extract, remix, and repaint sub-tasks for music processing |
 | **TTM SFX Overlay** | Overlay generated sound effects on `bgm` and `complete` sub‑task outputs via `sfx:` specs |
 
@@ -2010,7 +2022,7 @@ Available in **both** CLI and GUI:
 | **SFX (Sound Effects)** | ✅ One‑liner with `sound`, `duration`, `steps`, `guide` | ✅ Dedicated panel |
 | **SVS (Song Voice Separate)** | ✅ One‑liner command | ✅ Dedicated panel |
 | **SLC (Speaker Language Conversion)** | ✅ One‑liner command (`tts slc`) | ✅ Dedicated panel |
-| **SS (Speakers Separator)** | ✅ One‑liner command (`se`, `overdose`, `blend`, `target` flags) | ✅ Dedicated panel |
+| **SS (Speakers Separator)** | ✅ One‑liner command (`se`, `overdose`, `blend`, `video`, `target` flags) | ✅ Dedicated panel |
 | **Output File Generation** | ✅ Saved to `results/` | ✅ Saved to `results/` |
 | **Parameter Customisation** | ✅ Duration, prompts, etc. | ✅ Duration, prompts, etc. |
 

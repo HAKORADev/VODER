@@ -6558,6 +6558,7 @@ def parse_oneline_args(args):
         target_path = None
         use_overdose = False
         use_blend = False
+        use_video = False
         while i < len(args):
             arg = args[i]
             arg_lower = arg.lower()
@@ -6569,6 +6570,9 @@ def parse_oneline_args(args):
                 i += 1
             elif arg_lower == 'blend':
                 use_blend = True
+                i += 1
+            elif arg_lower == 'video':
+                use_video = True
                 i += 1
             elif arg_lower == 'extreme':
                 use_extreme = True
@@ -6601,6 +6605,7 @@ def parse_oneline_args(args):
         result['params']['target_path'] = target_path
         result['params']['overdose'] = use_overdose
         result['params']['use_blend'] = use_blend
+        result['params']['use_video'] = use_video
         result['params']['result_path'] = result_path
         return result
 
@@ -7434,6 +7439,8 @@ def show_oneline_usage():
     print('  python voder.py ss se "path/to/audio.wav"')
     print('  python voder.py ss overdose se blend "path/to/audio.wav"')
     print('  python voder.py ss target "ref.wav" blend "path/to/audio.wav"')
+    print('  python voder.py ss video "path/to/video.mp4"')
+    print('  python voder.py ss target "ref.wav" video "path/to/video.mp4"')
     print()
     print("Single mode examples:")
     print('  python voder.py tts script "hello world" voice "male voice"')
@@ -15038,6 +15045,7 @@ def oneline_ss(params):
     target_path = params.get('target_path')
     use_overdose = params.get('overdose', False)
     use_blend = params.get('use_blend', False)
+    use_video = params.get('use_video', False)
 
     if not file_path:
         print("Error: SS mode requires an audio/video file path or URL")
@@ -15070,6 +15078,25 @@ def oneline_ss(params):
                 print("Error: Could not extract audio from target video")
                 return False
 
+    source_video_path = None
+    video_cleanup = []
+
+    if use_video:
+        if is_youtube_url(file_path):
+            print("Downloading video from URL for video output...")
+            dl_video, dl_title = download_youtube_video(file_path, results_dir)
+            if dl_video and os.path.exists(dl_video):
+                source_video_path = dl_video
+                video_cleanup.append(dl_video)
+            else:
+                print("Warning: Video download failed, continuing without video output")
+        elif os.path.exists(file_path):
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in VIDEO_EXTENSIONS:
+                source_video_path = file_path
+            else:
+                print("Info: Input is audio, 'video' keyword ignored")
+
     audio_path, original_name, is_url, cleanup_list, err = _ss_resolve_input(file_path, results_dir, timestamp)
     if err:
         print(f"Error: {err}")
@@ -15078,6 +15105,12 @@ def oneline_ss(params):
                 os.unlink(target_audio)
             except:
                 pass
+        for vf in video_cleanup:
+            if vf and os.path.exists(vf):
+                try:
+                    os.unlink(vf)
+                except:
+                    pass
         return False
 
     try:
@@ -15085,6 +15118,21 @@ def oneline_ss(params):
         if pipeline_outputs is None:
             print("SS pipeline failed")
             return False
+
+        if source_video_path and pipeline_outputs:
+            print("Muxing separated audio with video...")
+            for wav_path in pipeline_outputs:
+                mp4_name = os.path.splitext(os.path.basename(wav_path))[0] + '.mp4'
+                mp4_path = os.path.join(results_dir, mp4_name)
+                mux_cmd = ['ffmpeg', '-i', source_video_path, '-i', wav_path,
+                            '-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0',
+                            '-shortest', '-y', mp4_path]
+                mux_result = subprocess.run(mux_cmd, capture_output=True, text=True)
+                if mux_result.returncode == 0 and os.path.exists(mp4_path):
+                    print(f"  Video saved to: {mp4_path}")
+                else:
+                    print(f"  Warning: Video muxing failed for {os.path.basename(wav_path)}")
+
         return True
     except Exception as e:
         traceback.print_exc()
@@ -15102,6 +15150,12 @@ def oneline_ss(params):
                 os.unlink(target_audio)
             except:
                 pass
+        for vf in video_cleanup:
+            if vf and os.path.exists(vf):
+                try:
+                    os.unlink(vf)
+                except:
+                    pass
 
 def cli_ss_mode():
     original_cwd = os.getcwd()

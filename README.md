@@ -72,7 +72,7 @@ Remove noise, reduce room echo, and restore clarity from degraded recordings. Up
 
 ### Speaker Separation
 
-Extract individual speakers from multi-speaker recordings into separate audio files, each with a speaker-labeled transcript.
+Extract individual speakers from multi-speaker recordings into separate audio files, each with a speaker-labeled transcript. The `blend` flag preserves non-vocals (background audio) in each speaker's output, and the `video` flag muxes separated audio with the original video for MP4 output — useful for removing unwanted speakers from a video while keeping the visuals.
 
 ### Language Conversion (TTS Sub-Task)
 
@@ -132,7 +132,7 @@ python src/voder.py sfx sound "thunder rumbling" duration 10
 | **SE** | Denoise, dereverb, restore, super-resolution (48kHz) | Audio / Video | Audio / Video |
 | **SFX** | Generate sound effects from text | Text | Audio |
 | **SVS** | Isolate vocals from music | Audio / Video / URL | Audio |
-| **SS** | Extract individual speakers | Audio / Video | Audio per speaker |
+| **SS** | Extract individual speakers | Audio / Video | Audio per speaker (+ MP4 with `video` flag) |
 
 ---
 

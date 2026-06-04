@@ -1890,6 +1890,8 @@ SS uses a sophisticated multi‑stage pipeline:
 
 7. **Output**: Each speaker is saved as a separate WAV file: `voder_ss_<name>_<timestamp>_speaker1.wav`, `voder_ss_<name>_<timestamp>_speaker2.wav`, etc. (or `*_blend.wav` when blend is used).
 
+8. **Video Output** (optional, when `video` flag is set): If the input was a video file or URL, each speaker's output audio is muxed with the original video frames to produce MP4 files. This is useful for removing unwanted speakers from a video while keeping the visuals intact. Ignored for audio-only inputs.
+
 **Standard vs Overdose Mode:**
 
 | Feature | Standard (Whisper + Pyannote) | Overdose (VibeVoice ASR) |
@@ -1936,6 +1938,18 @@ python src/voder.py ss target "speaker_ref.wav" blend "conversation.wav"
 
 # Full pipeline: overdose + sound enhancement + blend
 python src/voder.py ss overdose se blend "noisy_conversation.wav"
+
+# With video output (mux separated audio with original video)
+python src/voder.py ss video "interview.mp4"
+
+# Target extraction with video output
+python src/voder.py ss target "speaker_ref.wav" video "interview.mp4"
+
+# Video output from URL
+python src/voder.py ss video "https://www.youtube.com/watch?v=VIDEO_ID"
+
+# Full pipeline: overdose + sound enhancement + blend + video
+python src/voder.py ss overdose se blend video "vlog.mp4"
 
 # From a video file
 python src/voder.py ss "interview.mp4"

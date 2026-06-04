@@ -1527,7 +1527,7 @@ python voder.py svs music "https://youtube.com/watch?v=..."
 
 ## 8. `ss` — Speakers Separator
 
-Extract all individual speakers from an audio source one by one, or extract a specific target speaker. With `blend`, each separated speaker's audio is mixed with the original non-vocals (instrumental/background) track.
+Extract all individual speakers from an audio source one by one, or extract a specific target speaker. With `blend`, each separated speaker's audio is mixed with the original non-vocals (instrumental/background) track. With `video`, separated audio is muxed with the original video to produce video output.
 
 ### Keywords
 
@@ -1538,6 +1538,7 @@ Extract all individual speakers from an audio source one by one, or extract a sp
 | `se` | (flag) | Apply sound enhancement before separation (denoise/dereverb the input first). |
 | `overdose` | (flag) | Use VibeVoice ASR instead of Whisper + pyannote for transcription and diarization, providing better separation accuracy. Requires 24GB+ VRAM or 48GB+ RAM. **Skipped when `target` is provided** (target uses TSE extraction, not diarization). |
 | `blend` | (flag) | Blend each separated speaker's audio with the original non-vocals (instrumental/background) track. After speaker extraction (and optional SE), each output is mixed with the music/instrumental stem extracted via SVS. Outputs carry a `_blend` suffix. Useful for vlogs or recordings where you want to isolate a speaker while preserving background audio. |
+| `video` | (flag) | Produce video output. When the input is a video file or URL, each separated speaker's audio is muxed with the original video frames to produce MP4 output. Ignored when the input is an audio-only file. Works with both target and auto-separation modes. Also works with `blend` (muxed video contains blended audio). |
 | `result` | `"<path>"` | Copy output to custom path. |
 
 ### Rules
@@ -1545,8 +1546,10 @@ Extract all individual speakers from an audio source one by one, or extract a sp
 - **Pipeline (no target):** SVS voice isolation -> STT + diarization -> per-speaker TSE extraction. Each detected speaker is output as a separate file.
 - **Pipeline (with target):** SVS voice isolation -> TSE (Target Speaker Extraction). Looks at the target reference and extracts matching speaker from source. Outputs one file.
 - **Pipeline (with blend):** SVS voice isolation (+ music extraction) -> STT + diarization -> per-speaker TSE extraction -> blend each speaker with non-vocals. Each output file has `_blend` suffix.
+- **Pipeline (with video):** Same as standard pipeline, then mux each output audio with the original video frames. Output is MP4 instead of WAV. Ignored for audio-only inputs.
 - `overdose` is only used in the no-target pipeline (switches from Whisper+pyannote to VibeVoice ASR for better accuracy). It is completely skipped when `target` is provided.
-- `blend` works with both target and non-target modes, and with `se` and `overdose`.
+- `blend` works with both target and non-target modes, and with `se`, `overdose`, and `video`.
+- `video` works with both target and non-target modes, and with `se`, `overdose`, and `blend`.
 - Supports audio, video, YouTube, TikTok, and Bilibili URLs.
 - `se` runs sound enhancement before anything else (cleaner input = better results).
 
@@ -1578,8 +1581,17 @@ python voder.py ss target "speaker_ref.wav" blend "conversation.wav"
 # Target extraction from URL
 python voder.py ss target "speaker_ref.wav" "https://youtube.com/watch?v=..."
 
-# Overdose + sound enhancement + blend combined
-python voder.py ss overdose se blend "noisy_conversation.wav"
+# With video output (mux separated audio with original video)
+python voder.py ss video "interview.mp4"
+
+# Target extraction with video output
+python voder.py ss target "speaker_ref.wav" video "interview.mp4"
+
+# Video output from URL
+python voder.py ss video "https://youtube.com/watch?v=..."
+
+# Full pipeline: overdose + sound enhancement + blend + video
+python voder.py ss overdose se blend video "vlog.mp4"
 ```
 
 ---

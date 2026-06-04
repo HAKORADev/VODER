@@ -656,16 +656,22 @@ python src/voder.py svs "audio_file.wav" voice result "/output/vocals.wav"
 
 ## 8. SS Mode
 
-SS extracts individual speaker audio from multi-speaker recordings using VibeVoice ASR for speaker identification and segmentation.
+SS extracts individual speaker audio from multi-speaker recordings using VibeVoice ASR for speaker identification and segmentation. With the `blend` keyword, each speaker's audio is mixed with the original non-vocals (instrumental/background) track. With the `video` keyword, separated audio is muxed with the original video to produce MP4 output.
 
 **Supported Inputs:**
 - Audio files (WAV, MP3, FLAC, OGG, etc.)
 - Video files (MP4, MKV, AVI, etc.)
+- YouTube / Bilibili / TikTok URLs
 
 **Features:**
 - Automatic speaker identification and separation
 - Produces separate audio files for each detected speaker
 - Provides speaker-labeled transcript with timestamps
+- `blend` flag: blend each speaker with non-vocals (preserves background audio)
+- `video` flag: mux separated audio with original video for MP4 output
+- `se` flag: apply sound enhancement before separation
+- `overdose` flag: use VibeVoice ASR for better accuracy
+- `target` flag: extract a specific speaker using a voice reference
 - Requires 24GB+ VRAM or 48GB+ system memory
 - Falls back to Whisper + pyannote if VibeVoice ASR cannot load
 
@@ -673,6 +679,18 @@ SS extracts individual speaker audio from multi-speaker recordings using VibeVoi
 ```bash
 # Separate speakers from a recording
 python src/voder.py ss "meeting.wav"
+
+# With blend (each speaker + non-vocals)
+python src/voder.py ss blend "vlog.wav"
+
+# With video output
+python src/voder.py ss video "interview.mp4"
+
+# Target extraction with video output
+python src/voder.py ss target "ref.wav" video "interview.mp4"
+
+# Full pipeline
+python src/voder.py ss overdose se blend video "vlog.mp4"
 ```
 
 ---

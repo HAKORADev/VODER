@@ -2505,7 +2505,7 @@ python src/voder.py svs "input.wav" [stem voice|music] [result "path"]
 
 ### SS Mode
 ```
-python src/voder.py ss "input.wav" [se] [overdose] [blend] [target "ref.wav"] [result "path"]
+python src/voder.py ss "input.wav" [se] [overdose] [blend] [video] [target "ref.wav"] [result "path"]
 ```
 
 ## Feature Combo Catalog

@@ -89,6 +89,12 @@
 
 - **SE Parser Update** — SE oneline parser now accepts sub-mode keywords (`voice`, `sr`, `music`, `blend`) with validation rules: `music` only valid after `sr` or `sr voice`, `voice` after `sr` creates `sr_voice` sub-mode, `blend` valid with `voice`, `sr music`, or `sr voice` sub-modes only. Removed invalid `se sr blend` sub-mode (plain `se sr` uses basic model on full input).
 
+#### SS Mode Enhancements
+
+- **SS `blend` Keyword** — New oneline keyword for SS mode that blends each separated speaker's audio with the original non-vocals (instrumental/background) track extracted via SVS. After speaker extraction (and optional SE), each output is mixed with the music/instrumental stem at 48kHz via `_mix_audio_at_target_sr()`. Outputs carry a `_blend` suffix. Works in both target and auto-separation modes, and with `se` and `overdose`. Useful for vlogs or recordings where you want to isolate a speaker while preserving background audio. Examples: `ss blend "vlog.wav"`, `ss target "ref.wav" blend "conversation.wav"`, `ss overdose se blend "noisy_conversation.wav"`.
+
+- **SS `video` Keyword** — New oneline keyword for SS mode that produces video output. When the input is a video file or URL, each separated speaker's audio is muxed with the original video frames via ffmpeg to produce MP4 output (one video per speaker). Ignored when the input is an audio-only file (prints info message and continues). Works in both target and auto-separation modes, and with `se`, `overdose`, and `blend`. Useful for removing unwanted speakers from a video while keeping the visuals — e.g., extracting only your own speech from a vlog recording. Examples: `ss video "interview.mp4"`, `ss target "ref.wav" video "interview.mp4"`, `ss overdose se blend video "vlog.mp4"`.
+
 ### Changed
 
 - Interactive TTS mode now prompts for `extreme` after `overdose` (both in the main flow and in modify speech)
