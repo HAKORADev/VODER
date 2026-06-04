@@ -13111,7 +13111,7 @@ def oneline_stt_subtitle(params):
             if num_asr_speakers >= 2:
                 print(f"Detected {num_asr_speakers} speakers from ASR")
                 print("Stage 1.5: Per-speaker separation for overlap-aware subtitling...")
-                stt_speaker_extraction = _extract_speakers_for_subtitles(audio_path)
+                stt_speaker_extraction = _extract_speakers_for_subtitles(extracted_audio)
                 if stt_speaker_extraction:
                     speaker_files = stt_speaker_extraction.get("speaker_files", {})
                     diar_speakers = sorted(stt_speaker_extraction.get("speaker_segments", {}).keys(),
@@ -13177,7 +13177,7 @@ def oneline_stt_subtitle(params):
                 else:
                     print("Warning: Speaker extraction failed, falling back to single-speaker alignment")
                     print("Running forced alignment for accurate subtitle timing...")
-                    aligned_segments = _align_subtitle_segments(audio_path, asr_segments, language="auto")
+                    aligned_segments = _align_subtitle_segments(extracted_audio, asr_segments, language="auto")
                     _cleanup_aligner_model()
                     if aligned_segments:
                         asr_segments = aligned_segments
@@ -13186,7 +13186,7 @@ def oneline_stt_subtitle(params):
                         print("Warning: Forced alignment failed, using original ASR segment timings")
             else:
                 print("Running forced alignment for accurate subtitle timing...")
-                aligned_segments = _align_subtitle_segments(audio_path, asr_segments, language="auto")
+                aligned_segments = _align_subtitle_segments(extracted_audio, asr_segments, language="auto")
                 _cleanup_aligner_model()
                 if aligned_segments:
                     asr_segments = aligned_segments
