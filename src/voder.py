@@ -7639,6 +7639,15 @@ def _group_words_to_segments(word_timestamps, chunk_size=8, speaker=None):
             if word_timestamps[k]["start"] - word_timestamps[k - 1]["end"] > 1.5:
                 end_idx = k
                 break
+        if end_idx - i == chunk_size and end_idx < len(word_timestamps):
+            chunk_preview = word_timestamps[i:end_idx]
+            duration = chunk_preview[-1]["end"] - chunk_preview[0]["start"]
+            if duration > 0 and len(chunk_preview) / duration > 3.0:
+                fast_limit = min(i + 12, len(word_timestamps))
+                for k in range(end_idx, fast_limit):
+                    if word_timestamps[k]["start"] - word_timestamps[k - 1]["end"] > 1.5:
+                        break
+                    end_idx = k + 1
         chunk = word_timestamps[i:end_idx]
         if not chunk:
             break
@@ -12832,24 +12841,15 @@ def _build_ass_subtitles(segments, video_width, video_height):
     shadow_offset = max(1, int(font_size * 0.08))
 
     primary_color = "&H00FFFFFF"
-    overlap_color = "&H0000CCFF"
-
-    ass_header = f"""[Script Info]
-Title: VODER Transcription
-ScriptType: v4.00+
-PlayResX: {video_width}
-PlayResY: {video_height}
-WrapStyle: 0
-ScaledBorderAndShadow: yes
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Noto Sans,{font_size},{primary_color},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_offset},2,10,10,{margin_v},1
-Style: Overlap,Noto Sans,{font_size},{overlap_color},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_offset},2,10,10,{margin_v + font_size + 8},1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
+    speaker_outline_colors = [
+        "&H00DD5500",
+        "&H0000AAFF",
+        "&H0000CC44",
+        "&H00CC66FF",
+        "&H00FFCC00",
+        "&H00CC00BB",
+    ]
+    line_gap = font_size + 8
 
     valid_segments = []
     for seg in segments:
@@ -12863,30 +12863,80 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             "end": end,
             "text": text,
             "speaker": seg.get("speaker"),
-            "overlap": seg.get("overlap", False)
         })
 
-    for i, seg in enumerate(valid_segments):
-        spk_i = seg.get("speaker")
-        for j, other in enumerate(valid_segments):
-            if i == j:
-                continue
-            spk_j = other.get("speaker")
-            if spk_i is not None and spk_j is not None and spk_i == spk_j:
-                continue
-            if other["start"] < seg["end"] and other["end"] > seg["start"]:
-                if seg["start"] <= other["start"]:
-                    other["overlap"] = True
-                else:
-                    seg["overlap"] = True
+    speaker_order = []
+    seen_speakers = set()
+    for seg in valid_segments:
+        spk = seg.get("speaker")
+        if spk is not None and spk not in seen_speakers:
+            speaker_order.append(spk)
+            seen_speakers.add(spk)
+
+    speaker_styles = {}
+    if not speaker_order:
+        speaker_styles[None] = ("Default", margin_v, "&H00000000")
+    else:
+        for idx, spk in enumerate(speaker_order):
+            style_name = f"Speaker{idx + 1}"
+            spk_margin_v = margin_v + idx * line_gap
+            outline_color = speaker_outline_colors[idx % len(speaker_outline_colors)]
+            speaker_styles[spk] = (style_name, spk_margin_v, outline_color)
+        speaker_styles[None] = ("Default", margin_v, "&H00000000")
+
+    speaker_by_spk = {}
+    for seg in valid_segments:
+        spk = seg.get("speaker")
+        if spk not in speaker_by_spk:
+            speaker_by_spk[spk] = []
+        speaker_by_spk[spk].append(seg)
+    for spk in speaker_by_spk:
+        speaker_by_spk[spk].sort(key=lambda x: x["start"])
+
+    for spk, segs in speaker_by_spk.items():
+        for idx, seg in enumerate(segs):
+            if idx < len(segs) - 1:
+                gap = segs[idx + 1]["start"] - seg["end"]
+                extension = min(3.0, max(0, gap))
+            else:
+                extension = 3.0
+            seg["display_end"] = seg["end"] + extension
+
+    style_lines = []
+    for spk in speaker_order:
+        style_name, spk_margin_v, outline_color = speaker_styles[spk]
+        style_lines.append(
+            f"Style: {style_name},Noto Sans,{font_size},{primary_color},&H000000FF,{outline_color},&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_offset},2,10,10,{spk_margin_v},1"
+        )
+    if None in speaker_styles and None not in speaker_order:
+        style_name, spk_margin_v, outline_color = speaker_styles[None]
+        style_lines.append(
+            f"Style: {style_name},Noto Sans,{font_size},{primary_color},&H000000FF,{outline_color},&H80000000,-1,0,0,0,100,100,0,0,1,{outline_width},{shadow_offset},2,10,10,{spk_margin_v},1"
+        )
+
+    ass_header = f"""[Script Info]
+Title: VODER Transcription
+ScriptType: v4.00+
+PlayResX: {video_width}
+PlayResY: {video_height}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+""" + "\n".join(style_lines) + f"""
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
 
     events = []
     for seg in valid_segments:
+        spk = seg.get("speaker")
+        style_info = speaker_styles.get(spk, speaker_styles.get(None, ("Default", margin_v, "&H00000000")))
+        style_name = style_info[0]
         text_escaped = seg["text"].replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
-        if seg["overlap"]:
-            events.append(f"Dialogue: 1,{_format_ass_time(seg['start'])},{_format_ass_time(seg['end'])},Overlap,,0,0,0,,{text_escaped}")
-        else:
-            events.append(f"Dialogue: 0,{_format_ass_time(seg['start'])},{_format_ass_time(seg['end'])},Default,,0,0,0,,{text_escaped}")
+        events.append(f"Dialogue: 0,{_format_ass_time(seg['start'])},{_format_ass_time(seg['display_end'])},{style_name},,0,0,0,,{text_escaped}")
 
     return ass_header + "\n".join(events) + "\n"
 
