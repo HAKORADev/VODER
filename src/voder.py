@@ -8128,10 +8128,101 @@ def _extract_speakers_for_subtitles(audio_path):
             ret = subprocess.run(cmd, capture_output=True, text=True)
             if ret.returncode != 0 or not os.path.exists(enroll_clip):
                 continue
-        spk_output = os.path.join(temp_dir, f"spk{spk_num}_extracted.wav")
+        spk_output = os.path.join(temp_dir, f"spk{spk_num}_p1.wav")
         tse_ok = tse_enhancer.tse_extract(clean_source, enroll_clip, spk_output)
         if tse_ok and os.path.exists(spk_output):
             speaker_files[spk] = spk_output
+
+    if speaker_files:
+        print("Pass 2: Refining TSE with per-speaker aligned enrollment...")
+        p2_asr = VibeVoiceASR()
+        p2_asr.ensure_model()
+        for spk in list(speaker_files.keys()):
+            spk_num = speaker_to_idx[spk]
+            p1_audio = speaker_files[spk]
+            spk_text = ""
+            if p2_asr.model is not None:
+                try:
+                    raw_text = p2_asr.transcribe_plain_text(p1_audio)
+                    if raw_text:
+                        spk_text = re.sub(r'\[?(?:Lyric|Silence|Music|Noise|Applause|Laughter|Cough|Breath)\]?\s*', '', raw_text, flags=re.IGNORECASE).strip()
+                        spk_text = re.sub(r'\(?(?:silence|music|noise|applause|laughter|cough|breath)\)?\s*', '', spk_text, flags=re.IGNORECASE).strip()
+                        spk_text = re.sub(r'\s+', ' ', spk_text).strip()
+                except Exception:
+                    pass
+            if not spk_text:
+                continue
+            detected_lang = _detect_lang_from_text(spk_text)
+            lang_iso3 = _LANG_TO_ISO3.get(detected_lang, "eng")
+            word_ts = _forced_align_words(p1_audio, spk_text, language=lang_iso3)
+            if not word_ts:
+                continue
+            best_segs = []
+            for w in word_ts:
+                ws, we = w["start"], w["end"]
+                in_overlap = False
+                for ov in overlap_regions:
+                    if ws < ov["end"] and we > ov["start"]:
+                        in_overlap = True
+                        break
+                if not in_overlap:
+                    best_segs.append({"start": ws, "end": we, "duration": we - ws})
+            best_segs.sort(key=lambda x: x["duration"], reverse=True)
+            enroll_parts2 = []
+            collected2 = 0.0
+            for seg in best_segs:
+                if collected2 >= 5.0:
+                    break
+                remaining = 5.0 - collected2
+                take_dur = min(seg["duration"], remaining)
+                enroll_parts2.append({"start": seg["start"], "duration": take_dur})
+                collected2 += take_dur
+            if not enroll_parts2:
+                continue
+            enroll_clip2 = os.path.join(temp_dir, f"enroll_spk{spk_num}_p2.wav")
+            if len(enroll_parts2) == 1:
+                part = enroll_parts2[0]
+                cmd = ['ffmpeg', '-i', clean_source, '-ss', str(part["start"]),
+                       '-t', str(part["duration"]), '-ar', '16000', '-ac', '1', '-y', enroll_clip2]
+                ret = subprocess.run(cmd, capture_output=True, text=True)
+                if ret.returncode != 0 or not os.path.exists(enroll_clip2):
+                    continue
+            else:
+                part_files2 = []
+                for pi, part in enumerate(enroll_parts2):
+                    part_file = os.path.join(temp_dir, f"enroll_spk{spk_num}_p2_part{pi}.wav")
+                    cmd = ['ffmpeg', '-i', clean_source, '-ss', str(part["start"]),
+                           '-t', str(part["duration"]), '-ar', '16000', '-ac', '1', '-y', part_file]
+                    ret = subprocess.run(cmd, capture_output=True, text=True)
+                    if ret.returncode != 0 or not os.path.exists(part_file):
+                        continue
+                    part_files2.append(part_file)
+                if not part_files2:
+                    continue
+                concat_list2 = os.path.join(temp_dir, f"enroll_spk{spk_num}_p2_concat.txt")
+                with open(concat_list2, 'w') as f:
+                    for pf in part_files2:
+                        f.write(f"file '{pf}'\n")
+                cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_list2,
+                       '-ar', '16000', '-ac', '1', '-y', enroll_clip2]
+                ret = subprocess.run(cmd, capture_output=True, text=True)
+                if ret.returncode != 0 or not os.path.exists(enroll_clip2):
+                    continue
+            spk_output2 = os.path.join(temp_dir, f"spk{spk_num}_p2.wav")
+            tse_ok2 = tse_enhancer.tse_extract(clean_source, enroll_clip2, spk_output2)
+            if tse_ok2 and os.path.exists(spk_output2):
+                try:
+                    os.remove(p1_audio)
+                except Exception:
+                    pass
+                speaker_files[spk] = spk_output2
+        p2_asr.cleanup()
+        del p2_asr
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        _cleanup_aligner_model()
+
     tse_enhancer.cleanup()
     del tse_enhancer
     gc.collect()
