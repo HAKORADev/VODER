@@ -12991,6 +12991,7 @@ def oneline_stt_subtitle(params):
         se_temp = None
         svs_temp_dir = None
         se_temp_dir = None
+        stt_speaker_extraction = None
 
         try:
             if is_url:
@@ -13106,6 +13107,37 @@ def oneline_stt_subtitle(params):
                 print("Error: ASR transcription returned no segments")
                 continue
 
+            num_asr_speakers = len(set(seg.get('speaker', 'SPEAKER_00') for seg in asr_segments))
+            if num_asr_speakers < 2:
+                print("Stage 1.5: Per-speaker detection for overlap-aware subtitling...")
+                stt_speaker_extraction = _extract_speakers_for_subtitles(audio_path)
+                if stt_speaker_extraction:
+                    diar_segs = stt_speaker_extraction.get("speaker_segments", {})
+                    diar_speakers = sorted(diar_segs.keys(), key=lambda spk: diar_segs[spk][0]["start"])
+                    if len(diar_speakers) >= 2:
+                        for seg in asr_segments:
+                            seg_start = seg.get('start', 0)
+                            seg_end = seg.get('end', 0)
+                            best_spk = None
+                            best_overlap = 0
+                            for spk in diar_speakers:
+                                for dseg in diar_segs[spk]:
+                                    ov_start = max(seg_start, dseg["start"])
+                                    ov_end = min(seg_end, dseg["end"])
+                                    ov_dur = max(0, ov_end - ov_start)
+                                    if ov_dur > best_overlap:
+                                        best_overlap = ov_dur
+                                        best_spk = spk
+                            if best_spk:
+                                seg['speaker'] = best_spk
+                    else:
+                        _cleanup_speaker_extraction(stt_speaker_extraction)
+                        stt_speaker_extraction = None
+
+            if stt_speaker_extraction:
+                _cleanup_speaker_extraction(stt_speaker_extraction)
+                stt_speaker_extraction = None
+
             print("Running forced alignment for accurate subtitle timing...")
             aligned_segments = _align_subtitle_segments(audio_path, asr_segments, language="auto")
             _cleanup_aligner_model()
@@ -13163,6 +13195,8 @@ def oneline_stt_subtitle(params):
             traceback.print_exc()
 
         finally:
+            if stt_speaker_extraction:
+                _cleanup_speaker_extraction(stt_speaker_extraction)
             for temp_path in [extracted_audio, downloaded_video, svs_temp, se_temp]:
                 if temp_path and os.path.exists(temp_path):
                     try:
