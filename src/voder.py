@@ -909,7 +909,7 @@ def _translate_segments_with_gemma(segments, source_lang, target_lang):
     return results
 
 
-def _mix_audio_at_target_sr(vocals_path, music_path, output_path, target_sr=48000):
+def _mix_audio_at_target_sr(vocals_path, music_path, output_path, target_sr=48000, original_audio_path=None):
     try:
         if not os.path.exists(vocals_path):
             print(f"Error: Vocals file not found: {vocals_path}")
@@ -934,7 +934,7 @@ def _mix_audio_at_target_sr(vocals_path, music_path, output_path, target_sr=4800
             mus_wav = torch.nn.functional.pad(mus_wav, (0, max_len - mus_wav.shape[-1]))
         mixed = voc_wav + mus_wav
         peak = torch.max(torch.abs(mixed))
-        if peak > 0.95:
+        if peak > 1.0:
             mixed = mixed * (0.95 / peak)
         sf.write(output_path, mixed.squeeze().numpy(), samplerate=target_sr)
         return os.path.exists(output_path)
@@ -1000,7 +1000,22 @@ def _overlay_segment_on_base(base_path, segment_path, start_time, output_path):
     except Exception:
         return False
 
-def _assemble_dubbed_audio(parts, total_duration, output_path, target_sr=44100):
+def _measure_rms(audio_path, start=None, end=None):
+    try:
+        data, sr = sf.read(audio_path, dtype='float32')
+        if data.ndim > 1:
+            data = np.mean(data, axis=1)
+        if start is not None and end is not None:
+            s = int(start * sr)
+            e = int(end * sr)
+            data = data[s:e]
+        if len(data) == 0:
+            return 0.0
+        return float(np.sqrt(np.mean(data ** 2)))
+    except Exception:
+        return 0.0
+
+def _assemble_dubbed_audio(parts, total_duration, output_path, target_sr=44100, original_audio_path=None):
     try:
         import numpy as np
         total_samples = int(total_duration * target_sr) + target_sr
@@ -1031,6 +1046,15 @@ def _assemble_dubbed_audio(parts, total_duration, output_path, target_sr=44100):
                         data = np.mean(data, axis=1)
                 except Exception:
                     continue
+            if original_audio_path and os.path.exists(original_audio_path):
+                seg_start = part.get('start', 0)
+                seg_end = part.get('end', 0)
+                orig_rms = _measure_rms(original_audio_path, seg_start, seg_end)
+                tts_rms = float(np.sqrt(np.mean(data ** 2))) if len(data) > 0 else 0.0
+                if tts_rms > 1e-6 and orig_rms > 1e-6:
+                    scale = orig_rms / tts_rms
+                    scale = min(scale, 5.0)
+                    data = data * scale
             start_sample = int(part['start'] * target_sr)
             end_sample = start_sample + len(data)
             if end_sample > total_samples:
@@ -1041,7 +1065,7 @@ def _assemble_dubbed_audio(parts, total_duration, output_path, target_sr=44100):
             if actual_len > 0:
                 output[start_sample:start_sample + actual_len] += data[:actual_len]
         peak = np.max(np.abs(output))
-        if peak > 0.95:
+        if peak > 1.0:
             output = output * (0.95 / peak)
         sf.write(output_path, output.astype(np.float32), target_sr)
         return os.path.exists(output_path)
@@ -7523,7 +7547,17 @@ def _cleanup_aligner_model():
         _ALIGNER_SESSION = None
         gc.collect()
 
-def _forced_align_words(audio_path, text):
+_LANG_TO_ISO3 = {
+    "en": "eng", "ar": "ara", "fr": "fra", "de": "deu", "es": "spa",
+    "it": "ita", "pt": "por", "ru": "rus", "ja": "jpn", "ko": "kor",
+    "zh": "zho", "hi": "hin", "tr": "tur", "pl": "pol", "nl": "nld",
+    "sv": "swe", "da": "dan", "fi": "fin", "el": "ell", "cs": "ces",
+    "ro": "ron", "hu": "hun", "uk": "ukr", "id": "ind", "ms": "msa",
+    "th": "tha", "vi": "vie", "he": "heb", "fa": "fas", "bn": "ben",
+    "ta": "tam", "te": "tel", "ml": "mal", "ur": "urd"
+}
+
+def _forced_align_words(audio_path, text, language="eng"):
     if not text or not text.strip():
         return []
     session = _get_aligner_model()
@@ -7537,7 +7571,7 @@ def _forced_align_words(audio_path, text):
         waveform = load_audio(audio_path)
         emissions, stride = generate_emissions(session, waveform, batch_size=4)
         tokenizer = Tokenizer()
-        tokens_starred, text_starred = preprocess_text(text, romanize=True, language="eng")
+        tokens_starred, text_starred = preprocess_text(text, romanize=True, language=language)
         segments, scores, blank_token = get_alignments(emissions, tokens_starred, tokenizer)
         spans = get_spans(tokens_starred, segments, blank_token)
         word_timestamps = postprocess_results(text_starred, spans, stride, scores)
@@ -7546,7 +7580,7 @@ def _forced_align_words(audio_path, text):
         print(f"Warning: Forced alignment failed: {e}")
         return []
 
-def _group_words_to_segments(word_timestamps, chunk_size=16, speaker=None):
+def _group_words_to_segments(word_timestamps, chunk_size=8, speaker=None):
     if not word_timestamps:
         return []
     segments = []
@@ -7754,7 +7788,7 @@ def _cleanup_speaker_extraction(extraction_result):
         except Exception:
             pass
 
-def _align_subtitle_segments(audio_path, segments):
+def _align_subtitle_segments(audio_path, segments, language="eng"):
     if not segments:
         return segments
     speakers = {}
@@ -7768,10 +7802,10 @@ def _align_subtitle_segments(audio_path, segments):
         if not all_text:
             return segments
         speaker = segments[0].get("speaker") if segments else None
-        word_timestamps = _forced_align_words(audio_path, all_text)
+        word_timestamps = _forced_align_words(audio_path, all_text, language=language)
         if not word_timestamps:
             return segments
-        result = _group_words_to_segments(word_timestamps, chunk_size=16, speaker=speaker)
+        result = _group_words_to_segments(word_timestamps, chunk_size=8, speaker=speaker)
         for seg in result:
             seg["overlap"] = False
         return result
@@ -7780,10 +7814,10 @@ def _align_subtitle_segments(audio_path, segments):
         all_text = " ".join(seg.get("text", "").strip() for seg in segments if seg.get("text", "").strip())
         if not all_text:
             return segments
-        word_timestamps = _forced_align_words(audio_path, all_text)
+        word_timestamps = _forced_align_words(audio_path, all_text, language=language)
         if not word_timestamps:
             return segments
-        result = _group_words_to_segments(word_timestamps, chunk_size=16, speaker=segments[0].get("speaker"))
+        result = _group_words_to_segments(word_timestamps, chunk_size=8, speaker=segments[0].get("speaker"))
         for seg in result:
             seg["overlap"] = False
         return result
@@ -7806,9 +7840,9 @@ def _align_subtitle_segments(audio_path, segments):
                 continue
             separated_audio = speaker_files.get(diar_spk)
             if separated_audio and os.path.exists(separated_audio):
-                word_ts = _forced_align_words(separated_audio, spk_text)
+                word_ts = _forced_align_words(separated_audio, spk_text, language=language)
             else:
-                word_ts = _forced_align_words(audio_path, spk_text)
+                word_ts = _forced_align_words(audio_path, spk_text, language=language)
             if not word_ts:
                 for seg in spk_segs:
                     seg_copy = dict(seg)
@@ -7825,7 +7859,7 @@ def _align_subtitle_segments(audio_path, segments):
                             break
                 if filtered:
                     word_ts = filtered
-            chunked = _group_words_to_segments(word_ts, chunk_size=16, speaker=asr_spk)
+            chunked = _group_words_to_segments(word_ts, chunk_size=8, speaker=asr_spk)
             for chunk in chunked:
                 is_overlap = False
                 for ov in overlap_regions:
@@ -7838,9 +7872,9 @@ def _align_subtitle_segments(audio_path, segments):
         if not all_aligned:
             all_text = " ".join(seg.get("text", "").strip() for seg in segments if seg.get("text", "").strip())
             if all_text:
-                word_timestamps = _forced_align_words(audio_path, all_text)
+                word_timestamps = _forced_align_words(audio_path, all_text, language=language)
                 if word_timestamps:
-                    result = _group_words_to_segments(word_timestamps, chunk_size=16, speaker=segments[0].get("speaker"))
+                    result = _group_words_to_segments(word_timestamps, chunk_size=8, speaker=segments[0].get("speaker"))
                     for seg in result:
                         seg["overlap"] = False
                     return result
@@ -7851,10 +7885,10 @@ def _align_subtitle_segments(audio_path, segments):
         all_text = " ".join(seg.get("text", "").strip() for seg in segments if seg.get("text", "").strip())
         if not all_text:
             return segments
-        word_timestamps = _forced_align_words(audio_path, all_text)
+        word_timestamps = _forced_align_words(audio_path, all_text, language=language)
         if not word_timestamps:
             return segments
-        result = _group_words_to_segments(word_timestamps, chunk_size=16, speaker=segments[0].get("speaker"))
+        result = _group_words_to_segments(word_timestamps, chunk_size=8, speaker=segments[0].get("speaker"))
         for seg in result:
             seg["overlap"] = False
         return result
@@ -11744,7 +11778,7 @@ def oneline_tts_dub(params):
         assemble_dir = tempfile.mkdtemp()
         _dub_cleanup_dirs.append(assemble_dir)
         dubbed_audio = os.path.join(assemble_dir, f'_dub_assembled_{ts}.wav')
-        assemble_ok = _assemble_dubbed_audio(segment_tts_parts, orig_duration, dubbed_audio)
+        assemble_ok = _assemble_dubbed_audio(segment_tts_parts, orig_duration, dubbed_audio, original_audio_path=audio_path)
         if not assemble_ok or not os.path.exists(dubbed_audio):
             print("Warning: Numpy assembly failed, falling back to sequential overlay...")
             import numpy as np
@@ -11814,6 +11848,8 @@ def oneline_tts_dub(params):
                     for idx, asr_spk in enumerate(asr_speakers_sorted):
                         asr_to_diar[asr_spk] = diar_speakers[idx] if idx < len(diar_speakers) else diar_speakers[-1]
 
+                    orig_align_lang = _LANG_TO_ISO3.get(src_lang, "eng")
+
                     all_aligned_subs = []
                     for asr_spk in asr_speakers_sorted:
                         diar_spk = asr_to_diar.get(asr_spk)
@@ -11822,9 +11858,9 @@ def oneline_tts_dub(params):
                         if not spk_text:
                             continue
                         align_audio = spk_audio if spk_audio and os.path.exists(spk_audio) else audio_path
-                        word_ts = _forced_align_words(align_audio, spk_text)
+                        word_ts = _forced_align_words(align_audio, spk_text, language=orig_align_lang)
                         if word_ts:
-                            chunked = _group_words_to_segments(word_ts, chunk_size=16, speaker=asr_spk)
+                            chunked = _group_words_to_segments(word_ts, chunk_size=8, speaker=asr_spk)
                             for chunk in chunked:
                                 chunk["overlap"] = False
                             all_aligned_subs.extend(chunked)
@@ -11850,14 +11886,16 @@ def oneline_tts_dub(params):
                                 if seg_a.get("speaker") == seg_b.get("speaker"):
                                     continue
                                 if seg_a["start"] < seg_b["end"] and seg_a["end"] > seg_b["start"]:
-                                    seg_a["overlap"] = True
-                                    break
+                                    if seg_a["start"] <= seg_b["start"]:
+                                        seg_b["overlap"] = True
+                                    else:
+                                        seg_a["overlap"] = True
                         subtitle_segments = all_aligned_subs
                 else:
                     original_audio_for_align = audio_path if audio_path and os.path.exists(audio_path) else None
                     if original_audio_for_align:
                         print("Running forced alignment on original audio for accurate subtitle timing...")
-                        aligned_subs = _align_subtitle_segments(original_audio_for_align, subtitle_segments)
+                        aligned_subs = _align_subtitle_segments(original_audio_for_align, subtitle_segments, language=orig_align_lang)
                         _cleanup_aligner_model()
                         if aligned_subs:
                             subtitle_segments = aligned_subs
@@ -11886,52 +11924,52 @@ def oneline_tts_dub(params):
                         'overlap': False
                     })
 
+                align_lang = _LANG_TO_ISO3.get(tgt_lang, "eng")
+
                 if speaker_extraction:
-                    spk_texts_dub = {}
+                    spk_segments_map = {}
                     for part in segment_tts_parts:
                         spk = part['speaker']
-                        if spk not in spk_texts_dub:
-                            spk_texts_dub[spk] = []
-                        spk_texts_dub[spk].append(part['text'])
-
-                    speaker_files = speaker_extraction.get("speaker_files", {})
-                    diar_speakers = sorted(speaker_extraction.get("speaker_segments", {}).keys(),
-                                           key=lambda spk: speaker_extraction["speaker_segments"][spk][0]["start"])
-                    asr_speakers_sorted = sorted(set(seg.get('speaker', 'SPEAKER_00') for seg in speech_segments),
-                                                 key=lambda spk: next((seg.get('start', 0) for seg in speech_segments if seg.get('speaker') == spk), 0))
-                    asr_to_diar = {}
-                    for idx, asr_spk in enumerate(asr_speakers_sorted):
-                        asr_to_diar[asr_spk] = diar_speakers[idx] if idx < len(diar_speakers) else diar_speakers[-1]
+                        if spk not in spk_segments_map:
+                            spk_segments_map[spk] = []
+                        spk_segments_map[spk].append(part)
 
                     all_aligned_subs = []
-                    for asr_spk in asr_speakers_sorted:
-                        diar_spk = asr_to_diar.get(asr_spk)
-                        spk_audio = speaker_files.get(diar_spk) if diar_spk else None
-                        spk_text = " ".join(spk_texts_dub.get(asr_spk, []))
-                        if not spk_text:
-                            continue
-                        align_audio = spk_audio if spk_audio and os.path.exists(spk_audio) else audio_path
-                        word_ts = _forced_align_words(align_audio, spk_text)
-                        if word_ts:
-                            chunked = _group_words_to_segments(word_ts, chunk_size=16, speaker=asr_spk)
+                    for spk, spk_parts in spk_segments_map.items():
+                        spk_all_words = []
+                        for p in sorted(spk_parts, key=lambda x: x['start']):
+                            tts_path = p.get('path')
+                            tts_text = p.get('text', '').strip()
+                            seg_start = p.get('start', 0)
+                            if not tts_path or not os.path.exists(tts_path) or not tts_text:
+                                spk_all_words.append({
+                                    'text': tts_text,
+                                    'start': seg_start,
+                                    'end': p.get('end', seg_start),
+                                    'speaker': spk
+                                })
+                                continue
+                            word_ts = _forced_align_words(tts_path, tts_text, language=align_lang)
+                            if word_ts:
+                                for w in word_ts:
+                                    spk_all_words.append({
+                                        'text': w['text'],
+                                        'start': w['start'] + seg_start,
+                                        'end': w['end'] + seg_start,
+                                        'speaker': spk
+                                    })
+                            else:
+                                spk_all_words.append({
+                                    'text': tts_text,
+                                    'start': seg_start,
+                                    'end': p.get('end', seg_start),
+                                    'speaker': spk
+                                })
+                        if spk_all_words:
+                            chunked = _group_words_to_segments(spk_all_words, chunk_size=8, speaker=spk)
                             for chunk in chunked:
                                 chunk["overlap"] = False
                             all_aligned_subs.extend(chunked)
-                        else:
-                            for seg in speech_segments:
-                                if seg.get('speaker') == asr_spk:
-                                    subtitle_text = seg.get('text', '').strip()
-                                    for part in segment_tts_parts:
-                                        if part.get('original_text', part['text']) == seg.get('text', '').strip():
-                                            subtitle_text = part['text']
-                                            break
-                                    all_aligned_subs.append({
-                                        'start': seg.get('start', 0),
-                                        'end': seg.get('end', 0),
-                                        'text': subtitle_text,
-                                        'speaker': asr_spk,
-                                        'overlap': False
-                                    })
 
                     _cleanup_aligner_model()
 
@@ -11944,19 +11982,52 @@ def oneline_tts_dub(params):
                                 if seg_a.get("speaker") == seg_b.get("speaker"):
                                     continue
                                 if seg_a["start"] < seg_b["end"] and seg_a["end"] > seg_b["start"]:
-                                    seg_a["overlap"] = True
-                                    break
+                                    if seg_a["start"] <= seg_b["start"]:
+                                        seg_b["overlap"] = True
+                                    else:
+                                        seg_a["overlap"] = True
                         subtitle_segments = all_aligned_subs
                 else:
-                    if final_audio and os.path.exists(final_audio):
-                        print("Running forced alignment for subtitle timing...")
-                        aligned_subs = _align_subtitle_segments(final_audio, subtitle_segments)
-                        _cleanup_aligner_model()
-                        if aligned_subs:
-                            subtitle_segments = aligned_subs
-                            print(f"Forced alignment produced {len(subtitle_segments)} subtitle segments")
+                    all_aligned_subs = []
+                    for part in sorted(segment_tts_parts, key=lambda x: x['start']):
+                        tts_path = part.get('path')
+                        tts_text = part.get('text', '').strip()
+                        seg_start = part.get('start', 0)
+                        if not tts_path or not os.path.exists(tts_path) or not tts_text:
+                            all_aligned_subs.append({
+                                'start': seg_start,
+                                'end': part.get('end', seg_start),
+                                'text': tts_text,
+                                'speaker': part['speaker'],
+                                'overlap': False
+                            })
+                            continue
+                        word_ts = _forced_align_words(tts_path, tts_text, language=align_lang)
+                        if word_ts:
+                            adjusted_words = []
+                            for w in word_ts:
+                                adjusted_words.append({
+                                    'text': w['text'],
+                                    'start': w['start'] + seg_start,
+                                    'end': w['end'] + seg_start
+                                })
+                            chunked = _group_words_to_segments(adjusted_words, chunk_size=8, speaker=part['speaker'])
+                            for chunk in chunked:
+                                chunk["overlap"] = False
+                            all_aligned_subs.extend(chunked)
                         else:
-                            print("Warning: Forced alignment failed, using original segment timings")
+                            all_aligned_subs.append({
+                                'start': seg_start,
+                                'end': part.get('end', seg_start),
+                                'text': tts_text,
+                                'speaker': part['speaker'],
+                                'overlap': False
+                            })
+
+                    _cleanup_aligner_model()
+
+                    if all_aligned_subs:
+                        subtitle_segments = all_aligned_subs
 
                 if dub_subtitle_langs:
                     sub_tgt_lang_new = dub_subtitle_langs['target']
@@ -12768,8 +12839,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         })
 
     for i, seg in enumerate(valid_segments):
-        if seg["overlap"]:
-            continue
         spk_i = seg.get("speaker")
         for j, other in enumerate(valid_segments):
             if i == j:
@@ -12778,8 +12847,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if spk_i is not None and spk_j is not None and spk_i == spk_j:
                 continue
             if other["start"] < seg["end"] and other["end"] > seg["start"]:
-                seg["overlap"] = True
-                break
+                if seg["start"] <= other["start"]:
+                    other["overlap"] = True
+                else:
+                    seg["overlap"] = True
 
     events = []
     for seg in valid_segments:
@@ -13011,8 +13082,13 @@ def oneline_stt_subtitle(params):
                 print("Error: ASR transcription returned no segments")
                 continue
 
+            stt_align_lang = "eng"
+            if translate_langs:
+                stt_src = translate_langs.get('source', 'auto')
+                if stt_src != 'auto':
+                    stt_align_lang = _LANG_TO_ISO3.get(stt_src, "eng")
             print("Running forced alignment for accurate subtitle timing...")
-            aligned_segments = _align_subtitle_segments(audio_path, asr_segments)
+            aligned_segments = _align_subtitle_segments(audio_path, asr_segments, language=stt_align_lang)
             _cleanup_aligner_model()
             if aligned_segments:
                 asr_segments = aligned_segments
