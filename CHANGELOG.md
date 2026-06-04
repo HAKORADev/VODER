@@ -2,6 +2,7 @@
 
 - All notable changes to VODER will be documented in this file.
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
+- If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
 ## 05/29/2026
 - Status: Stable, all features work, still developing
