@@ -17,9 +17,10 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QMessageBox, QProgressBar, QFrame, QComboBox,
                              QTextEdit, QListWidget, QListWidgetItem, QLineEdit,
                              QSpinBox, QScrollArea, QCheckBox, QRadioButton,
-                             QStackedWidget, QDoubleSpinBox, QShortcut)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt5.QtGui import QColor, QPainter, QPalette, QKeySequence
+                             QStackedWidget, QDoubleSpinBox, QShortcut, QSlider,
+                             QSizePolicy, QGridLayout)
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize
+from PyQt5.QtGui import QColor, QPainter, QPalette, QKeySequence, QFont
 
 try:
     import numpy as np
@@ -363,12 +364,33 @@ def get_spin_box_style():
         }}
     """
 
+def get_slider_style():
+    return f"""
+        QSlider::groove:horizontal {{
+            border: 1px solid {THEME['border']};
+            height: 6px;
+            background: {THEME['surface']};
+            border-radius: 3px;
+        }}
+        QSlider::handle:horizontal {{
+            background: {THEME['accent']};
+            border: none;
+            width: 14px;
+            margin: -5px 0;
+            border-radius: 7px;
+        }}
+        QSlider::sub-page:horizontal {{
+            background: {THEME['accent']};
+            border-radius: 3px;
+        }}
+    """
+
 
 class AudioWaveformWidget(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(100)
-        self.setMaximumHeight(120)
+        self.setMinimumHeight(60)
+        self.setMaximumHeight(80)
         self.setStyleSheet(f"background-color: {THEME['surface']}; border: 1px solid {THEME['border']};")
         self.audio_data = None
         self.sample_rate = 44100
@@ -386,6 +408,11 @@ class AudioWaveformWidget(QFrame):
         else:
             self.audio_data = None
             self.update()
+
+    def get_duration(self):
+        if self.audio_data is not None and self.sample_rate > 0:
+            return len(self.audio_data) / self.sample_rate
+        return 0.0
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -459,9 +486,10 @@ class SubprocessThread(QThread):
 class AudioPlayerThread(QThread):
     finished_signal = pyqtSignal()
 
-    def __init__(self, path):
+    def __init__(self, path, speed=1.0):
         super().__init__()
         self.path = path
+        self.speed = speed
         self.process = None
 
     def run(self):
@@ -471,7 +499,11 @@ class AudioPlayerThread(QThread):
         try:
             system = platform.system()
             if system == "Darwin":
-                self.process = subprocess.Popen(["afplay", self.path])
+                cmd = ["afplay", self.path]
+                if self.speed != 1.0:
+                    cmd.insert(1, "-r")
+                    cmd.insert(2, str(self.speed))
+                self.process = subprocess.Popen(cmd)
             elif system == "Windows":
                 os.startfile(self.path)
                 self.process = None
@@ -493,6 +525,136 @@ class AudioPlayerThread(QThread):
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.process.kill()
+
+
+class AudioReferenceWidget(QWidget):
+    path_changed = pyqtSignal(str)
+
+    def __init__(self, label_text="Audio Reference", file_filter="Audio Files (*.wav *.mp3 *.flac *.ogg);;Video Files (*.mp4 *.avi *.mov *.mkv);;All Files (*)", parent=None):
+        super().__init__(parent)
+        self._file_filter = file_filter
+        self._player_thread = None
+        self._playing = False
+        self._duration = 0.0
+        self._setup_ui(label_text)
+
+    def _setup_ui(self, label_text):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        path_row = QHBoxLayout()
+        path_row.setSpacing(4)
+        lbl = QLabel(label_text)
+        lbl.setStyleSheet(f"color: {THEME['text']}; font-size: 13px; min-width: 100px;")
+        self.path_edit = QLineEdit()
+        self.path_edit.setPlaceholderText("Select audio file or enter URL...")
+        self.path_edit.setStyleSheet(get_line_edit_style())
+        self.path_edit.textChanged.connect(self._on_path_changed)
+        browse_btn = QPushButton("Browse")
+        browse_btn.setStyleSheet(get_surface_button_style())
+        browse_btn.setCursor(Qt.PointingHandCursor)
+        browse_btn.setFixedWidth(70)
+        browse_btn.clicked.connect(self._browse)
+        path_row.addWidget(lbl)
+        path_row.addWidget(self.path_edit, stretch=1)
+        path_row.addWidget(browse_btn)
+        layout.addLayout(path_row)
+
+        self.waveform = AudioWaveformWidget()
+        self.waveform.setFixedHeight(40)
+        self.waveform.setMaximumHeight(50)
+        layout.addWidget(self.waveform)
+
+        controls_row = QHBoxLayout()
+        controls_row.setSpacing(6)
+        self.play_btn = QPushButton("Play")
+        self.play_btn.setStyleSheet(get_surface_button_style())
+        self.play_btn.setCursor(Qt.PointingHandCursor)
+        self.play_btn.setFixedWidth(60)
+        self.play_btn.clicked.connect(self._toggle_play)
+        controls_row.addWidget(self.play_btn)
+
+        self.seek_slider = QSlider(Qt.Horizontal)
+        self.seek_slider.setStyleSheet(get_slider_style())
+        self.seek_slider.setRange(0, 1000)
+        self.seek_slider.setValue(0)
+        controls_row.addWidget(self.seek_slider, stretch=1)
+
+        self.duration_label = QLabel("0:00")
+        self.duration_label.setStyleSheet(f"color: {THEME['text_secondary']}; font-size: 11px;")
+        self.duration_label.setFixedWidth(40)
+        controls_row.addWidget(self.duration_label)
+
+        speed_lbl = QLabel("Speed:")
+        speed_lbl.setStyleSheet(f"color: {THEME['text_secondary']}; font-size: 11px;")
+        controls_row.addWidget(speed_lbl)
+        self.speed_combo = QComboBox()
+        self.speed_combo.setStyleSheet(get_combo_box_style())
+        self.speed_combo.addItems(["25%", "50%", "75%", "100%", "125%", "150%", "175%", "200%"])
+        self.speed_combo.setCurrentIndex(3)
+        self.speed_combo.setFixedWidth(75)
+        controls_row.addWidget(self.speed_combo)
+        layout.addLayout(controls_row)
+
+    def _browse(self):
+        path, _ = QFileDialog.getOpenFileName(None, "Select Audio File", "", self._file_filter)
+        if path:
+            self.path_edit.setText(path)
+
+    def _on_path_changed(self, path):
+        self.waveform.set_audio(path)
+        self._duration = self.waveform.get_duration()
+        if self._duration > 0:
+            mins = int(self._duration // 60)
+            secs = int(self._duration % 60)
+            self.duration_label.setText(f"{mins}:{secs:02d}")
+        else:
+            self.duration_label.setText("0:00")
+        self.path_changed.emit(path)
+
+    def _toggle_play(self):
+        if self._playing:
+            self._stop_play()
+        else:
+            self._start_play()
+
+    def _start_play(self):
+        path = self.path_edit.text().strip()
+        if not path or not os.path.exists(path):
+            return
+        self._stop_play()
+        speed_text = self.speed_combo.currentText().replace("%", "")
+        try:
+            speed = float(speed_text) / 100.0
+        except ValueError:
+            speed = 1.0
+        self._player_thread = AudioPlayerThread(path, speed)
+        self._player_thread.finished_signal.connect(self._on_play_finished)
+        self._player_thread.start()
+        self._playing = True
+        self.play_btn.setText("Stop")
+
+    def _stop_play(self):
+        if self._player_thread:
+            self._player_thread.stop()
+            self._player_thread = None
+        self._playing = False
+        self.play_btn.setText("Play")
+
+    def _on_play_finished(self):
+        self._player_thread = None
+        self._playing = False
+        self.play_btn.setText("Play")
+
+    def get_path(self):
+        return self.path_edit.text().strip()
+
+    def set_path(self, path):
+        self.path_edit.setText(path)
+
+    def text(self):
+        return self.path_edit.text()
 
 
 class HelperWidgets:
@@ -672,6 +834,132 @@ class HelperWidgets:
         return btns
 
 
+class DirectivesWidget(QWidget):
+    def __init__(self, show_duration=False, parent=None):
+        super().__init__(parent)
+        self._show_duration = show_duration
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(4)
+
+        toggle_row = QHBoxLayout()
+        toggle_row.setSpacing(4)
+        self.toggle_btn = QPushButton("Directives \u25b8")
+        self.toggle_btn.setStyleSheet(get_surface_button_style())
+        self.toggle_btn.setCursor(Qt.PointingHandCursor)
+        self.toggle_btn.setFixedHeight(22)
+        self.toggle_btn.setFixedWidth(110)
+        self.toggle_btn.clicked.connect(self._toggle_panel)
+        toggle_row.addWidget(self.toggle_btn)
+        toggle_row.addStretch()
+        layout.addLayout(toggle_row)
+
+        self.panel = QWidget()
+        self.panel.setStyleSheet("background: transparent;")
+        panel_layout = QHBoxLayout(self.panel)
+        panel_layout.setContentsMargins(8, 4, 8, 4)
+        panel_layout.setSpacing(8)
+
+        self.time_pos_spin = QDoubleSpinBox()
+        self.time_pos_spin.setRange(0.0, 9999.0)
+        self.time_pos_spin.setValue(0.0)
+        self.time_pos_spin.setSingleStep(0.5)
+        self.time_pos_spin.setDecimals(1)
+        self.time_pos_spin.setPrefix("T:")
+        self.time_pos_spin.setSuffix("s")
+        self.time_pos_spin.setStyleSheet(get_spin_box_style())
+        self.time_pos_spin.setFixedWidth(90)
+        self.time_pos_spin.setToolTip("Timeline Position (seconds)")
+        panel_layout.addWidget(self.time_pos_spin)
+
+        self.cut_start_spin = QDoubleSpinBox()
+        self.cut_start_spin.setRange(0.0, 9999.0)
+        self.cut_start_spin.setValue(0.0)
+        self.cut_start_spin.setSingleStep(0.5)
+        self.cut_start_spin.setDecimals(1)
+        self.cut_start_spin.setPrefix("+")
+        self.cut_start_spin.setSuffix("s")
+        self.cut_start_spin.setStyleSheet(get_spin_box_style())
+        self.cut_start_spin.setFixedWidth(80)
+        self.cut_start_spin.setToolTip("Cut from Start (seconds)")
+        panel_layout.addWidget(self.cut_start_spin)
+
+        self.cut_end_spin = QDoubleSpinBox()
+        self.cut_end_spin.setRange(0.0, 9999.0)
+        self.cut_end_spin.setValue(0.0)
+        self.cut_end_spin.setSingleStep(0.5)
+        self.cut_end_spin.setDecimals(1)
+        self.cut_end_spin.setPrefix("-")
+        self.cut_end_spin.setSuffix("s")
+        self.cut_end_spin.setStyleSheet(get_spin_box_style())
+        self.cut_end_spin.setFixedWidth(80)
+        self.cut_end_spin.setToolTip("Cut from End (seconds)")
+        panel_layout.addWidget(self.cut_end_spin)
+
+        self.level_spin = QSpinBox()
+        self.level_spin.setRange(0, 100)
+        self.level_spin.setValue(100)
+        self.level_spin.setPrefix("L:")
+        self.level_spin.setSuffix("%")
+        self.level_spin.setStyleSheet(get_spin_box_style())
+        self.level_spin.setFixedWidth(75)
+        self.level_spin.setToolTip("Volume Level (0-100)")
+        panel_layout.addWidget(self.level_spin)
+
+        self.duration_spin = QSpinBox()
+        self.duration_spin.setRange(1, 30)
+        self.duration_spin.setValue(5)
+        self.duration_spin.setPrefix("D:")
+        self.duration_spin.setSuffix("s")
+        self.duration_spin.setStyleSheet(get_spin_box_style())
+        self.duration_spin.setFixedWidth(70)
+        self.duration_spin.setToolTip("SFX Duration (1-30 seconds)")
+        self.duration_spin.setVisible(self._show_duration)
+        panel_layout.addWidget(self.duration_spin)
+
+        panel_layout.addStretch()
+        self.panel.hide()
+        layout.addWidget(self.panel)
+
+    def _toggle_panel(self):
+        visible = self.panel.isVisible()
+        self.panel.setVisible(not visible)
+        self.toggle_btn.setText("Directives \u25be" if not visible else "Directives \u25b8")
+
+    def set_show_duration(self, show):
+        self._show_duration = show
+        self.duration_spin.setVisible(show)
+
+    def get_directives_string(self):
+        parts = []
+        time_parts = []
+        if self.time_pos_spin.value() > 0:
+            v = self.time_pos_spin.value()
+            time_parts.append(str(int(v)) if v == int(v) else str(v))
+        if self.cut_end_spin.value() > 0:
+            v = self.cut_end_spin.value()
+            time_parts.append(f"-{int(v)}" if v == int(v) else f"-{v}")
+        if self.cut_start_spin.value() > 0:
+            v = self.cut_start_spin.value()
+            time_parts.append(f"+{int(v)}" if v == int(v) else f"+{v}")
+        if time_parts:
+            parts.append("/time:" + "".join(time_parts))
+        if self.level_spin.value() != 100:
+            parts.append(f"/level:{self.level_spin.value()}")
+        if self._show_duration and self.duration_spin.value() > 0:
+            parts.append(f"/duration:{self.duration_spin.value()}")
+        return " ".join(parts)
+
+    def get_time_position(self):
+        return self.time_pos_spin.value()
+
+    def get_is_sfx(self):
+        return self._show_duration
+
+
 class DialogueScriptWidget(QWidget):
     characters_changed = pyqtSignal(set)
 
@@ -700,9 +988,13 @@ class DialogueScriptWidget(QWidget):
 
     def add_row(self, character="", text=""):
         row_widget = QWidget()
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(8)
+        row_widget.setStyleSheet("background: transparent;")
+        row_vlayout = QVBoxLayout(row_widget)
+        row_vlayout.setContentsMargins(0, 0, 0, 0)
+        row_vlayout.setSpacing(2)
+
+        text_row = QHBoxLayout()
+        text_row.setSpacing(8)
 
         char_edit = QLineEdit()
         char_edit.setPlaceholderText("Character")
@@ -710,14 +1002,14 @@ class DialogueScriptWidget(QWidget):
         char_edit.setMinimumWidth(100)
         char_edit.setText(character)
         char_edit.textChanged.connect(self.on_text_changed)
-        row_layout.addWidget(char_edit)
+        text_row.addWidget(char_edit)
 
         text_edit = QLineEdit()
         text_edit.setPlaceholderText("Dialogue text")
         text_edit.setStyleSheet(get_line_edit_style())
         text_edit.setText(text)
         text_edit.textChanged.connect(self.on_text_changed)
-        row_layout.addWidget(text_edit, stretch=1)
+        text_row.addWidget(text_edit, stretch=1)
 
         delete_btn = QPushButton("\u00d7")
         delete_btn.setStyleSheet("""
@@ -738,17 +1030,24 @@ class DialogueScriptWidget(QWidget):
         """)
         delete_btn.setCursor(Qt.PointingHandCursor)
         delete_btn.clicked.connect(lambda: self.delete_row(row_widget))
-        row_layout.addWidget(delete_btn)
+        text_row.addWidget(delete_btn)
+
+        row_vlayout.addLayout(text_row)
+
+        is_sfx = character.lower().startswith("sfx")
+        directives = DirectivesWidget(show_duration=is_sfx)
+        char_edit.textChanged.connect(lambda t, d=directives: d.set_show_duration(t.lower().startswith("sfx")))
+        row_vlayout.addWidget(directives)
 
         self.rows_layout.addWidget(row_widget)
-        self.rows.append((char_edit, text_edit, delete_btn, row_widget))
+        self.rows.append((char_edit, text_edit, delete_btn, row_widget, directives))
 
         if len(self.rows) == 1:
             delete_btn.setEnabled(False)
             delete_btn.setVisible(False)
 
     def delete_row(self, row_widget):
-        for i, (_, _, _, w) in enumerate(self.rows):
+        for i, (_, _, _, w, _) in enumerate(self.rows):
             if w == row_widget:
                 if len(self.rows) == 1:
                     return
@@ -756,7 +1055,7 @@ class DialogueScriptWidget(QWidget):
                 w.deleteLater()
                 del self.rows[i]
                 break
-        for idx, (_, _, btn, _) in enumerate(self.rows):
+        for idx, (_, _, btn, _, _) in enumerate(self.rows):
             if idx == 0:
                 btn.setEnabled(False)
                 btn.setVisible(False)
@@ -767,7 +1066,7 @@ class DialogueScriptWidget(QWidget):
 
     def on_text_changed(self):
         if self.rows:
-            last_char, last_text, _, _ = self.rows[-1]
+            last_char, last_text, _, _, _ = self.rows[-1]
             if last_char.text().strip() and last_text.text().strip():
                 if not (len(self.rows) > 1 and not (self.rows[-2][0].text().strip() and self.rows[-2][1].text().strip())):
                     self.add_row()
@@ -776,7 +1075,7 @@ class DialogueScriptWidget(QWidget):
     def update_characters(self):
         chars = set()
         seen = set()
-        for char_edit, _, _, _ in self.rows:
+        for char_edit, _, _, _, _ in self.rows:
             text = char_edit.text().strip()
             if text and text.lower() not in seen:
                 chars.add(text.lower())
@@ -785,16 +1084,17 @@ class DialogueScriptWidget(QWidget):
 
     def get_dialogue_items(self):
         items = []
-        for idx, (char_edit, text_edit, _, _) in enumerate(self.rows):
+        for idx, (char_edit, text_edit, _, _, directives) in enumerate(self.rows):
             char = char_edit.text().strip()
             text = text_edit.text().strip()
+            dir_str = directives.get_directives_string()
             if char and text:
-                items.append((idx + 1, char, text))
+                items.append((idx + 1, char, text, dir_str))
         return items
 
     def validate(self):
         active_rows = 0
-        for char_edit, text_edit, _, _ in self.rows:
+        for char_edit, text_edit, _, _, _ in self.rows:
             char = char_edit.text().strip()
             text = text_edit.text().strip()
             if char or text:
@@ -807,10 +1107,10 @@ class DialogueScriptWidget(QWidget):
 
     def clear(self):
         while len(self.rows) > 1:
-            _, _, _, w = self.rows.pop()
+            _, _, _, w, _ = self.rows.pop()
             self.rows_layout.removeWidget(w)
             w.deleteLater()
-        char_edit, text_edit, delete_btn, _ = self.rows[0]
+        char_edit, text_edit, delete_btn, _, _ = self.rows[0]
         char_edit.clear()
         text_edit.clear()
         delete_btn.setEnabled(False)
@@ -830,6 +1130,270 @@ class DialogueScriptWidget(QWidget):
                 self.add_row()
             else:
                 self.rows[-1][1].setText(line)
+
+    def get_timeline_data(self):
+        data = []
+        for idx, (char_edit, text_edit, _, _, directives) in enumerate(self.rows):
+            char = char_edit.text().strip()
+            text = text_edit.text().strip()
+            if char and text:
+                time_pos = directives.get_time_position()
+                is_sfx = directives.get_is_sfx()
+                data.append({
+                    'index': idx,
+                    'character': char,
+                    'text': text,
+                    'time': time_pos,
+                    'is_sfx': is_sfx,
+                    'directives': directives.get_directives_string(),
+                })
+        return data
+
+
+class DialogueTimelineWidget(QWidget):
+    CHARACTER_COLORS = [
+        '#4FC3F7', '#81C784', '#FFB74D', '#E57373', '#BA68C8',
+        '#4DD0E1', '#AED581', '#FF8A65', '#F06292', '#7986CB',
+    ]
+    SFX_COLOR = '#FF9800'
+    MUSIC_COLOR = '#66BB6A'
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(80)
+        self.setMaximumHeight(120)
+        self.items = []
+        self.music_desc = ""
+        self.total_duration = 30
+        self.setStyleSheet(f"background-color: {THEME['surface']}; border: 1px solid {THEME['border']}; border-radius: 4px;")
+
+    def set_data(self, items, music_desc="", total_duration=30):
+        self.items = items if items else []
+        self.music_desc = music_desc
+        self.total_duration = max(total_duration, 10)
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        w = self.width()
+        h = self.height()
+        painter.fillRect(self.rect(), QColor(THEME['surface']))
+
+        ruler_h = 20
+        music_h = 16 if self.music_desc else 0
+        block_area_top = ruler_h
+        block_area_h = h - ruler_h - music_h
+
+        painter.setPen(QColor(THEME['text_secondary']))
+        painter.setFont(QFont("Consolas", 8))
+        num_ticks = max(1, int(self.total_duration / 5))
+        for i in range(num_ticks + 1):
+            t = i * 5
+            if t > self.total_duration:
+                break
+            x = int((t / self.total_duration) * (w - 20)) + 10
+            painter.drawLine(x, ruler_h - 6, x, ruler_h)
+            painter.drawText(x - 10, ruler_h - 8, f"{t}s")
+
+        painter.setPen(QColor(THEME['border']))
+        painter.drawLine(0, ruler_h, w, ruler_h)
+
+        if self.music_desc:
+            music_y = h - music_h
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(self.MUSIC_COLOR))
+            painter.setOpacity(0.3)
+            painter.drawRect(10, music_y, w - 20, music_h)
+            painter.setOpacity(1.0)
+            painter.setPen(QColor(self.MUSIC_COLOR))
+            painter.setFont(QFont("Consolas", 7))
+            painter.drawText(14, music_y + 11, f"Music: {self.music_desc[:30]}")
+
+        if not self.items:
+            painter.setPen(QColor(THEME['text_secondary']))
+            painter.drawText(self.rect(), Qt.AlignCenter, "No dialogue items")
+            return
+
+        char_color_map = {}
+        color_idx = 0
+        for item in self.items:
+            c = item.get('character', '')
+            if c and c.lower() not in char_color_map:
+                char_color_map[c.lower()] = self.CHARACTER_COLORS[color_idx % len(self.CHARACTER_COLORS)]
+                color_idx += 1
+
+        block_h = max(12, min(20, block_area_h // max(len(self.items), 1)))
+        for i, item in enumerate(self.items):
+            t = item.get('time', 0)
+            char = item.get('character', '')
+            is_sfx = item.get('is_sfx', False)
+            text_preview = item.get('text', '')[:20]
+
+            x = int((t / self.total_duration) * (w - 20)) + 10
+            block_w = max(40, int((5.0 / self.total_duration) * (w - 20)))
+            y = block_area_top + 4 + (i % max(1, (block_area_h // (block_h + 2)))) * (block_h + 2)
+            if y + block_h > h - music_h:
+                y = block_area_top + 4
+
+            color = self.SFX_COLOR if is_sfx else char_color_map.get(char.lower(), '#888888')
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(color))
+            painter.setOpacity(0.6)
+            painter.drawRoundedRect(x, y, block_w, block_h, 3, 3)
+            painter.setOpacity(1.0)
+            painter.setPen(QColor(THEME['text']))
+            painter.setFont(QFont("Consolas", 7))
+            label = ("SFX:" if is_sfx else f"{char}:") + text_preview
+            painter.drawText(x + 4, y + block_h - 3, label[:int(block_w / 5)])
+
+
+class TTMReferenceEntry(QWidget):
+    remove_signal = pyqtSignal(object)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        path_row = QHBoxLayout()
+        path_row.setSpacing(4)
+        self.path_edit = QLineEdit()
+        self.path_edit.setPlaceholderText("Reference audio path...")
+        self.path_edit.setStyleSheet(get_line_edit_style())
+        path_row.addWidget(self.path_edit, stretch=1)
+        browse_btn = QPushButton("Browse")
+        browse_btn.setStyleSheet(get_surface_button_style())
+        browse_btn.setCursor(Qt.PointingHandCursor)
+        browse_btn.setFixedWidth(70)
+        browse_btn.clicked.connect(self._browse)
+        path_row.addWidget(browse_btn)
+        self.del_btn = QPushButton("\u00d7")
+        self.del_btn.setFixedSize(24, 24)
+        self.del_btn.setStyleSheet("""
+            QPushButton { background-color: #3a3a3a; color: white; border: none; border-radius: 12px; font-size: 14px; font-weight: bold; min-width: 24px; max-width: 24px; }
+            QPushButton:hover { background-color: #f44336; }
+        """)
+        self.del_btn.setCursor(Qt.PointingHandCursor)
+        path_row.addWidget(self.del_btn)
+        layout.addLayout(path_row)
+
+        spec_row = QHBoxLayout()
+        spec_row.setSpacing(6)
+        prefix_lbl = QLabel("Prefix:")
+        prefix_lbl.setStyleSheet(f"color: {THEME['text_secondary']}; font-size: 11px;")
+        spec_row.addWidget(prefix_lbl)
+        self.prefix_combo = QComboBox()
+        self.prefix_combo.setStyleSheet(get_combo_box_style())
+        self.prefix_combo.addItems(["none", "voice", "music"])
+        self.prefix_combo.setFixedWidth(85)
+        spec_row.addWidget(self.prefix_combo)
+        time_lbl = QLabel("Time:")
+        time_lbl.setStyleSheet(f"color: {THEME['text_secondary']}; font-size: 11px;")
+        spec_row.addWidget(time_lbl)
+        self.time_edit = QLineEdit()
+        self.time_edit.setPlaceholderText("e.g. 20-30")
+        self.time_edit.setStyleSheet(get_line_edit_style())
+        self.time_edit.setFixedWidth(90)
+        self.time_edit.setToolTip("Start-end seconds, e.g. 20-30 or 50 for start only")
+        spec_row.addWidget(self.time_edit)
+        stem_lbl = QLabel("Stem:")
+        stem_lbl.setStyleSheet(f"color: {THEME['text_secondary']}; font-size: 11px;")
+        spec_row.addWidget(stem_lbl)
+        self.stem_edit = QLineEdit()
+        self.stem_edit.setPlaceholderText("e.g. drums")
+        self.stem_edit.setStyleSheet(get_line_edit_style())
+        self.stem_edit.setFixedWidth(90)
+        self.stem_edit.setToolTip("Extract specific stem, e.g. drums, bass-drums")
+        spec_row.addWidget(self.stem_edit)
+        spec_row.addStretch()
+        layout.addLayout(spec_row)
+
+    def _browse(self):
+        path, _ = QFileDialog.getOpenFileName(None, "Select Reference", "", "Audio (*.wav *.mp3 *.flac *.ogg);;Video (*.mp4 *.avi *.mov *.mkv);;All (*)")
+        if path:
+            self.path_edit.setText(path)
+
+    def get_ref_string(self):
+        path = self.path_edit.text().strip()
+        if not path:
+            return None
+        prefix = self.prefix_combo.currentText()
+        time_spec = self.time_edit.text().strip()
+        stem_spec = self.stem_edit.text().strip()
+        ref_val = ""
+        if stem_spec:
+            ref_val += stem_spec + "/"
+        if time_spec:
+            ref_val += time_spec
+        ref_val += "(" + path + ")"
+        return prefix, ref_val
+
+    def get_path(self):
+        return self.path_edit.text().strip()
+
+
+class TTMReferenceList(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.entries = []
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setStyleSheet("QScrollArea { background: transparent; }")
+        scroll_widget = QWidget()
+        scroll_widget.setStyleSheet("background: transparent;")
+        self.entries_layout = QVBoxLayout(scroll_widget)
+        self.entries_layout.setContentsMargins(0, 0, 0, 0)
+        self.entries_layout.setSpacing(4)
+        self.scroll_area.setWidget(scroll_widget)
+        layout.addWidget(self.scroll_area)
+        add_btn = QPushButton("+ Add Reference")
+        add_btn.setStyleSheet(get_surface_button_style())
+        add_btn.setCursor(Qt.PointingHandCursor)
+        add_btn.clicked.connect(lambda: self.add_entry())
+        layout.addWidget(add_btn)
+        self.add_entry()
+
+    def add_entry(self):
+        entry = TTMReferenceEntry()
+        entry.remove_signal.connect(self.remove_entry)
+        self.entries_layout.addWidget(entry)
+        self.entries.append(entry)
+        self._update_delete_buttons()
+
+    def remove_entry(self, entry):
+        if len(self.entries) <= 1:
+            return
+        self.entries_layout.removeWidget(entry)
+        entry.deleteLater()
+        if entry in self.entries:
+            self.entries.remove(entry)
+        self._update_delete_buttons()
+
+    def _update_delete_buttons(self):
+        for entry in self.entries:
+            entry.del_btn.setEnabled(len(self.entries) > 1)
+            entry.del_btn.setVisible(len(self.entries) > 1)
+
+    def get_refs(self):
+        refs = []
+        for entry in self.entries:
+            result = entry.get_ref_string()
+            if result:
+                refs.append(result)
+        return refs
+
+    def clear(self):
+        for entry in list(self.entries):
+            self.entries_layout.removeWidget(entry)
+            entry.deleteLater()
+        self.entries.clear()
+        self.add_entry()
 
 
 class KeyValueRow(QWidget):
@@ -1202,6 +1766,7 @@ class TTSTab(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._importing_audio = False
         self.setup_ui()
 
     def setup_ui(self):
@@ -1218,10 +1783,10 @@ class TTSTab(QWidget):
 
         self.sub_mode = QComboBox()
         self.sub_mode.setStyleSheet(get_combo_box_style())
-        self.sub_mode.addItems(["TTS", "Modify Speech", "SLC", "SVC", "Dub"])
+        self.sub_mode.addItems(["Speech", "Modify Speech", "Language Convert", "Voice Change", "Dub"])
         self.sub_mode.currentTextChanged.connect(self.on_submode_changed)
         mode_row = QHBoxLayout()
-        mode_label = QLabel("Sub-Mode")
+        mode_label = QLabel("Task Type")
         mode_label.setStyleSheet(f"color: {THEME['text']}; font-size: 13px; min-width: 90px;")
         mode_row.addWidget(mode_label)
         mode_row.addWidget(self.sub_mode, stretch=1)
@@ -1235,11 +1800,11 @@ class TTSTab(QWidget):
         self.container_layout.setSpacing(8)
         self.inner.addWidget(self.container)
 
-        self.overdose_cb = HelperWidgets.make_checkbox(self.inner, "Overdose (VibeVoice ASR for dialogue source)")
-        self.extreme_cb = HelperWidgets.make_checkbox(self.inner, "Extreme (Fish Speech S2Pro, .ttse voice files)")
+        self.overdose_cb = HelperWidgets.make_checkbox(self.inner, "Enhanced Analysis (VibeVoice ASR for dialogue source)")
+        self.extreme_cb = HelperWidgets.make_checkbox(self.inner, "Enhanced Synthesis (Fish Speech S2Pro, .ttse voice files)")
         self.result_edit = HelperWidgets.make_save_picker(self.inner, "Result Path", "Optional: copy output to this path")
 
-        self.run_btn = QPushButton("Run TTS")
+        self.run_btn = QPushButton("Run Speech")
         self.run_btn.setStyleSheet(get_main_button_style())
         self.run_btn.setCursor(Qt.PointingHandCursor)
         self.run_btn.clicked.connect(self.on_run)
@@ -1247,7 +1812,7 @@ class TTSTab(QWidget):
         self.inner.addStretch()
         scroll.setWidget(scroll_widget)
         layout.addWidget(scroll)
-        self.on_submode_changed("TTS")
+        self.on_submode_changed("Speech")
 
     def clear_container(self):
         while self.container_layout.count():
@@ -1264,13 +1829,13 @@ class TTSTab(QWidget):
 
     def on_submode_changed(self, mode):
         self.clear_container()
-        if mode == "TTS":
+        if mode == "Speech":
             self.build_tts_ui()
         elif mode == "Modify Speech":
             self.build_modify_speech_ui()
-        elif mode == "SLC":
+        elif mode == "Language Convert":
             self.build_slc_ui()
-        elif mode == "SVC":
+        elif mode == "Voice Change":
             self.build_svc_ui()
         elif mode == "Dub":
             self.build_dub_ui()
@@ -1287,7 +1852,7 @@ class TTSTab(QWidget):
         mode_row.addStretch()
         self.container_layout.addLayout(mode_row)
 
-        self.tts_script_label = QLabel("Script")
+        self.tts_script_label = QLabel("Text / Dialogue")
         self.tts_script_label.setStyleSheet(f"color: {THEME['text']}; font-size: 13px;")
         self.container_layout.addWidget(self.tts_script_label)
 
@@ -1298,46 +1863,73 @@ class TTSTab(QWidget):
         self.tts_script_text.setMaximumHeight(200)
         self.container_layout.addWidget(self.tts_script_text)
 
+        self.single_directives = DirectivesWidget(show_duration=False)
+        self.container_layout.addWidget(self.single_directives)
+
+        self.tts_dialogue_container = QWidget()
+        self.tts_dialogue_container.setStyleSheet("background: transparent;")
+        dlg_layout = QVBoxLayout(self.tts_dialogue_container)
+        dlg_layout.setContentsMargins(0, 0, 0, 0)
+        dlg_layout.setSpacing(4)
+
+        import_row = QHBoxLayout()
+        import_script_btn = QPushButton("Import Script")
+        import_script_btn.setStyleSheet(get_surface_button_style())
+        import_script_btn.setCursor(Qt.PointingHandCursor)
+        import_script_btn.clicked.connect(self.on_import_script)
+        import_audio_btn = QPushButton("Import Audio")
+        import_audio_btn.setStyleSheet(get_surface_button_style())
+        import_audio_btn.setCursor(Qt.PointingHandCursor)
+        import_audio_btn.clicked.connect(self.on_import_audio)
+        import_row.addWidget(import_script_btn)
+        import_row.addWidget(import_audio_btn)
+        import_row.addStretch()
+        dlg_layout.addLayout(import_row)
+
         self.tts_dialogue_widget = DialogueScriptWidget()
         self.tts_dialogue_widget.setMinimumHeight(120)
-        self.tts_dialogue_widget.setMaximumHeight(240)
-        self.container_layout.addWidget(self.tts_dialogue_widget)
-        self.tts_dialogue_widget.hide()
-        self.tts_script_label.hide()
+        self.tts_dialogue_widget.setMaximumHeight(300)
+        dlg_layout.addWidget(self.tts_dialogue_widget)
+
+        self.timeline_widget = DialogueTimelineWidget()
+        dlg_layout.addWidget(self.timeline_widget)
+
+        self.container_layout.addWidget(self.tts_dialogue_container)
+        self.tts_dialogue_container.hide()
 
         self.tts_mode_single.toggled.connect(self._on_tts_mode_changed)
         self.tts_dialogue_widget.characters_changed.connect(self._on_characters_changed)
 
-        HelperWidgets.make_label(self.container_layout, "Voice Descriptions (Character: description)")
-        self.tts_voice_list = KeyValueList("Character", "Voice Description", "Character name", "e.g. deep male voice")
+        HelperWidgets.make_label(self.container_layout, "Voice Prompts (Character: description)")
+        self.tts_voice_list = KeyValueList("Character", "Voice Prompt", "Character name", "e.g. deep male voice")
         self.tts_voice_list.setMinimumHeight(80)
         self.tts_voice_list.add_btn.hide()
         self.container_layout.addWidget(self.tts_voice_list)
 
         HelperWidgets.make_separator(self.container_layout)
-        HelperWidgets.make_label(self.container_layout, "Voice Clone Targets (Character: audio path)")
+        HelperWidgets.make_label(self.container_layout, "Voice References (Character: audio path)")
         self.tts_clone_list = KeyValueList("Character", "Audio Path", "Character name", "path/to/voice.wav", with_browse=True)
         self.tts_clone_list.setMinimumHeight(80)
         self.tts_clone_list.add_btn.hide()
         self.container_layout.addWidget(self.tts_clone_list)
 
-        self.tts_first_cb = HelperWidgets.make_checkbox(self.container_layout, "First (use first reference as speaker template)")
+        self.tts_first_cb = HelperWidgets.make_checkbox(self.container_layout, "Use First as Speaker Template")
 
-        HelperWidgets.make_label(self.container_layout, "Additional References (for multi-reference)")
-        self.tts_extra_refs = FileListWidget(self.container_layout, file_filter="Audio (*.wav *.mp3 *.flac *.ogg);;All Files (*)")
-        self.container_layout.addWidget(self.tts_extra_refs)
-
-        self.tts_sts_prefix_cb = HelperWidgets.make_checkbox(self.container_layout, "STS mode (route target through voice conversion)")
+        self.tts_sts_prefix_cb = HelperWidgets.make_checkbox(self.container_layout, "Voice Refinement Pass (route target through voice conversion)")
 
         HelperWidgets.make_separator(self.container_layout)
         self.tts_music_edit = HelperWidgets.make_line_edit(self.container_layout, "Music Desc", "Background music description (dialogue mode)")
         self.tts_level_edit = HelperWidgets.make_line_edit(self.container_layout, "Music Level", 'e.g. "10:20-50 30:60-80"')
-        self.tts_reference_edit = HelperWidgets.make_line_edit(self.container_layout, "Music Ref", "Path or URL to reference audio for music style")
+        self.tts_reference_audio = AudioReferenceWidget("Music Ref", file_filter="Audio Files (*.wav *.mp3 *.flac *.ogg);;Video Files (*.mp4 *.avi *.mov *.mkv);;All Files (*)")
+        self.container_layout.addWidget(self.tts_reference_audio)
         self.tts_ocr_edit = HelperWidgets.make_file_picker(self.container_layout, "OCR Image", "Path to image for text extraction", "Images (*.png *.jpg *.jpeg *.bmp *.gif *.tiff *.webp)")
 
+        self._update_timeline()
+
     def build_modify_speech_ui(self):
-        self.ms_source_edit = HelperWidgets.make_file_picker(self.container_layout, "Source Audio", "Audio/video file or URL to transcribe and modify")
-        self.ms_overdose_cb = HelperWidgets.make_checkbox(self.container_layout, "Overdose (VibeVoice ASR)")
+        self.ms_source_audio = AudioReferenceWidget("Source Audio", file_filter="Audio Files (*.wav *.mp3 *.flac *.ogg);;Video Files (*.mp4 *.avi *.mov *.mkv);;All Files (*)")
+        self.container_layout.addWidget(self.ms_source_audio)
+        self.ms_overdose_cb = HelperWidgets.make_checkbox(self.container_layout, "Enhanced Analysis (VibeVoice ASR)")
         HelperWidgets.make_label(self.container_layout, "Transcribed Text (editable):")
         self.ms_script_text = QTextEdit()
         self.ms_script_text.setPlaceholderText("Click Transcribe first, then edit the text here...")
@@ -1345,8 +1937,9 @@ class TTSTab(QWidget):
         self.ms_script_text.setMinimumHeight(120)
         self.ms_script_text.setMaximumHeight(240)
         self.container_layout.addWidget(self.ms_script_text)
-        self.ms_target_edit = HelperWidgets.make_file_picker(self.container_layout, "Target Voice", "Reference voice audio (leave empty to use source voice)")
-        self.ms_extreme_cb = HelperWidgets.make_checkbox(self.container_layout, "Extreme (Fish Speech S2Pro)")
+        self.ms_target_audio = AudioReferenceWidget("Voice Reference", file_filter="Audio Files (*.wav *.mp3 *.flac *.ogg);;All Files (*)")
+        self.container_layout.addWidget(self.ms_target_audio)
+        self.ms_extreme_cb = HelperWidgets.make_checkbox(self.container_layout, "Enhanced Synthesis (Fish Speech S2Pro)")
         self.ms_preserve_cb = HelperWidgets.make_checkbox(self.container_layout, "Preserve non-vocals (keep music/instruments)")
         ms_btn_row = QHBoxLayout()
         self.ms_transcribe_btn = QPushButton("Transcribe")
@@ -1363,7 +1956,7 @@ class TTSTab(QWidget):
         self.container_layout.addLayout(ms_btn_row)
 
     def on_ms_transcribe(self):
-        source = self.ms_source_edit.text().strip() if hasattr(self, 'ms_source_edit') else ""
+        source = self.ms_source_audio.get_path() if hasattr(self, 'ms_source_audio') else ""
         if not source:
             return
         args = ["stt", source]
@@ -1379,23 +1972,28 @@ class TTSTab(QWidget):
             self.ms_script_text.setText(text)
 
     def build_slc_ui(self):
-        self.slc_input_edit = HelperWidgets.make_file_picker(self.container_layout, "Input Audio", "Audio file or URL to convert")
-        self.slc_target_edit = HelperWidgets.make_file_picker(self.container_layout, "Target Voice", "Reference voice audio (optional)")
-        self.slc_music_cb = HelperWidgets.make_checkbox(self.container_layout, "Music mode (SLC with music)")
+        self.slc_input_audio = AudioReferenceWidget("Source Audio", file_filter="Audio Files (*.wav *.mp3 *.flac *.ogg);;Video Files (*.mp4 *.avi *.mov *.mkv);;All Files (*)")
+        self.container_layout.addWidget(self.slc_input_audio)
+        self.slc_target_audio = AudioReferenceWidget("Voice Reference", file_filter="Audio Files (*.wav *.mp3 *.flac *.ogg);;All Files (*)")
+        self.container_layout.addWidget(self.slc_target_audio)
+        self.slc_music_cb = HelperWidgets.make_checkbox(self.container_layout, "Preserve non-vocals (keep music)")
         self.slc_translate_cb = HelperWidgets.make_checkbox(self.container_layout, "Translate")
         self.slc_lang_source = HelperWidgets.make_line_edit(self.container_layout, "Source Lang", "Source language code (e.g. en, auto)")
         self.slc_lang_target = HelperWidgets.make_line_edit(self.container_layout, "Target Lang", "Target language code (e.g. ja, ar)")
-        self.slc_extreme_cb = HelperWidgets.make_checkbox(self.container_layout, "Extreme (Fish Speech S2Pro)")
+        self.slc_extreme_cb = HelperWidgets.make_checkbox(self.container_layout, "Enhanced Synthesis (Fish Speech S2Pro)")
 
     def build_svc_ui(self):
-        self.svc_input_edit = HelperWidgets.make_file_picker(self.container_layout, "Input Audio", "Audio file or URL to change voice of")
+        self.svc_input_audio = AudioReferenceWidget("Source Audio", file_filter="Audio Files (*.wav *.mp3 *.flac *.ogg);;Video Files (*.mp4 *.avi *.mov *.mkv);;All Files (*)")
+        self.container_layout.addWidget(self.svc_input_audio)
         HelperWidgets.make_label(self.container_layout, "Voice Target (use one):")
-        self.svc_target_edit = HelperWidgets.make_file_picker(self.container_layout, "Target Voice", "Reference voice audio file")
-        self.svc_voice_edit = HelperWidgets.make_line_edit(self.container_layout, "Voice Desc", "e.g. deep male voice (alternative to target file)")
-        self.svc_extreme_cb = HelperWidgets.make_checkbox(self.container_layout, "Extreme (Fish Speech S2Pro)")
+        self.svc_target_audio = AudioReferenceWidget("Voice Reference", file_filter="Audio Files (*.wav *.mp3 *.flac *.ogg);;All Files (*)")
+        self.container_layout.addWidget(self.svc_target_audio)
+        self.svc_voice_edit = HelperWidgets.make_line_edit(self.container_layout, "Voice Desc", "e.g. deep male voice (alternative to reference file)")
+        self.svc_extreme_cb = HelperWidgets.make_checkbox(self.container_layout, "Enhanced Synthesis (Fish Speech S2Pro)")
 
     def build_dub_ui(self):
-        self.dub_source_edit = HelperWidgets.make_file_picker(self.container_layout, "Source Video/Audio", "Video or audio file or URL to dub")
+        self.dub_source_audio = AudioReferenceWidget("Source Video/Audio", file_filter="Video Files (*.mp4 *.avi *.mov *.mkv);;Audio Files (*.wav *.mp3 *.flac *.ogg);;All Files (*)")
+        self.container_layout.addWidget(self.dub_source_audio)
         self.dub_subtitle_cb = HelperWidgets.make_checkbox(self.container_layout, "Generate subtitles")
         self.dub_subtitle_original_cb = HelperWidgets.make_checkbox(self.container_layout, "Keep original language subtitles")
         self.dub_subtitle_lang_source = HelperWidgets.make_line_edit(self.container_layout, "Subtitle Lang", "Source-Target e.g. auto-ar (optional)")
@@ -1403,28 +2001,69 @@ class TTSTab(QWidget):
         self.dub_translate_cb = HelperWidgets.make_checkbox(self.container_layout, "Translate (enable with lang spec above)")
         self.dub_se_cb = HelperWidgets.make_checkbox(self.container_layout, "Apply sound enhancement during dub")
         self.dub_video_cb = HelperWidgets.make_checkbox(self.container_layout, "Output video file")
-        self.dub_overdose_cb = HelperWidgets.make_checkbox(self.container_layout, "Overdose (VibeVoice ASR)")
+        self.dub_overdose_cb = HelperWidgets.make_checkbox(self.container_layout, "Enhanced Analysis (VibeVoice ASR)")
+
+    def on_import_script(self):
+        path, _ = QFileDialog.getOpenFileName(None, "Import Script", "", "Text Files (*.txt);;All Files (*)")
+        if path:
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                if hasattr(self, 'tts_dialogue_widget'):
+                    self.tts_dialogue_widget.set_text(content)
+            except Exception:
+                pass
+
+    def on_import_audio(self):
+        path, _ = QFileDialog.getOpenFileName(None, "Import Audio", "", "Audio (*.wav *.mp3 *.flac *.ogg);;Video (*.mp4 *.avi *.mov *.mkv);;All Files (*)")
+        if path:
+            self._importing_audio = True
+            args = ["stt", path]
+            self.transcribe_signal.emit(args)
+
+    def handle_transcription_result(self, text):
+        if self._importing_audio:
+            self._importing_audio = False
+            if hasattr(self, 'tts_dialogue_widget'):
+                self.tts_dialogue_widget.set_text(text)
+        else:
+            self.set_ms_transcription(text)
 
     def _on_tts_mode_changed(self, checked):
         if checked:
             self.tts_script_text.show()
             self.tts_script_label.show()
-            self.tts_dialogue_widget.hide()
+            self.single_directives.show()
+            self.tts_dialogue_container.hide()
         else:
             self.tts_script_text.hide()
             self.tts_script_label.hide()
-            self.tts_dialogue_widget.show()
+            self.single_directives.hide()
+            self.tts_dialogue_container.show()
+        self._update_timeline()
 
     def _on_characters_changed(self, chars):
         self.tts_voice_list.ensure_keys(chars)
         self.tts_clone_list.ensure_keys(chars)
+        self._update_timeline()
+
+    def _update_timeline(self):
+        if hasattr(self, 'tts_dialogue_widget') and hasattr(self, 'timeline_widget'):
+            items = self.tts_dialogue_widget.get_timeline_data()
+            music_desc = self.tts_music_edit.text().strip() if hasattr(self, 'tts_music_edit') else ""
+            max_time = 30
+            for item in items:
+                t = item.get('time', 0)
+                if t > max_time:
+                    max_time = t + 10
+            self.timeline_widget.set_data(items, music_desc, max_time)
 
     def build_args(self):
         mode = self.sub_mode.currentText()
         args = ["tts"]
 
-        if mode == "TTS":
-            is_dialogue = self.tts_mode_dialogue.isChecked()
+        if mode == "Speech":
+            is_dialogue = not self.tts_mode_single.isChecked() if hasattr(self, 'tts_mode_single') else False
 
             ocr = self.tts_ocr_edit.text().strip() if hasattr(self, 'tts_ocr_edit') else ""
             if ocr:
@@ -1434,13 +2073,19 @@ class TTSTab(QWidget):
                 items = self.tts_dialogue_widget.get_dialogue_items()
                 if not items and not ocr:
                     return None
-                for idx, char, text in items:
-                    args.extend(["script", f"{char}: {text}"])
+                for idx, char, text, directives in items:
+                    script_text = f"{char}: {text}"
+                    if directives:
+                        script_text += f" {directives}"
+                    args.extend(["script", script_text])
             else:
                 script = self.tts_script_text.toPlainText().strip() if hasattr(self, 'tts_script_text') else ""
+                directives = self.single_directives.get_directives_string() if hasattr(self, 'single_directives') else ""
                 if not script and not ocr:
                     return None
                 if script:
+                    if directives:
+                        script += f" {directives}"
                     args.extend(["script", script])
 
             if hasattr(self, 'tts_voice_list'):
@@ -1448,17 +2093,15 @@ class TTSTab(QWidget):
                     args.extend(["voice", f"{char}: {desc}"])
 
             if hasattr(self, 'tts_clone_list'):
+                first_checked = hasattr(self, 'tts_first_cb') and self.tts_first_cb.isChecked()
                 for char, path in self.tts_clone_list.get_items():
                     target_val = path
-                    if hasattr(self, 'tts_extra_refs') and self.tts_extra_refs.get_paths():
-                        extra_paths = self.tts_extra_refs.get_paths()
-                        target_val = "(" + path + ")" + "".join(f"({ep})" for ep in extra_paths)
                     if hasattr(self, 'tts_sts_prefix_cb') and self.tts_sts_prefix_cb.isChecked():
                         target_val = "sts:" + target_val
-                    args.extend(["target", f"{char}: {target_val}"])
-
-            if hasattr(self, 'tts_first_cb') and self.tts_first_cb.isChecked():
-                args.append("first")
+                    if first_checked:
+                        args.extend(["target", "first", f"{char}: {target_val}"])
+                    else:
+                        args.extend(["target", f"{char}: {target_val}"])
 
             music = self.tts_music_edit.text().strip() if hasattr(self, 'tts_music_edit') else ""
             if music:
@@ -1468,7 +2111,7 @@ class TTSTab(QWidget):
             if level:
                 args.extend(["level", level])
 
-            reference = self.tts_reference_edit.text().strip() if hasattr(self, 'tts_reference_edit') else ""
+            reference = self.tts_reference_audio.get_path() if hasattr(self, 'tts_reference_audio') else ""
             if reference:
                 args.extend(["reference", reference])
 
@@ -1477,15 +2120,15 @@ class TTSTab(QWidget):
             if not script:
                 return None
             args.extend(["script", script])
-            target = self.ms_target_edit.text().strip() if hasattr(self, 'ms_target_edit') else ""
-            source = self.ms_source_edit.text().strip() if hasattr(self, 'ms_source_edit') else ""
+            target = self.ms_target_audio.get_path() if hasattr(self, 'ms_target_audio') else ""
+            source = self.ms_source_audio.get_path() if hasattr(self, 'ms_source_audio') else ""
             if target:
                 args.extend(["target", target])
             elif source:
                 args.extend(["target", source])
 
-        elif mode == "SLC":
-            input_path = self.slc_input_edit.text().strip() if hasattr(self, 'slc_input_edit') else ""
+        elif mode == "Language Convert":
+            input_path = self.slc_input_audio.get_path() if hasattr(self, 'slc_input_audio') else ""
             if not input_path:
                 return None
             args.append("slc")
@@ -1500,16 +2143,16 @@ class TTSTab(QWidget):
             if hasattr(self, 'slc_music_cb') and self.slc_music_cb.isChecked():
                 args.append("music")
             args.append(input_path)
-            if hasattr(self, 'slc_target_edit') and self.slc_target_edit.text().strip():
-                args.extend(["target", self.slc_target_edit.text().strip()])
+            if hasattr(self, 'slc_target_audio') and self.slc_target_audio.get_path():
+                args.extend(["target", self.slc_target_audio.get_path()])
 
-        elif mode == "SVC":
-            input_path = self.svc_input_edit.text().strip() if hasattr(self, 'svc_input_edit') else ""
+        elif mode == "Voice Change":
+            input_path = self.svc_input_audio.get_path() if hasattr(self, 'svc_input_audio') else ""
             if not input_path:
                 return None
             args.append("svc")
             args.append(input_path)
-            target = self.svc_target_edit.text().strip() if hasattr(self, 'svc_target_edit') else ""
+            target = self.svc_target_audio.get_path() if hasattr(self, 'svc_target_audio') else ""
             voice = self.svc_voice_edit.text().strip() if hasattr(self, 'svc_voice_edit') else ""
             if target:
                 args.extend(["target", target])
@@ -1517,7 +2160,7 @@ class TTSTab(QWidget):
                 args.extend(["voice", voice])
 
         elif mode == "Dub":
-            source = self.dub_source_edit.text().strip() if hasattr(self, 'dub_source_edit') else ""
+            source = self.dub_source_audio.get_path() if hasattr(self, 'dub_source_audio') else ""
             if not source:
                 return None
             args.append("dub")
@@ -1547,13 +2190,13 @@ class TTSTab(QWidget):
             args.append("overdose")
         if mode == "Modify Speech" and hasattr(self, 'ms_overdose_cb') and self.ms_overdose_cb.isChecked():
             args.append("overdose")
-        if mode == "SLC" and hasattr(self, 'slc_extreme_cb') and self.slc_extreme_cb.isChecked():
+        if mode == "Language Convert" and hasattr(self, 'slc_extreme_cb') and self.slc_extreme_cb.isChecked():
             args.append("extreme")
-        elif mode == "SVC" and hasattr(self, 'svc_extreme_cb') and self.svc_extreme_cb.isChecked():
+        elif mode == "Voice Change" and hasattr(self, 'svc_extreme_cb') and self.svc_extreme_cb.isChecked():
             args.append("extreme")
         elif mode == "Modify Speech" and hasattr(self, 'ms_extreme_cb') and self.ms_extreme_cb.isChecked():
             args.append("extreme")
-        elif self.extreme_cb.isChecked() and mode not in ("Dub", "SLC", "SVC", "Modify Speech"):
+        elif self.extreme_cb.isChecked() and mode not in ("Dub", "Language Convert", "Voice Change", "Modify Speech"):
             args.append("extreme")
         if self.result_edit.text().strip():
             args.extend(["result", self.result_edit.text().strip()])
@@ -1584,14 +2227,16 @@ class STSTab(QWidget):
         inner = QVBoxLayout(scroll_widget)
         inner.setSpacing(8)
 
-        self.base_edit = HelperWidgets.make_file_picker(inner, "Base Audio", "Source audio or video (or URL)")
-        self.target_edit = HelperWidgets.make_file_picker(inner, "Target Voice", "Reference voice audio")
+        self.base_audio = AudioReferenceWidget("Source Audio", file_filter="Audio Files (*.wav *.mp3 *.flac *.ogg);;Video Files (*.mp4 *.avi *.mov *.mkv);;All Files (*)")
+        inner.addWidget(self.base_audio)
+        self.target_audio = AudioReferenceWidget("Voice Reference", file_filter="Audio Files (*.wav *.mp3 *.flac *.ogg);;All Files (*)")
+        inner.addWidget(self.target_audio)
         self.music_cb = HelperWidgets.make_checkbox(inner, "Music mode (Seed-VC v1, 44.1kHz)")
-        self.mimic_cb = HelperWidgets.make_checkbox(inner, "Mimic mode (style + voice)")
-        self.nomusic_cb = HelperWidgets.make_checkbox(inner, "No music (disable music handling)")
-        self.original_cb = HelperWidgets.make_checkbox(inner, "Original (use original audio)")
-        self.overdose_cb = HelperWidgets.make_checkbox(inner, "Overdose (VibeVoice ASR)")
-        self.extreme_cb = HelperWidgets.make_checkbox(inner, "Extreme (Fish Speech S2Pro)")
+        self.mimic_cb = HelperWidgets.make_checkbox(inner, "Style + Voice Transfer")
+        self.nomusic_cb = HelperWidgets.make_checkbox(inner, "Voice Only (No Music)")
+        self.original_cb = HelperWidgets.make_checkbox(inner, "Skip Source Separation")
+        self.overdose_cb = HelperWidgets.make_checkbox(inner, "Enhanced Analysis (VibeVoice ASR)")
+        self.extreme_cb = HelperWidgets.make_checkbox(inner, "Enhanced Synthesis (Fish Speech S2Pro)")
 
         self.music_cb.toggled.connect(lambda checked: self.mimic_cb.setChecked(False) if checked else None)
         self.mimic_cb.toggled.connect(lambda checked: self.music_cb.setChecked(False) if checked else None)
@@ -1600,15 +2245,15 @@ class STSTab(QWidget):
         self.original_cb.toggled.connect(lambda checked: self.music_cb.setChecked(False) if checked else None)
         self.music_cb.toggled.connect(lambda checked: self.original_cb.setChecked(False) if checked else None)
 
-        self.sts_first_cb = HelperWidgets.make_checkbox(inner, "First (multi-ref speaker extraction)")
+        self.sts_first_cb = HelperWidgets.make_checkbox(inner, "Use First as Speaker Template")
 
-        HelperWidgets.make_label(inner, "Additional Target References")
+        HelperWidgets.make_label(inner, "Additional Voice References")
         self.sts_extra_refs = FileListWidget(inner, file_filter="Audio (*.wav *.mp3 *.flac *.ogg);;All Files (*)")
         inner.addWidget(self.sts_extra_refs)
 
         self.result_edit = HelperWidgets.make_save_picker(inner, "Result Path", "Optional: copy output to this path")
 
-        self.run_btn = QPushButton("Run STS")
+        self.run_btn = QPushButton("Run Voice Conversion")
         self.run_btn.setStyleSheet(get_main_button_style())
         self.run_btn.setCursor(Qt.PointingHandCursor)
         self.run_btn.clicked.connect(self.on_run)
@@ -1618,13 +2263,21 @@ class STSTab(QWidget):
         layout.addWidget(scroll)
 
     def build_args(self):
-        if not self.base_edit.text().strip() or not self.target_edit.text().strip():
+        base_path = self.base_audio.get_path()
+        target_path = self.target_audio.get_path()
+        if not base_path or not target_path:
             return None
-        target_val = self.target_edit.text().strip()
+        target_val = target_path
         if hasattr(self, 'sts_extra_refs') and self.sts_extra_refs.get_paths():
             extra_paths = self.sts_extra_refs.get_paths()
-            target_val = "(" + target_val + ")" + "".join(f"({ep})" for ep in extra_paths)
-        args = ["sts", "base", self.base_edit.text().strip(), "target", target_val]
+            target_val = "(" + target_path + ")" + "".join(f"({ep})" for ep in extra_paths)
+        first_checked = hasattr(self, 'sts_first_cb') and self.sts_first_cb.isChecked()
+        args = ["sts"]
+        if first_checked:
+            args.extend(["target", "first", target_val])
+            args.extend(["base", base_path])
+        else:
+            args.extend(["base", base_path, "target", target_val])
         if self.music_cb.isChecked():
             args.append("music")
         if self.mimic_cb.isChecked():
@@ -1633,8 +2286,6 @@ class STSTab(QWidget):
             args.append("nomusic")
         if self.original_cb.isChecked():
             args.append("original")
-        if hasattr(self, 'sts_first_cb') and self.sts_first_cb.isChecked():
-            args.append("first")
         if self.overdose_cb.isChecked():
             args.append("overdose")
         if self.extreme_cb.isChecked():
@@ -1673,7 +2324,7 @@ class TTMTab(QWidget):
         self.sub_mode.addItems(["Generate", "Voice", "Voice Clone (VC)", "Remix", "Repaint", "Complete", "Lego", "Extract", "BGM"])
         self.sub_mode.currentTextChanged.connect(self.on_submode_changed)
         mode_row = QHBoxLayout()
-        mode_label = QLabel("Sub-Mode")
+        mode_label = QLabel("Task Type")
         mode_label.setStyleSheet(f"color: {THEME['text']}; font-size: 13px; min-width: 90px;")
         mode_row.addWidget(mode_label)
         mode_row.addWidget(self.sub_mode, stretch=1)
@@ -1687,10 +2338,10 @@ class TTMTab(QWidget):
         self.container_layout.setSpacing(8)
         self.inner.addWidget(self.container)
 
-        self.overdose_cb = HelperWidgets.make_checkbox(self.inner, "Overdose tier (ACE-Step XL-Turbo)")
+        self.overdose_cb = HelperWidgets.make_checkbox(self.inner, "Enhanced tier (ACE-Step XL-Turbo)")
         self.result_edit = HelperWidgets.make_save_picker(self.inner, "Result Path", "Optional: copy output to this path")
 
-        self.run_btn = QPushButton("Run TTM")
+        self.run_btn = QPushButton("Run Music")
         self.run_btn.setStyleSheet(get_main_button_style())
         self.run_btn.setCursor(Qt.PointingHandCursor)
         self.run_btn.clicked.connect(self.on_run)
@@ -1722,54 +2373,31 @@ class TTMTab(QWidget):
         self.gen_lyrics = HelperWidgets.make_text_edit(self.container_layout, "Lyrics", "Song lyrics (use \\n for line breaks)", 100)
         self.gen_styling = HelperWidgets.make_text_edit(self.container_layout, "Styling", "Style/mood prompt", 80)
         self.gen_duration = HelperWidgets.make_spinbox(self.container_layout, "Duration (s)", 10, 300, 30)
-        HelperWidgets.make_label(self.container_layout, "Reference Audio (optional)")
-        self.gen_target_type = QComboBox()
-        self.gen_target_type.setStyleSheet(get_combo_box_style())
-        self.gen_target_type.addItems(["None", "As-is (full audio)", "Extract vocals", "Extract instruments"])
-        r = QHBoxLayout()
-        rl = QLabel("Target Type")
-        rl.setStyleSheet(f"color: {THEME['text']}; font-size: 13px; min-width: 90px;")
-        r.addWidget(rl)
-        r.addWidget(self.gen_target_type, stretch=1)
-        r.addStretch()
-        self.container_layout.addLayout(r)
-        self.gen_target_path = HelperWidgets.make_file_picker(self.container_layout, "Target Path", "Reference audio path")
+        HelperWidgets.make_label(self.container_layout, "Reference Audio (optional, up to 3)")
+        self.gen_ref_list = self._make_ttm_ref_list()
+        self.container_layout.addWidget(self.gen_ref_list)
 
     def build_voice_ui(self):
         self.voice_lyrics = HelperWidgets.make_text_edit(self.container_layout, "Lyrics", "Song lyrics (use \\n for line breaks)", 100)
         self.voice_styling = HelperWidgets.make_text_edit(self.container_layout, "Styling", "Style/mood prompt", 80)
         self.voice_duration = HelperWidgets.make_spinbox(self.container_layout, "Duration (s)", 10, 300, 30)
-        HelperWidgets.make_label(self.container_layout, "Reference Audio (optional)")
-        self.voice_target_type = QComboBox()
-        self.voice_target_type.setStyleSheet(get_combo_box_style())
-        self.voice_target_type.addItems(["None", "As-is (full audio)", "Extract vocals", "Extract instruments"])
-        r = QHBoxLayout()
-        rl = QLabel("Target Type")
-        rl.setStyleSheet(f"color: {THEME['text']}; font-size: 13px; min-width: 90px;")
-        r.addWidget(rl)
-        r.addWidget(self.voice_target_type, stretch=1)
-        r.addStretch()
-        self.container_layout.addLayout(r)
-        self.voice_target_path = HelperWidgets.make_file_picker(self.container_layout, "Target Path", "Reference audio path")
+        HelperWidgets.make_label(self.container_layout, "Reference Audio (optional, up to 3)")
+        self.voice_ref_list = self._make_ttm_ref_list()
+        self.container_layout.addWidget(self.voice_ref_list)
 
     def build_voice_clone_vc_ui(self):
         self.vc_lyrics = HelperWidgets.make_text_edit(self.container_layout, "Lyrics", "Song lyrics (use \\n for line breaks)", 100)
         self.vc_styling = HelperWidgets.make_text_edit(self.container_layout, "Styling", "Style/mood prompt", 80)
         self.vc_duration = HelperWidgets.make_spinbox(self.container_layout, "Duration (s)", 10, 300, 30)
-        self.vc_clone = HelperWidgets.make_file_picker(self.container_layout, "Clone Voice", "Source voice audio for cloning")
-        self.vc_clone_first_cb = HelperWidgets.make_checkbox(self.container_layout, "Clone first (use first segment only)")
-        HelperWidgets.make_label(self.container_layout, "Reference Audio (optional)")
-        self.vc_target_type = QComboBox()
-        self.vc_target_type.setStyleSheet(get_combo_box_style())
-        self.vc_target_type.addItems(["None", "As-is (full audio)", "Extract vocals", "Extract instruments"])
-        r = QHBoxLayout()
-        rl = QLabel("Target Type")
-        rl.setStyleSheet(f"color: {THEME['text']}; font-size: 13px; min-width: 90px;")
-        r.addWidget(rl)
-        r.addWidget(self.vc_target_type, stretch=1)
-        r.addStretch()
-        self.container_layout.addLayout(r)
-        self.vc_target_path = HelperWidgets.make_file_picker(self.container_layout, "Target Path", "Reference audio path")
+        self.vc_clone_audio = AudioReferenceWidget("Clone Voice", file_filter="Audio Files (*.wav *.mp3 *.flac *.ogg);;All Files (*)")
+        self.container_layout.addWidget(self.vc_clone_audio)
+        self.vc_clone_first_cb = HelperWidgets.make_checkbox(self.container_layout, "Use First as Speaker Template")
+        HelperWidgets.make_label(self.container_layout, "Additional Clone References")
+        self.vc_clone_extra = FileListWidget(self.container_layout, file_filter="Audio (*.wav *.mp3 *.flac *.ogg);;All Files (*)")
+        self.container_layout.addWidget(self.vc_clone_extra)
+        HelperWidgets.make_label(self.container_layout, "Reference Audio (optional, up to 3)")
+        self.vc_ref_list = self._make_ttm_ref_list()
+        self.container_layout.addWidget(self.vc_ref_list)
 
     def build_remix_ui(self):
         self.remix_source = HelperWidgets.make_file_picker(self.container_layout, "Source", "Source audio/video or URL to remix")
@@ -1777,8 +2405,7 @@ class TTMTab(QWidget):
         self.remix_lyrics = HelperWidgets.make_text_edit(self.container_layout, "Lyrics (opt)", "Optional new lyrics", 80)
         self.remix_bias = HelperWidgets.make_spinbox(self.container_layout, "Bias (0-100)", 0, 100, 40)
         HelperWidgets.make_label(self.container_layout, "Reference Audio (up to 3, optional)")
-        self.remix_ref_list = KeyValueList("Ref Type", "Audio Path", "voice, music, or empty", "path/to/ref.wav", with_browse=True)
-        self.remix_ref_list.setMinimumHeight(80)
+        self.remix_ref_list = self._make_ttm_ref_list()
         self.container_layout.addWidget(self.remix_ref_list)
 
     def build_repaint_ui(self):
@@ -1799,8 +2426,7 @@ class TTMTab(QWidget):
         self.repaint_bias = HelperWidgets.make_spinbox(self.container_layout, "Bias (0-100)", 0, 100, 40)
         self.repaint_multipass = HelperWidgets.make_line_edit(self.container_layout, "Multipass", 'e.g. "20-80/orchestral" "80-100/cinematic" (optional)')
         HelperWidgets.make_label(self.container_layout, "Reference Audio (up to 3, optional)")
-        self.repaint_ref_list = KeyValueList("Ref Type", "Audio Path", "voice, music, or empty", "path/to/ref.wav", with_browse=True)
-        self.repaint_ref_list.setMinimumHeight(80)
+        self.repaint_ref_list = self._make_ttm_ref_list()
         self.container_layout.addWidget(self.repaint_ref_list)
 
     def build_complete_ui(self):
@@ -1818,8 +2444,7 @@ class TTMTab(QWidget):
         self.complete_video_cb = HelperWidgets.make_checkbox(self.container_layout, "Preserve video")
         self.complete_sfx_edit = HelperWidgets.make_line_edit(self.container_layout, "SFX Specs", 'e.g. "sfx:thunder/5-30/50" (optional, multiple separated by space)')
         HelperWidgets.make_label(self.container_layout, "Reference Audio (up to 3, optional)")
-        self.complete_ref_list = KeyValueList("Ref Type", "Audio Path", "voice, music, or empty", "path/to/ref.wav", with_browse=True)
-        self.complete_ref_list.setMinimumHeight(80)
+        self.complete_ref_list = self._make_ttm_ref_list()
         self.container_layout.addWidget(self.complete_ref_list)
 
     def build_lego_ui(self):
@@ -1860,22 +2485,17 @@ class TTMTab(QWidget):
         self.bgm_reference = HelperWidgets.make_file_picker(self.container_layout, "Reference (opt)", "Reference audio/video or URL for music style")
         self.bgm_sfx_edit = HelperWidgets.make_line_edit(self.container_layout, "SFX Specs", 'e.g. "sfx:rain/10-0/30" (optional, multiple by space)')
 
-    def _add_target_ref(self, args, target_type, target_path):
-        if target_type == "As-is (full audio)" and target_path.strip():
-            args.extend(["target", target_path.strip()])
-        elif target_type == "Extract vocals" and target_path.strip():
-            args.extend(["target voice", target_path.strip()])
-        elif target_type == "Extract instruments" and target_path.strip():
-            args.extend(["target music", target_path.strip()])
+    def _make_ttm_ref_list(self):
+        ref_list = TTMReferenceList()
+        ref_list.setMinimumHeight(80)
+        return ref_list
 
-    def _add_ref_list(self, args, ref_list):
-        for stem, path in ref_list.get_items():
-            stem_clean = stem.strip().lower()
-            path_clean = path.strip()
-            if stem_clean in ("voice", "music"):
-                args.extend(["reference", stem_clean, path_clean])
+    def _add_ttm_refs(self, args, ref_list):
+        for prefix, ref_val in ref_list.get_refs():
+            if prefix and prefix != "none":
+                args.extend(["reference", prefix, ref_val])
             else:
-                args.extend(["reference", path_clean])
+                args.extend(["reference", ref_val])
 
     def build_args(self):
         mode = self.sub_mode.currentText().lower()
@@ -1889,8 +2509,9 @@ class TTMTab(QWidget):
             if not lyrics or not styling:
                 return None
             args.extend(["lyrics", lyrics, "styling", styling])
-            args.extend(["duration", str(self.gen_duration.value())])
-            self._add_target_ref(args, self.gen_target_type.currentText(), self.gen_target_path.text())
+            args.append(str(self.gen_duration.value()))
+            if hasattr(self, 'gen_ref_list'):
+                self._add_ttm_refs(args, self.gen_ref_list)
 
         elif mode == "voice":
             lyrics = self.voice_lyrics.toPlainText().strip()
@@ -1898,24 +2519,30 @@ class TTMTab(QWidget):
             if not lyrics or not styling:
                 return None
             args.extend(["lyrics", lyrics, "styling", styling])
-            args.extend(["duration", str(self.voice_duration.value())])
+            args.append(str(self.voice_duration.value()))
             args.append("voice")
-            self._add_target_ref(args, self.voice_target_type.currentText(), self.voice_target_path.text())
+            if hasattr(self, 'voice_ref_list'):
+                self._add_ttm_refs(args, self.voice_ref_list)
 
         elif mode == "voice clone (vc)":
             lyrics = self.vc_lyrics.toPlainText().strip()
             styling = self.vc_styling.toPlainText().strip()
-            clone = self.vc_clone.text().strip()
+            clone = self.vc_clone_audio.get_path() if hasattr(self, 'vc_clone_audio') else ""
             if not lyrics or not styling or not clone:
                 return None
             args.append("vc")
             args.extend(["lyrics", lyrics, "styling", styling])
-            args.extend(["duration", str(self.vc_duration.value())])
+            args.append(str(self.vc_duration.value()))
+            clone_val = clone
+            if hasattr(self, 'vc_clone_extra') and self.vc_clone_extra.get_paths():
+                extra = self.vc_clone_extra.get_paths()
+                clone_val = "(" + clone + ")" + "".join(f"({ep})" for ep in extra)
             if hasattr(self, 'vc_clone_first_cb') and self.vc_clone_first_cb.isChecked():
-                args.extend(["clone", "first", clone])
+                args.extend(["clone", "first", clone_val])
             else:
-                args.extend(["clone", clone])
-            self._add_target_ref(args, self.vc_target_type.currentText(), self.vc_target_path.text())
+                args.extend(["clone", clone_val])
+            if hasattr(self, 'vc_ref_list'):
+                self._add_ttm_refs(args, self.vc_ref_list)
 
         elif mode == "remix":
             source = self.remix_source.text().strip()
@@ -1927,7 +2554,7 @@ class TTMTab(QWidget):
             if lyrics:
                 args.extend(["lyrics", lyrics])
             if hasattr(self, 'remix_ref_list'):
-                self._add_ref_list(args, self.remix_ref_list)
+                self._add_ttm_refs(args, self.remix_ref_list)
 
         elif mode == "repaint":
             source = self.repaint_source.text().strip()
@@ -1949,7 +2576,7 @@ class TTMTab(QWidget):
                 for spec in multipass.split():
                     args.append(spec)
             if hasattr(self, 'repaint_ref_list'):
-                self._add_ref_list(args, self.repaint_ref_list)
+                self._add_ttm_refs(args, self.repaint_ref_list)
 
         elif mode == "complete":
             source = self.complete_source.text().strip()
@@ -1977,7 +2604,7 @@ class TTMTab(QWidget):
                     if spec.startswith("sfx:"):
                         args.append(spec)
             if hasattr(self, 'complete_ref_list'):
-                self._add_ref_list(args, self.complete_ref_list)
+                self._add_ttm_refs(args, self.complete_ref_list)
 
         elif mode == "lego":
             source = self.lego_source.text().strip()
@@ -2060,62 +2687,126 @@ class STTTab(QWidget):
         scroll.setStyleSheet("QScrollArea { background: transparent; }")
         scroll_widget = QWidget()
         scroll_widget.setStyleSheet("background: transparent;")
-        inner = QVBoxLayout(scroll_widget)
-        inner.setSpacing(8)
+        self.inner = QVBoxLayout(scroll_widget)
+        self.inner.setSpacing(8)
 
-        HelperWidgets.make_label(inner, "Input Files (audio, video, image, or URLs)")
-        self.file_list = FileListWidget(inner, file_filter="Audio (*.wav *.mp3 *.flac *.ogg);;Video (*.mp4 *.avi *.mov *.mkv);;Images (*.png *.jpg *.jpeg *.bmp *.gif);;All Files (*)")
-        inner.addWidget(self.file_list)
+        self.stt_sub_mode = QComboBox()
+        self.stt_sub_mode.setStyleSheet(get_combo_box_style())
+        self.stt_sub_mode.addItems(["Transcribe", "Subtitle"])
+        sub_row = QHBoxLayout()
+        sub_label = QLabel("Task Type")
+        sub_label.setStyleSheet(f"color: {THEME['text']}; font-size: 13px; min-width: 90px;")
+        sub_row.addWidget(sub_label)
+        sub_row.addWidget(self.stt_sub_mode, stretch=1)
+        sub_row.addStretch()
+        self.inner.addLayout(sub_row)
 
-        self.timestamp_cb = HelperWidgets.make_checkbox(inner, "Timestamp (keep word-level timestamps)")
-        self.dialogue_cb = HelperWidgets.make_checkbox(inner, "Dialogue (speaker diarization, requires HF_TOKEN)")
-        self.se_cb = HelperWidgets.make_checkbox(inner, "Speech Enhancement (denoise/dereverb before transcription)")
-        self.overdose_cb = HelperWidgets.make_checkbox(inner, "Overdose (VibeVoice ASR, requires 24GB+ VRAM or 48GB+ RAM)")
-        self.subtitle_cb = HelperWidgets.make_checkbox(inner, "Subtitle mode (implies overdose, structured output)")
+        self.stt_container = QWidget()
+        self.stt_container.setStyleSheet("background: transparent;")
+        self.stt_container_layout = QVBoxLayout(self.stt_container)
+        self.stt_container_layout.setContentsMargins(0, 0, 0, 0)
+        self.stt_container_layout.setSpacing(8)
+        self.inner.addWidget(self.stt_container)
 
-        HelperWidgets.make_separator(inner)
-        HelperWidgets.make_label(inner, "Translation (optional)")
-        self.translate_cb = HelperWidgets.make_checkbox(inner, "Translate")
-        self.translate_source_edit = HelperWidgets.make_line_edit(inner, "Source Lang", "Source language code or auto (e.g. ja, auto)")
-        self.translate_target_edit = HelperWidgets.make_line_edit(inner, "Target Lang", "Target language code (e.g. en, ar)")
+        self.stt_sub_mode.currentTextChanged.connect(self.on_submode_changed)
 
-        self.subtitle_cb.toggled.connect(lambda checked: self.overdose_cb.setChecked(True) if checked else None)
+        self.result_edit = HelperWidgets.make_save_picker(self.inner, "Result Path", "Optional: copy output to this path")
 
-        self.result_edit = HelperWidgets.make_save_picker(inner, "Result Path", "Optional: copy output to this path")
-
-        self.run_btn = QPushButton("Run STT")
+        self.run_btn = QPushButton("Run Transcription")
         self.run_btn.setStyleSheet(get_main_button_style())
         self.run_btn.setCursor(Qt.PointingHandCursor)
         self.run_btn.clicked.connect(self.on_run)
-        inner.addWidget(self.run_btn)
-        inner.addStretch()
+        self.inner.addWidget(self.run_btn)
+        self.inner.addStretch()
         scroll.setWidget(scroll_widget)
         layout.addWidget(scroll)
+        self.on_submode_changed("Transcribe")
+
+    def clear_stt_container(self):
+        while self.stt_container_layout.count():
+            item = self.stt_container_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+            elif item.layout():
+                while item.layout().count():
+                    sub = item.layout().takeAt(0)
+                    sw = sub.widget()
+                    if sw:
+                        sw.deleteLater()
+
+    def on_submode_changed(self, mode):
+        self.clear_stt_container()
+        if mode == "Transcribe":
+            self.build_transcribe_ui()
+        elif mode == "Subtitle":
+            self.build_subtitle_ui()
+
+    def build_transcribe_ui(self):
+        HelperWidgets.make_label(self.stt_container_layout, "Input Files (audio, video, image, or URLs)")
+        self.file_list = FileListWidget(self.stt_container_layout, file_filter="Audio (*.wav *.mp3 *.flac *.ogg);;Video (*.mp4 *.avi *.mov *.mkv);;Images (*.png *.jpg *.jpeg *.bmp *.gif);;All Files (*)")
+        self.stt_container_layout.addWidget(self.file_list)
+        self.timestamp_cb = HelperWidgets.make_checkbox(self.stt_container_layout, "Timestamp (keep word-level timestamps)")
+        self.dialogue_cb = HelperWidgets.make_checkbox(self.stt_container_layout, "Dialogue (speaker diarization, requires HF_TOKEN)")
+        self.se_cb = HelperWidgets.make_checkbox(self.stt_container_layout, "Audio Enhancement (denoise/dereverb before transcription)")
+        self.overdose_cb = HelperWidgets.make_checkbox(self.stt_container_layout, "Enhanced Analysis (VibeVoice ASR, requires 24GB+ VRAM or 48GB+ RAM)")
+        HelperWidgets.make_separator(self.stt_container_layout)
+        HelperWidgets.make_label(self.stt_container_layout, "Translation (optional)")
+        self.translate_cb = HelperWidgets.make_checkbox(self.stt_container_layout, "Translate")
+        self.translate_source_edit = HelperWidgets.make_line_edit(self.stt_container_layout, "Source Lang", "Source language code or auto (e.g. ja, auto)")
+        self.translate_target_edit = HelperWidgets.make_line_edit(self.stt_container_layout, "Target Lang", "Target language code (e.g. en, ar)")
+
+    def build_subtitle_ui(self):
+        self.sub_source_audio = AudioReferenceWidget("Source Video/Audio", file_filter="Video Files (*.mp4 *.avi *.mov *.mkv);;Audio Files (*.wav *.mp3 *.flac *.ogg);;All Files (*)")
+        self.stt_container_layout.addWidget(self.sub_source_audio)
+        self.sub_format_combo = HelperWidgets.make_combo_row(self.stt_container_layout, "Format", ["srt", "vtt"], 0)
+        self.sub_se_cb = HelperWidgets.make_checkbox(self.stt_container_layout, "Audio Enhancement (denoise before subtitle)")
+        HelperWidgets.make_separator(self.stt_container_layout)
+        HelperWidgets.make_label(self.stt_container_layout, "Translation (optional)")
+        self.sub_translate_cb = HelperWidgets.make_checkbox(self.stt_container_layout, "Translate")
+        self.sub_translate_spec = HelperWidgets.make_line_edit(self.stt_container_layout, "Lang Spec", "e.g. auto-ar or ja-en")
 
     def build_args(self):
-        paths = self.file_list.get_paths()
-        if not paths:
-            return None
+        mode = self.stt_sub_mode.currentText()
         args = ["stt"]
-        args.extend(paths)
-        if self.timestamp_cb.isChecked():
-            args.append("timestamp")
-        if self.dialogue_cb.isChecked():
-            args.append("dialogue")
-        if self.se_cb.isChecked():
-            args.append("se")
-        if self.overdose_cb.isChecked():
+
+        if mode == "Transcribe":
+            paths = self.file_list.get_paths() if hasattr(self, 'file_list') else []
+            if not paths:
+                return None
+            args.extend(paths)
+            if hasattr(self, 'timestamp_cb') and self.timestamp_cb.isChecked():
+                args.append("timestamp")
+            if hasattr(self, 'dialogue_cb') and self.dialogue_cb.isChecked():
+                args.append("dialogue")
+            if hasattr(self, 'se_cb') and self.se_cb.isChecked():
+                args.append("se")
+            if hasattr(self, 'overdose_cb') and self.overdose_cb.isChecked():
+                args.append("overdose")
+            if hasattr(self, 'translate_cb') and self.translate_cb.isChecked():
+                args.append("translate")
+                source = self.translate_source_edit.text().strip() if hasattr(self, 'translate_source_edit') else ""
+                target = self.translate_target_edit.text().strip() if hasattr(self, 'translate_target_edit') else ""
+                if source or target:
+                    src = source or "auto"
+                    tgt = target or "en"
+                    args.append(f"({src}-{tgt})")
+
+        elif mode == "Subtitle":
+            source_path = self.sub_source_audio.get_path() if hasattr(self, 'sub_source_audio') else ""
+            if not source_path:
+                return None
             args.append("overdose")
-        if self.subtitle_cb.isChecked():
             args.append("subtitle")
-        if self.translate_cb.isChecked():
-            args.append("translate")
-            source = self.translate_source_edit.text().strip()
-            target = self.translate_target_edit.text().strip()
-            if source or target:
-                src = source or "auto"
-                tgt = target or "en"
-                args.append(f"({src}-{tgt})")
+            if hasattr(self, 'sub_translate_cb') and self.sub_translate_cb.isChecked():
+                args.append("translate")
+                spec = self.sub_translate_spec.text().strip() if hasattr(self, 'sub_translate_spec') else ""
+                if spec:
+                    args.append(f"({spec})")
+            if hasattr(self, 'sub_se_cb') and self.sub_se_cb.isChecked():
+                args.append("se")
+            args.append(source_path)
+
         if self.result_edit.text().strip():
             args.extend(["result", self.result_edit.text().strip()])
         return args
@@ -2174,7 +2865,7 @@ class SETab(QWidget):
 
         self.result_edit = HelperWidgets.make_save_picker(inner, "Result Path", "Optional: copy output to this path")
 
-        self.run_btn = QPushButton("Run SE")
+        self.run_btn = QPushButton("Run Audio Enhancement")
         self.run_btn.setStyleSheet(get_main_button_style())
         self.run_btn.setCursor(Qt.PointingHandCursor)
         self.run_btn.clicked.connect(self.on_run)
@@ -2241,7 +2932,7 @@ class SFXTab(QWidget):
         self.guide_spin = HelperWidgets.make_double_spinbox(inner, "Guidance", 1.0, 10.0, 4.5, 0.5)
         self.result_edit = HelperWidgets.make_save_picker(inner, "Result Path", "Optional: copy output to this path")
 
-        self.run_btn = QPushButton("Run SFX")
+        self.run_btn = QPushButton("Run Sound Effects")
         self.run_btn.setStyleSheet(get_main_button_style())
         self.run_btn.setCursor(Qt.PointingHandCursor)
         self.run_btn.clicked.connect(self.on_run)
@@ -2286,7 +2977,8 @@ class SVSTab(QWidget):
         inner = QVBoxLayout(scroll_widget)
         inner.setSpacing(8)
 
-        self.file_edit = HelperWidgets.make_file_picker(inner, "Input File", "Audio or video file (or URL)")
+        self.input_audio = AudioReferenceWidget("Input File", file_filter="Audio Files (*.wav *.mp3 *.flac *.ogg);;Video Files (*.mp4 *.avi *.mov *.mkv);;All Files (*)")
+        inner.addWidget(self.input_audio)
         self.voice_cb = HelperWidgets.make_checkbox(inner, "Extract vocals (remove instruments)")
         self.music_cb = HelperWidgets.make_checkbox(inner, "Extract instruments (remove vocals)")
         self.both_cb = HelperWidgets.make_checkbox(inner, "Extract both vocals and instruments")
@@ -2295,7 +2987,7 @@ class SVSTab(QWidget):
         self.both_cb.toggled.connect(lambda checked: (self.voice_cb.setChecked(False), self.music_cb.setChecked(False)) if checked else None)
         self.result_edit = HelperWidgets.make_save_picker(inner, "Result Path", "Optional: copy output to this path")
 
-        self.run_btn = QPushButton("Run SVS")
+        self.run_btn = QPushButton("Run Audio Isolation")
         self.run_btn.setStyleSheet(get_main_button_style())
         self.run_btn.setCursor(Qt.PointingHandCursor)
         self.run_btn.clicked.connect(self.on_run)
@@ -2305,7 +2997,8 @@ class SVSTab(QWidget):
         layout.addWidget(scroll)
 
     def build_args(self):
-        if not self.file_edit.text().strip():
+        path = self.input_audio.get_path()
+        if not path:
             return None
         if not self.voice_cb.isChecked() and not self.music_cb.isChecked() and not self.both_cb.isChecked():
             return None
@@ -2316,7 +3009,7 @@ class SVSTab(QWidget):
             args.append("music")
         if self.both_cb.isChecked():
             args.append("both")
-        args.append(self.file_edit.text().strip())
+        args.append(path)
         if self.result_edit.text().strip():
             args.extend(["result", self.result_edit.text().strip()])
         return args
@@ -2346,16 +3039,17 @@ class SSTab(QWidget):
         inner = QVBoxLayout(scroll_widget)
         inner.setSpacing(8)
 
-        self.source_edit = HelperWidgets.make_file_picker(inner, "Source", "Audio or video file or URL")
-        self.target_edit = HelperWidgets.make_file_picker(inner, "Target Voice", "Reference voice audio (optional)")
-        self.se_cb = HelperWidgets.make_checkbox(inner, "Speech Enhancement (before separation)")
-        self.overdose_cb = HelperWidgets.make_checkbox(inner, "Overdose (VibeVoice ASR)")
+        self.source_audio = AudioReferenceWidget("Source", file_filter="Audio Files (*.wav *.mp3 *.flac *.ogg);;Video Files (*.mp4 *.avi *.mov *.mkv);;All Files (*)")
+        inner.addWidget(self.source_audio)
+        self.target_audio = AudioReferenceWidget("Voice Reference", file_filter="Audio Files (*.wav *.mp3 *.flac *.ogg);;All Files (*)")
+        inner.addWidget(self.target_audio)
+        self.se_cb = HelperWidgets.make_checkbox(inner, "Audio Enhancement (before separation)")
+        self.overdose_cb = HelperWidgets.make_checkbox(inner, "Enhanced Analysis (VibeVoice ASR)")
         self.blend_cb = HelperWidgets.make_checkbox(inner, "Blend (mix each speaker with non-vocals)")
         self.video_cb = HelperWidgets.make_checkbox(inner, "Video (mux audio with original video)")
-        self.extreme_cb = HelperWidgets.make_checkbox(inner, "Extreme (Fish Speech S2Pro)")
         self.result_edit = HelperWidgets.make_save_picker(inner, "Result Path", "Optional: copy output to this path")
 
-        self.run_btn = QPushButton("Run SS")
+        self.run_btn = QPushButton("Run Speakers Separation")
         self.run_btn.setStyleSheet(get_main_button_style())
         self.run_btn.setCursor(Qt.PointingHandCursor)
         self.run_btn.clicked.connect(self.on_run)
@@ -2365,12 +3059,13 @@ class SSTab(QWidget):
         layout.addWidget(scroll)
 
     def build_args(self):
-        source = self.source_edit.text().strip()
+        source = self.source_audio.get_path()
         if not source:
             return None
         args = ["ss"]
-        if self.target_edit.text().strip():
-            args.extend(["target", self.target_edit.text().strip()])
+        target = self.target_audio.get_path()
+        if target:
+            args.extend(["target", target])
         if self.se_cb.isChecked():
             args.append("se")
         if self.overdose_cb.isChecked():
@@ -2379,8 +3074,6 @@ class SSTab(QWidget):
             args.append("blend")
         if self.video_cb.isChecked():
             args.append("video")
-        if self.extreme_cb.isChecked():
-            args.append("extreme")
         args.append(source)
         if self.result_edit.text().strip():
             args.extend(["result", self.result_edit.text().strip()])
@@ -2417,10 +3110,10 @@ class TrainTab(QWidget):
         inner.addWidget(self.ref_list)
         self.test_cb = HelperWidgets.make_checkbox(inner, "Test after training")
         self.test_script_edit = HelperWidgets.make_line_edit(inner, "Test Script", "Custom test script text (optional, uses default if empty)")
-        self.first_cb = HelperWidgets.make_checkbox(inner, "First (use first segment only)")
-        self.extreme_cb = HelperWidgets.make_checkbox(inner, "Extreme (train for .ttse file, Fish Speech S2Pro)")
+        self.first_cb = HelperWidgets.make_checkbox(inner, "Use First as Speaker Template")
+        self.extreme_cb = HelperWidgets.make_checkbox(inner, "Enhanced Synthesis (train for .ttse file, Fish Speech S2Pro)")
 
-        self.run_btn = QPushButton("Run Train")
+        self.run_btn = QPushButton("Run Make Voice")
         self.run_btn.setStyleSheet(get_main_button_style())
         self.run_btn.setCursor(Qt.PointingHandCursor)
         self.run_btn.clicked.connect(self.on_run)
@@ -2434,23 +3127,39 @@ class TrainTab(QWidget):
         paths = self.ref_list.get_paths()
         if not voice_name or not paths:
             return None
-        args = ["train", f"voice:{voice_name}"]
+        args = ["train"]
+        if self.extreme_cb.isChecked():
+            args.append("extreme")
+        args.append(f"voice:{voice_name}")
+        if self.first_cb.isChecked():
+            args.append("first")
         args.extend(paths)
         if self.test_cb.isChecked():
             test_script = self.test_script_edit.text().strip()
             args.append("test")
             if test_script:
                 args.append(test_script)
-        if self.first_cb.isChecked():
-            args.append("first")
-        if self.extreme_cb.isChecked():
-            args.append("extreme")
         return args
 
     def on_run(self):
         args = self.build_args()
         if args:
             self.run_signal.emit(args)
+
+
+MODE_DISPLAY_NAMES = [
+    "Speech",
+    "Voice Conversion",
+    "Music",
+    "Transcription",
+    "Audio Enhancement",
+    "Sound Effects",
+    "Audio Isolation",
+    "Speakers Separation",
+    "Make Voice",
+]
+
+MODE_INTERNAL_KEYS = ["tts", "sts", "ttm", "stt", "se", "sfx", "svs", "ss", "train"]
 
 
 class VoderGUI(QMainWindow):
@@ -2521,13 +3230,16 @@ class VoderGUI(QMainWindow):
         body.setContentsMargins(0, 0, 0, 0)
 
         sidebar = QFrame()
-        sidebar.setFixedWidth(160)
+        sidebar.setFixedWidth(180)
         sidebar.setStyleSheet(f"background-color: {THEME['sidebar_background']}; border-right: 1px solid {THEME['border']};")
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
 
         self.mode_list = QListWidget()
+        self.mode_list.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.mode_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.mode_list.setVerticalScrollMode(QListWidget.ScrollPerPixel)
         self.mode_list.setStyleSheet(f"""
             QListWidget {{
                 background-color: {THEME['sidebar_background']};
@@ -2537,7 +3249,7 @@ class VoderGUI(QMainWindow):
             }}
             QListWidget::item {{
                 color: {THEME['text']};
-                padding: 12px 16px;
+                padding: 14px 16px;
                 font-size: 13px;
                 border: none;
                 border-radius: 0;
@@ -2550,8 +3262,10 @@ class VoderGUI(QMainWindow):
                 color: {contrast_color(THEME['sidebar_item_active'])};
             }}
         """)
-        modes = ["TTS", "STS", "TTM", "STT", "SE", "SFX", "SVS", "SS", "Train"]
-        self.mode_list.addItems(modes)
+        self.mode_list.addItems(MODE_DISPLAY_NAMES)
+        for i in range(self.mode_list.count()):
+            item = self.mode_list.item(i)
+            item.setSizeHint(QSize(0, 44))
         self.mode_list.setCurrentRow(0)
         self.mode_list.currentRowChanged.connect(self.on_mode_changed)
         sidebar_layout.addWidget(self.mode_list)
@@ -2655,6 +3369,20 @@ class VoderGUI(QMainWindow):
         term_header.addWidget(term_title)
         term_header.addStretch()
 
+        self.term_copy_btn = QPushButton("Copy")
+        self.term_copy_btn.setStyleSheet(get_surface_button_style())
+        self.term_copy_btn.setCursor(Qt.PointingHandCursor)
+        self.term_copy_btn.setFixedWidth(60)
+        self.term_copy_btn.clicked.connect(self.copy_output)
+        term_header.addWidget(self.term_copy_btn)
+
+        self.term_clear_btn = QPushButton("Clear")
+        self.term_clear_btn.setStyleSheet(get_surface_button_style())
+        self.term_clear_btn.setCursor(Qt.PointingHandCursor)
+        self.term_clear_btn.setFixedWidth(60)
+        self.term_clear_btn.clicked.connect(self.clear_console)
+        term_header.addWidget(self.term_clear_btn)
+
         self.term_close_btn = QPushButton("\u00d7")
         self.term_close_btn.setFixedSize(24, 24)
         self.term_close_btn.setCursor(Qt.PointingHandCursor)
@@ -2689,18 +3417,6 @@ class VoderGUI(QMainWindow):
         self.copy_cmd_btn.clicked.connect(self.copy_command)
         term_btn_row.addWidget(self.copy_cmd_btn)
 
-        self.copy_output_btn = QPushButton("Copy Output")
-        self.copy_output_btn.setStyleSheet(get_surface_button_style())
-        self.copy_output_btn.setCursor(Qt.PointingHandCursor)
-        self.copy_output_btn.clicked.connect(self.copy_output)
-        term_btn_row.addWidget(self.copy_output_btn)
-
-        self.clear_btn = QPushButton("Clear")
-        self.clear_btn.setStyleSheet(get_surface_button_style())
-        self.clear_btn.setCursor(Qt.PointingHandCursor)
-        self.clear_btn.clicked.connect(self.clear_console)
-        term_btn_row.addWidget(self.clear_btn)
-
         self.stop_btn = QPushButton("Stop Process")
         self.stop_btn.setStyleSheet(get_surface_button_style())
         self.stop_btn.setCursor(Qt.PointingHandCursor)
@@ -2714,7 +3430,7 @@ class VoderGUI(QMainWindow):
         self.terminal_panel.hide()
 
         self.tts_tab.run_signal.connect(self.run_command)
-        self.tts_tab.transcribe_signal.connect(self.run_modify_speech_transcribe)
+        self.tts_tab.transcribe_signal.connect(self.run_transcribe)
         self.sts_tab.run_signal.connect(self.run_command)
         self.ttm_tab.run_signal.connect(self.run_command)
         self.stt_tab.run_signal.connect(self.run_command)
@@ -2755,7 +3471,7 @@ class VoderGUI(QMainWindow):
         self.current_thread.finished_signal.connect(self.on_process_finished)
         self.current_thread.start()
 
-    def run_modify_speech_transcribe(self, args):
+    def run_transcribe(self, args):
         if self.running:
             return
         self.running = True
@@ -2764,7 +3480,7 @@ class VoderGUI(QMainWindow):
         self.console.append(f"\n> python voder.py {' '.join(_q(a) for a in args)}\n")
         self.current_thread = SubprocessThread(args)
         self.current_thread.output_signal.connect(self.on_output)
-        self.current_thread.finished_signal.connect(self.on_modify_speech_transcribe_finished)
+        self.current_thread.finished_signal.connect(self.on_transcribe_finished)
         self.current_thread.start()
 
     def on_output(self, line):
@@ -2788,12 +3504,12 @@ class VoderGUI(QMainWindow):
             self.play_btn.setEnabled(True)
             self.waveform.set_audio(audio_path)
 
-    def on_modify_speech_transcribe_finished(self, returncode, output):
+    def on_transcribe_finished(self, returncode, output):
         self.on_process_finished(returncode, output)
         if returncode == 0:
             text = self._extract_transcription(output)
             if text:
-                self.tts_tab.set_ms_transcription(text)
+                self.tts_tab.handle_transcription_result(text)
 
     def _extract_transcription(self, output):
         lines = output.strip().split('\n')
