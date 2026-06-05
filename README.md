@@ -181,6 +181,7 @@ Some modes (SS, TTM overdose, ACE-Step complete) benefit from 24-32 GB VRAM or 4
 | [COMMAND_CATALOG.md](COMMAND_CATALOG.md) | Complete one-liner reference for every mode, flag, and keyword |
 | [Languages.md](Languages.md) | Language support across all components (99+ languages) |
 | [Bots.md](Bots.md) | AI agent & automation usage guide |
+| [FAQ.md](FAQ.md) | Frequently asked questions |
 | [CHANGELOG.md](CHANGELOG.md) | Development history |
 
 ---
