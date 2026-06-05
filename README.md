@@ -182,6 +182,7 @@ Some modes (SS, TTM overdose, ACE-Step complete) benefit from 24-32 GB VRAM or 4
 | [Languages.md](docs/Languages.md) | Language support across all components (99+ languages) |
 | [Bots.md](docs/Bots.md) | AI agent & automation usage guide |
 | [FAQ.md](docs/FAQ.md) | Frequently asked questions |
+| [voder-skill.md](docs/voder-skill.md) | AI skill definition for agent integration |
 | [CHANGELOG.md](docs/CHANGELOG.md) | Development history |
 
 ---
