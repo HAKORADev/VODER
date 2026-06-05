@@ -117,7 +117,7 @@ python src/voder.py sfx sound "thunder rumbling" duration 10
 
 > **Run in Colab** — no installation needed: [Open in Google Colab](https://colab.research.google.com/drive/1hditIfW9JzusNcFhlHFoclCIIsNiRFNk?usp=sharing)
 
-> **FFmpeg is required** for audio processing. Install via your system package manager. See [READ.md](READ.md) for all setup details.
+> **FFmpeg is required** for audio processing. Install via your system package manager. See [READ.md](docs/READ.md) for all setup details.
 
 ---
 
@@ -166,9 +166,9 @@ VODER orchestrates state-of-the-art open-source models — each selected for qua
 | VRAM | 4 GB (6 GB recommended, 16 GB for music modes) |
 | Storage | SSD recommended |
 
-Some modes (SS, TTM overdose, ACE-Step complete) benefit from 24-32 GB VRAM or 48 GB+ system memory. See [Guide.md](Guide.md) for the full per-mode breakdown.
+Some modes (SS, TTM overdose, ACE-Step complete) benefit from 24-32 GB VRAM or 48 GB+ system memory. See [Guide.md](docs/Guide.md) for the full per-mode breakdown.
 
-> Speaker diarization requires a free [Hugging Face token](https://huggingface.co/settings/tokens) — set `HF_TOKEN` env var or `HF_TOKEN.txt`. See [READ.md](READ.md) for details.
+> Speaker diarization requires a free [Hugging Face token](https://huggingface.co/settings/tokens) — set `HF_TOKEN` env var or `HF_TOKEN.txt`. See [READ.md](docs/READ.md) for details.
 
 ---
 
@@ -176,13 +176,13 @@ Some modes (SS, TTM overdose, ACE-Step complete) benefit from 24-32 GB VRAM or 4
 
 | Document | What's Inside |
 |----------|--------------|
-| [READ.md](READ.md) | Mode descriptions, CLI examples, setup details, technical notes |
-| [Guide.md](Guide.md) | Architecture deep-dives, creative techniques, tips & tricks |
-| [COMMAND_CATALOG.md](COMMAND_CATALOG.md) | Complete one-liner reference for every mode, flag, and keyword |
-| [Languages.md](Languages.md) | Language support across all components (99+ languages) |
-| [Bots.md](Bots.md) | AI agent & automation usage guide |
-| [FAQ.md](FAQ.md) | Frequently asked questions |
-| [CHANGELOG.md](CHANGELOG.md) | Development history |
+| [READ.md](docs/READ.md) | Mode descriptions, CLI examples, setup details, technical notes |
+| [Guide.md](docs/Guide.md) | Architecture deep-dives, creative techniques, tips & tricks |
+| [COMMAND_CATALOG.md](docs/COMMAND_CATALOG.md) | Complete one-liner reference for every mode, flag, and keyword |
+| [Languages.md](docs/Languages.md) | Language support across all components (99+ languages) |
+| [Bots.md](docs/Bots.md) | AI agent & automation usage guide |
+| [FAQ.md](docs/FAQ.md) | Frequently asked questions |
+| [CHANGELOG.md](docs/CHANGELOG.md) | Development history |
 
 ---
 
