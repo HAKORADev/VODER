@@ -17,6 +17,10 @@
 
 ---
 
+**Jump to:** [Features](#features) · [What Can VODER Do?](#what-can-voder-do) · [Quick Start](#quick-start) · [Modes at a Glance](#modes-at-a-glance) · [Models Behind VODER](#models-behind-voder) · [System Requirements](#system-requirements) · [Documentation](#documentation) · [Contributing](#contributing)
+
+---
+
 VODER brings together **8 processing modes** under one interface — speech-to-text, text-to-speech, voice conversion, music generation, speech enhancement, sound effects, vocal separation, and speaker diarization — plus language dubbing (`tts dub`), any-to-any translation via TranslateGemma 12B, and transcribe-edit-resynthesize (built into TTS interactive). It runs entirely on your machine, needs no subscription, and works with or without a GPU.
 
 ---
