@@ -1,6 +1,6 @@
 # VODER — Detailed Reference
 
-> This document contains detailed mode descriptions, CLI examples, technical notes, and usage guides for each of VODER's eight processing modes. For a quick overview, see [README.md](README.md).
+> This document contains detailed mode descriptions, CLI examples, technical notes, and usage guides for each of VODER's eight processing modes. For a quick overview, see [README.md](../README.md).
 
 ---
 
