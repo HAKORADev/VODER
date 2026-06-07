@@ -193,7 +193,7 @@ Some modes (SS, TTM overdose, ACE-Step complete) benefit from 24-32 GB VRAM or 4
 
 ## Contributing
 
-VODER is open-source under [AGPL-3.0](LICENSE). Contributions are welcome — new modes, model integrations, UI improvements, bug fixes, or documentation.
+VODER is open-source under [AGPL-3.0](LICENSE). Pull requests are not accepted — the codebase is maintained by a single developer. However, issues, bug reports, and feature suggestions are very welcome. If you want to build on top of VODER, fork it — that's what it's for.
 
 ---
 

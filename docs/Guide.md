@@ -244,7 +244,7 @@ For those who insist on changing things, the model paths can be configured by ed
 
 If someone creates a modified version of VODER with different model configurations, that's exactly what it is: a modified version. Custom configurations won't be supported in the main VODER documentation or issue tracker because the main project only guarantees quality for its default configuration.
 
-For those interested in exploring custom model configurations, we'll maintain a separate document (CUSTOM_VERSIONS.md) where community‑contributed modifications can be documented. These are not official VODER builds, but if you want to share your experiments with different models or configurations, that file provides a place to do so.
+For those interested in exploring custom model configurations, we'll maintain a separate document (CUSTOM_VERSIONS.md) where fork-based builds and custom configurations can be documented. These are not official VODER builds, but if you fork VODER and build something on top of it with different models or configurations, that file provides a place to share your work.
 
 ---
 
