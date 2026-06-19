@@ -10,6 +10,8 @@
 
 ### Added
 
+- **`quest` with no arguments lists available side-quests** — Running `python voder.py quest` with no further arguments now prints the list of registered side-quests (each quest's name and its one-line description) followed by a usage reminder, instead of erroring out with "quest mode requires a quest name". This makes the side-quest system self-documenting — new quests dropped into `src/voders/quests/` are immediately discoverable from the CLI with no extra wiring. The listing is generated dynamically from the live `SIDE_QUESTS` registry, so it always reflects whatever quests are actually loaded. Existing quest invocations (`quest download "..."`, `quest noframes "..."`, etc.) are unchanged.
+
 - **CLI Default to Help** — Running `python voder.py` with no arguments now prints the help message instead of launching the GUI. Use `python voder.py gui` to launch the GUI as before.
 
 - **Side-Quests (`quest` feature)** — New `quest` oneline feature for lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow. This is a **task-layer feature**, not a processing mode — it does not transform audio itself. Each quest is a small class registered in a `SIDE_QUESTS` registry, so future quests can be added without touching the dispatcher — just subclass `SideQuest`, implement `parse()` and `execute()`, and call `_register_side_quest()`.

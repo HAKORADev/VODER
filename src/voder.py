@@ -6766,7 +6766,7 @@ def parse_oneline_args(args):
         quest_args = []
         result_path = None
         if i >= len(args):
-            result['error'] = 'quest mode requires a quest name (e.g., quest download "URL")'
+            result['params']['list_quests'] = True
             return result
         quest_name = args[i].lower()
         i += 1

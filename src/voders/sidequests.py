@@ -54,7 +54,27 @@ def _discover_quests():
             _register_side_quest(quest_cls)
 
 
+def list_available_quests():
+    if not SIDE_QUESTS:
+        print("No side-quests are currently registered.")
+        print()
+        print("Drop a new quest file into src/voders/quests/ to add one.")
+        return
+    print("Available side-quests:")
+    print()
+    max_name = max(len(name) for name in SIDE_QUESTS.keys())
+    for name in sorted(SIDE_QUESTS.keys()):
+        quest = SIDE_QUESTS[name]
+        desc = (quest.description or '').strip() or '(no description)'
+        print(f"  {name:<{max_name}}  -  {desc}")
+    print()
+    print("Usage:  python voder.py quest <name> [args...]")
+
+
 def oneline_quest(params):
+    if params.get('list_quests'):
+        list_available_quests()
+        return True
     quest_name = params.get('quest_name')
     quest_args = params.get('quest_args', [])
     result_path = params.get('result_path')
