@@ -1662,6 +1662,8 @@ python voder.py quest <quest-name> [quest args...] [result "<path>"]
 | `fade` | Apply a cinematic 5s fade-in/out (not silence-based; rising gain). | `voder_quest_fade_<name>_<timestamp>.{wav,mp4}` |
 | `volume` | Professional bass booster + volume amplifier on a 1–1000 scale. | `voder_quest_volume_v<value>_<name>_<timestamp>.{wav,mp4}` |
 | `speed` | Professional time-stretch (rubberband, formant-preserved) on a 0.25–10.00 scale. Audio files only. | `voder_quest_speed_x<value>_<name>_<timestamp>.wav` |
+| `pitch` | Professional pitch shift (rubberband, formant-shifted) on a 0.01–10.00 scale. Audio output only. Accepts local audio / video / URL. | `voder_quest_pitch_p<value>_<name>_<timestamp>.wav` |
+| `glue` | Glue an audio file onto a video file (or vice versa). Auto-replaces existing audio; pads silence / black frames to match longer stream. Refuses URLs and same-type pairs. | `voder_quest_glue_<audio>_onto_<video>_<timestamp>.mp4` |
 
 ### 9.1 `download`
 
@@ -2025,6 +2027,104 @@ python voder.py quest speed 2.00 "song.wav" result "./slowed.wav"
 # python voder.py quest speed 1.00 "song.wav"    # ERROR: no-op
 # python voder.py quest speed 0.30 "song.wav"    # ERROR: not a valid 0.25-step value
 # python voder.py quest speed 2.00 "video.mp4"   # ERROR: audio files only
+```
+
+### 9.12 `pitch`
+
+| Argument | Description |
+|----------|-------------|
+| `<0.01-10.00>` | Pitch scale factor in 0.01 increments. `1.00` is excluded (no-op). `0.50` = −1 octave (monster/demon voice), `2.00` = +1 octave (baby/chipmunk voice), `0.01` = extreme deep (≈6.64 octaves down), `10.00` = extreme high (≈3.32 octaves up). |
+| `"<input>"` | A LOCAL audio file, LOCAL video file, or YouTube/Bilibili/TikTok URL. For video inputs, only the audio stream is read (video frames are dropped). For URLs, the audio is downloaded via yt-dlp before processing and the temp file is cleaned up after. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- **Professional pitch shift** using FFmpeg's `rubberband` filter. Pitch is shifted without changing tempo (duration is preserved) — the opposite of `quest speed`, which changes tempo without changing pitch.
+- **Formant-shifted** (`formant=shifted`, rubberband's default): formants move with the pitch. This gives the classic tape / vinyl character that makes voices sound like demons / monsters / babies, and that makes Spotify-style "slowed+reverb" songs sound right (because the original vinyl slowdown naturally shifted both pitch and formants together). If you want a "clean" modern pitch shift instead, chain `quest pitch` after `quest speed` with the inverse value — but for the demon/baby/slowed aesthetic, `formant=shifted` is the professional default.
+- **Multi-pass for extreme ranges:** rubberband produces the cleanest output within ±1 octave (0.50–2.00). For values outside that range, the shift is automatically decomposed into chained one-octave passes (each ≤2.0× or ≥0.5×). For example, `pitch 0.01` becomes 6 passes of `0.5` + 1 pass of `0.64`; `pitch 10.00` becomes 3 passes of `2.0` + 1 pass of `1.25`. The total shift is the product of all passes, equal to the requested value. This keeps each rubberband invocation in its clean-operating range.
+- Full rubberband configuration per pass: `formant=shifted`, `transients=crisp` (preserves percussive attacks), `detector=compound` (best transient detection), `phase=laminar` (preserves phase coherence), `window=standard`, `pitchq=quality` (highest-quality pitch processing), `channels=apart` (each channel processed independently for stereo width).
+- **Output:** WAV (PCM 24-bit, 48 kHz, stereo) for maximum fidelity. The output filename includes the value: `voder_quest_pitch_p<value>_<name>_<timestamp>.wav`.
+
+**Chain with `quest speed` for Spotify-style slowed+reverb:**
+
+- `quest speed 2.00` → 2× slower, same pitch (tempo change, pitch preserved)
+- `quest pitch 0.50` → 1 octave down, same duration (pitch change, tempo preserved)
+- Combined (`speed 2.00` → `pitch 0.50`) → 2× slower AND 1 octave down = classic slowed+reverb character
+- Add `quest volume` before for a bass-boosted slowed+reverb, or `quest fade` after for a cinematic intro/outro.
+
+```
+# Monster / demon voice (1 octave down)
+python voder.py quest pitch 0.50 "voice.wav"
+
+# Baby / chipmunk voice (1 octave up)
+python voder.py quest pitch 2.00 "voice.wav"
+
+# Extreme deep (6.64 octaves down — 7 rubberband passes)
+python voder.py quest pitch 0.01 "voice.wav"
+
+# Extreme high (3.32 octaves up — 4 rubberband passes)
+python voder.py quest pitch 10.00 "voice.wav"
+
+# Pitch-shift audio extracted from a video (video frames dropped)
+python voder.py quest pitch 0.75 "clip.mp4"
+
+# Pitch-shift a YouTube URL (audio is downloaded first)
+python voder.py quest pitch 1.50 "https://youtube.com/watch?v=..."
+
+# Save result to a specific path
+python voder.py quest pitch 0.50 "voice.wav" result "./demon.wav"
+
+# Refused inputs:
+# python voder.py quest pitch 1.00 "voice.wav"  # ERROR: no-op
+# python voder.py quest pitch 0.005 "voice.wav" # ERROR: must be 0.01-10.00
+# python voder.py quest pitch 11.00 "voice.wav" # ERROR: must be 0.01-10.00
+# python voder.py quest pitch abc "voice.wav"   # ERROR: must be a number
+```
+
+### 9.13 `glue`
+
+| Argument | Description |
+|----------|-------------|
+| `"<input-to-use>"` | The first source. Must be either audio or video (file extension determines which). URLs are refused — use `quest download` first. |
+| `"<where-it-will-be-glued>"` | The second source. Must be the opposite type from the first (audio+video or video+audio). Same-type pairs are refused. URLs are refused. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- Glues one source onto the other, producing an MP4 that takes video frames from the video input and audio from the audio input. The order of arguments only determines which file is the "video source" vs the "audio source" — the output is always a video file.
+- **Auto-replaces existing audio:** if the video input already has an audio track, it is dropped and replaced with the audio from the audio input. No `replace` keyword is needed.
+- **Duration handling:** the output duration is always the **longer** of the two inputs.
+  - If the audio is shorter than the video: the audio is padded with silence (`apad=pad_dur=<diff>`) so it runs until the last video frame.
+  - If the video is shorter than the audio: the video is extended with black frames (`tpad=stop_mode=add:stop_duration=<diff>`) so it runs until the audio ends. (Use `quest reverse` + `quest cut` for fancier "freeze last frame" effects — `glue` uses clean black for predictability.)
+- **Refused combinations:**
+  - URLs of any kind (must be local files — use `quest download` first).
+  - audio+audio (no video to glue onto — use `quest merge` instead).
+  - video+video (no audio to glue onto — use `quest noframes` on one of them first).
+- Output is MP4 (H.264 video, AAC 256 kbps audio, CRF 20, medium preset, +faststart for streaming). Output naming: `voder_quest_glue_<audio-name>_onto_<video-name>_<timestamp>.mp4`.
+
+**Chain pattern:** A common chain is `volume` → `speed` → `pitch` → `glue`. For example, take a song, bass-boost it, slow it down, pitch it down, then glue the result back onto the original music video — you get a "slowed+reverb+bass-boosted" version of the video without re-recording anything.
+
+```
+# Glue a new audio track onto a video (audio replaces the original)
+python voder.py quest glue "new_audio.wav" "video.mp4"
+
+# Glue a video's frames onto an audio track (same result, swapped argument order)
+python voder.py quest glue "video.mp4" "new_audio.wav"
+
+# Audio is shorter than video — audio is padded with silence at the end
+python voder.py quest glue "short_clip.wav" "long_video.mp4"
+
+# Video is shorter than audio — video is extended with black frames at the end
+python voder.py quest glue "long_audio.wav" "short_video.mp4"
+
+# Save result to a specific path
+python voder.py quest glue "audio.wav" "video.mp4" result "./final.mp4"
+
+# Refused inputs:
+# python voder.py quest glue "https://youtube.com/..." "video.mp4"  # ERROR: refuses URLs
+# python voder.py quest glue "a.wav" "b.wav"                        # ERROR: refuses audio+audio
+# python voder.py quest glue "a.mp4" "b.mp4"                        # ERROR: refuses video+video
+# python voder.py quest glue "only_one.wav"                         # ERROR: needs two arguments
 ```
 
 ---

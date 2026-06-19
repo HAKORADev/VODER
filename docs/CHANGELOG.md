@@ -6,9 +6,15 @@
 
 ## 06/20/2026
 - Status: Stable, all features work, still developing
-- **8 New Side-Quests: audio utility belt for the chains era**
+- **10 New Side-Quests: audio utility belt + slowed+reverb toolkit for the chains era**
 
 ### Added
+
+- **`quest pitch <0.01-10.00> <audio|video|URL>`** — Professional pitch shift using FFmpeg's `rubberband` filter. Range 0.01–10.00 in 0.01 increments (1.00 is excluded as a no-op). Pitch is shifted without changing tempo (the mirror of `quest speed`, which changes tempo without changing pitch). `0.50` = −1 octave (monster / demon voice), `2.00` = +1 octave (baby / chipmunk voice), `0.01` = extreme deep (≈6.64 octaves down), `10.00` = extreme high (≈3.32 octaves up). Uses `formant=shifted` (rubberband's default) — formants move with the pitch, giving the classic tape / vinyl character that makes the demon / baby / slowed+reverb aesthetic actually sound right. For values outside the ±1-octave clean range (0.50–2.00), the shift is automatically decomposed into chained one-octave passes (e.g., `pitch 0.01` becomes 6 passes of 0.5 + 1 pass of 0.64), keeping each rubberband invocation in its clean-operating range. Per-pass config: `formant=shifted`, `transients=crisp`, `detector=compound`, `phase=laminar`, `pitchq=quality`, `channels=apart`. Accepts local audio files, local video files (only audio stream read, video frames dropped), and YouTube / Bilibili / TikTok URLs (audio downloaded via yt-dlp, temp file cleaned up after). Output: WAV (PCM 24-bit, 48 kHz, stereo). Audio output only.
+
+- **`quest glue "<input-to-use>" "<where-it-will-be-glued>"`** — Mux / replace utility: glues an audio file onto a video file (or vice versa). The video source's frames are combined with the audio source's audio, producing an MP4. Order of arguments only determines which file is the "video source" vs the "audio source" — output is always a video file. **Auto-replaces existing audio:** if the video input already has an audio track, it is dropped and replaced with the audio from the audio input (no `replace` keyword needed). **Duration handling:** output duration is always the *longer* of the two inputs — if audio is shorter than video, audio is padded with silence (`apad=pad_dur=<diff>`) until the last video frame; if video is shorter than audio, video is extended with black frames (`tpad=stop_mode=add:stop_duration=<diff>`) until the audio ends. **Refused combinations:** URLs of any kind (must be local files — use `quest download` first), audio+audio (use `quest merge` instead), video+video (use `quest noframes` on one of them first). Output: MP4 (H.264 video, AAC 256 kbps audio, CRF 20, +faststart). Output naming: `voder_quest_glue_<audio-name>_onto_<video-name>_<timestamp>.mp4`.
+
+- **New chain pattern — slowed+reverb toolkit:** `quest volume` → `quest speed` → `quest pitch` → `quest glue` produces a fully bass-boosted, slowed-down, pitch-down version of a song glued back onto its original music video. All four quests are chain-friendly (each produces a single output file that the next chain can reference by name).
 
 - **8 new side-quests** joining the existing `download` and `noframes`. All are auto-discovered from `src/voders/quests/` and appear immediately in `python voder.py quest`. All accept the optional `result "<path>"` keyword. All work inside `chains` pipelines as named steps.
 
@@ -32,7 +38,7 @@
 
 ### Documentation
 
-- **docs/COMMAND_CATALOG.md** — Added sections 9.3 through 9.11 with full argument tables, behavior descriptions, and examples for each of the 8 new side-quests. Updated the "Available quests" table in section 9 to list all 11 quests (was 2) with their descriptions and output naming patterns.
+- **docs/COMMAND_CATALOG.md** — Added sections 9.3 through 9.13 with full argument tables, behavior descriptions, and examples for each of the 10 new side-quests. Updated the "Available quests" table in section 9 to list all 13 quests (was 2) with their descriptions and output naming patterns.
 
 ---
 
