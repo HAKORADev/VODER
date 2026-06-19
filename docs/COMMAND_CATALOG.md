@@ -31,7 +31,7 @@ The 8 main processing modes:
 | `svs` | Song Voice Separate |
 | `ss` | Speakers Separator |
 
-The 3 task-layer features (not modes — they don't transform audio themselves):
+The 3 task-layer features:
 
 | Feature | Name |
 |---------|------|
@@ -46,7 +46,7 @@ The 3 task-layer features (not modes — they don't transform audio themselves):
 | [Invocation](#invocation) | General syntax & modes |
 | [Global Keywords](#global-keywords-available-in-all-modes) | `result` |
 | [1. TTS](#1-tts--text-to-speech) | Text-to-Speech, dialogue, SLC, SVC, STS pass, directives, trained voices, newline support |
-| [1a. Voice Training](#1a-voice-training--train-voice) | Train voice clones as .tts files (task feature, not a mode) |
+| [1a. Voice Training](#1a-voice-training--train-voice) | Train voice clones as .tts files |
 | [2. STS](#2-sts--speech-to-speech-voice-conversion) | Voice Conversion |
 | [3. TTM](#3-ttm--text-to-music) | Generate, VC, Remix, Repaint, Complete, Lego, Extract |
 | [4. STT](#4-stt--speech-to-text-transcription) | Transcription, diarization, translate |
@@ -54,8 +54,8 @@ The 3 task-layer features (not modes — they don't transform audio themselves):
 | [6. SFX](#6-sfx--sound-effects-generation) | Sound effects |
 | [7. SVS](#7-svs--song-voice-separate) | Vocal/instrument separation |
 | [8. SS](#8-ss--speakers-separator) | Speaker extraction & separation |
-| [9. quest](#9-quest--side-quests) | Side-quests (utility feature, not a mode): download, noframes |
-| [10. chains](#10-chains--user-defined-pipelines) | Compose multiple voder oneline tasks into a pipeline (feature, not a mode) |
+| [9. quest](#9-quest--side-quests) | Side-quests (utility tasks): download, noframes, convert, cut, merge, speed, pitch, reverb, ... |
+| [10. chains](#10-chains--user-defined-pipelines) | Compose multiple voder oneline tasks into a pipeline |
 | [Input Types](#input-types) | Supported file & URL formats |
 | [Output](#output) | Output directory & naming |
 
@@ -519,7 +519,7 @@ python voder.py tts script "sfx: door creak /duration:2" script "sfx: footsteps 
 
 ## 1a. Voice Training — `train voice` / `train extreme voice`
 
-> **Note:** `train` is a utility **feature**, not a processing mode. It does not transform audio itself — it saves a voice clone as a `.tts` (standard Qwen3-TTS) or `.ttse` (extreme Fish S2-Pro) file in `voices/` for later reuse in TTS via the `voice "<name>"` parameter.
+> **Note:** `train` saves a voice clone as a `.tts` (standard Qwen3-TTS) or `.ttse` (extreme Fish S2-Pro) file in `voices/` for later reuse in TTS via the `voice "<name>"` parameter.
 
 Train a voice clone from reference audio and save it for later reuse. Oneline-only command.
 
@@ -1631,13 +1631,13 @@ python voder.py ss overdose se blend video "vlog.mp4"
 
 ## Tasks & Features (beyond the 8 modes)
 
-The 8 main processing modes (TTS, STS, TTM, STT, SE, SFX, SVS, SS) are covered in sections 1–8 above. The remaining sections (1a, 9, 10) cover task-layer features that are available as oneline commands but are **not** processing modes — they don't transform audio themselves. Voice Training (`train`) saves reusable voice clones for later use in TTS; Side-Quests (`quest`) provide lightweight utility tasks (URL download, local-video audio extraction); Chains (`chains`) compose any number of voder oneline tasks into user-defined pipelines.
+The 8 main processing modes (TTS, STS, TTM, STT, SE, SFX, SVS, SS) are covered in sections 1–8 above. The remaining sections cover three task-layer features: Voice Training (`train`) saves reusable voice clones for use in TTS; Side-Quests (`quest`) provide lightweight utility tasks (URL download, audio format conversion, cutting, merging, audio effects, and more); Chains (`chains`) compose any number of voder oneline tasks into user-defined pipelines.
 
 ---
 
 ## 9. `quest` — Side-Quests
 
-> **Note:** `quest` is a utility **feature**, not a processing mode. It does not transform audio itself — it performs small utility tasks (URL download, local-video audio extraction) that produce files for the main modes to consume.
+> **Note:** `quest` performs small utility tasks (URL download, audio format conversion, cutting, merging, audio effects, etc.) that produce files for the main modes to consume.
 
 Side-quests are lightweight utility tasks that live outside the voder engine. Each quest is a small class registered in a `SIDE_QUESTS` registry; new quests can be added over time without touching the dispatcher.
 
@@ -2249,7 +2249,7 @@ python voder.py chains \
 
 ## 10. `chains` — User-Defined Pipelines
 
-> **Note:** `chains` is a pipeline **feature**, not a processing mode. It does not transform audio itself — it composes the main voder oneline tasks (TTS, STS, TTM, STT, SE, SFX, SVS, SS) and the other features (`train`, `quest`) into user-defined pipelines whose intermediate outputs are kept in `temp_chains/`.
+> **Note:** `chains` composes the main voder oneline tasks (TTS, STS, TTM, STT, SE, SFX, SVS, SS) and the other features (`train`, `quest`) into user-defined pipelines whose intermediate outputs are kept in `temp_chains/`.
 
 Chains let the user compose their own pipelines out of voder's existing oneline tasks. Each chain is named, runs a voder oneline command, and its output is captured to a temp directory. Later chains can reference earlier chain names as input paths — voder substitutes the chain name with the captured temp file path before running the later chain. The **last** non-empty chain's output is exported to `results/`; intermediate outputs live in `temp_chains/`.
 

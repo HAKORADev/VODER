@@ -21,7 +21,7 @@
 
 ---
 
-VODER brings together **8 processing modes** under one interface — speech-to-text, text-to-speech, voice conversion, music generation, speech enhancement, sound effects, vocal separation, and speaker diarization — plus language dubbing (`tts dub`), any-to-any translation via TranslateGemma 12B, transcribe-edit-resynthesize (built into TTS interactive), and three task-layer features that work on top of the modes: **`train`** (save reusable voice clones as `.tts` / `.ttse`), **side-quests** (`quest` — lightweight utility tasks like URL download and local-video audio extraction), and **chains** (user-defined pipelines that wire any number of voder oneline tasks together end-to-end). It runs entirely on your machine, needs no subscription, and works with or without a GPU.
+VODER brings together **8 processing modes** under one interface — speech-to-text, text-to-speech, voice conversion, music generation, speech enhancement, sound effects, vocal separation, and speaker diarization — plus language dubbing (`tts dub`), any-to-any translation via TranslateGemma 12B, transcribe-edit-resynthesize (built into TTS interactive), and three task-layer features that build on top of the modes: **`train`** (save reusable voice clones as `.tts` / `.ttse`), **side-quests** (`quest` — lightweight utility tasks like URL download and audio manipulation), and **chains** (user-defined pipelines that wire any number of voder oneline tasks together end-to-end). It runs entirely on your machine, needs no subscription, and works with or without a GPU.
 
 ---
 
@@ -36,7 +36,7 @@ VODER brings together **8 processing modes** under one interface — speech-to-t
 - **Language Dubbing** — Translate speech from one language to another while preserving the original speaker's voice identity. Dub entire videos with per-segment timing alignment and background music preservation.
 - **Any-to-Any Translation** — Translate between any of 76 languages using TranslateGemma 12B via the `translate (source-target)` syntax, decoupled from the ASR engine.
 - **Voice Re-Synthesis** — Transcribe speech and re-read it in a different voice using `tts svc`, with an optional `sts:` prefix for high-fidelity voice conversion via Seed-VC v2.
-- **Side-Quests** — Lightweight utility tasks that live outside the main engine: `quest download` (audio/video URL fetcher) and `quest noframes` (local-video audio extractor). New quests can be added over time.
+- **Side-Quests** — Lightweight utility tasks that live outside the main engine: URL download, audio format conversion, cutting/merging, silence stripping, speed / pitch / volume / bassboost / reverb effects, and more. Run `python voder.py quest` to see all available quests.
 - **Chains** — User-defined pipelines that wire any number of voder tasks together: each chain is named, its output is captured to temp, and later chains can reference earlier chain names as input paths. Build a song, isolate its vocals, train a voice from them, then dub a video — all in one command.
 - **Smart Input Pipeline** — Paste a YouTube, Bilibili, or TikTok URL directly as input. Feed an image and VODER extracts text via OCR. Automatically extract voice clips from multi-speaker audio for one-click voice cloning.
 
@@ -92,39 +92,17 @@ Dub entire videos to another language with **per-segment timing alignment** — 
 
 Paste a **YouTube, Bilibili, or TikTok URL** directly as input — VODER downloads and processes it automatically. Feed an **image** containing text and VODER extracts it via OCR for TTS processing. Automatic voice clip extraction from multi-speaker audio enables one-click voice cloning for dialogue characters.
 
-### Side-Quests (`quest`) — utility feature, not a mode
+### Side-Quests (`quest`)
 
-Lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow. They are designed to grow over time as more quests are added. Run `python voder.py quest` (no args) to list every available side-quest with its one-line description.
+Lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow — URL download, audio format conversion, cutting, merging, speed/pitch/volume/bassboost/reverb, and more. Run `python voder.py quest` (no args) to list every available side-quest with its one-line description. See [COMMAND_CATALOG.md](docs/COMMAND_CATALOG.md) for the full list.
 
-- `quest download "<url>"` — download a YouTube/Bilibili/TikTok URL as audio (default) and drop it into `results/`.
-- `quest download video "<url>"` — download the same URL as a full video file (MP4).
-- `quest noframes "<local_video>"` — extract the audio track from a LOCAL video file (refuses URLs and audio-only files).
-- `quest convert <format> <input>` — convert a local audio file to any other audio format (40+ formats, including the weird ones like opus, ogg, gsm, tta, wv, ape, dsf). Same-format just copies.
-- `quest compress [1|2|3] <input>` — compress an audio file at level 1 (low), 2 (default), or 3 (highest).
-- `quest cut <start>-<end> <input>` — extract a time range from a local audio/video file as a WAV (e.g., `cut 20-40 "clip.mp4"`).
-- `quest merge <file1> <file2> [<file3> ...]` — concatenate any number of local audio files end-to-end.
-- `quest silence <input> [threshold]` — strip silent gaps and produce a continuous-speech WAV (great chain step before `svs voice`).
-- `quest reverse <input>` — reverse a local audio OR video file (frames + audio both flipped for video).
-- `quest fade <input> [seconds]` — apply a cinematic 5s fade-in/out (rising gain, not silence-based).
-- `quest volume <1-1000> <input>` — pure linear volume gain (100 = 2×, 1000 = 11×). Affects all frequencies equally. No bass boost, no compression, no loudness normalization.
-- `quest bassboost <1-100> <input>` — professional multi-band bass booster (1 = subtle warmth, 100 = +24 dB sub-destroyer). Low-shelf boost @ 80 Hz + sub-bass peak @ 50 Hz + virtual sub-bass + soft-knee compressor + true-peak limiter. Mids/highs left untouched. No dotty noise.
-- `quest speed <value> <input>` — Spotify-style slowed/sped-up time-stretch (0.25 = 4× faster, 10.00 = 10× slower) with formant preservation via rubberband. Audio files only.
-
-Outputs are tagged `voder_quest_<quest-name>_..._<timestamp>.<ext>`. All quests accept the optional `result "<path>"` keyword to copy the output to a custom path.
-
-### Chains (`chains`) — pipeline feature, not a mode
+### Chains (`chains`)
 
 User-defined pipelines that wire any number of voder oneline tasks together. Each chain is named, runs a full voder oneline command, and its output is captured to a temp directory. Later chains can reference earlier chain names as input paths — VODER resolves them internally to the captured temp file. Side-quests work inside chains just like any other oneline task.
 
 ```
 # TTM → SVS → STS pipeline
 python src/voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "voice" svs voice "song" / "cover" sts base "voice" target "ref.wav"
-
-# Quest inside chains: download URL → transcribe
-python src/voder.py chains "audio" quest download "https://youtube.com/watch?v=..." / "text" stt "audio" timestamp
-
-# Quests everywhere: download → cut → silence → speed (slowed) → volume (louder) → bassboost (punch)
-python src/voder.py chains "src" quest download "https://youtube.com/watch?v=..." / "clip" quest cut 10-70 "src" / "tight" quest silence "clip" / "slow" quest speed 0.75 "tight" / "loud" quest volume 200 "slow" / "bass" quest bassboost 60 "loud"
 ```
 
 Use ` / ` (space slash space) to separate chains. Intermediate chain outputs live in `temp_chains/`; only the **last** non-empty chain's output reaches `results/`. Empty chains are skipped (their names remain available for reuse); duplicate names cause an error and stop the pipeline. This lets you compose pipelines that VODER's built-in modes never anticipated — generate music, isolate vocals, train a voice from them, then dub a video, all in a single command.
@@ -160,18 +138,15 @@ python src/voder.py tts svc "speech.wav" target "voice_ref.wav"
 python src/voder.py se "noisy_recording.wav"
 python src/voder.py sfx sound "thunder rumbling" duration 10
 
-# Side-quests (utility feature — URL download & local-video audio extraction)
+# Side-quests (URL download & utility tasks — see `python voder.py quest`)
 python src/voder.py quest download "https://youtube.com/watch?v=..."
-python src/voder.py quest download video "https://youtube.com/watch?v=..."
-python src/voder.py quest noframes "local_video.mp4"
 
-# Voice training (utility feature — save a voice clone for reuse in TTS)
+# Voice training (save a voice clone for reuse in TTS)
 python src/voder.py train voice:narrator "ref1.wav" "ref2.wav"
 python src/voder.py train extreme voice:narrator "ref1.wav"
 
-# Chains (pipeline feature — wire multiple voder oneline tasks together)
+# Chains (wire multiple voder oneline tasks together)
 python src/voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "voice" svs voice "song" / "cover" sts base "voice" target "ref.wav"
-python src/voder.py chains "vocals" svs voice "song.wav" / "enhanced" se voice "vocals"
 ```
 
 > **Run in Colab** — no installation needed: [Open in Google Colab](https://colab.research.google.com/drive/1hditIfW9JzusNcFhlHFoclCIIsNiRFNk?usp=sharing)
@@ -182,7 +157,7 @@ python src/voder.py chains "vocals" svs voice "song.wav" / "enhanced" se voice "
 
 ## Modes at a Glance
 
-VODER has **8 main processing modes** — the engine's primary audio transformation pipelines. On top of these, three additional **tasks & features** layer utility workflows (voice training, side-quests, chains) without being modes themselves.
+VODER has **8 main processing modes** — the engine's primary audio transformation pipelines. On top of these, three additional **tasks & features** layer utility workflows: voice training, side-quests, and chains.
 
 ### Main Processing Modes (8)
 
@@ -197,7 +172,7 @@ VODER has **8 main processing modes** — the engine's primary audio transformat
 | **SVS** | Isolate vocals from music | Audio / Video / URL | Audio |
 | **SS** | Extract individual speakers | Audio / Video | Audio per speaker (+ MP4 with `video` flag) |
 
-### Tasks & Features (not modes)
+### Tasks & Features
 
 | Feature | What It Does | Input | Output |
 |---------|-------------|-------|--------|

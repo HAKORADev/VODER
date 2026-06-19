@@ -379,17 +379,17 @@ The 8 main processing modes (the engine's primary audio transformation pipelines
 | `svs` | Song Voice Separation (BS‑RoFormer) | No | ✅ Yes |
 | `ss` | Speakers Separator (Multi‑Speaker Extraction + optional `blend` for non‑vocals preservation) | No | ✅ Yes |
 
-The 3 task-layer features (not modes — they don't transform audio themselves, but they make the modes more useful):
+The 3 task-layer features:
 
 | Feature | Description | GPU Required | One‑Liner |
 |---------|-------------|--------------|-----------|
 | `train` | Voice Training — train voice clones from reference audio and save them as `.tts` / `.ttse` files for reuse in TTS | No | ✅ Yes (`train voice:name "ref1.wav" "ref2.wav"`) |
-| `quest` | Side-Quests — lightweight utility tasks outside the voder engine: `download` (URL → audio/video file), `noframes` (local video → WAV). New quests can be added to the registry over time. | No | ✅ Yes |
+| `quest` | Side-Quests — lightweight utility tasks outside the voder engine: URL download, audio format conversion, cutting, merging, silence stripping, speed / pitch / volume / bassboost / reverb effects, and more. New quests can be added to the registry over time. | No | ✅ Yes |
 | `chains` | User-Defined Pipelines — wire any number of voder oneline tasks together. Each chain is named, its output is captured to `temp_chains/`, and later chains can reference earlier chain names as input paths. The last non-empty chain's output reaches `results/`. | No | ✅ Yes |
 
-### Side-Quests (`quest`) — feature, not a mode
+### Side-Quests (`quest`)
 
-> **Note:** `quest` is a utility **feature**, not a processing mode. It does not transform audio itself — it performs small utility tasks (URL download, local-video audio extraction) that produce files for the main modes to consume.
+> **Note:** `quest` performs small utility tasks (URL download, audio format conversion, cutting, merging, audio effects, etc.) that produce files for the main modes to consume.
 
 Side-quests are lightweight utility tasks that live outside the voder engine. They are designed to grow over time as more quests are added; each quest is a small class registered in a `SIDE_QUESTS` registry, so adding new quests does not require touching the dispatcher.
 
@@ -419,9 +419,9 @@ python src/voder.py quest noframes "video.mp4" result "./out.wav"
 
 **Why side-quests exist:** Some tasks (URL fetching, video-to-audio extraction) are useful in a voder workflow but don't belong inside the engine itself. Side-quests give them a clean home and they can be combined with `chains` to form larger pipelines.
 
-### Chains (`chains`) — feature, not a mode
+### Chains (`chains`)
 
-> **Note:** `chains` is a pipeline **feature**, not a processing mode. It does not transform audio itself — it composes the main voder oneline tasks (TTS, STS, TTM, STT, SE, SFX, SVS, SS) and the other features (`train`, `quest`) into user-defined pipelines whose intermediate outputs are kept in `temp_chains/`.
+> **Note:** `chains` composes the main voder oneline tasks (TTS, STS, TTM, STT, SE, SFX, SVS, SS) and the other features (`train`, `quest`) into user-defined pipelines whose intermediate outputs are kept in `temp_chains/`.
 
 Chains let the user compose their own pipelines out of voder's existing oneline tasks. Each chain is named, runs a voder oneline command, and its output is captured to a temp directory. Later chains can reference earlier chain names as input paths — voder substitutes the chain name with the captured temp file path before running the later chain. The **last** non-empty chain's output is exported to `results/`; intermediate outputs live in `temp_chains/`.
 
@@ -911,9 +911,9 @@ python src/voder.py tts script "James: Hello!" target first "James:(voice1.wav)(
 
 > **Note:** The `tts+vc` mode has been fully merged into TTS. The old `tts+vc` command is no longer accepted — use `tts` with `target` instead.
 
-### Voice Training (train voice / train extreme voice) — feature, not a mode
+### Voice Training (train voice / train extreme voice)
 
-> **Note:** `train` is a utility **feature**, not a processing mode. It does not transform audio itself — it saves a voice clone as a `.tts` (standard Qwen3-TTS) or `.ttse` (extreme Fish S2-Pro) file in `voices/` for later reuse in TTS via the `voice "<name>"` parameter.
+> **Note:** `train` saves a voice clone as a `.tts` (standard Qwen3-TTS) or `.ttse` (extreme Fish S2-Pro) file in `voices/` for later reuse in TTS via the `voice "<name>"` parameter.
 
 Train a voice clone from reference audio and save it for later reuse. Oneline-only command. Use `train voice` for Qwen3-TTS (`.tts` files) or `train extreme voice` for Fish S2-Pro (`.ttse` files).
 

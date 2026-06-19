@@ -6,7 +6,7 @@ VODER is a professional-grade voice processing tool that provides **8 distinct a
 
 The eight modes are: **TTS** (Text-to-Speech with optional voice cloning, SLC sub-task, SVC sub-task, and interactive modify-speech), **STS** (Speech-to-Speech voice conversion), **TTM** (Text-to-Music with optional voice cloning), **STT** (Speech-to-Text transcription), **SE** (Sound Enhancement), **SFX** (Sound Effects generation), **SVS** (Source/Track Vocal Separation), and **SS** (Speaker Separation).
 
-The three task-layer features are: **`train`** (save reusable voice clones as `.tts` / `.ttse` files for later use in TTS), **`quest`** (side-quests — lightweight utility tasks like URL download and local-video audio extraction, extensible via a `SIDE_QUESTS` registry), and **`chains`** (user-defined pipelines that wire any number of voder oneline tasks together end-to-end). These are not modes — they don't transform audio themselves — but they make the modes more useful by producing reusable assets, fetching inputs, and composing the modes into custom pipelines.
+The three task-layer features are: **`train`** (save reusable voice clones as `.tts` / `.ttse` files for later use in TTS), **`quest`** (side-quests — lightweight utility tasks like URL download and audio manipulation, extensible via a `SIDE_QUESTS` registry), and **`chains`** (user-defined pipelines that wire any number of voder oneline tasks together end-to-end).
 
 > **Note**: SLC (Spoken Language Conversion / Dubbing) is now a TTS oneline sub-task (`tts slc`), not a standalone mode. SVC (Speaker Voice Change) is another TTS oneline sub-task (`tts svc`). STT+TTS (transcribe → edit → resynthesize) is now integrated into TTS interactive mode as a "modify speech?" prompt, not a standalone mode.
 
@@ -215,7 +215,7 @@ The 8 main processing modes:
 | SVS | 2.7 | Audio/Video/URL | Audio (stems) | ✅ Full |
 | SS | 2.8 | Audio/Video/URL | Audio + Text | ✅ Full |
 
-The 3 task-layer features (not modes — they don't transform audio themselves):
+The 3 task-layer features:
 
 | Feature | Section | Input Type | Output Type | One-Liner Support |
 |---------|---------|------------|-------------|-------------------|
@@ -781,9 +781,9 @@ VoiceDesign characters in dialogue mode automatically get their voice stabilized
 
 ---
 
-## 2.1a Voice Training (train voice / train extreme voice) — feature, not a mode
+## 2.1a Voice Training (train voice / train extreme voice)
 
-> This is a **task-layer feature**, not a processing mode. `train` does not transform audio itself — it saves a voice clone as a `.tts` (standard Qwen3-TTS) or `.ttse` (extreme Fish S2-Pro) file in `voices/` for later reuse in TTS via the `voice "<name>"` parameter.
+> `train` saves a voice clone as a `.tts` (standard Qwen3-TTS) or `.ttse` (extreme Fish S2-Pro) file in `voices/` for later reuse in TTS via the `voice "<name>"` parameter.
 
 Train a voice clone from reference audio and save it for later reuse. Oneline-only command.
 
@@ -2081,9 +2081,9 @@ The transcript format:
 
 ---
 
-## 2.9 Side-Quests (`quest`) — feature, not a mode
+## 2.9 Side-Quests (`quest`)
 
-> This is a **task-layer feature**, not a processing mode. `quest` does not transform audio itself — it performs small utility tasks (URL download, local-video audio extraction) that produce files for the main modes to consume.
+> `quest` performs small utility tasks (URL download, audio format conversion, cutting, merging, audio effects, etc.) that produce files for the main modes to consume.
 
 ### What It Is
 Side-quests are lightweight utility tasks that live outside the voder engine. They are designed to grow over time as more quests are added. Each quest is a small class registered in a `SIDE_QUESTS` registry, so adding new quests does not require touching the dispatcher.
@@ -2137,9 +2137,9 @@ python src/voder.py quest noframes "video.mp4" result "./out.wav"
 
 ---
 
-## 2.10 Chains (`chains`) — feature, not a mode
+## 2.10 Chains (`chains`)
 
-> This is a **task-layer feature**, not a processing mode. `chains` does not transform audio itself — it composes the main voder oneline tasks (TTS, STS, TTM, STT, SE, SFX, SVS, SS) and the other features (`train`, `quest`) into user-defined pipelines whose intermediate outputs are kept in `temp_chains/`.
+> `chains` composes the main voder oneline tasks (TTS, STS, TTM, STT, SE, SFX, SVS, SS) and the other features (`train`, `quest`) into user-defined pipelines whose intermediate outputs are kept in `temp_chains/`.
 
 ### What It Is
 Chains are the user-defined pipeline layer of voder. Where voder's prebuilt modes (TTS, STT, SVS, etc.) define fixed workflows, chains let the user wire any number of voder oneline tasks together end-to-end. Each chain is named, runs a voder oneline command, and its output is captured to a temp directory. Later chains can reference earlier chain names as input paths — voder resolves them internally to the captured temp file.

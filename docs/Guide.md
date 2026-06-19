@@ -1014,7 +1014,7 @@ Modify Speech works on CPU without GPU for the Whisper transcription stage. Voic
 
 ### Voice Training
 
-> **Note:** `train` is a utility **feature**, not a processing mode. It does not transform audio itself — it saves a voice clone as a `.tts` (standard Qwen3-TTS) or `.ttse` (extreme Fish S2-Pro) file in `voices/` for later reuse in TTS via the `voice "<name>"` parameter. It's documented here alongside the modes because voice clones are produced from audio references that often come from STS, SVS, or TTS pipelines.
+> **Note:** `train` saves a voice clone as a `.tts` (standard Qwen3-TTS) or `.ttse` (extreme Fish S2-Pro) file in `voices/` for later reuse in TTS via the `voice "<name>"` parameter. It's documented here alongside the modes because voice clones are produced from audio references that often come from STS, SVS, or TTS pipelines.
 
 VODER can train voice clones from reference audio files and save them as `.tts` files for later reuse. This eliminates the need to keep original reference audio files around — the trained voice embedding is stored in a compact `.tts` file that can be used directly in TTS commands.
 
@@ -2012,11 +2012,11 @@ SS mode works on both CPU and GPU. The standard pipeline requires HF_TOKEN for P
 
 ## Task-Layer Features (beyond the 8 modes)
 
-The eight main processing modes (TTS, STS, TTM, STT, SE, SFX, SVS, SS) are VODER's audio transformation engine. On top of them, three task-layer features are available as oneline commands: `train` (covered above as part of the deep dive, since it produces voice clones for TTS), `quest` (side-quests — lightweight utility tasks), and `chains` (user-defined pipelines of voder oneline tasks). These features are not modes — they don't transform audio themselves, but they make the modes more useful by producing reusable assets, fetching inputs, and wiring the modes together into pipelines.
+The eight main processing modes (TTS, STS, TTM, STT, SE, SFX, SVS, SS) are VODER's audio transformation engine. On top of them, three task-layer features are available as oneline commands: `train` (covered above as part of the deep dive, since it produces voice clones for TTS), `quest` (side-quests — lightweight utility tasks), and `chains` (user-defined pipelines of voder oneline tasks).
 
 ### Side-Quests (`quest`)
 
-> **Note:** `quest` is a utility **feature**, not a processing mode. It does not transform audio itself — it performs small utility tasks (URL download, local-video audio extraction) that produce files for the main modes to consume.
+> **Note:** `quest` performs small utility tasks (URL download, audio format conversion, cutting, merging, audio effects, etc.) that produce files for the main modes to consume.
 
 Side-quests are lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow. They are designed to grow over time as more quests are added. Each quest is implemented as a small class registered in a `SIDE_QUESTS` registry, so future quests can be added without touching the rest of the codebase.
 
@@ -2071,7 +2071,7 @@ python src/voder.py quest noframes "video.mp4" result "./out.wav"
 
 ### Chains (`chains`)
 
-> **Note:** `chains` is a pipeline **feature**, not a processing mode. It does not transform audio itself — it composes the main voder oneline tasks (TTS, STS, TTM, STT, SE, SFX, SVS, SS) and the other features (`train`, `quest`) into user-defined pipelines whose intermediate outputs are kept in `temp_chains/`.
+> **Note:** `chains` composes the main voder oneline tasks (TTS, STS, TTM, STT, SE, SFX, SVS, SS) and the other features (`train`, `quest`) into user-defined pipelines whose intermediate outputs are kept in `temp_chains/`.
 
 Chains are the user-defined pipeline layer of voder. Where voder's prebuilt modes (TTS, STT, SVS, etc.) define fixed workflows, chains let the user wire any number of voder oneline tasks together end-to-end. Each chain is named, runs a voder oneline command, and its output is captured to a temp directory. Later chains can reference earlier chain names as input paths — voder resolves them internally to the captured temp file.
 

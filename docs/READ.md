@@ -709,7 +709,7 @@ python src/voder.py ss overdose se blend video "vlog.mp4"
 
 ## Tasks & Features (beyond the 8 modes)
 
-The eight modes above (TTS, STS, TTM, STT, SE, SFX, SVS, SS) are VODER's main processing engine. On top of them, three task-layer features are available as oneline commands: `train` (save reusable voice clones), `quest` (side-quests — lightweight utility tasks), and `chains` (user-defined pipelines of voder oneline tasks). These are not modes — they don't transform audio themselves, but they make the modes more useful by producing reusable assets, fetching inputs, and wiring the modes together into pipelines.
+The eight modes above (TTS, STS, TTM, STT, SE, SFX, SVS, SS) are VODER's main processing engine. On top of them, three task-layer features are available as oneline commands: `train` (save reusable voice clones), `quest` (side-quests — lightweight utility tasks), and `chains` (user-defined pipelines of voder oneline tasks).
 
 ### Voice Training (`train`)
 
