@@ -1,6 +1,6 @@
 # VODER — Detailed Reference
 
-> This document contains detailed mode descriptions, CLI examples, technical notes, and usage guides for each of VODER's eight processing modes. For a quick overview, see [README.md](../README.md).
+> This document contains detailed mode descriptions, CLI examples, technical notes, and usage guides for each of VODER's eight processing modes, followed by reference for VODER's task-layer features (voice training, side-quests, and chains). For a quick overview, see [README.md](../README.md).
 
 ---
 
@@ -69,10 +69,12 @@ VODER downloads and caches models automatically on first use. Models are stored 
 - [6. SFX Mode](#6-sfx-mode)
 - [7. SVS Mode](#7-svs-mode)
 - [8. SS Mode](#8-ss-mode)
-- [9. Side-Quests (`quest`)](#9-side-quests-quest)
-  - [9.1 download](#91-download)
-  - [9.2 noframes](#92-noframes)
-- [10. Chains (`chains`)](#10-chains-chains)
+- [Tasks & Features (beyond the 8 modes)](#tasks--features-beyond-the-8-modes)
+  - [Voice Training (`train`)](#voice-training-train)
+  - [Side-Quests (`quest`)](#side-quests-quest)
+    - [download](#download)
+    - [noframes](#noframes)
+  - [Chains (`chains`)](#chains-chains)
 - [Intelligent Source Analysis](#intelligent-source-analysis)
 - [AI Model Integration](#ai-model-integration)
 - [Usage Guide](#usage-guide)
@@ -705,7 +707,32 @@ python src/voder.py ss overdose se blend video "vlog.mp4"
 
 ---
 
-## 9. Side-Quests (`quest`)
+## Tasks & Features (beyond the 8 modes)
+
+The eight modes above (TTS, STS, TTM, STT, SE, SFX, SVS, SS) are VODER's main processing engine. On top of them, three task-layer features are available as oneline commands: `train` (save reusable voice clones), `quest` (side-quests — lightweight utility tasks), and `chains` (user-defined pipelines of voder oneline tasks). These are not modes — they don't transform audio themselves, but they make the modes more useful by producing reusable assets, fetching inputs, and wiring the modes together into pipelines.
+
+### Voice Training (`train`)
+
+Train a voice clone from reference audio and save it as a `.tts` (standard, Qwen3-TTS) or `.ttse` (extreme, Fish S2-Pro) file in the `voices/` directory for later reuse in TTS. Oneline-only command — not available in interactive CLI or GUI. Standard mode uses Qwen3-TTS Base; extreme mode (`train extreme voice:name`) uses Fish Audio S2-Pro.
+
+```bash
+# Train a voice (standard Qwen3-TTS, saves .tts)
+python src/voder.py train voice:narrator "narrator_ref.wav"
+
+# Train from multiple references
+python src/voder.py train voice:hero "hero_clip1.wav" "hero_clip2.wav" "hero_clip3.wav"
+
+# Train extreme voice (Fish S2-Pro, saves .ttse)
+python src/voder.py train extreme voice:narrator "narrator_ref.wav"
+
+# Train with a test sample after training
+python src/voder.py train voice:narrator "ref.wav" test
+python src/voder.py train voice:narrator "ref.wav" test "Custom test script"
+```
+
+Once trained, the voice can be referenced in TTS via `voice "narrator"` (latest `.tts` from `voices/`) or `voice "narrator:path/to/file.tts"` (specific file). `.tts` files only work without `extreme`; `.ttse` files only work with `extreme`.
+
+### Side-Quests (`quest`)
 
 Side-quests are lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow. They are designed to grow over time as more quests are added. Each quest is implemented as a small class registered in a side-quest registry, so future quests can be added without touching the rest of the codebase.
 
@@ -713,7 +740,7 @@ Side-quests are lightweight utility tasks that live outside the voder engine but
 - `download` — YouTube / Bilibili / TikTok URLs (audio or video)
 - `noframes` — local video files only (refuses URLs and audio-only files)
 
-### 9.1 `download`
+#### download
 
 Downloads a URL (or copies a local file) into `results/`. Audio is the default; the optional `video` keyword switches to a full video download.
 
@@ -739,7 +766,7 @@ python src/voder.py quest download video "https://youtube.com/watch?v=..." resul
 - For local files, `<original-name>` is the file's stem (without extension).
 - Extension matches the downloaded/copied file (`.mp3` for audio, `.mp4` for video, etc.).
 
-### 9.2 `noframes`
+#### noframes
 
 Extracts the audio track from a **local video file**. This quest deliberately refuses URLs and audio-only files — it is strictly a "video → audio" extractor for files you already have on disk. Use `quest download` if you need to fetch a URL first.
 
@@ -757,13 +784,11 @@ python src/voder.py quest noframes "video.mp4" result "./out.wav"
 - Refuses inputs whose extension is not a video format (`.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`, `.flv`, `.wmv`, `.m4v`).
 - Refuses URLs — provide a local file path only.
 
-### Adding More Quests
+#### Adding More Quests
 
 Side-quests are registered in a `SIDE_QUESTS` registry. Each quest subclasses `SideQuest` and implements `parse(args)` and `execute(parsed, results_dir, timestamp, result_path=None)`. New quests can be added without changing the quest dispatcher or parser.
 
----
-
-## 10. Chains (`chains`)
+### Chains (`chains`)
 
 Chains let the user compose their own pipelines out of voder's existing oneline tasks. A chain is a named voder command; its output is captured to a temp directory and indexed under the chain name. Later chains can reference earlier chain names as input paths — voder substitutes the chain name with the temp file path before running the later chain. The **last** non-empty chain's output is exported to `results/`; all intermediate outputs live in `temp_chains/` so they don't pollute the results folder.
 

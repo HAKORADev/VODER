@@ -2,9 +2,11 @@
 
 ## Overview
 
-VODER is a professional-grade voice processing tool that provides **8 distinct audio transformation modes** in a unified CLI interface. This skill enables AI agents to leverage VODER's full potential for complex audio processing workflows that would be impossible or extremely difficult without this knowledge.
+VODER is a professional-grade voice processing tool that provides **8 distinct audio transformation modes** in a unified CLI interface, plus three task-layer features (voice training, side-quests, and chains) that build on top of the modes. This skill enables AI agents to leverage VODER's full potential for complex audio processing workflows that would be impossible or extremely difficult without this knowledge.
 
 The eight modes are: **TTS** (Text-to-Speech with optional voice cloning, SLC sub-task, SVC sub-task, and interactive modify-speech), **STS** (Speech-to-Speech voice conversion), **TTM** (Text-to-Music with optional voice cloning), **STT** (Speech-to-Text transcription), **SE** (Sound Enhancement), **SFX** (Sound Effects generation), **SVS** (Source/Track Vocal Separation), and **SS** (Speaker Separation).
+
+The three task-layer features are: **`train`** (save reusable voice clones as `.tts` / `.ttse` files for later use in TTS), **`quest`** (side-quests — lightweight utility tasks like URL download and local-video audio extraction, extensible via a `SIDE_QUESTS` registry), and **`chains`** (user-defined pipelines that wire any number of voder oneline tasks together end-to-end). These are not modes — they don't transform audio themselves — but they make the modes more useful by producing reusable assets, fetching inputs, and composing the modes into custom pipelines.
 
 > **Note**: SLC (Spoken Language Conversion / Dubbing) is now a TTS oneline sub-task (`tts slc`), not a standalone mode. SVC (Speaker Voice Change) is another TTS oneline sub-task (`tts svc`). STT+TTS (transcribe → edit → resynthesize) is now integrated into TTS interactive mode as a "modify speech?" prompt, not a standalone mode.
 
@@ -200,10 +202,11 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 
 ## Catalog Navigation
 
+The 8 main processing modes:
+
 | Mode | Section | Input Type | Output Type | One-Liner Support |
 |------|---------|------------|-------------|-------------------|
 | TTS | 2.1 | Text [ + Audio ] | Audio | Full (single + dialogue, voice cloning via `target`, trained voices via `voice`, SLC sub-task via `slc`, SVC sub-task via `svc`, dub sub-task via `dub` with `subtitle`/`subtitle original`/`translate`/`se`) |
-| Voice Training | 2.1a | Audio | .tts file | ✅ Full (oneline only) |
 | STS | 2.2 | Audio/Video + Audio | Audio/Video | ✅ Single only |
 | TTM | 2.3 | Text [ + Audio ] | Audio | ✅ Single only (voice cloning via `vc` + `clone`) |
 | STT | 2.4 | Audio/Video/Image/URL | Text | ✅ Full (single + batch) |
@@ -211,6 +214,12 @@ Some parameters accept **multiple values** (dialogue mode), others accept **sing
 | SFX | 2.6 | Text | Audio | ✅ Full |
 | SVS | 2.7 | Audio/Video/URL | Audio (stems) | ✅ Full |
 | SS | 2.8 | Audio/Video/URL | Audio + Text | ✅ Full |
+
+The 3 task-layer features (not modes — they don't transform audio themselves):
+
+| Feature | Section | Input Type | Output Type | One-Liner Support |
+|---------|---------|------------|-------------|-------------------|
+| Voice Training | 2.1a | Audio | .tts / .ttse file | ✅ Full (oneline only) |
 | Side-Quests | 2.9 | URL / local video | Audio / Video file | ✅ Full (`quest download`, `quest noframes`) |
 | Chains | 2.10 | A sequence of voder oneline commands | Final chain output | ✅ Full (pipeline of named chains) |
 
@@ -772,7 +781,9 @@ VoiceDesign characters in dialogue mode automatically get their voice stabilized
 
 ---
 
-## 2.1a Voice Training (train voice / train extreme voice)
+## 2.1a Voice Training (train voice / train extreme voice) — feature, not a mode
+
+> This is a **task-layer feature**, not a processing mode. `train` does not transform audio itself — it saves a voice clone as a `.tts` (standard Qwen3-TTS) or `.ttse` (extreme Fish S2-Pro) file in `voices/` for later reuse in TTS via the `voice "<name>"` parameter.
 
 Train a voice clone from reference audio and save it for later reuse. Oneline-only command.
 
@@ -2070,7 +2081,9 @@ The transcript format:
 
 ---
 
-## 2.9 Side-Quests (`quest`)
+## 2.9 Side-Quests (`quest`) — feature, not a mode
+
+> This is a **task-layer feature**, not a processing mode. `quest` does not transform audio itself — it performs small utility tasks (URL download, local-video audio extraction) that produce files for the main modes to consume.
 
 ### What It Is
 Side-quests are lightweight utility tasks that live outside the voder engine. They are designed to grow over time as more quests are added. Each quest is a small class registered in a `SIDE_QUESTS` registry, so adding new quests does not require touching the dispatcher.
@@ -2124,7 +2137,9 @@ python src/voder.py quest noframes "video.mp4" result "./out.wav"
 
 ---
 
-## 2.10 Chains (`chains`)
+## 2.10 Chains (`chains`) — feature, not a mode
+
+> This is a **task-layer feature**, not a processing mode. `chains` does not transform audio itself — it composes the main voder oneline tasks (TTS, STS, TTM, STT, SE, SFX, SVS, SS) and the other features (`train`, `quest`) into user-defined pipelines whose intermediate outputs are kept in `temp_chains/`.
 
 ### What It Is
 Chains are the user-defined pipeline layer of voder. Where voder's prebuilt modes (TTS, STT, SVS, etc.) define fixed workflows, chains let the user wire any number of voder oneline tasks together end-to-end. Each chain is named, runs a voder oneline command, and its output is captured to a temp directory. Later chains can reference earlier chain names as input paths — voder resolves them internally to the captured temp file.
@@ -3055,4 +3070,4 @@ Total memory needed: 14GB
 
 ---
 
-*This skill provides comprehensive understanding of VODER's architecture, complete CLI command catalog for all 10 modes, feature compatibility rules, and combo possibilities. AI agents can use this knowledge to construct complex audio processing workflows that would be impossible without deep understanding of how the tool works.*
+*This skill provides comprehensive understanding of VODER's architecture, complete CLI command catalog for all 8 main processing modes (TTS, STS, TTM, STT, SE, SFX, SVS, SS) plus the 3 task-layer features (voice training, side-quests, chains), feature compatibility rules, and combo possibilities. AI agents can use this knowledge to construct complex audio processing workflows that would be impossible without deep understanding of how the tool works.*

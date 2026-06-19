@@ -6,13 +6,13 @@
 
 ## 06/19/2026
 - Status: Stable, all features work, still developing
-- **Chains & Side-Quests: User-Defined Pipelines and Utility Tasks**
+- **Chains & Side-Quests: User-Defined Pipelines and Utility Tasks (task-layer features, not modes)**
 
 ### Added
 
 - **CLI Default to Help** — Running `python voder.py` with no arguments now prints the help message instead of launching the GUI. Use `python voder.py gui` to launch the GUI as before.
 
-- **Side-Quests (`quest` mode)** — New `quest` oneline mode for lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow. Each quest is a small class registered in a `SIDE_QUESTS` registry, so future quests can be added without touching the dispatcher — just subclass `SideQuest`, implement `parse()` and `execute()`, and call `_register_side_quest()`.
+- **Side-Quests (`quest` feature)** — New `quest` oneline feature for lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow. This is a **task-layer feature**, not a processing mode — it does not transform audio itself. Each quest is a small class registered in a `SIDE_QUESTS` registry, so future quests can be added without touching the dispatcher — just subclass `SideQuest`, implement `parse()` and `execute()`, and call `_register_side_quest()`.
   - `quest download "<url>"` — download a YouTube/Bilibili/TikTok URL as audio (default) and drop it into `results/`. Output naming: `voder_quest_download_<original-name>_<timestamp>.<ext>`.
   - `quest download video "<url>"` — download the same URL as a full video file (MP4).
   - `quest download "<local-file>"` — copy a local audio/video file to `results/` with the quest naming scheme (no re-encoding).
@@ -20,7 +20,7 @@
   - All quests support the optional `result "<path>"` keyword to copy the output to a custom path.
   - Examples: `quest download "https://youtube.com/watch?v=..."`, `quest download video "https://youtube.com/watch?v=..."`, `quest noframes "video.mp4"`.
 
-- **Chains (`chains` mode)** — New `chains` oneline mode that lets the user compose their own pipelines out of voder's existing oneline tasks. Each chain is named, runs a voder oneline command, and its output is captured to a temp directory. Later chains can reference earlier chain names as input paths — voder substitutes the chain name with the captured temp file path before running the later chain. The **last** non-empty chain's output is exported to `results/`; all intermediate outputs live in `temp_chains/` so they don't pollute the results folder.
+- **Chains (`chains` feature)** — New `chains` oneline feature that lets the user compose their own pipelines out of voder's existing oneline tasks. This is a **task-layer feature**, not a processing mode — it does not transform audio itself, it composes the main modes (and `train` / `quest`) into user-defined pipelines. Each chain is named, runs a voder oneline command, and its output is captured to a temp directory. Later chains can reference earlier chain names as input paths — voder substitutes the chain name with the captured temp file path before running the later chain. The **last** non-empty chain's output is exported to `results/`; all intermediate outputs live in `temp_chains/` so they don't pollute the results folder.
   - Syntax: `voder.py chains "name1" <voder command...> / "name2" <voder command that references "name1"> / ...`
   - ` / ` (space, slash, space) is the chain separator. The slash must be its own argv element.
   - Each chain starts with a name. Names can be anything — numbers, letters, paths, URLs — whatever the user can keep track of. Shell strips quotes from argv, so `"name1"` and `name1` are equivalent as the first argument of a chain.
@@ -36,13 +36,13 @@
   - The `train` command works inside chains: its `.tts` / `.ttse` file is the chain's output and is stored in `temp_chains/` for intermediate chains. Side-quests (like `quest download`) also work inside chains.
   - Examples: `chains "song" ttm lyrics "la la la" styling "pop" 30 / "voice" svs voice "song" / "cover" sts base "voice" target "ref.wav"`, `chains "audio" quest download "https://youtube.com/watch?v=..." / "text" stt "audio" timestamp`, `chains "skip1" / "skip2" / "real" tts script "hi" voice "male"` (empty chains skipped, names reusable).
 
-- **`ChainPipeline` class** — New orchestrator class for the `chains` mode. Implements `split_segments()` (splits argv on `/`), `parse_chain_segment()` (extracts `(name, command_args)` from each segment), `validate()` (enforces duplicate-name detection and skips empty chains while keeping their names reusable), `substitute_refs()` (replaces chain-name references with indexed temp file paths), and `execute()` (snapshots `results/` and `voices/` before each chain, runs the chain via `parse_and_execute_oneline`, then captures new files; intermediate chain outputs are moved to `temp_chains/`, the last chain's output stays in place).
+- **`ChainPipeline` class** — New orchestrator class for the `chains` feature. Implements `split_segments()` (splits argv on `/`), `parse_chain_segment()` (extracts `(name, command_args)` from each segment), `validate()` (enforces duplicate-name detection and skips empty chains while keeping their names reusable), `substitute_refs()` (replaces chain-name references with indexed temp file paths), and `execute()` (snapshots `results/` and `voices/` before each chain, runs the chain via `parse_and_execute_oneline`, then captures new files; intermediate chain outputs are moved to `temp_chains/`, the last chain's output stays in place).
 
 - **`SideQuest` base class + `DownloadQuest` / `NoFramesQuest` subclasses** — New class hierarchy for side-quests. Each quest subclasses `SideQuest` and implements `parse(args)` (validates arguments and returns `(parsed_dict, error_or_None)`) and `execute(parsed, results_dir, timestamp, result_path=None)` (does the work and returns `True`/`False`). Quests are registered in the global `SIDE_QUESTS` dict via `_register_side_quest(QuestClass)`.
 
-- **`oneline_quest()` and `oneline_chains()` dispatchers** — New dispatcher functions wired into `execute_oneline_command()` for the `quest` and `chains` modes.
+- **`oneline_quest()` and `oneline_chains()` dispatchers** — New dispatcher functions wired into `execute_oneline_command()` for the `quest` and `chains` features.
 
-- **`quest` and `chains` added to valid oneline modes** — `validate_oneline_mode()` and `show_oneline_usage()` updated to include the new modes with examples.
+- **`quest` and `chains` added to valid oneline command dispatch** — `validate_oneline_mode()` and `show_oneline_usage()` updated to include the new feature commands with examples. These dispatch as oneline commands but are explicitly **task-layer features**, not main processing modes (the 8 main modes remain TTS, STS, TTM, STT, SE, SFX, SVS, SS).
 
 ### Changed
 
@@ -55,12 +55,12 @@
 
 ### Documentation
 
-- **README.md** — Added Side-Quests and Chains to the Features list, the "What Can VODER Do?" section, the Quick Start examples, and the Modes at a Glance table.
-- **docs/READ.md** — Added new sections 9 (Side-Quests) and 10 (Chains) with full syntax, validation rules, and examples. Updated the Table of Contents, One-Line Commands section, and Technical Highlights.
-- **docs/COMMAND_CATALOG.md** — Added new sections 9 (`quest`) and 10 (`chains`) with full keyword/argument reference tables and examples. Updated the Mode Index and Quick Jump tables.
-- **docs/Guide.md** — Added new deep-dive sections for Side-Quests and Chains under Processing Modes Deep Dive, covering the architectural design (`SideQuest` base class, `SIDE_QUESTS` registry, `ChainPipeline` orchestrator) and practical pipeline examples.
-- **docs/Bots.md** — Added Side-Quests and Chains to the Purpose bullet list, the Mode Options table, the Quick Start examples, and added new Workflow 17 (URL → Audio File via Side-Quest) and Workflow 18 (Multi-Step Pipeline via Chains).
-- **docs/voder-skill.md** — Added new sections 2.9 (Side-Quests) and 2.10 (Chains) to the Catalog Navigation table and the catalog body, with full parameter references and best-use cases.
+- **README.md** — Added Side-Quests and Chains (and Voice Training) to the Features list, the "What Can VODER Do?" section, and the Quick Start examples. Split the "Modes at a Glance" table into a "Main Processing Modes (8)" sub-table (TTS, STS, TTM, STT, SE, SFX, SVS, SS) and a separate "Tasks & Features (not modes)" sub-table for `train`, `quest`, and `chains`, so the docs no longer present these utility/pipeline features as if they were processing modes.
+- **docs/READ.md** — Replaced the numbered sections "9. Side-Quests (`quest`)" and "10. Chains (`chains`)" with a new umbrella section "Tasks & Features (beyond the 8 modes)" that contains "Voice Training (`train`)", "Side-Quests (`quest`)", and "Chains (`chains`)" as subsections. Updated the intro and Table of Contents so the doc is consistent about VODER having 8 main processing modes plus 3 task-layer features.
+- **docs/COMMAND_CATALOG.md** — Split the Mode Index table into "8 main processing modes" and "3 task-layer features (not modes)". Updated the Quick Jump table to mark `1a. Voice Training`, `9. quest`, and `10. chains` as features, not modes. Added a "Tasks & Features (beyond the 8 modes)" section break before section 9, and added clarifying blockquote notes to each feature section header.
+- **docs/Guide.md** — Moved Side-Quests and Chains out of the "Processing Modes Deep Dive" section into a new top-level "Task-Layer Features (beyond the 8 modes)" section. Added clarifying notes to the Voice Training, Side-Quests, and Chains section headers explaining that they are features, not processing modes.
+- **docs/Bots.md** — Split the Mode Options table into "8 main processing modes" and "3 task-layer features (not modes)" sub-tables. Added clarifying blockquote notes to the Voice Training, Side-Quests, and Chains section headers. Updated the Quick Start comment to refer to `chains` as a feature rather than a mode. Added new Workflow 17 (URL → Audio File via Side-Quest) and Workflow 18 (Multi-Step Pipeline via Chains).
+- **docs/voder-skill.md** — Split the Catalog Navigation table into "8 main processing modes" and "3 task-layer features (not modes)" sub-tables. Added clarifying notes to sections 2.1a (Voice Training), 2.9 (Side-Quests), and 2.10 (Chains) marking them as features. Updated the Overview to introduce the three task-layer features, and updated the closing line from "all 10 modes" to "all 8 main processing modes plus the 3 task-layer features".
 
 ---
 

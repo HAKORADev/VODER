@@ -99,7 +99,7 @@ python src/voder.py stt "french_audio.wav" translate timestamp result "/output/t
 # Chain multiple operations
 python src/voder.py tts script "Hello" voice "female" && python src/voder.py tts script "World" voice "male"
 
-# Or use the new `chains` mode to wire multiple voder tasks together in one command
+# Or use the `chains` feature to wire multiple voder oneline tasks together in one command
 # (intermediate outputs go to temp_chains/, only the last chain's output reaches results/)
 python src/voder.py chains "vocals" svs voice "song.wav" / "enhanced" se voice "vocals" / "text" stt "enhanced" timestamp
 
@@ -364,6 +364,8 @@ python src/voder.py <mode> [parameters]
 
 ### Mode Options
 
+The 8 main processing modes (the engine's primary audio transformation pipelines):
+
 | Mode | Description | GPU Required | One‑Liner |
 |------|-------------|--------------|-----------|
 | `tts` | Text‑to‑Speech with Voice Design & Voice Cloning (via `target`), SLC sub‑task (`tts slc`), SVC sub‑task (`tts svc`), Dub sub‑task (`tts dub`), optional `overdose` for VibeVoice ASR and enhanced music | No | ✅ Yes (single & dialogue + optional music + SFX + overdose + SLC + SVC + Dub support) |
@@ -376,11 +378,18 @@ python src/voder.py <mode> [parameters]
 | `sfx` | Sound Effects Generation | No | ✅ Yes |
 | `svs` | Song Voice Separation (BS‑RoFormer) | No | ✅ Yes |
 | `ss` | Speakers Separator (Multi‑Speaker Extraction + optional `blend` for non‑vocals preservation) | No | ✅ Yes |
-| `train` | Voice Training — train voice clones from reference audio and save them as `.tts` / `.ttse` files for reuse | No | ✅ Yes (`train voice:name "ref1.wav" "ref2.wav"`) |
+
+The 3 task-layer features (not modes — they don't transform audio themselves, but they make the modes more useful):
+
+| Feature | Description | GPU Required | One‑Liner |
+|---------|-------------|--------------|-----------|
+| `train` | Voice Training — train voice clones from reference audio and save them as `.tts` / `.ttse` files for reuse in TTS | No | ✅ Yes (`train voice:name "ref1.wav" "ref2.wav"`) |
 | `quest` | Side-Quests — lightweight utility tasks outside the voder engine: `download` (URL → audio/video file), `noframes` (local video → WAV). New quests can be added to the registry over time. | No | ✅ Yes |
 | `chains` | User-Defined Pipelines — wire any number of voder oneline tasks together. Each chain is named, its output is captured to `temp_chains/`, and later chains can reference earlier chain names as input paths. The last non-empty chain's output reaches `results/`. | No | ✅ Yes |
 
-### Side-Quests (`quest`)
+### Side-Quests (`quest`) — feature, not a mode
+
+> **Note:** `quest` is a utility **feature**, not a processing mode. It does not transform audio itself — it performs small utility tasks (URL download, local-video audio extraction) that produce files for the main modes to consume.
 
 Side-quests are lightweight utility tasks that live outside the voder engine. They are designed to grow over time as more quests are added; each quest is a small class registered in a `SIDE_QUESTS` registry, so adding new quests does not require touching the dispatcher.
 
@@ -410,7 +419,9 @@ python src/voder.py quest noframes "video.mp4" result "./out.wav"
 
 **Why side-quests exist:** Some tasks (URL fetching, video-to-audio extraction) are useful in a voder workflow but don't belong inside the engine itself. Side-quests give them a clean home and they can be combined with `chains` to form larger pipelines.
 
-### Chains (`chains`)
+### Chains (`chains`) — feature, not a mode
+
+> **Note:** `chains` is a pipeline **feature**, not a processing mode. It does not transform audio itself — it composes the main voder oneline tasks (TTS, STS, TTM, STT, SE, SFX, SVS, SS) and the other features (`train`, `quest`) into user-defined pipelines whose intermediate outputs are kept in `temp_chains/`.
 
 Chains let the user compose their own pipelines out of voder's existing oneline tasks. Each chain is named, runs a voder oneline command, and its output is captured to a temp directory. Later chains can reference earlier chain names as input paths — voder substitutes the chain name with the captured temp file path before running the later chain. The **last** non-empty chain's output is exported to `results/`; intermediate outputs live in `temp_chains/`.
 
@@ -900,7 +911,9 @@ python src/voder.py tts script "James: Hello!" target first "James:(voice1.wav)(
 
 > **Note:** The `tts+vc` mode has been fully merged into TTS. The old `tts+vc` command is no longer accepted — use `tts` with `target` instead.
 
-### Voice Training (train voice / train extreme voice)
+### Voice Training (train voice / train extreme voice) — feature, not a mode
+
+> **Note:** `train` is a utility **feature**, not a processing mode. It does not transform audio itself — it saves a voice clone as a `.tts` (standard Qwen3-TTS) or `.ttse` (extreme Fish S2-Pro) file in `voices/` for later reuse in TTS via the `voice "<name>"` parameter.
 
 Train a voice clone from reference audio and save it for later reuse. Oneline-only command. Use `train voice` for Qwen3-TTS (`.tts` files) or `train extreme voice` for Fish S2-Pro (`.ttse` files).
 
