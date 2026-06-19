@@ -4,6 +4,38 @@
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 - If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
+## 06/20/2026
+- Status: Stable, all features work, still developing
+- **8 New Side-Quests: audio utility belt for the chains era**
+
+### Added
+
+- **8 new side-quests** joining the existing `download` and `noframes`. All are auto-discovered from `src/voders/quests/` and appear immediately in `python voder.py quest`. All accept the optional `result "<path>"` keyword. All work inside `chains` pipelines as named steps.
+
+  - **`quest convert <format> <input>`** — Universal audio format converter supporting 40+ formats including the weird ones (`opus`, `ogg`, `oga`, `gsm`, `tta`, `wv`, `ape`, `mpc`, `caf`, `dsf`, `dff`, `sph`, `sln`, `raw`, `8svx`, `iklax`, `xi`, `sf`, `sf2`, `ircam`, `pvf`, `fap`, `nist`, `nistsphere`, `sox`, `vox`, `amb`, ...). Same-format conversion just copies the file (no re-encoding, no quality loss). Format argument is case-insensitive and accepts a leading dot. Lossy formats are encoded at high bitrates (256–320 kbps for MP3/MP2, 160 kbps for Opus, etc.); lossless formats preserve full bit depth. All outputs normalized to stereo / 48 kHz.
+
+  - **`quest compress [1|2|3] <input>`** — Compresses an audio file at three levels. Level 1 = low (mild size reduction, retains quality). Level 2 = default (balanced). Level 3 = highest (smallest file, lowest quality). Lossy formats get lower bitrates (256k → 128k → 64k for MP3). Lossless formats get lower bit-depth / sample-rate (24-bit/44.1k → 16-bit/32k → 16-bit/22.05k for WAV). FLAC also raises its compression level (8 → 10 → 12). The input's existing bit-depth and sample-rate are never upgraded — `compress` only reduces. The console output prints before/after size and percent change.
+
+  - **`quest cut <start>-<end> <input>`** — Extracts a time range from a local audio or video file and outputs a WAV (PCM 16-bit, 44.1 kHz, stereo). Time format accepts plain seconds (`20-40`), `mm:ss` (`1:30-2:15`), `hh:mm:ss` (`0:00:00-0:00:05`), and floats (`1.5-3.5`). `start` must be strictly smaller than `end`, both must be non-negative. For video input, only the audio track is extracted (video frames are dropped).
+
+  - **`quest merge <file1> <file2> [<file3> ...]`** — Concatenates two or more local audio files end-to-end into a single WAV. No upper limit on the number of files. Each input is normalized to the same sample-rate / channel layout before being concatenated with FFmpeg's `concat` demuxer for sample-accurate joining. Files of different formats, sample rates, and channel counts can all be merged in the same call.
+
+  - **`quest silence <input> [threshold]`** — Strips silent gaps from a local audio/video file and produces a continuous-speech WAV. Uses FFmpeg's `silenceremove` filter: removes any run longer than 0.25s below the threshold (default -50 dB; user-supplied threshold is a positive integer 10–90 meaning -10 dB to -90 dB). After silence removal, `dynaudnorm` applies gentle dynamic-range normalization. Excellent as a chain step before `svs voice` to make rapid-fire continuous speech from a recording with long pauses.
+
+  - **`quest reverse <input>`** — Reverses a local audio OR video file. Audio input → reversed WAV via `areverse`. Video input → reversed MP4 with both video frames (`reverse` filter) and audio (`areverse` filter) flipped in lockstep, so the reversed video stays in sync with the reversed audio. Recognized video extensions: `.mp4`, `.avi`, `.mov`, `.mkv`, `.flv`, `.webm`, `.m4v`, `.3gp`, `.wmv`.
+
+  - **`quest fade <input> [seconds]`** — Applies a cinematic fade-in and fade-out (default 5s per side, customizable 0.5–60s). NOT silence-based — the edges rise to ~15% gain (not 0%) using a smooth quarter-sine curve, so the audio is always present and feels like it's *rising* into the mix. A final `volume=1.15` boost gives a slight lift in the body. For files shorter than 2 × fade duration, the fade length is auto-clamped to 25% of file duration per side (min 0.5s). Video input → MP4 with video stream copied, audio replaced with the faded audio.
+
+  - **`quest volume <1-1000> <input>`** — Professional bass booster + volume amplifier. Scale 1–1000 where every 100 means +100% gain (100 = 2×, 200 = 3×, 1000 = 11×). The signal chain: low-shelf `bass` filter (gain scales 0–20 dB with the value) → `virtualbass` synthesizer for sub-bass harmonics (the "bomb-like" feel even on speakers that can't reproduce true sub-bass) → `treble` high-shelf lift for clarity → linear volume gain → soft-knee `acompressor` to glue and prevent clipping (threshold and ratio scale with the value) → `loudnorm` broadcast normalization to EBU R128 -14 LUFS / -1.0 dB true-peak. The chain prevents dotty noise and clipping at any value. Audio input → 24-bit/48k WAV. Video input → MP4 with video copied, audio re-encoded as AAC 256k.
+
+  - **`quest speed <value> <input>`** — Professional time-stretch (Spotify-style slowed / sped-up versions). Values are 0.25, 0.50, 0.75, 1.25, 1.50, 1.75, 2.00, 2.25, 2.50, ... up to 10.00 in 0.25 steps (excluding 1.00 which is a no-op). 0.25 = 4× faster (output is 1/4 the input duration), 10.00 = 10× slower (output is 10× the input duration). Uses FFmpeg's `rubberband` filter with `formant=preserved`, `transients=crisp`, `detector=compound`, `phase=laminar`, `pitchq=quality`, `channels=apart` — pitch and formants stay natural-sounding, like the audio was originally performed at the new tempo. Audio files only (refuses video — use `quest cut` or `quest noframes` first). Output: 24-bit/48k WAV for maximum fidelity.
+
+### Documentation
+
+- **docs/COMMAND_CATALOG.md** — Added sections 9.3 through 9.11 with full argument tables, behavior descriptions, and examples for each of the 8 new side-quests. Updated the "Available quests" table in section 9 to list all 11 quests (was 2) with their descriptions and output naming patterns.
+
+---
+
 ## 06/19/2026
 - Status: Stable, all features work, still developing
 - **Chains & Side-Quests: User-Defined Pipelines and Utility Tasks (task-layer features, not modes)**

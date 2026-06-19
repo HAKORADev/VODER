@@ -94,20 +94,36 @@ Paste a **YouTube, Bilibili, or TikTok URL** directly as input — VODER downloa
 
 ### Side-Quests (`quest`) — utility feature, not a mode
 
-Lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow. They are designed to grow over time as more quests are added.
+Lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow. They are designed to grow over time as more quests are added. Run `python voder.py quest` (no args) to list every available side-quest with its one-line description.
 
 - `quest download "<url>"` — download a YouTube/Bilibili/TikTok URL as audio (default) and drop it into `results/`.
 - `quest download video "<url>"` — download the same URL as a full video file (MP4).
-- `quest noframes "<local_video>"` — extract the audio track from a LOCAL video file (refuses URLs and audio-only files). Useful when you already have a video on disk and just want its audio.
+- `quest noframes "<local_video>"` — extract the audio track from a LOCAL video file (refuses URLs and audio-only files).
+- `quest convert <format> <input>` — convert a local audio file to any other audio format (40+ formats, including the weird ones like opus, ogg, gsm, tta, wv, ape, dsf). Same-format just copies.
+- `quest compress [1|2|3] <input>` — compress an audio file at level 1 (low), 2 (default), or 3 (highest).
+- `quest cut <start>-<end> <input>` — extract a time range from a local audio/video file as a WAV (e.g., `cut 20-40 "clip.mp4"`).
+- `quest merge <file1> <file2> [<file3> ...]` — concatenate any number of local audio files end-to-end.
+- `quest silence <input> [threshold]` — strip silent gaps and produce a continuous-speech WAV (great chain step before `svs voice`).
+- `quest reverse <input>` — reverse a local audio OR video file (frames + audio both flipped for video).
+- `quest fade <input> [seconds]` — apply a cinematic 5s fade-in/out (rising gain, not silence-based).
+- `quest volume <1-1000> <input>` — professional bass booster + volume amplifier (100 = 2×, 1000 = 11×) with compression + loudness normalization to prevent clipping and dotty noise.
+- `quest speed <value> <input>` — Spotify-style slowed/sped-up time-stretch (0.25 = 4× faster, 10.00 = 10× slower) with formant preservation via rubberband. Audio files only.
 
-Outputs are tagged `voder_quest_download_<name>_<timestamp>.<ext>` and `voder_quest_noframes_<name>_<timestamp>.wav`.
+Outputs are tagged `voder_quest_<quest-name>_..._<timestamp>.<ext>`. All quests accept the optional `result "<path>"` keyword to copy the output to a custom path.
 
 ### Chains (`chains`) — pipeline feature, not a mode
 
-User-defined pipelines that wire any number of voder oneline tasks together. Each chain is named, runs a full voder oneline command, and its output is captured to a temp directory. Later chains can reference earlier chain names as input paths — VODER resolves them internally to the captured temp file.
+User-defined pipelines that wire any number of voder oneline tasks together. Each chain is named, runs a full voder oneline command, and its output is captured to a temp directory. Later chains can reference earlier chain names as input paths — VODER resolves them internally to the captured temp file. Side-quests work inside chains just like any other oneline task.
 
 ```
+# TTM → SVS → STS pipeline
 python src/voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "voice" svs voice "song" / "cover" sts base "voice" target "ref.wav"
+
+# Quest inside chains: download URL → transcribe
+python src/voder.py chains "audio" quest download "https://youtube.com/watch?v=..." / "text" stt "audio" timestamp
+
+# Quests everywhere: download → cut → silence → speed (slowed) → volume (bass boost)
+python src/voder.py chains "src" quest download "https://youtube.com/watch?v=..." / "clip" quest cut 10-70 "src" / "tight" quest silence "clip" / "slow" quest speed 0.75 "tight" / "bass" quest volume 300 "slow"
 ```
 
 Use ` / ` (space slash space) to separate chains. Intermediate chain outputs live in `temp_chains/`; only the **last** non-empty chain's output reaches `results/`. Empty chains are skipped (their names remain available for reuse); duplicate names cause an error and stop the pipeline. This lets you compose pipelines that VODER's built-in modes never anticipated — generate music, isolate vocals, train a voice from them, then dub a video, all in a single command.

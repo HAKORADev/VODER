@@ -1653,6 +1653,15 @@ python voder.py quest <quest-name> [quest args...] [result "<path>"]
 |-------|-------------|---------------|
 | `download` | Download a URL as audio (default) or video (`video` keyword). Also accepts local file paths (copies them). | `voder_quest_download_<original-name>_<timestamp>.<ext>` |
 | `noframes` | Extract audio from a LOCAL VIDEO file. Refuses URLs and audio-only files. | `voder_quest_noframes_<original-name>_<timestamp>.wav` |
+| `convert` | Convert a local audio file to any other audio format (40+ formats). Same-format just copies. | `voder_quest_convert_<name>_<timestamp>.<format>` |
+| `compress` | Compress an audio file at level 1 (low), 2 (default), or 3 (highest). | `voder_quest_compress_L<level>_<name>_<timestamp>.<ext>` |
+| `cut` | Extract a time range from a local audio/video file as a WAV. | `voder_quest_cut_<name>_<start>s-<end>s_<timestamp>.wav` |
+| `merge` | Concatenate two or more local audio files end-to-end (no upper limit). | `voder_quest_merge_<joined-names>_<timestamp>.wav` |
+| `silence` | Strip silent gaps from a local audio/video file → continuous-speech WAV. | `voder_quest_silence_<name>_<timestamp>.wav` |
+| `reverse` | Reverse a local audio OR video file (frames + audio both flipped for video). | `voder_quest_reverse_<name>_<timestamp>.{wav,mp4}` |
+| `fade` | Apply a cinematic 5s fade-in/out (not silence-based; rising gain). | `voder_quest_fade_<name>_<timestamp>.{wav,mp4}` |
+| `volume` | Professional bass booster + volume amplifier on a 1–1000 scale. | `voder_quest_volume_v<value>_<name>_<timestamp>.{wav,mp4}` |
+| `speed` | Professional time-stretch (rubberband, formant-preserved) on a 0.25–10.00 scale. Audio files only. | `voder_quest_speed_x<value>_<name>_<timestamp>.wav` |
 
 ### 9.1 `download`
 
@@ -1709,6 +1718,313 @@ python voder.py quest noframes "video.mp4" result "./out.wav"
 # Refused inputs:
 # python voder.py quest noframes "https://youtube.com/watch?v=..."   # ERROR: refuses URLs
 # python voder.py quest noframes "audio.wav"                          # ERROR: refuses non-video files
+```
+
+### 9.3 `convert`
+
+| Argument | Description |
+|----------|-------------|
+| `<format>` | Target audio format (e.g., `mp3`, `wav`, `flac`, `ogg`, `opus`, `aac`, `m4a`, `wma`, `aiff`, `ac3`, `amr`, `au`, `gsm`, `tta`, `wv`, `ape`, `mpc`, `mp2`, `mka`, `caf`, `dsf`, `dff`, `sph`, `sln`, `raw`, ...). Case-insensitive; leading dot optional. |
+| `"<input>"` | A LOCAL audio file path. URLs are refused — use `quest download` first. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- Universal audio format converter — supports 40+ formats including the weird ones (`opus`, `ogg`, `oga`, `gsm`, `tta`, `wv`, `ape`, `mpc`, `caf`, `dsf`, `dff`, `sph`, `sln`, `raw`, `8svx`, `iklax`, `xi`, `sf`, `sf2`, `ircam`, `pvf`, `fap`, `nist`, `nistsphere`, `sox`, `vox`, `amb`, ...).
+- **Same-format shortcut:** if the target format matches the input's format, the file is just copied to `results/` with the quest naming scheme (no re-encoding, no quality loss).
+- Lossy formats (`mp3`, `opus`, `aac`, `ogg`, `m4a`, `wma`, `ac3`, `mp2`) are encoded at high quality bitrates (256–320 kbps for `mp3`/`mp2`, 160 kbps for `opus`, etc.).
+- Lossless formats preserve full bit depth. `wav` is encoded as 24-bit / 48 kHz PCM. `flac` / `ape` / `tta` / `wv` use maximum compression level.
+- All outputs are normalized to stereo / 48 kHz to ensure encoders that dislike mono / unusual rates (like `libvorbis`) work cleanly.
+- The `<original-name>` is the input file's stem, sanitized to safe filename characters.
+
+```
+# Convert a WAV to MP3
+python voder.py quest convert mp3 "song.wav"
+
+# Convert to FLAC (lossless)
+python voder.py quest convert flac "song.wav"
+
+# Convert to Opus (modern, very efficient)
+python voder.py quest convert opus "song.wav"
+
+# Convert to the same format — just copies the file with the quest naming scheme
+python voder.py quest convert wav "song.wav"
+
+# Save result to a specific path
+python voder.py quest convert mp3 "song.wav" result "./out.mp3"
+
+# Format argument is case-insensitive and accepts a leading dot
+python voder.py quest convert MP3 "song.wav"
+python voder.py quest convert .flac "song.wav"
+```
+
+### 9.4 `compress`
+
+| Argument | Description |
+|----------|-------------|
+| `[level]` | (optional) Compression level: `1` (low), `2` (default), `3` (highest). Defaults to `2` when omitted. |
+| `"<input>"` | A LOCAL audio file path. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- Reduces file size by re-encoding at lower bitrate (lossy formats) or lower bit-depth / sample-rate (lossless formats).
+- **Lossy formats** (`mp3`, `opus`, `aac`, `ogg`, `wma`, `m4a`, `mp2`, `ac3`): L1 = 192–256 kbps, L2 = 96–128 kbps, L3 = 40–64 kbps.
+- **Lossless formats** (`wav`, `flac`, `aiff`, `amb`, `au`, `caf`): L1 = 24-bit / 44.1 kHz, L2 = 16-bit / 32 kHz, L3 = 16-bit / 22.05 kHz. FLAC also raises its compression level (L1 = 8, L2 = 10, L3 = 12).
+- The input's existing bit-depth and sample-rate are never upgraded — `compress` only reduces. If the input is already lower quality than the target level, the output matches the input's quality.
+- AMR is forced to 8 kHz mono (AMR's only supported mode).
+- The console output prints before/after size and the percent change.
+
+```
+# Default compression (level 2)
+python voder.py quest compress "song.wav"
+
+# Light compression (level 1) — barely any quality loss
+python voder.py quest compress 1 "song.wav"
+
+# Maximum compression (level 3) — smallest file, lowest quality
+python voder.py quest compress 3 "song.mp3"
+
+# Save result to a specific path
+python voder.py quest compress 2 "song.wav" result "./out.wav"
+```
+
+### 9.5 `cut`
+
+| Argument | Description |
+|----------|-------------|
+| `<start>-<end>` | Time range in seconds. Also accepts `mm:ss` and `hh:mm:ss`. `start` must be strictly smaller than `end`. Both must be non-negative. |
+| `"<input>"` | A LOCAL audio or video file path. URLs are refused — use `quest download` first. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- Extracts a time range from a local audio OR video file and outputs a WAV (PCM 16-bit, 44.1 kHz, stereo).
+- For video input, only the audio track is extracted (video frames are dropped — use this to grab a clip of audio from a video without keeping the frames).
+- Time format examples: `20-40` (20s to 40s), `1:30-2:15` (1m30s to 2m15s), `0:00:00-0:00:05` (first 5 seconds), `1.5-3.5` (floats are allowed).
+- The output filename includes the range for easy identification: `voder_quest_cut_<name>_<start>s-<end>s_<timestamp>.wav`.
+
+```
+# Extract seconds 20 through 40
+python voder.py quest cut 20-40 "song.wav"
+
+# Extract a clip using mm:ss notation
+python voder.py quest cut 1:30-2:15 "song.wav"
+
+# Extract the first 5 seconds from a video (outputs WAV, not video)
+python voder.py quest cut 0-5 "video.mp4"
+
+# Save result to a specific path
+python voder.py quest cut 10-30 "song.wav" result "./clip.wav"
+
+# Refused inputs:
+# python voder.py quest cut 5-2 "song.wav"     # ERROR: start must be smaller than end
+# python voder.py quest cut abc-5 "song.wav"   # ERROR: not a valid range
+```
+
+### 9.6 `merge`
+
+| Argument | Description |
+|----------|-------------|
+| `"<file1>" "<file2>" ["<file3>" ...]` | Two or more LOCAL audio files. No upper limit on the number of files. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- Concatenates two or more local audio files end-to-end into a single WAV (PCM 16-bit, 44.1 kHz, stereo).
+- Each input is first normalized to the same sample-rate / channel layout, then concatenated with FFmpeg's `concat` demuxer for sample-accurate joining.
+- The output filename joins the (truncated) stems of the input files, so it's easy to tell at a glance which files were merged.
+- Audio files of different formats, sample rates, and channel counts can all be merged in the same call — they're each normalized before concatenation.
+- Video files are accepted only if they have an audio stream; only the audio is used.
+
+```
+# Merge two files
+python voder.py quest merge "part1.wav" "part2.wav"
+
+# Merge six files (no upper limit)
+python voder.py quest merge "1.wav" "2.wav" "3.wav" "4.wav" "5.wav" "6.wav"
+
+# Merge files of different formats — they're normalized first
+python voder.py quest merge "intro.mp3" "body.wav" "outro.flac"
+
+# Save result to a specific path
+python voder.py quest merge "a.wav" "b.wav" result "./combined.wav"
+
+# Refused inputs:
+# python voder.py quest merge "only-one.wav"                # ERROR: needs at least two files
+# python voder.py quest merge "a.wav" "/nonexistent.wav"    # ERROR: file not found
+```
+
+### 9.7 `silence`
+
+| Argument | Description |
+|----------|-------------|
+| `"<input>"` | A LOCAL audio or video file path. URLs are refused — use `quest download` first. |
+| `[threshold]` | (optional) Silence threshold as a positive integer dB level (10–90). Default is `50` (i.e., -50 dB). Lower values are more permissive; higher values strip more aggressively. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- Strips silent gaps from a local audio/video file and produces a continuous-speech WAV (PCM 16-bit, 44.1 kHz, stereo).
+- Uses FFmpeg's `silenceremove` filter: removes any run longer than 0.25s that falls below the threshold, both at the start and in the middle of the file. The minimum-silence-duration of 0.25s preserves natural micro-pauses in speech.
+- After silence removal, `dynaudnorm` applies a gentle dynamic-range normalization so the output levels are consistent — useful for downstream STT or voice extraction.
+- Excellent as a chain step before `svs voice` to make rapid-fire continuous speech from a recording with long pauses.
+- For video input, only the audio track is extracted (video frames are dropped).
+
+```
+# Strip silence with the default threshold (-50 dB)
+python voder.py quest silence "podcast.wav"
+
+# Strip more aggressively (-40 dB — strips quieter background sounds too)
+python voder.py quest silence "podcast.wav" 40
+
+# Strip very quietly (-80 dB — only true digital silence is removed)
+python voder.py quest silence "podcast.wav" 80
+
+# Save result to a specific path
+python voder.py quest silence "podcast.wav" result "./tight.wav"
+
+# Refused inputs:
+# python voder.py quest silence "in.wav" 5     # ERROR: threshold must be 10-90
+# python voder.py quest silence "in.wav" 95    # ERROR: threshold must be 10-90
+```
+
+### 9.8 `reverse`
+
+| Argument | Description |
+|----------|-------------|
+| `"<input>"` | A LOCAL audio or video file path. URLs are refused — use `quest download` first. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- Reverses a local audio OR video file. Both the start-to-end ordering and the waveform are flipped — playback sounds fully backwards.
+- **Audio input** → reversed WAV (PCM 16-bit, 44.1 kHz, stereo) via FFmpeg's `areverse` filter.
+- **Video input** → reversed MP4 (H.264 video + AAC audio). Both video frames and audio are reversed in lockstep using FFmpeg's `reverse` + `areverse` filters, so the reversed video stays in sync with the reversed audio.
+- Recognized video extensions: `.mp4`, `.avi`, `.mov`, `.mkv`, `.flv`, `.webm`, `.m4v`, `.3gp`, `.wmv`. Any other extension is treated as audio.
+
+```
+# Reverse an audio file
+python voder.py quest reverse "song.wav"
+
+# Reverse a video file — both frames and audio are flipped
+python voder.py quest reverse "clip.mp4"
+
+# Save result to a specific path
+python voder.py quest reverse "song.wav" result "./backwards.wav"
+```
+
+### 9.9 `fade`
+
+| Argument | Description |
+|----------|-------------|
+| `"<input>"` | A LOCAL audio or video file path. URLs are refused — use `quest download` first. |
+| `[seconds]` | (optional) Fade length in seconds per side (0.5–60). Default is `5`. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- Applies a cinematic fade-in and fade-out at the start and end of the file.
+- **NOT silence-based** — the edges rise to ~15% gain (not 0%) and then swell to full volume using a smooth quarter-sine curve, so the audio is always present and feels like it's *rising* into the mix rather than cutting in from silence. A final `volume=1.15` boost gives a slight lift in the body.
+- For files shorter than 2 × fade duration, the fade length is automatically clamped to 25% of the file's duration per side (with a minimum of 0.5s) so the fades never overlap.
+- **Audio input** → WAV (PCM 16-bit, 44.1 kHz, stereo). **Video input** → MP4 with the original video stream copied and the audio stream replaced with the faded audio (H.264 video is stream-copied, no re-encoding of video).
+- The default 5s fade is the cinematic standard — long enough to feel like a film opening, short enough to not test the listener's patience.
+
+```
+# Apply the default 5-second cinematic fade in and out
+python voder.py quest fade "song.wav"
+
+# Apply a shorter 2-second fade
+python voder.py quest fade "song.wav" 2
+
+# Apply fade to a video (video is preserved, audio gets the fade)
+python voder.py quest fade "clip.mp4"
+
+# Save result to a specific path
+python voder.py quest fade "song.wav" 5 result "./cinematic.wav"
+
+# Refused inputs:
+# python voder.py quest fade "song.wav" 100   # ERROR: fade duration must be 0.5-60s
+```
+
+### 9.10 `volume`
+
+| Argument | Description |
+|----------|-------------|
+| `<1-1000>` | Volume / bass-boost value. Every 100 means +100% gain (so 100 = 2×, 200 = 3×, 1000 = 11×). |
+| `"<input>"` | A LOCAL audio or video file path. URLs are refused — use `quest download` first. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- **Professional bass booster + volume amplifier** — not a basic gain switch. The signal chain is:
+  1. **Low-shelf bass boost** (`bass` filter) — boosts frequencies below 80–120 Hz (cutoff and width scale with the value).
+  2. **Virtual sub-bass** (`virtualbass` filter) — synthesizes sub-bass harmonics below 200–300 Hz for that "bomb-like" feel even on speakers that can't reproduce true sub-bass.
+  3. **High-shelf treble lift** (`treble` filter) — small high-frequency boost to preserve clarity and prevent the bass from muddying the mix.
+  4. **Linear volume gain** — applies the requested multiplier (`1.0 + value/100`).
+  5. **Soft-knee compressor** (`acompressor`) — glues the mix and prevents transient peaks from clipping. Threshold and ratio scale with the value (more aggressive compression at higher values).
+  6. **Broadcast loudness normalization** (`loudnorm`) — final pass to EBU R128 -14 LUFS, true-peak -1.0 dB, loudness range 11. This is the standard for streaming platforms and ensures the output never clips or sounds dotty.
+- Value mapping: `bass_gain = min(20, value × 0.02)` dB, `linear_gain = 1 + value/100`, `treble_gain = min(6, value × 0.006)` dB.
+- **Audio input** → WAV (PCM 24-bit, 48 kHz, stereo). **Video input** → MP4 with video stream copied and audio re-encoded as AAC 256 kbps.
+
+```
+# Moderate boost (2× volume, +2 dB bass)
+python voder.py quest volume 100 "song.wav"
+
+# Heavy boost (6× volume, +10 dB bass)
+python voder.py quest volume 500 "song.wav"
+
+# Maximum boost (11× volume, +20 dB bass)
+python voder.py quest volume 1000 "song.wav"
+
+# Bass boost a video's audio (video is preserved, audio gets boosted)
+python voder.py quest volume 250 "clip.mp4"
+
+# Save result to a specific path
+python voder.py quest volume 100 "song.wav" result "./boosted.wav"
+
+# Refused inputs:
+# python voder.py quest volume 0 "song.wav"     # ERROR: must be 1-1000
+# python voder.py quest volume 1001 "song.wav"  # ERROR: must be 1-1000
+# python voder.py quest volume abc "song.wav"   # ERROR: must be an integer
+```
+
+### 9.11 `speed`
+
+| Argument | Description |
+|----------|-------------|
+| `<value>` | Time-stretch value: one of `0.25, 0.50, 0.75, 1.25, 1.50, 1.75, 2.00, 2.25, 2.50, ..., 10.00` (steps of 0.25, **excluding** 1.00). `0.25` = 4× faster, `10.00` = 10× slower. |
+| `"<input>"` | A LOCAL **audio** file path. URLs are refused — use `quest download` first. Video files are refused — use `quest cut` or `quest noframes` to extract audio first. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- **Professional time-stretch** (Spotify-style slowed / sped-up versions) using FFmpeg's `rubberband` filter. Pitch and formants are preserved — the audio sounds like it was originally performed at the new tempo, not like a tape-speed change.
+- The full rubberband configuration: `formant=preserved` (formants stay natural-sounding), `transients=crisp` (preserves percussive attacks), `detector=compound` (best transient detection), `phase=laminar` (preserves phase coherence), `window=standard`, `pitchq=quality` (highest-quality pitch processing), `channels=apart` (each channel processed independently for stereo width).
+- **Value semantics:** `value` is the output duration multiplier. `0.25` makes the output 4× shorter (4× faster playback). `2.00` makes the output 2× longer (2× slower playback). `10.00` makes the output 10× longer (10× slower — extreme slow-mo).
+- Output: WAV (PCM 24-bit, 48 kHz, stereo) so the time-stretched audio retains maximum fidelity for further processing.
+- The output filename includes the value: `voder_quest_speed_x<value>_<name>_<timestamp>.wav`.
+
+```
+# 2× faster (Sped Up version)
+python voder.py quest speed 0.50 "song.wav"
+
+# 2× slower (Slowed version)
+python voder.py quest speed 2.00 "song.wav"
+
+# Extreme slow (10× — Super Slowed)
+python voder.py quest speed 10.00 "song.wav"
+
+# 1.5× faster (Sped Up but less aggressive)
+python voder.py quest speed 0.75 "song.wav"
+
+# Save result to a specific path
+python voder.py quest speed 2.00 "song.wav" result "./slowed.wav"
+
+# Refused inputs:
+# python voder.py quest speed 1.00 "song.wav"    # ERROR: no-op
+# python voder.py quest speed 0.30 "song.wav"    # ERROR: not a valid 0.25-step value
+# python voder.py quest speed 2.00 "video.mp4"   # ERROR: audio files only
 ```
 
 ---
