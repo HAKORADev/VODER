@@ -54,7 +54,10 @@ INPUT TYPES:
 │ Audio + Audio ref ─────► TTS svc (speaker voice change sub-task) │
 │ Video ─────────────────► STS, STT, SE, SVS, SS (auto-extract)    │
 │ Image ─────────────────► STT (OCR text extraction)               │
-│ YouTube/URL ───────────► STT, STS, TTM, SVS (auto-dl)            │
+│ YouTube/URL ───────────► STT, STS, TTM, SVS, SE, SS, TTS dub     │
+│                          (audio auto-dl; add `video` flag for    │
+│                           MP4 output. TTS dub subtitle forces     │
+│                           video download for frame burning.)     │
 └──────────────────────────────────────────────────────────────────┘
 
 OUTPUT TYPES:
@@ -63,7 +66,10 @@ OUTPUT TYPES:
 │ Audio Stems:  SVS (voice + instrumental)                         │
 │ Audio Files:  SS (per-speaker segments)                          │
 │ Text Output:  STT, SS (transcript)                               │
-│ Video Output: TTS dub (with subtitle)                            │
+│ Video Output: TTS dub (with `video` flag or `subtitle`),         │
+│               SVS/SE (with `video` flag), SS (with `video` flag),│
+│               STS (auto from video file), STT subtitle,          │
+│               TTM complete/bgm (with `video` flag)               │
 │ Interactive:  TTS interactive modify-speech (requires text edit) │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -650,7 +656,7 @@ Where `overdose` and `extreme` are auto‑implied by `dub` but recommended to in
 
 **How It Works:**
 
-1. **Download/Extract**: If a URL is provided, the video is downloaded. If a video file is provided, the audio track is extracted via FFmpeg
+1. **Download/Extract**: If a URL is provided, the audio is downloaded by default (WAV output). Add the `video` keyword to download the full video (MP4 output). When `subtitle` is used with a URL, the video is downloaded automatically (subtitles require video frames). If a video file is provided, the audio track is extracted via FFmpeg
 2. **SVS Voice + Music Separation**: BS‑RoFormer separates the source into voice and music stems
 3. **Optional: SE Sound Enhancement** (`se` flag): UniSE enhances the voice stem before ASR for noisy input
 4. **VibeVoice ASR**: Transcribes the voice stem with speaker diarization (overdose is implied). VibeVoice ASR and Fish S2 Pro are loaded separately to fit within 24GB VRAM
@@ -700,6 +706,15 @@ python src/voder.py tts dub "audio.wav"
 
 # Dub with specific source-target translation
 python src/voder.py tts dub translate "(ja-en)" "japanese_video.mp4"
+
+# Dub from URL — audio downloaded by default → WAV output
+python src/voder.py tts dub "https://youtube.com/watch?v=..."
+
+# Dub from URL with `video` keyword — video downloaded → MP4 with dubbed audio muxed back
+python src/voder.py tts dub video "https://youtube.com/watch?v=..."
+
+# Dub from URL with `subtitle` keyword — video is downloaded automatically (subtitles require frames)
+python src/voder.py tts dub subtitle "https://youtube.com/watch?v=..."
 ```
 
 **Dub Parameter Reference:**
@@ -714,6 +729,7 @@ python src/voder.py tts dub translate "(ja-en)" "japanese_video.mp4"
 | `subtitle original (source-target)` or `subtitle original (target)` | No | Burn subtitles from the original audio chain with independent translation. `(target)` is shorthand for `(auto-target)` | Off |
 | `se` | No | Enable sound enhancement before ASR | Off |
 | `video "path"` | No | Specify input video path | Auto from positional |
+| `video` | No | (flag) When source is a URL, download the full video and output MP4 (default: audio download → WAV). Implicit when `subtitle` is used with a URL. | Off |
 | `overdose` | No | Auto‑implied by dub, can be specified for clarity | On (implied) |
 | `result "path"` | No | Custom output path | Auto-generated |
 
@@ -724,7 +740,7 @@ python src/voder.py tts dub translate "(ja-en)" "japanese_video.mp4"
 - Multilingual input not supported: The source audio should be predominantly in one language for best results
 - Translation quality depends on TranslateGemma's accuracy for the specific language pair
 
-**Output:** MP4 for video input, WAV for audio input
+**Output:** MP4 for video file input, WAV for audio file input. URL input: WAV by default (audio downloaded), MP4 if `video` keyword or `subtitle` keyword is used (video downloaded).
 
 ### Interactive Modify-Speech (formerly STT+TTS)
 
@@ -1781,6 +1797,13 @@ python src/voder.py se sr voice music "song.wav"
 # Audio-only output from video
 python src/voder.py se "recording.mp4" result "/output/clean.wav"
 
+# From YouTube URL (audio downloaded by default → WAV output)
+python src/voder.py se "https://youtube.com/watch?v=..."
+
+# From YouTube URL with `video` keyword — video downloaded → MP4 with enhanced audio muxed back
+python src/voder.py se video "https://youtube.com/watch?v=..."
+python src/voder.py se voice video "https://youtube.com/watch?v=..."
+
 # With output routing
 python src/voder.py se "audio.wav" result "/output/clean.wav"
 
@@ -1801,6 +1824,7 @@ python src/voder.py se sr "source_audio.wav" result "/output/upsampled.wav"
 | `voice` | No | Used after `sr` for SR Voice sub-mode: upsample vocals with speech model | Off |
 | `blend` | No | Blend processed stem with complementary stem | Off |
 | `result` | No | Output destination | Auto-generated |
+| `video` | No | When source is a URL, download the full video (default: audio download). Output is MP4 with enhanced audio muxed back. | Off |
 
 ### Best Use Cases
 - Noisy meeting recordings (default)
@@ -1890,7 +1914,7 @@ SVS mode separates mixed audio into individual stems using BS-RoFormer Resurrect
 | `both` | Two files (sequential) | Extracts voice stem first, then music stem |
 
 ### YouTube URL Support
-SVS can directly download and process audio from YouTube, Bilibili, and TikTok URLs. The audio is downloaded via yt-dlp and then separated.
+SVS can directly download and process audio from YouTube, Bilibili, and TikTok URLs. By default, only audio is downloaded (WAV output). Add the `video` keyword to download the full video and produce MP4 output (one video per stem, with the separated stem muxed back into the original frames).
 
 ### Command Catalog
 
@@ -1910,11 +1934,14 @@ python src/voder.py svs "mixed_audio.wav" stem both
 # From video file (audio auto-extracted)
 python src/voder.py svs "music_video.mp4" stem voice result "/output/vocals.wav"
 
-# From YouTube URL
+# From YouTube URL (audio downloaded by default → WAV output)
 python src/voder.py svs "https://www.youtube.com/watch?v=VIDEO_ID"
 
 # From YouTube with specific stem and output routing
 python src/voder.py svs "https://www.youtube.com/watch?v=VIDEO_ID" stem music result "/output/instrumental.wav"
+
+# From YouTube with `video` keyword — downloads full video → MP4 output (one per stem)
+python src/voder.py svs "https://www.youtube.com/watch?v=VIDEO_ID" stem voice video
 
 # With output routing
 python src/voder.py svs "song.wav" result "/output/separated/"
@@ -1929,6 +1956,7 @@ python src/voder.py svs "song1.wav" "song2.mp3" "song3.flac" result "/output/ste
 |-----------|----------|---------|---------|
 | `stem` | No | Which stem to extract: `voice`, `music` | Both stems |
 | `result` | No | Output destination | Auto-generated |
+| `video` | No | When source is a URL, download the full video (default: audio download). Output is MP4 with separated stem muxed back, one per stem. | Off |
 
 ### Internal Usage by Other Modes
 

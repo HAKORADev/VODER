@@ -331,6 +331,7 @@ Where `overdose` and `extreme` are auto-implied by `dub` but recommended to incl
 | `subtitle original (source-target)` or `subtitle original (target)` | `(auto-en)` / `(ja-en)` / `(en)` etc. | Burn subtitles from the original audio chain with independent translation. Optional. `(target)` is shorthand for `(auto-target)`. |
 | `se` | (flag) | Enable sound enhancement before ASR. Optional. |
 | `video "path"` | `"path"` | Specify input video path. |
+| `video` | (flag) | When source is a URL, download the full video and output MP4 (default: audio download → WAV). Implicit when `subtitle` is used with a URL. |
 | `overdose` | (flag) | Auto-implied by dub. Can be specified for clarity. |
 | `result "path"` | `"path"` | Custom output path. |
 
@@ -344,7 +345,8 @@ Where `overdose` and `extreme` are auto-implied by `dub` but recommended to incl
 - Per-segment TTS generation: each speech segment is synthesized individually and assembled on the original timeline, with audio events preserved for non-speech detection.
 - Speed adjustment threshold: segments are speed-adjusted only when the ratio exceeds 1.5x or falls below 0.5x; otherwise original pacing is preserved.
 - VibeVoice ASR and Fish S2 Pro are loaded separately (never simultaneously) to fit within 24GB VRAM.
-- Video input produces MP4 output; audio input produces WAV output.
+- Video file input produces MP4 output; audio file input produces WAV output.
+- URL input: audio is downloaded by default (WAV output); add the `video` keyword to download the full video (MP4 output). When `subtitle` is used with a URL, video is downloaded automatically (subtitles require video frames).
 - `subtitle` (bare) transcribes the dubbed audio using VibeVoice ASR and burns subtitles onto the output video; this is the final step after dubbing.
 - `subtitle original` derives subtitles from the original audio processing chain (TTS text with original timing).
 - `subtitle (source-target)` or `subtitle (target)` transcribes the dubbed audio and applies an independent translation pass for subtitles.
@@ -389,6 +391,15 @@ python voder.py tts dub "audio.wav"
 
 # Dub with specific source-target translation
 python voder.py tts dub translate "(ja-en)" "japanese_video.mp4"
+
+# Dub from URL — audio downloaded by default, output WAV
+python voder.py tts dub "https://youtube.com/watch?v=..."
+
+# Dub from URL with video keyword — video downloaded, output MP4 with dubbed audio muxed back
+python voder.py tts dub video "https://youtube.com/watch?v=..."
+
+# Dub from URL with subtitle keyword — video is downloaded (subtitles require frames)
+python voder.py tts dub subtitle "https://youtube.com/watch?v=..."
 ```
 
 ### Newline Support
@@ -1378,6 +1389,7 @@ Improve audio quality through denoising, dereverberation, restoration, and super
 | `voice` | modifier | After `sr`: apply AudioSR speech model to vocals only (requires SVS) |
 | `blend` | modifier | Blend enhanced/upsampled audio with complementary stem |
 | `result` | keyword | Custom output path |
+| `video` | flag | When source is a URL, download the full video (default: audio download). Output is MP4 with enhanced audio muxed back. |
 | `"<path>"` | file | Audio/video file path or URL (multiple allowed) |
 
 ### Sub-Mode Combinations
@@ -1406,8 +1418,11 @@ python voder.py se "audio1.wav" "audio2.wav"
 # Enhance video audio track
 python voder.py se "noisy_video.mp4"
 
-# Enhance from URL
+# Enhance from URL (audio downloaded by default)
 python voder.py se "https://youtube.com/watch?v=..."
+
+# Enhance from URL and output MP4 (video downloaded, audio enhanced, muxed back)
+python voder.py se video "https://youtube.com/watch?v=..."
 
 # Voice sub-mode: extract vocals then enhance
 python voder.py se voice "song.wav"
@@ -1495,6 +1510,7 @@ Extract vocals or instruments from a song using BS-RoFormer.
 | `both` | (flag) | Extract both vocals and instruments (runs two separations, outputs two files). |
 | `"<path>"` | file | Audio/video file path or YouTube/TikTok/Bilibili URL. |
 | `result` | `"<path>"` | Copy output to custom path. |
+| `video` | (flag) | When source is a URL, download the full video (default: audio download). Output is MP4 with separated stem muxed back, one per stem. |
 
 ### Rules
 
@@ -1502,7 +1518,7 @@ Extract vocals or instruments from a song using BS-RoFormer.
 - `both` extracts both vocals and instruments, producing two output files.
 - Video input: outputs `.mp4` with separated audio merged back.
 - Audio input: outputs `.wav`.
-- YouTube/TikTok/Bilibili URLs: downloads video, separates, outputs `.mp4`.
+- YouTube/TikTok/Bilibili URLs: default downloads **audio** and outputs `.wav`; add the `video` flag to download the full video and output `.mp4` (one per stem).
 
 ```
 # Extract vocals
@@ -1520,8 +1536,11 @@ python voder.py svs voice "song.mp3" result "output.wav"
 # Video input
 python voder.py svs voice "music_video.mp4"
 
-# From YouTube
+# From YouTube (audio downloaded by default)
 python voder.py svs music "https://youtube.com/watch?v=..."
+
+# From YouTube and output MP4 (video downloaded, separated stem muxed back)
+python voder.py svs music video "https://youtube.com/watch?v=..."
 ```
 
 ---

@@ -4,6 +4,25 @@
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 - If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
+## 06/19/2026
+- Status: Stable, all features work, still developing
+- **[Big thing — TBA]**
+
+### Added
+
+- **CLI Default to Help** — Running `python voder.py` with no arguments now prints the help message instead of launching the GUI. Use `python voder.py gui` to launch the GUI as before.
+
+### Changed
+
+- **URL Audio/Video Switch for Oneline Modes** — When a YouTube/Bilibili/TikTok URL is provided as input, the audio vs. video download decision is now user-controlled via the `video` keyword across all relevant oneline modes, instead of being silently decided per-mode.
+  - **SE** (`se <url>`, `se voice <url>`, `se sr <url>`, …): URL input now downloads **audio** by default. Add the `video` keyword to download the full video and produce MP4 output (audio extracted from the downloaded video, enhanced, and muxed back into the original frames).
+  - **SVS standalone** (`svs <url>`, `svs extract <url>`, `svs only <stem> <url>`): URL input now downloads **audio** by default. Add the `video` keyword to download the full video and mux separated stems back into MP4 (one video per stem, same as local video input).
+  - **TTS dub** (`tts dub <url>`): URL input now downloads **audio** by default and produces a WAV output. Add the `video` keyword to download the full video and produce MP4 output with the dubbed audio muxed back in. (Dub already accepts local audio files for audio-only output, so this extends that behavior to URL sources.)
+  - Modes where video is **logically required** remain video-only and ignore the keyword: `stt subtitle` (burns subtitles onto frames) and `tts dub subtitle` (subtitles always imply a video frame track).
+  - Modes that already honor the `video` keyword are unchanged: `ttm complete`, `ttm bgm`, and `ss`.
+
+---
+
 ## 05/29/2026
 - Status: Stable, all features work, still developing
 - **Major Integrations and Modernifications**

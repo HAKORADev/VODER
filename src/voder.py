@@ -6462,6 +6462,7 @@ def parse_oneline_args(args):
         file_paths = []
         se_sub = None
         se_blend = False
+        se_video = False
         while i < len(args):
             arg = args[i]
             arg_lower = arg.lower()
@@ -6472,6 +6473,9 @@ def parse_oneline_args(args):
                 else:
                     result['error'] = 'result keyword requires a path argument'
                     return result
+            elif arg_lower == 'video':
+                se_video = True
+                i += 1
             elif arg_lower == 'voice':
                 if se_sub is None:
                     se_sub = 'voice'
@@ -6517,11 +6521,13 @@ def parse_oneline_args(args):
         result['params']['result_path'] = result_path
         result['params']['se_sub'] = se_sub
         result['params']['se_blend'] = se_blend
+        result['params']['se_video'] = se_video
         return result
 
     if mode == 'svs':
         stem = None
         file_path = None
+        svs_video = False
         while i < len(args):
             arg = args[i]
             arg_lower = arg.lower()
@@ -6532,6 +6538,9 @@ def parse_oneline_args(args):
                 else:
                     result['error'] = 'result keyword requires a path argument'
                     return result
+            elif arg_lower == 'video':
+                svs_video = True
+                i += 1
             elif arg_lower in ('voice', 'music', 'both'):
                 stem = arg_lower
                 i += 1
@@ -6550,6 +6559,7 @@ def parse_oneline_args(args):
         result['params']['stem'] = stem
         result['params']['file_path'] = file_path
         result['params']['result_path'] = result_path
+        result['params']['svs_video'] = svs_video
         return result
 
     if mode == 'ss':
@@ -7431,6 +7441,7 @@ def show_oneline_usage():
     print('  python voder.py svs music "path/to/song.mp3"')
     print('  python voder.py svs voice "path/to/song.mp3" result "output.wav"')
     print('  python voder.py svs music "path/to/song.mp3" result "output.wav"')
+    print('  python voder.py svs voice video "https://youtube.com/watch?v=..."')
     print()
     print("SS examples (Speakers Separator):")
     print('  python voder.py ss "path/to/audio.wav"')
@@ -7490,6 +7501,8 @@ def show_oneline_usage():
     print('  python voder.py se sr voice "path/to/audio.wav"')
     print('  python voder.py se sr voice blend "path/to/audio.wav"')
     print('  python voder.py se sr voice music "path/to/audio.wav"')
+    print('  python voder.py se "https://youtube.com/watch?v=..."')
+    print('  python voder.py se voice video "https://youtube.com/watch?v=..."')
     print()
     print("SFX examples (Sound Effects Generation):")
     print('  python voder.py sfx sound "thunder cracking" duration 5')
@@ -7532,6 +7545,7 @@ def show_oneline_usage():
     print("  voice    - Extract vocals only from TTM output (TTM mode), or isolate voice (complete/lego)")
     print("  usrc     - Blend with original source instead of isolated voice/music (complete)")
     print('  "sfx:"   - Sound effect spec for bgm/complete tasks: "sfx:prompt/duration-position/level"')
+    print("  video    - Download URL as video (and output MP4) for SE / SVS / SS / TTS dub / TTM complete / TTM bgm (default for URL is audio download)")
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
     print()
     print("TTS SLC examples (Speaker Language Conversion):")
@@ -7551,6 +7565,8 @@ def show_oneline_usage():
     print('  python voder.py tts dub translate "(auto-ar)" subtitle "video.mp4"')
     print('  python voder.py tts dub "audio.wav"')
     print('  python voder.py tts dub translate "(en-ja)" "audio.wav"')
+    print('  python voder.py tts dub "https://youtube.com/watch?v=..."')
+    print('  python voder.py tts dub video "https://youtube.com/watch?v=..."')
     print()
     print("TTS SVC examples (Speaker Voice Change):")
     print('  python voder.py tts svc "speech.wav" target "voice_ref.wav"')
@@ -11962,20 +11978,29 @@ def oneline_tts_dub(params):
 
     try:
         if is_url:
-            print("Downloading video from URL...")
-            downloaded_video, video_title = download_youtube_video(dub_source)
-            if not downloaded_video:
-                print("Error: Failed to download video")
-                return False
-            video_path = downloaded_video
-            _dub_cleanup.append(downloaded_video)
-            print("Extracting audio from video...")
-            extracted_audio = extract_audio_from_video_cli(video_path)
-            if not extracted_audio:
-                print("Error: Could not extract audio from video")
-                return False
-            audio_path = extracted_audio
-            _dub_cleanup.append(extracted_audio)
+            if dub_video or dub_subtitle:
+                print("Downloading video from URL...")
+                downloaded_video, video_title = download_youtube_video(dub_source)
+                if not downloaded_video:
+                    print("Error: Failed to download video")
+                    return False
+                video_path = downloaded_video
+                _dub_cleanup.append(downloaded_video)
+                print("Extracting audio from video...")
+                extracted_audio = extract_audio_from_video_cli(video_path)
+                if not extracted_audio:
+                    print("Error: Could not extract audio from video")
+                    return False
+                audio_path = extracted_audio
+                _dub_cleanup.append(extracted_audio)
+            else:
+                print("Downloading audio from URL...")
+                ok, err, dl_audio = download_youtube_audio(dub_source)
+                if not ok:
+                    print(f"Error: {err}")
+                    return False
+                audio_path = dl_audio
+                _dub_cleanup.append(dl_audio)
         elif dub_source.lower().endswith(tuple(VIDEO_EXTENSIONS)):
             video_path = dub_source
             print("Extracting audio from video...")
@@ -13827,6 +13852,7 @@ def oneline_se(params):
     files = params.get('files', [])
     se_sub = params.get('se_sub')
     se_blend = params.get('se_blend', False)
+    se_video = params.get('se_video', False)
 
     if not files:
         print("Error: SE mode requires at least one audio/video file path")
@@ -13844,17 +13870,30 @@ def oneline_se(params):
     _se_cleanup = []
     for file_path in files:
         if is_youtube_url(file_path):
-            print(f"Downloading video from URL: {file_path}")
-            dl_path, dl_err = download_youtube_video(file_path)
-            if not dl_path:
-                print(f"Error: {dl_err}")
-                for f in _se_cleanup:
-                    if f and os.path.exists(f):
-                        try: os.unlink(f)
-                        except: pass
-                return False
-            _se_cleanup.append(dl_path)
-            resolved_files.append(dl_path)
+            if se_video:
+                print(f"Downloading video from URL: {file_path}")
+                dl_path, dl_err = download_youtube_video(file_path)
+                if not dl_path:
+                    print(f"Error: {dl_err}")
+                    for f in _se_cleanup:
+                        if f and os.path.exists(f):
+                            try: os.unlink(f)
+                            except: pass
+                    return False
+                _se_cleanup.append(dl_path)
+                resolved_files.append(dl_path)
+            else:
+                print(f"Downloading audio from URL: {file_path}")
+                ok, err, dl_path = download_youtube_audio(file_path)
+                if not ok:
+                    print(f"Error: {err}")
+                    for f in _se_cleanup:
+                        if f and os.path.exists(f):
+                            try: os.unlink(f)
+                            except: pass
+                    return False
+                _se_cleanup.append(dl_path)
+                resolved_files.append(dl_path)
         elif os.path.exists(file_path):
             resolved_files.append(file_path)
         else:
@@ -15445,6 +15484,7 @@ def oneline_svs(params):
 
     stem = params.get('stem', 'voice')
     file_path = params.get('file_path', '')
+    svs_video = params.get('svs_video', False)
 
     if not file_path:
         print('Error: SVS mode requires an audio file path or URL')
@@ -15485,16 +15525,28 @@ def oneline_svs(params):
 
         video_exts = {'.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v', '.ts', '.mts'}
         downloaded_video = None
+        downloaded_audio = None
         actual_file_path = file_path
 
         if is_url:
-            downloaded_video, video_title = download_youtube_video(file_path, results_dir)
-            if downloaded_video is None:
-                print(f'Error: {video_title}')
-                return False
-            actual_file_path = downloaded_video
-            original_name = video_title.replace(' ', '_').replace('/', '_')[:50]
-            is_video = True
+            if svs_video:
+                downloaded_video, video_title = download_youtube_video(file_path, results_dir)
+                if downloaded_video is None:
+                    print(f'Error: {video_title}')
+                    return False
+                actual_file_path = downloaded_video
+                original_name = video_title.replace(' ', '_').replace('/', '_')[:50]
+                is_video = True
+            else:
+                ok, err, dl_audio = download_youtube_audio(file_path, results_dir)
+                if not ok:
+                    print(f'Error: {err}')
+                    return False
+                downloaded_audio = dl_audio
+                actual_file_path = dl_audio
+                info_title = os.path.splitext(os.path.basename(dl_audio))[0]
+                original_name = info_title.replace(' ', '_').replace('/', '_')[:50]
+                is_video = False
         else:
             original_name = os.path.splitext(os.path.basename(file_path))[0]
             input_ext = os.path.splitext(file_path)[1].lower()
@@ -15547,6 +15599,8 @@ def oneline_svs(params):
             os.remove(temp_audio)
         if downloaded_video and os.path.exists(downloaded_video):
             os.remove(downloaded_video)
+        if downloaded_audio and os.path.exists(downloaded_audio):
+            os.remove(downloaded_audio)
 
         if output_paths:
             print(f'\nSuccess! {len(output_paths)} file(s) saved:')

@@ -300,8 +300,11 @@ python src/voder.py tts dub translate "(auto-ar)" subtitle "video.mp4"
 # Dub audio file (no video output)
 python src/voder.py tts dub "speech.wav"
 
-# Dub YouTube video to French
+# Dub YouTube video to French (audio downloaded by default → WAV output)
 python src/voder.py tts dub translate "(auto-fr)" "https://youtube.com/watch?v=..."
+
+# Dub YouTube video with `video` keyword — video downloaded → MP4 output
+python src/voder.py tts dub video "https://youtube.com/watch?v=..."
 ```
 
 ### 1.7 Modify Speech (STT+TTS)
@@ -635,8 +638,11 @@ python src/voder.py svs "song.mp3" music
 # Extract both stems (voice first, then music)
 python src/voder.py svs "song.mp3" both
 
-# Process a YouTube URL
+# Process a YouTube URL (audio downloaded by default → WAV output)
 python src/voder.py svs "https://youtube.com/watch?v=..." voice
+
+# Process a YouTube URL with `video` keyword — video downloaded → MP4 output (one per stem)
+python src/voder.py svs "https://youtube.com/watch?v=..." voice video
 
 # Save to specific location
 python src/voder.py svs "audio_file.wav" voice result "/output/vocals.wav"

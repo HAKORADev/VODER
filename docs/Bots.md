@@ -49,7 +49,7 @@ VODER is a professional‑grade voice processing tool that enables seamless conv
 - **Overdose Quality Mode**: Enhanced transcription, dialogue source analysis, and music generation using VibeVoice ASR
 - **Extreme TTS Mode**: Higher quality voice cloning and broader language support using Fish Audio S2-Pro (80+ languages, voice effects via `[tag]` syntax including 64 S1 Pro tags)
 - **Extreme STS Mode**: Pre-process target voice reference through Fish S2 Pro for cleaner Seed-VC conversion — extracts dominant voice from mixed/noisy references
-- **Video I/O**: Video input with automatic audio extraction; video output with replaced audio (STS, SS with `video` flag)
+- **Video I/O**: Video input with automatic audio extraction; video output with replaced audio (STS, SS with `video` flag, SE with `video` flag, SVS with `video` flag, TTS dub with `video` flag, TTM complete/bgm with `video` flag)
 
 ---
 
@@ -680,6 +680,15 @@ python src/voder.py tts dub "audio.wav"
 
 # Dub with specific source-target translation
 python src/voder.py tts dub translate "(ja-en)" "japanese_video.mp4"
+
+# Dub from URL — audio downloaded by default → WAV output
+python src/voder.py tts dub "https://youtube.com/watch?v=..."
+
+# Dub from URL with `video` keyword — video downloaded → MP4 output with dubbed audio muxed back
+python src/voder.py tts dub video "https://youtube.com/watch?v=..."
+
+# Dub from URL with `subtitle` keyword — video is downloaded automatically (subtitles require frames)
+python src/voder.py tts dub subtitle "https://youtube.com/watch?v=..."
 ```
 
 **Dub Parameters:**
@@ -694,12 +703,14 @@ python src/voder.py tts dub translate "(ja-en)" "japanese_video.mp4"
 | `subtitle original (source-target)` or `subtitle original (target)` | Burn subtitles from the original audio chain with independent translation. `(target)` is shorthand for `(auto-target)` | No |
 | `se` | Enable sound enhancement before ASR (optional) | No |
 | `video "path"` | Specify input video path | No |
+| `video` | (flag) When source is a URL, download the full video and output MP4 (default: audio download → WAV). Implicit when `subtitle` is used with a URL. | No |
 | `overdose` | Auto‑implied by `dub` but can be specified for clarity | No |
 | `result "path"` | Custom output path | No |
 
 **Output formats:**
-- Video input: MP4 (dubbed audio muxed with original video)
-- Audio input: WAV
+- Video file input: MP4 (dubbed audio muxed with original video)
+- Audio file input: WAV
+- URL input: audio downloaded by default (WAV); add the `video` keyword to download full video (MP4). When `subtitle` is used with a URL, video is downloaded automatically (subtitles require frames).
 
 **Requirements:** 24GB+ VRAM (VibeVoice ASR and Fish S2 Pro loaded separately), FFmpeg
 
@@ -1560,7 +1571,11 @@ python src/voder.py svs "song.mp3" voice result "/output/vocals.wav"
 
 **From YouTube URL:**
 ```bash
+# Audio downloaded by default → WAV output
 python src/voder.py svs "https://youtube.com/watch?v=..." voice
+
+# Add `video` keyword to download full video → MP4 output (one per stem)
+python src/voder.py svs "https://youtube.com/watch?v=..." voice video
 ```
 
 **Parameters:**
@@ -1572,6 +1587,7 @@ python src/voder.py svs "https://youtube.com/watch?v=..." voice
 | `music` | Extract music/instrumental stem | Yes* |
 | `both` | Extract both stems sequentially (voice first, then music) | Yes* |
 | `result` | Output path | No |
+| `video` | When source is a URL, download the full video (default: audio download). Output is MP4 with separated stem muxed back, one per stem. | No |
 
 *Any one of `voice`, `music`, or `both` required.
 
@@ -1705,6 +1721,17 @@ python src/voder.py se sr voice music "song.wav"
 python src/voder.py se "recording.mp4"
 ```
 
+**Enhance from URL (audio downloaded by default → WAV):**
+```bash
+python src/voder.py se "https://youtube.com/watch?v=..."
+```
+
+**Enhance from URL with `video` keyword (video downloaded → MP4 with enhanced audio muxed back):**
+```bash
+python src/voder.py se video "https://youtube.com/watch?v=..."
+python src/voder.py se voice video "https://youtube.com/watch?v=..."
+```
+
 **Save to specific location:**
 ```bash
 python src/voder.py se "audio.wav" result "/output/enhanced.wav"
@@ -1716,6 +1743,7 @@ python src/voder.py se "audio.wav" result "/output/enhanced.wav"
 |-----------|-------------|----------|
 | `file` | Input audio or video file path (positional) | Yes |
 | `result` | Copy result to the specified path | No |
+| `video` | When source is a URL, download the full video (default: audio download). Output is MP4 with enhanced audio muxed back. | No |
 
 **Supported Input Formats:**
 - **Audio**: WAV, MP3, FLAC, OGG, AAC, M4A

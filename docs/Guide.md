@@ -777,7 +777,7 @@ TTS Dub is a TTS sub‑task that dubs video or audio content by transcribing spe
 
 **How It Works:**
 
-1. **Download/Extract**: If a URL is provided, the video is downloaded. If a video file is provided, the audio track is extracted via FFmpeg.
+1. **Download/Extract**: If a URL is provided, audio is downloaded by default (WAV output). Add the `video` keyword to download the full video (MP4 output). When `subtitle` is used with a URL, video is downloaded automatically (subtitles require frames). If a video file is provided, the audio track is extracted via FFmpeg.
 2. **SVS Voice + Music Separation**: BS‑RoFormer separates the source into voice and music stems. The voice stem is used for transcription; the music stem is preserved for later mixing.
 3. **Sound Enhancement** (optional, `se` keyword): If enabled, UniSE applies speech enhancement (denoising/dereverberation) to the voice stem before ASR. This improves transcription accuracy for noisy or reverberant input.
 4. **VibeVoice ASR with Events**: Transcribes the voice stem using `transcribe_with_events()` instead of `transcribe()`. This preserves audio events (silence, music, noise) alongside speech segments, producing per‑segment timestamped output with event markers. VibeVoice ASR is always used for dub (overdose is implied). Audio events are never translated — only speech segments are processed.
@@ -809,6 +809,7 @@ python src/voder.py tts overdose extreme se dub subtitle "(auto-en)" translate "
 | `subtitle original (source-target)` or `subtitle original (target)` | Burn subtitles from the original audio chain with independent translation. `(target)` is shorthand for `(auto-target)` |
 | `se` | Enable sound enhancement before ASR (optional) |
 | `video "path"` | Specify input video path |
+| `video` | (flag) When source is a URL, download the full video and output MP4 (default: audio download → WAV). Implicit when `subtitle` is used with a URL. |
 | `overdose` | Auto‑implied by `dub` but can be specified for clarity |
 | `extreme` | Auto‑implied by `dub` but can be specified for clarity |
 | `result "path"` | Custom output path |
@@ -854,6 +855,15 @@ python src/voder.py tts dub translate "(auto-fr)" "video.mp4"
 
 # Shorthand: (fr) is equivalent to (auto-fr)
 python src/voder.py tts dub translate "(fr)" "video.mp4"
+
+# Dub from URL — audio downloaded by default → WAV output
+python src/voder.py tts dub "https://youtube.com/watch?v=..."
+
+# Dub from URL with `video` keyword — video downloaded → MP4 with dubbed audio muxed back
+python src/voder.py tts dub video "https://youtube.com/watch?v=..."
+
+# Dub from URL with `subtitle` keyword — video is downloaded automatically (subtitles require frames)
+python src/voder.py tts dub subtitle "https://youtube.com/watch?v=..."
 ```
 
 **Features:**
@@ -1689,6 +1699,13 @@ python src/voder.py se sr voice music "song.wav"
 # Enhance audio from video
 python src/voder.py se "recording.mp4"
 
+# Enhance from URL — audio downloaded by default → WAV output
+python src/voder.py se "https://youtube.com/watch?v=..."
+
+# Enhance from URL with `video` keyword — video downloaded → MP4 with enhanced audio muxed back
+python src/voder.py se video "https://youtube.com/watch?v=..."
+python src/voder.py se voice video "https://youtube.com/watch?v=..."
+
 # Save to specific location
 python src/voder.py se "audio.wav" result "/path/to/enhanced.wav"
 
@@ -1841,6 +1858,12 @@ python src/voder.py svs both "path/to/song.mp3"
 python src/voder.py svs voice "path/to/song.mp3" result "output_vocals.wav"
 python src/voder.py svs music "path/to/song.mp3" result "output_instrumental.wav"
 python src/voder.py svs both "path/to/song.mp3" result "output/"
+
+# From YouTube URL — audio downloaded by default → WAV output
+python src/voder.py svs voice "https://youtube.com/watch?v=..."
+
+# From YouTube URL with `video` keyword — video downloaded → MP4 (one per stem)
+python src/voder.py svs voice video "https://youtube.com/watch?v=..."
 
 # Interactive CLI
 python src/voder.py cli
@@ -2146,13 +2169,17 @@ YouTube/video support works across multiple VODER modes:
 
 | Mode | YouTube Support |
 |------|----------------|
-| STT | Direct transcription from URL |
-| TTS (voice clone) | Use YouTube video as voice reference via `target` parameter |
-| TTS (dialogue source) | Use video as dialogue source |
-| Voice clip extraction | Extract clips from YouTube video |
-| STS | YouTube video as target voice reference |
-| TTS (SLC) | Direct translation to English from YouTube URL, with optional `music` flag for preserving background music |
-| SS | Direct speaker separation from YouTube URL |
+| STT | Direct transcription from URL (audio download) |
+| TTS (voice clone) | Use YouTube video as voice reference via `target` parameter (audio download) |
+| TTS (dialogue source) | Use video as dialogue source (audio download) |
+| Voice clip extraction | Extract clips from YouTube video (audio download) |
+| STS | YouTube video as target voice reference (audio download) |
+| TTS (SLC) | Direct translation to English from YouTube URL, with optional `music` flag for preserving background music (audio download) |
+| TTS (dub) | Direct dubbing from YouTube URL — audio downloaded by default (WAV); add `video` keyword for MP4 output, or `subtitle` keyword (forces video download for frame burning) |
+| SS | Direct speaker separation from YouTube URL — audio downloaded by default (WAV); add `video` keyword for MP4 output |
+| SE | Direct enhancement from YouTube URL — audio downloaded by default (WAV); add `video` keyword for MP4 output |
+| SVS | Direct stem separation from YouTube URL — audio downloaded by default (WAV); add `video` keyword for MP4 output (one per stem) |
+| TTM (complete/bgm) | Audio downloaded by default; add `video` keyword for MP4 output |
 
 ### Error Handling & Fallbacks
 
