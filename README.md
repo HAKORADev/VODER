@@ -21,7 +21,7 @@
 
 ---
 
-VODER brings together **8 processing modes** under one interface — speech-to-text, text-to-speech, voice conversion, music generation, speech enhancement, sound effects, vocal separation, and speaker diarization — plus language dubbing (`tts dub`), any-to-any translation via TranslateGemma 12B, and transcribe-edit-resynthesize (built into TTS interactive). It runs entirely on your machine, needs no subscription, and works with or without a GPU.
+VODER brings together **8 processing modes** under one interface — speech-to-text, text-to-speech, voice conversion, music generation, speech enhancement, sound effects, vocal separation, and speaker diarization — plus language dubbing (`tts dub`), any-to-any translation via TranslateGemma 12B, transcribe-edit-resynthesize (built into TTS interactive), **side-quests** (lightweight utility tasks), and **chains** (user-defined pipelines that wire voder tasks together end-to-end). It runs entirely on your machine, needs no subscription, and works with or without a GPU.
 
 ---
 
@@ -36,6 +36,8 @@ VODER brings together **8 processing modes** under one interface — speech-to-t
 - **Language Dubbing** — Translate speech from one language to another while preserving the original speaker's voice identity. Dub entire videos with per-segment timing alignment and background music preservation.
 - **Any-to-Any Translation** — Translate between any of 76 languages using TranslateGemma 12B via the `translate (source-target)` syntax, decoupled from the ASR engine.
 - **Voice Re-Synthesis** — Transcribe speech and re-read it in a different voice using `tts svc`, with an optional `sts:` prefix for high-fidelity voice conversion via Seed-VC v2.
+- **Side-Quests** — Lightweight utility tasks that live outside the main engine: `quest download` (audio/video URL fetcher) and `quest noframes` (local-video audio extractor). New quests can be added over time.
+- **Chains** — User-defined pipelines that wire any number of voder tasks together: each chain is named, its output is captured to temp, and later chains can reference earlier chain names as input paths. Build a song, isolate its vocals, train a voice from them, then dub a video — all in one command.
 - **Smart Input Pipeline** — Paste a YouTube, Bilibili, or TikTok URL directly as input. Feed an image and VODER extracts text via OCR. Automatically extract voice clips from multi-speaker audio for one-click voice cloning.
 
 ---
@@ -90,6 +92,26 @@ Dub entire videos to another language with **per-segment timing alignment** — 
 
 Paste a **YouTube, Bilibili, or TikTok URL** directly as input — VODER downloads and processes it automatically. Feed an **image** containing text and VODER extracts it via OCR for TTS processing. Automatic voice clip extraction from multi-speaker audio enables one-click voice cloning for dialogue characters.
 
+### Side-Quests (`quest`)
+
+Lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow. They are designed to grow over time as more quests are added.
+
+- `quest download "<url>"` — download a YouTube/Bilibili/TikTok URL as audio (default) and drop it into `results/`.
+- `quest download video "<url>"` — download the same URL as a full video file (MP4).
+- `quest noframes "<local_video>"` — extract the audio track from a LOCAL video file (refuses URLs and audio-only files). Useful when you already have a video on disk and just want its audio.
+
+Outputs are tagged `voder_quest_download_<name>_<timestamp>.<ext>` and `voder_quest_noframes_<name>_<timestamp>.wav`.
+
+### Chains (`chains`)
+
+User-defined pipelines that wire any number of voder tasks together. Each chain is named, runs a full voder oneline command, and its output is captured to a temp directory. Later chains can reference earlier chain names as input paths — VODER resolves them internally to the captured temp file.
+
+```
+python src/voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "voice" svs voice "song" / "cover" sts base "voice" target "ref.wav"
+```
+
+Use ` / ` (space slash space) to separate chains. Intermediate chain outputs live in `temp_chains/`; only the **last** non-empty chain's output reaches `results/`. Empty chains are skipped (their names remain available for reuse); duplicate names cause an error and stop the pipeline. This lets you compose pipelines that VODER's built-in modes never anticipated — generate music, isolate vocals, train a voice from them, then dub a video, all in a single command.
+
 ---
 
 ## Quick Start
@@ -120,6 +142,15 @@ python src/voder.py tts dub translate "(auto-ja)" "video.mp4"
 python src/voder.py tts svc "speech.wav" target "voice_ref.wav"
 python src/voder.py se "noisy_recording.wav"
 python src/voder.py sfx sound "thunder rumbling" duration 10
+
+# Side-quests (utility tasks outside the voder engine)
+python src/voder.py quest download "https://youtube.com/watch?v=..."
+python src/voder.py quest download video "https://youtube.com/watch?v=..."
+python src/voder.py quest noframes "local_video.mp4"
+
+# Chains (pipeline of voder tasks; later chains reference earlier chain names)
+python src/voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "voice" svs voice "song" / "cover" sts base "voice" target "ref.wav"
+python src/voder.py chains "vocals" svs voice "song.wav" / "enhanced" se voice "vocals"
 ```
 
 > **Run in Colab** — no installation needed: [Open in Google Colab](https://colab.research.google.com/drive/1hditIfW9JzusNcFhlHFoclCIIsNiRFNk?usp=sharing)
@@ -140,6 +171,9 @@ python src/voder.py sfx sound "thunder rumbling" duration 10
 | **SFX** | Generate sound effects from text | Text | Audio |
 | **SVS** | Isolate vocals from music | Audio / Video / URL | Audio |
 | **SS** | Extract individual speakers | Audio / Video | Audio per speaker (+ MP4 with `video` flag) |
+| **train** | Train voice clones from reference audio, save as `.tts` / `.ttse` | Audio / Video / URL | `.tts` / `.ttse` voice file |
+| **quest** | Side-quests — utility tasks outside the voder engine (download, noframes, …) | URL / local video | Audio / Video file |
+| **chains** | Pipeline multiple voder tasks together; later chains reference earlier chain names | A sequence of voder oneline commands | Final chain output |
 
 ---
 

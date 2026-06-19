@@ -29,6 +29,8 @@ python voder.py                  # show help message
 | `sfx` | Sound Effects Generation |
 | `svs` | Song Voice Separate |
 | `ss` | Speakers Separator |
+| `quest` | Side-Quests (utility tasks outside the voder engine) |
+| `chains` | Chains (user-defined pipelines of voder tasks) |
 
 ### Quick Jump
 
@@ -45,6 +47,8 @@ python voder.py                  # show help message
 | [6. SFX](#6-sfx--sound-effects-generation) | Sound effects |
 | [7. SVS](#7-svs--song-voice-separate) | Vocal/instrument separation |
 | [8. SS](#8-ss--speakers-separator) | Speaker extraction & separation |
+| [9. quest](#9-quest--side-quests) | Side-quests: download, noframes |
+| [10. chains](#10-chains--user-defined-pipelines) | Compose multiple voder tasks into a pipeline |
 | [Input Types](#input-types) | Supported file & URL formats |
 | [Output](#output) | Output directory & naming |
 
@@ -1613,6 +1617,153 @@ python voder.py ss video "https://youtube.com/watch?v=..."
 # Full pipeline: overdose + sound enhancement + blend + video
 python voder.py ss overdose se blend video "vlog.mp4"
 ```
+
+---
+
+## 9. `quest` — Side-Quests
+
+Side-quests are lightweight utility tasks that live outside the voder engine. Each quest is a small class registered in a `SIDE_QUESTS` registry; new quests can be added over time without touching the dispatcher.
+
+### Syntax
+
+```
+python voder.py quest <quest-name> [quest args...] [result "<path>"]
+```
+
+### Available quests
+
+| Quest | Description | Output naming |
+|-------|-------------|---------------|
+| `download` | Download a URL as audio (default) or video (`video` keyword). Also accepts local file paths (copies them). | `voder_quest_download_<original-name>_<timestamp>.<ext>` |
+| `noframes` | Extract audio from a LOCAL VIDEO file. Refuses URLs and audio-only files. | `voder_quest_noframes_<original-name>_<timestamp>.wav` |
+
+### 9.1 `download`
+
+| Argument | Description |
+|----------|-------------|
+| `video` | (optional) Switch to a full video download instead of audio. |
+| `"<url>"` or `"<path>"` | A YouTube / Bilibili / TikTok URL or a local file path. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- URL input: downloads via yt-dlp. Audio path uses `download_youtube_audio` (MP3 @ 192 kbps); video path uses `download_youtube_video` (MP4, best quality).
+- Local file input: copies the file to `results/` with the quest naming scheme (no re-encoding).
+- The `<original-name>` is derived from the YouTube video ID (for URLs) or the file's stem (for local files), sanitized to safe filename characters and capped at 40–60 characters.
+
+```
+# Download a YouTube URL as audio (default, MP3)
+python voder.py quest download "https://youtube.com/watch?v=..."
+
+# Download the same URL as video (MP4)
+python voder.py quest download video "https://youtube.com/watch?v=..."
+
+# Copy a local file to results/ with the quest naming scheme
+python voder.py quest download "/path/to/local.wav"
+python voder.py quest download "/path/to/local.mp4"
+
+# Save result to a specific path
+python voder.py quest download "https://youtube.com/watch?v=..." result "./out.mp3"
+python voder.py quest download video "https://youtube.com/watch?v=..." result "./out.mp4"
+```
+
+### 9.2 `noframes`
+
+| Argument | Description |
+|----------|-------------|
+| `"<local_video>"` | A LOCAL video file path. URLs and audio files are refused. |
+| `result "<path>"` | (optional) Copy the result WAV to a custom path. |
+
+**Behavior:**
+
+- Strictly a "video → audio" extractor for local video files.
+- Refuses URLs (use `quest download` first to fetch a URL).
+- Refuses files whose extension is not a video format (`.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`, `.flv`, `.wmv`, `.m4v`).
+- Output is always WAV (PCM 16-bit, 44.1 kHz, stereo) extracted via FFmpeg.
+- The `<original-name>` is the video file's stem, sanitized to safe filename characters.
+
+```
+# Extract audio from a local MP4
+python voder.py quest noframes "video.mp4"
+
+# Save result to a specific path
+python voder.py quest noframes "video.mp4" result "./out.wav"
+
+# Refused inputs:
+# python voder.py quest noframes "https://youtube.com/watch?v=..."   # ERROR: refuses URLs
+# python voder.py quest noframes "audio.wav"                          # ERROR: refuses non-video files
+```
+
+---
+
+## 10. `chains` — User-Defined Pipelines
+
+Chains let the user compose their own pipelines out of voder's existing oneline tasks. Each chain is named, runs a voder oneline command, and its output is captured to a temp directory. Later chains can reference earlier chain names as input paths — voder substitutes the chain name with the captured temp file path before running the later chain. The **last** non-empty chain's output is exported to `results/`; intermediate outputs live in `temp_chains/`.
+
+### Syntax
+
+```
+python voder.py chains "name1" <voder command...> / "name2" <voder command that references "name1"> / "name3" <voder command that references "name1" and/or "name2"> / ... [result "<path>"]
+```
+
+- ` / ` (space, slash, space) separates chains. The slash must be its own argv element — do not attach it to neighbouring arguments.
+- Each chain starts with a quoted name (or any single token; quotes are optional but recommended, especially if the name contains spaces).
+- The rest of the chain's args are a normal voder oneline command (e.g., `tts script "hi" voice "male"`, `svs voice "song.wav"`, `se "vocals"`, `quest download "url"`, etc.).
+- The optional trailing `result "<path>"` applies to the whole `chains` command — it copies the **final** chain's output to the given path.
+
+### How chain names are resolved
+
+- VODER indexes chain names as each chain runs.
+- Before running a later chain, VODER walks that chain's arguments: any argument that exactly matches a previously-defined chain name is replaced with the path to that chain's output file. Non-matching arguments are left untouched (and then treated normally — as a file path, URL, or whatever the command expects).
+- Chain name lookups are exact (case-sensitive) and take precedence over file/URL resolution. If a chain name happens to look like a file path or URL, it still wins.
+
+### Output storage
+
+- **Intermediate chains** (all but the last): their output is moved to `temp_chains/voder_chain_<safe-name>_<timestamp>.<ext>`. Any other files they created in `results/` are cleaned up so the results folder stays uncluttered.
+- **Last non-empty chain**: its output stays in `results/` (or `voices/` for `train` chains). This is the user-visible result of the whole `chains` command.
+- For multi-output commands (e.g., `svs both`, `ss`, TTM with stems), only the **latest** file produced by the chain is exposed as the chain's output. If you need multiple outputs, run separate chains.
+
+### Validation rules
+
+- **Duplicate chain names** are an error and stop the pipeline immediately. Two non-empty chains cannot share the same name.
+- **Empty chains** (a name with no command following it) are **skipped**. Their names are NOT marked as used, so the same name can be reused later in the same `chains` command. Example: `"a" / "b" / "a" tts script "hi"` is valid — the first two are empty, and the third (non-empty) chain claims the name `a`.
+- **Trailing empty chains** at the end are ignored, just like empty chains in the middle.
+- If **all** chains are empty, the pipeline returns an error ("no valid chains to execute").
+
+### Examples
+
+```
+# Generate a song → isolate its vocals → voice-convert them
+python voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "voice" svs voice "song" / "cover" sts base "voice" target "ref.wav"
+
+# Isolate vocals → enhance them → transcribe the result
+python voder.py chains "vocals" svs voice "song.wav" / "enhanced" se voice "vocals" / "text" stt "enhanced" timestamp
+
+# Train a voice from a chain's output, then use it to speak
+python voder.py chains "vocal" svs voice "song.wav" / "trained" train voice:singer "vocal" / "spoken" tts script "Hello world" voice "singer"
+
+# Download audio → transcribe it
+python voder.py chains "audio" quest download "https://youtube.com/watch?v=..." / "text" stt "audio" timestamp
+
+# Numbers and arbitrary names work too
+python voder.py chains "1" tts script "hi" voice "male" / "2" se "1" / "3" stt "2" timestamp
+
+# Empty chains are skipped (names remain reusable) — this is valid:
+python voder.py chains "skip1" / "skip2" / "real" tts script "hi" voice "male"
+
+# Duplicate names are an error and stop the pipeline:
+# python voder.py chains "a" tts script "one" / "a" tts script "two"   # ERROR: Duplicate chain name: 'a'
+
+# Use result to copy the final chain's output to a specific path
+python voder.py chains "vocal" svs voice "song.wav" / "enhanced" se voice "vocal" result "./final.wav"
+```
+
+### Notes
+
+- Chain names can be any string: numbers, letters, paths, URLs — whatever the user can keep track of. Quotes are stripped by the shell before voder sees them, so `"name1"` and `name1` are equivalent as the first argument of a chain.
+- The `train` command works inside chains: its `.tts` / `.ttse` file is the chain's output and is stored in `temp_chains/` (not `voices/`) for intermediate chains. The voice file can then be referenced by name in later TTS chains via `voice "trained-name"` only if it lives in `voices/`; for chain-stored voices, reference them by their temp path via the chain name.
+- Chain outputs that are audio files can be used as voice-cloning targets, SVS inputs, SE inputs, STS bases, STT inputs, TTM references, etc.
+- Chain outputs that are video files (e.g., from `quest download video`) can be used anywhere a video input is accepted.
 
 ---
 

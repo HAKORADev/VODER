@@ -6,11 +6,43 @@
 
 ## 06/19/2026
 - Status: Stable, all features work, still developing
-- **[Big thing — TBA]**
+- **Chains & Side-Quests: User-Defined Pipelines and Utility Tasks**
 
 ### Added
 
 - **CLI Default to Help** — Running `python voder.py` with no arguments now prints the help message instead of launching the GUI. Use `python voder.py gui` to launch the GUI as before.
+
+- **Side-Quests (`quest` mode)** — New `quest` oneline mode for lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow. Each quest is a small class registered in a `SIDE_QUESTS` registry, so future quests can be added without touching the dispatcher — just subclass `SideQuest`, implement `parse()` and `execute()`, and call `_register_side_quest()`.
+  - `quest download "<url>"` — download a YouTube/Bilibili/TikTok URL as audio (default) and drop it into `results/`. Output naming: `voder_quest_download_<original-name>_<timestamp>.<ext>`.
+  - `quest download video "<url>"` — download the same URL as a full video file (MP4).
+  - `quest download "<local-file>"` — copy a local audio/video file to `results/` with the quest naming scheme (no re-encoding).
+  - `quest noframes "<local_video>"` — extract the audio track from a LOCAL video file. Strictly refuses URLs and audio-only files. Output is always WAV (PCM 16-bit 44.1 kHz stereo) extracted via FFmpeg. Output naming: `voder_quest_noframes_<original-name>_<timestamp>.wav`.
+  - All quests support the optional `result "<path>"` keyword to copy the output to a custom path.
+  - Examples: `quest download "https://youtube.com/watch?v=..."`, `quest download video "https://youtube.com/watch?v=..."`, `quest noframes "video.mp4"`.
+
+- **Chains (`chains` mode)** — New `chains` oneline mode that lets the user compose their own pipelines out of voder's existing oneline tasks. Each chain is named, runs a voder oneline command, and its output is captured to a temp directory. Later chains can reference earlier chain names as input paths — voder substitutes the chain name with the captured temp file path before running the later chain. The **last** non-empty chain's output is exported to `results/`; all intermediate outputs live in `temp_chains/` so they don't pollute the results folder.
+  - Syntax: `voder.py chains "name1" <voder command...> / "name2" <voder command that references "name1"> / ...`
+  - ` / ` (space, slash, space) is the chain separator. The slash must be its own argv element.
+  - Each chain starts with a name. Names can be anything — numbers, letters, paths, URLs — whatever the user can keep track of. Shell strips quotes from argv, so `"name1"` and `name1` are equivalent as the first argument of a chain.
+  - VODER indexes chain names as each chain runs. Before running a later chain, VODER walks that chain's arguments and replaces any argument that exactly matches a previously-defined chain name with the path to that chain's output file. Non-matching arguments are left untouched. Chain name lookups take precedence over file/URL resolution — if a chain name happens to look like a file path or URL, it still wins.
+  - Intermediate chain outputs are moved to `temp_chains/voder_chain_<safe-name>_<timestamp>.<ext>`. The last non-empty chain's output stays in `results/` (or `voices/` for `train` chains).
+  - For multi-output commands (e.g., `svs both`, `ss`, TTM with stems), only the latest file produced by the chain is exposed as the chain's output. If you need multiple outputs, run separate chains.
+  - Validation rules:
+    - **Duplicate chain names** (two non-empty chains with the same name) are an error and stop the pipeline immediately.
+    - **Empty chains** (a name with no command following it) are **skipped**. Their names are NOT marked as used, so the same name can be reused later in the same `chains` command. This is by design — it lets the user "lay out" a pipeline skeleton with empty chains first, then fill in real commands.
+    - **Trailing empty chains** are ignored, just like middle empty chains.
+    - If **all** chains are empty, the pipeline returns an error ("no valid chains to execute").
+  - The optional trailing `result "<path>"` keyword copies the **final** chain's output to a custom path.
+  - The `train` command works inside chains: its `.tts` / `.ttse` file is the chain's output and is stored in `temp_chains/` for intermediate chains. Side-quests (like `quest download`) also work inside chains.
+  - Examples: `chains "song" ttm lyrics "la la la" styling "pop" 30 / "voice" svs voice "song" / "cover" sts base "voice" target "ref.wav"`, `chains "audio" quest download "https://youtube.com/watch?v=..." / "text" stt "audio" timestamp`, `chains "skip1" / "skip2" / "real" tts script "hi" voice "male"` (empty chains skipped, names reusable).
+
+- **`ChainPipeline` class** — New orchestrator class for the `chains` mode. Implements `split_segments()` (splits argv on `/`), `parse_chain_segment()` (extracts `(name, command_args)` from each segment), `validate()` (enforces duplicate-name detection and skips empty chains while keeping their names reusable), `substitute_refs()` (replaces chain-name references with indexed temp file paths), and `execute()` (snapshots `results/` and `voices/` before each chain, runs the chain via `parse_and_execute_oneline`, then captures new files; intermediate chain outputs are moved to `temp_chains/`, the last chain's output stays in place).
+
+- **`SideQuest` base class + `DownloadQuest` / `NoFramesQuest` subclasses** — New class hierarchy for side-quests. Each quest subclasses `SideQuest` and implements `parse(args)` (validates arguments and returns `(parsed_dict, error_or_None)`) and `execute(parsed, results_dir, timestamp, result_path=None)` (does the work and returns `True`/`False`). Quests are registered in the global `SIDE_QUESTS` dict via `_register_side_quest(QuestClass)`.
+
+- **`oneline_quest()` and `oneline_chains()` dispatchers** — New dispatcher functions wired into `execute_oneline_command()` for the `quest` and `chains` modes.
+
+- **`quest` and `chains` added to valid oneline modes** — `validate_oneline_mode()` and `show_oneline_usage()` updated to include the new modes with examples.
 
 ### Changed
 
@@ -20,6 +52,15 @@
   - **TTS dub** (`tts dub <url>`): URL input now downloads **audio** by default and produces a WAV output. Add the `video` keyword to download the full video and produce MP4 output with the dubbed audio muxed back in. (Dub already accepts local audio files for audio-only output, so this extends that behavior to URL sources.)
   - Modes where video is **logically required** remain video-only and ignore the keyword: `stt subtitle` (burns subtitles onto frames) and `tts dub subtitle` (subtitles always imply a video frame track).
   - Modes that already honor the `video` keyword are unchanged: `ttm complete`, `ttm bgm`, and `ss`.
+
+### Documentation
+
+- **README.md** — Added Side-Quests and Chains to the Features list, the "What Can VODER Do?" section, the Quick Start examples, and the Modes at a Glance table.
+- **docs/READ.md** — Added new sections 9 (Side-Quests) and 10 (Chains) with full syntax, validation rules, and examples. Updated the Table of Contents, One-Line Commands section, and Technical Highlights.
+- **docs/COMMAND_CATALOG.md** — Added new sections 9 (`quest`) and 10 (`chains`) with full keyword/argument reference tables and examples. Updated the Mode Index and Quick Jump tables.
+- **docs/Guide.md** — Added new deep-dive sections for Side-Quests and Chains under Processing Modes Deep Dive, covering the architectural design (`SideQuest` base class, `SIDE_QUESTS` registry, `ChainPipeline` orchestrator) and practical pipeline examples.
+- **docs/Bots.md** — Added Side-Quests and Chains to the Purpose bullet list, the Mode Options table, the Quick Start examples, and added new Workflow 17 (URL → Audio File via Side-Quest) and Workflow 18 (Multi-Step Pipeline via Chains).
+- **docs/voder-skill.md** — Added new sections 2.9 (Side-Quests) and 2.10 (Chains) to the Catalog Navigation table and the catalog body, with full parameter references and best-use cases.
 
 ---
 

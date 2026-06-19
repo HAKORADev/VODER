@@ -6764,6 +6764,53 @@ def parse_oneline_args(args):
         result['params']['extreme'] = use_extreme
         return result
 
+    if mode == 'quest':
+        quest_name = None
+        quest_args = []
+        result_path = None
+        if i >= len(args):
+            result['error'] = 'quest mode requires a quest name (e.g., quest download "URL")'
+            return result
+        quest_name = args[i].lower()
+        i += 1
+        while i < len(args):
+            arg = args[i]
+            arg_lower = arg.lower()
+            if arg_lower == 'result':
+                if i + 1 < len(args):
+                    result_path = args[i + 1]
+                    i += 2
+                else:
+                    result['error'] = 'result keyword requires a path argument'
+                    return result
+            else:
+                quest_args.append(arg)
+                i += 1
+        result['params']['quest_name'] = quest_name
+        result['params']['quest_args'] = quest_args
+        result['params']['result_path'] = result_path
+        return result
+
+    if mode == 'chains':
+        chains_args = []
+        result_path = None
+        while i < len(args):
+            arg = args[i]
+            arg_lower = arg.lower()
+            if arg_lower == 'result':
+                if i + 1 < len(args):
+                    result_path = args[i + 1]
+                    i += 2
+                else:
+                    result['error'] = 'result keyword requires a path argument'
+                    return result
+            else:
+                chains_args.append(arg)
+                i += 1
+        result['params']['chains_args'] = chains_args
+        result['params']['result_path'] = result_path
+        return result
+
     while i < len(args):
         arg = args[i]
         arg_lower = arg.lower()
@@ -7411,7 +7458,7 @@ def _check_voice_extreme_mismatch(voice_path, use_extreme):
     return False
 
 def validate_oneline_mode(mode_name):
-    valid_modes = ['tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'ss', 'train']
+    valid_modes = ['tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'ss', 'train', 'quest', 'chains']
     if mode_name.lower() in valid_modes:
         return mode_name.lower()
     return None
@@ -7430,6 +7477,8 @@ def show_oneline_usage():
     print("  svs      - Song Voice Separate (extract vocals/music from song)")
     print("  ss       - Speakers Separator (extract all speakers one by one)")
     print("  train    - Train and save voice clones")
+    print("  quest    - Side-quests (utility tasks outside the voder engine: download, noframes, ...)")
+    print("  chains   - Chain multiple voder tasks: each chain's output feeds later chains")
     print()
     print("Train examples:")
     print('  python voder.py train voice:james "ref1.wav" "ref2.wav"')
@@ -7545,8 +7594,18 @@ def show_oneline_usage():
     print("  voice    - Extract vocals only from TTM output (TTM mode), or isolate voice (complete/lego)")
     print("  usrc     - Blend with original source instead of isolated voice/music (complete)")
     print('  "sfx:"   - Sound effect spec for bgm/complete tasks: "sfx:prompt/duration-position/level"')
-    print("  video    - Download URL as video (and output MP4) for SE / SVS / SS / TTS dub / TTM complete / TTM bgm (default for URL is audio download)")
+    print("  video    - Download URL as video (and output MP4) for SE / SVS / SS / TTS dub / TTM complete / TTM bgm (default for URL is audio download); also used by quest download")
     print("  <number> - Duration in seconds (10-300, for TTM modes)")
+    print()
+    print("Side-Quests (utility tasks outside the voder engine):")
+    print("  quest download \"<url>\"            - Download a URL as audio (default) → results/")
+    print("  quest download video \"<url>\"      - Download a URL as video → results/")
+    print("  quest noframes \"<local_video>\"    - Extract audio from a LOCAL VIDEO file (refuses URLs and audio files) → results/")
+    print()
+    print("Chains (pipeline of voder tasks; later chains can reference earlier chain names as input paths):")
+    print('  chains "name1" <voder command...> / "name2" <voder command that references "name1"> / ...')
+    print("  Intermediate chain outputs are stored in temp_chains/ — only the last chain's output reaches results/.")
+    print("  Empty chains are skipped (their names remain available for reuse); duplicate names are an error.")
     print()
     print("TTS SLC examples (Speaker Language Conversion):")
     print('  python voder.py tts slc "path/to/audio.wav"')
@@ -7637,6 +7696,19 @@ def show_oneline_usage():
     print("  /level:0-100     - Volume level for that line (default: 100)")
     print("  /duration:1-30    - SFX duration (required for sfx: lines)")
     print("  sfx: prompt      - Special character: generates SFX via TangoFlux")
+    print()
+    print("Side-Quest examples (utility tasks outside the voder engine):")
+    print('  python voder.py quest download "https://youtube.com/watch?v=..."          # audio download (default)')
+    print('  python voder.py quest download video "https://youtube.com/watch?v=..."   # video download')
+    print('  python voder.py quest noframes "local_video.mp4"                          # extract audio from local video')
+    print('  python voder.py quest noframes "clip.mp4" result "./out.wav"')
+    print()
+    print("Chain examples (pipeline of voder tasks; intermediate outputs stay in temp_chains/, only the last chain reaches results/):")
+    print('  python voder.py chains "vocals" svs voice "song.wav" / "enhanced" se voice "vocals"')
+    print('  python voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "voice" svs voice "song" / "cover" sts base "voice" target "ref.wav"')
+    print('  python voder.py chains "1" tts script "hi" voice "male" / "2" se "1" / "3" stt "2" timestamp')
+    print('  # Empty chains are skipped and their names remain available for reuse; duplicate names are an error.')
+    print('  # Use " / " (space slash space) to separate chains. The last non-empty chain\'s output is exported to results/.')
 
 def execute_oneline_command(parsed):
     mode = parsed['mode']
@@ -7703,6 +7775,10 @@ def execute_oneline_command(parsed):
         success = oneline_ss(params)
     elif mode == 'train':
         success = oneline_train(params)
+    elif mode == 'quest':
+        success = oneline_quest(params)
+    elif mode == 'chains':
+        success = oneline_chains(params)
     else:
         print(f"Error: Unknown mode '{mode}'")
         show_oneline_usage()
@@ -15964,6 +16040,343 @@ def parse_and_execute_oneline(args):
     return execute_oneline_command(parsed)
 
 
+class SideQuest:
+    name = None
+    description = ""
+
+    def parse(self, args):
+        raise NotImplementedError
+
+    def execute(self, parsed, results_dir, timestamp, result_path=None):
+        raise NotImplementedError
+
+
+class DownloadQuest(SideQuest):
+    name = 'download'
+    description = 'Download a URL as audio (default) or video (with the video keyword). Output goes to results/.'
+
+    def parse(self, args):
+        want_video = False
+        url = None
+        i = 0
+        while i < len(args):
+            a = args[i]
+            al = a.lower()
+            if al == 'video':
+                want_video = True
+                i += 1
+            elif url is None and is_youtube_url(a):
+                url = a
+                i += 1
+            elif url is None and os.path.exists(a):
+                url = a
+                i += 1
+            else:
+                return None, f"Unexpected argument for quest download: {a}"
+        if url is None:
+            return None, "quest download requires a URL or local file path"
+        return {'url': url, 'want_video': want_video}, None
+
+    def execute(self, parsed, results_dir, timestamp, result_path=None):
+        url = parsed['url']
+        want_video = parsed['want_video']
+        os.makedirs(results_dir, exist_ok=True)
+        original_name = self._derive_name(url)
+        if want_video:
+            if is_youtube_url(url):
+                downloaded, info_or_err = download_youtube_video(url)
+                if downloaded is None:
+                    print(f"Error: {info_or_err}")
+                    return False
+                ext = os.path.splitext(downloaded)[1] or '.mp4'
+                out_name = f"voder_quest_download_{original_name}_{timestamp}{ext}"
+                out_path = os.path.join(results_dir, out_name)
+                shutil.move(downloaded, out_path)
+                final = out_path
+            else:
+                if not os.path.exists(url):
+                    print(f"Error: file not found: {url}")
+                    return False
+                ext = os.path.splitext(url)[1] or '.mp4'
+                out_name = f"voder_quest_download_{original_name}_{timestamp}{ext}"
+                out_path = os.path.join(results_dir, out_name)
+                shutil.copy2(url, out_path)
+                final = out_path
+            print(f"Quest download (video) complete: {final}")
+        else:
+            if is_youtube_url(url):
+                ok, err, audio_path = download_youtube_audio(url)
+                if not ok:
+                    print(f"Error: {err}")
+                    return False
+                ext = os.path.splitext(audio_path)[1] or '.mp3'
+                out_name = f"voder_quest_download_{original_name}_{timestamp}{ext}"
+                out_path = os.path.join(results_dir, out_name)
+                shutil.move(audio_path, out_path)
+                final = out_path
+            else:
+                if not os.path.exists(url):
+                    print(f"Error: file not found: {url}")
+                    return False
+                ext = os.path.splitext(url)[1] or '.wav'
+                out_name = f"voder_quest_download_{original_name}_{timestamp}{ext}"
+                out_path = os.path.join(results_dir, out_name)
+                shutil.copy2(url, out_path)
+                final = out_path
+            print(f"Quest download (audio) complete: {final}")
+        if result_path:
+            try:
+                shutil.copy2(final, result_path)
+                print(f"Result copied to: {result_path}")
+            except Exception as e:
+                print(f"Note: could not copy to result path: {e}")
+        return True
+
+    @staticmethod
+    def _derive_name(url):
+        if is_youtube_url(url):
+            m = re.search(r'(?:v=|youtu\.be/|/video/|/embed/)([\w\-]{6,})', url)
+            if m:
+                return re.sub(r'[^A-Za-z0-9_\-]', '_', m.group(1))[:40]
+            return re.sub(r'[^A-Za-z0-9_\-]', '_', url)[:40]
+        base = os.path.basename(url)
+        stem = os.path.splitext(base)[0]
+        return re.sub(r'[^A-Za-z0-9_\-]', '_', stem)[:60] or 'input'
+
+
+class NoFramesQuest(SideQuest):
+    name = 'noframes'
+    description = 'Extract audio from a LOCAL VIDEO file. Refuses URLs and audio-only files.'
+
+    def parse(self, args):
+        if len(args) != 1:
+            return None, "quest noframes takes exactly one argument: a local video file path"
+        path = args[0]
+        if is_youtube_url(path):
+            return None, "quest noframes refuses URLs — provide a local video file"
+        if not os.path.exists(path):
+            return None, f"file not found: {path}"
+        ext = os.path.splitext(path)[1].lower()
+        video_exts = ('.mp4', '.mkv', '.mov', '.avi', '.webm', '.flv', '.wmv', '.m4v')
+        if ext not in video_exts:
+            return None, f"quest noframes refuses non-video files (got '{ext}'). Provide a local video file."
+        return {'path': path}, None
+
+    def execute(self, parsed, results_dir, timestamp, result_path=None):
+        path = parsed['path']
+        os.makedirs(results_dir, exist_ok=True)
+        original_name = os.path.splitext(os.path.basename(path))[0]
+        safe_name = re.sub(r'[^A-Za-z0-9_\-]', '_', original_name)[:60] or 'input'
+        out_name = f"voder_quest_noframes_{safe_name}_{timestamp}.wav"
+        out_path = os.path.join(results_dir, out_name)
+        cmd = ['ffmpeg', '-i', path, '-vn', '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2', '-y', out_path]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if not os.path.exists(out_path):
+            print(f"Error: ffmpeg failed to extract audio")
+            if result.stderr:
+                print(result.stderr[-500:])
+            return False
+        print(f"Quest noframes complete: {out_path}")
+        if result_path:
+            try:
+                shutil.copy2(out_path, result_path)
+                print(f"Result copied to: {result_path}")
+            except Exception as e:
+                print(f"Note: could not copy to result path: {e}")
+        return True
+
+
+SIDE_QUESTS = {}
+def _register_side_quest(quest_cls):
+    inst = quest_cls()
+    SIDE_QUESTS[inst.name] = inst
+    return inst
+
+_register_side_quest(DownloadQuest)
+_register_side_quest(NoFramesQuest)
+
+
+def oneline_quest(params):
+    quest_name = params.get('quest_name')
+    quest_args = params.get('quest_args', [])
+    result_path = params.get('result_path')
+    if not quest_name:
+        print("Error: quest mode requires a quest name")
+        return False
+    quest = SIDE_QUESTS.get(quest_name)
+    if quest is None:
+        print(f"Error: unknown quest '{quest_name}'. Available quests: {', '.join(sorted(SIDE_QUESTS.keys()))}")
+        return False
+    parsed, err = quest.parse(quest_args)
+    if err:
+        print(f"Error: {err}")
+        return False
+    results_dir = os.path.join(os.getcwd(), "results")
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    return quest.execute(parsed, results_dir, timestamp, result_path=result_path)
+
+
+class ChainPipeline:
+    CHAIN_SEPARATOR = '/'
+
+    def __init__(self):
+        self.index = {}
+
+    def split_segments(self, args):
+        segments = []
+        current = []
+        for arg in args:
+            if arg == self.CHAIN_SEPARATOR:
+                segments.append(current)
+                current = []
+            else:
+                current.append(arg)
+        segments.append(current)
+        return segments
+
+    def parse_chain_segment(self, seg):
+        if not seg:
+            return None, None
+        first = seg[0]
+        if len(first) >= 2 and first.startswith('"') and first.endswith('"'):
+            name = first[1:-1]
+        else:
+            name = first
+        if not name:
+            return None, "chain name cannot be empty"
+        command_args = seg[1:]
+        return name, command_args
+
+    def validate(self, parsed_chains):
+        seen = set()
+        valid = []
+        for name, command_args in parsed_chains:
+            if not command_args:
+                continue
+            if name in seen:
+                return None, f"Duplicate chain name: '{name}'"
+            seen.add(name)
+            valid.append((name, command_args))
+        return valid, None
+
+    def substitute_refs(self, command_args):
+        out = []
+        for a in command_args:
+            if a in self.index:
+                out.append(self.index[a])
+            else:
+                out.append(a)
+        return out
+
+    def _snapshot(self, directory):
+        if not os.path.isdir(directory):
+            return {}
+        snap = {}
+        for f in os.listdir(directory):
+            p = os.path.join(directory, f)
+            if os.path.isfile(p):
+                snap[f] = os.path.getmtime(p)
+        return snap
+
+    def _new_files(self, directory, before):
+        if not os.path.isdir(directory):
+            return []
+        new = []
+        for f in os.listdir(directory):
+            p = os.path.join(directory, f)
+            if not os.path.isfile(p):
+                continue
+            if f not in before:
+                new.append(p)
+            elif os.path.getmtime(p) > before[f]:
+                new.append(p)
+        return new
+
+    def execute(self, chains_args, result_path=None):
+        segments = self.split_segments(chains_args)
+        parsed_chains = []
+        for seg in segments:
+            name, command_args = self.parse_chain_segment(seg)
+            if name is None and command_args is None:
+                continue
+            if name is None:
+                return False, command_args
+            parsed_chains.append((name, command_args))
+
+        valid_chains, err = self.validate(parsed_chains)
+        if err:
+            print(f"Error: {err}")
+            return False, err
+        if not valid_chains:
+            print("Error: no valid chains to execute (all chains were empty)")
+            return False, "no valid chains"
+
+        chains_temp_dir = os.path.join(os.getcwd(), "temp_chains")
+        os.makedirs(chains_temp_dir, exist_ok=True)
+        results_dir = os.path.join(os.getcwd(), "results")
+        os.makedirs(results_dir, exist_ok=True)
+        voices_dir = os.path.join(os.getcwd(), "voices")
+
+        total = len(valid_chains)
+        print(f"Executing {total} chain(s)...")
+        for idx, (name, command_args) in enumerate(valid_chains, start=1):
+            is_last = (idx == total)
+            substituted = self.substitute_refs(command_args)
+            display_cmd = ' '.join(substituted)
+            print(f"\n[Chain {idx}/{total}] name=\"{name}\"  >>>  {display_cmd}")
+
+            results_before = self._snapshot(results_dir)
+            voices_before = self._snapshot(voices_dir)
+
+            success = parse_and_execute_oneline(substituted)
+            if not success:
+                print(f"Error: chain '{name}' failed")
+                return False, f"chain '{name}' failed"
+
+            new_results = self._new_files(results_dir, results_before)
+            new_voices = self._new_files(voices_dir, voices_before)
+            all_new = new_results + new_voices
+            if not all_new:
+                print(f"Warning: chain '{name}' produced no output file")
+                continue
+            all_new.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+            chain_output = all_new[0]
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            if is_last:
+                self.index[name] = chain_output
+                print(f"[Chain '{name}'] final output retained: {chain_output}")
+                if result_path:
+                    try:
+                        shutil.copy2(chain_output, result_path)
+                        print(f"Result copied to: {result_path}")
+                    except Exception as e:
+                        print(f"Note: could not copy to result path: {e}")
+            else:
+                ext = os.path.splitext(chain_output)[1] or '.bin'
+                safe_name = re.sub(r'[^A-Za-z0-9_\-]', '_', name)[:40] or 'chain'
+                temp_path = os.path.join(chains_temp_dir, f"voder_chain_{safe_name}_{ts}{ext}")
+                shutil.move(chain_output, temp_path)
+                for extra in all_new[1:]:
+                    try:
+                        os.remove(extra)
+                    except Exception:
+                        pass
+                self.index[name] = temp_path
+                print(f"[Chain '{name}'] intermediate output stored: {temp_path}")
+        return True, None
+
+
+def oneline_chains(params):
+    chains_args = params.get('chains_args', [])
+    result_path = params.get('result_path')
+    if not chains_args:
+        print("Error: chains mode requires at least one chain")
+        return False
+    pipeline = ChainPipeline()
+    ok, _err = pipeline.execute(chains_args, result_path=result_path)
+    return ok
+
+
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
@@ -15989,7 +16402,7 @@ if __name__ == "__main__":
     print("  python voder.py cli                   Interactive CLI mode")
     print("  python voder.py <mode> [args...]      Run a one-line command")
     print()
-    print("Available modes: tts, sts, ttm, stt, se, sfx, svs, ss, train")
+    print("Available modes: tts, sts, ttm, stt, se, sfx, svs, ss, train, quest, chains")
     print()
     print("Run 'python voder.py <mode>' with no further args for mode-specific help,")
     print("or see docs/COMMAND_CATALOG.md for the full reference.")
