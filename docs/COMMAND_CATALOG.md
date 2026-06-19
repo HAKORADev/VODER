@@ -1660,7 +1660,8 @@ python voder.py quest <quest-name> [quest args...] [result "<path>"]
 | `silence` | Strip silent gaps from a local audio/video file → continuous-speech WAV. | `voder_quest_silence_<name>_<timestamp>.wav` |
 | `reverse` | Reverse a local audio OR video file (frames + audio both flipped for video). | `voder_quest_reverse_<name>_<timestamp>.{wav,mp4}` |
 | `fade` | Apply a cinematic 5s fade-in/out (not silence-based; rising gain). | `voder_quest_fade_<name>_<timestamp>.{wav,mp4}` |
-| `volume` | Professional bass booster + volume amplifier on a 1–1000 scale. | `voder_quest_volume_v<value>_<name>_<timestamp>.{wav,mp4}` |
+| `volume` | Pure linear volume gain on a 1–1000 scale (100 = 2×, 1000 = 11×). Affects all frequencies equally. No bass boost, no compression, no loudness normalization. | `voder_quest_volume_v<value>_<name>_<timestamp>.{wav,mp4}` |
+| `bassboost` | Professional multi-band bass booster (low frequencies only) on a 1–100 scale (1 = subtle warmth, 100 = +24 dB sub-destroyer). Mids and highs left untouched. | `voder_quest_bassboost_v<value>_<name>_<timestamp>.{wav,mp4}` |
 | `speed` | Professional time-stretch (rubberband, formant-preserved) on a 0.25–10.00 scale. Audio files only. | `voder_quest_speed_x<value>_<name>_<timestamp>.wav` |
 | `pitch` | Professional pitch shift (rubberband, formant-shifted) on a 0.01–10.00 scale. Audio output only. Accepts local audio / video / URL. | `voder_quest_pitch_p<value>_<name>_<timestamp>.wav` |
 | `glue` | Glue an audio file onto a video file (or vice versa). Auto-replaces existing audio; pads silence / black frames to match longer stream. Refuses URLs and same-type pairs. | `voder_quest_glue_<audio>_onto_<video>_<timestamp>.mp4` |
@@ -1954,37 +1955,34 @@ python voder.py quest fade "song.wav" 5 result "./cinematic.wav"
 
 | Argument | Description |
 |----------|-------------|
-| `<1-1000>` | Volume / bass-boost value. Every 100 means +100% gain (so 100 = 2×, 200 = 3×, 1000 = 11×). |
+| `<1-1000>` | Pure linear gain value. Every 100 means +100% amplitude (so 100 = 2×, 200 = 3×, 1000 = 11×). |
 | `"<input>"` | A LOCAL audio or video file path. URLs are refused — use `quest download` first. |
 | `result "<path>"` | (optional) Copy the result to a custom path. |
 
 **Behavior:**
 
-- **Professional bass booster + volume amplifier** — not a basic gain switch. The signal chain is:
-  1. **Low-shelf bass boost** (`bass` filter) — boosts frequencies below 80–120 Hz (cutoff and width scale with the value).
-  2. **Virtual sub-bass** (`virtualbass` filter) — synthesizes sub-bass harmonics below 200–300 Hz for that "bomb-like" feel even on speakers that can't reproduce true sub-bass.
-  3. **High-shelf treble lift** (`treble` filter) — small high-frequency boost to preserve clarity and prevent the bass from muddying the mix.
-  4. **Linear volume gain** — applies the requested multiplier (`1.0 + value/100`).
-  5. **Soft-knee compressor** (`acompressor`) — glues the mix and prevents transient peaks from clipping. Threshold and ratio scale with the value (more aggressive compression at higher values).
-  6. **Broadcast loudness normalization** (`loudnorm`) — final pass to EBU R128 -14 LUFS, true-peak -1.0 dB, loudness range 11. This is the standard for streaming platforms and ensures the output never clips or sounds dotty.
-- Value mapping: `bass_gain = min(20, value × 0.02)` dB, `linear_gain = 1 + value/100`, `treble_gain = min(6, value × 0.006)` dB.
+- **Pure linear volume gain** — multiplies every sample by the same factor. Affects ALL frequencies equally (bass, mids, highs all get louder together). The frequency spectrum keeps its shape, just gets taller.
+- **What it does NOT do:** no bass boost, no treble lift, no compression, no loudness normalization. It is the simplest possible gain stage.
+- **Why use it:** when you just want the audio louder or quieter without changing its tonal character. For tonal shaping use `quest bassboost` (low frequencies) instead.
+- **Chaining tip:** pair with `quest bassboost` for independent control of overall loudness vs low-end punch. Example: `quest volume 200 "song.wav"` then `quest bassboost 50` makes the song 3× louder AND adds +12 dB of bass — two independent dimensions.
 - **Audio input** → WAV (PCM 24-bit, 48 kHz, stereo). **Video input** → MP4 with video stream copied and audio re-encoded as AAC 256 kbps.
+- **Note on clipping:** pure gain above the headroom of the source will clip. If you hear distortion at high values, follow with `quest bassboost` (which includes a true-peak limiter) or lower the value.
 
 ```
-# Moderate boost (2× volume, +2 dB bass)
+# 2× louder
 python voder.py quest volume 100 "song.wav"
 
-# Heavy boost (6× volume, +10 dB bass)
+# 6× louder
 python voder.py quest volume 500 "song.wav"
 
-# Maximum boost (11× volume, +20 dB bass)
+# 11× louder (max)
 python voder.py quest volume 1000 "song.wav"
 
-# Bass boost a video's audio (video is preserved, audio gets boosted)
+# Make a video's audio louder (video preserved, audio re-encoded as AAC 256k)
 python voder.py quest volume 250 "clip.mp4"
 
 # Save result to a specific path
-python voder.py quest volume 100 "song.wav" result "./boosted.wav"
+python voder.py quest volume 100 "song.wav" result "./louder.wav"
 
 # Refused inputs:
 # python voder.py quest volume 0 "song.wav"     # ERROR: must be 1-1000
@@ -1992,7 +1990,51 @@ python voder.py quest volume 100 "song.wav" result "./boosted.wav"
 # python voder.py quest volume abc "song.wav"   # ERROR: must be an integer
 ```
 
-### 9.11 `speed`
+### 9.11 `bassboost`
+
+| Argument | Description |
+|----------|-------------|
+| `<1-100>` | Bass boost value. `1` = subtle warmth, `50` = strong club bass, `100` = +24 dB sub-destroyer. Linearly interpolated across the range. |
+| `"<input>"` | A LOCAL audio or video file path. URLs are refused — use `quest download` first. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- **Professional multi-band bass booster** — selectively boosts LOW frequencies only (20–250 Hz). Mids and highs are left untouched. The frequency spectrum's SHAPE changes (bass gets fatter relative to the rest), unlike `quest volume` which scales everything equally.
+- **Signal chain** (6 stages, all designed to avoid dotty/buzzy artifacts):
+  1. **Sub-sonic highpass** (`highpass=f=30`) — removes inaudible sub-30 Hz rumble that would otherwise eat headroom and trigger the compressor/limiter needlessly.
+  2. **Low-shelf boost** (`bass` filter) — main bass boost at 80 Hz corner, 80 Hz width. Gain scales linearly from 0 dB (value=0) to +24 dB (value=100).
+  3. **Sub-bass peaking EQ** (`equalizer=f=50:w=40`) — adds an extra narrow-band boost at 50 Hz for sub-bass "punch" you can feel in your chest. Gain scales from 0 to +18 dB.
+  4. **Virtual sub-bass synthesizer** (`virtualbass`) — generates sub-bass harmonics at 250 Hz cutoff so the bass is audible even on small speakers / earbuds that can't reproduce true sub-bass. Strength scales from 0.3 (subtle) to 3.0 (aggressive).
+  5. **Soft-knee compressor** (`acompressor`) — glues the boosted bass into the mix and prevents transient peaks from clipping. Threshold scales from 0.5 (gentle, value=0) down to 0.15 (aggressive, value=100); ratio scales from 2:1 to 5:1. Attack 10 ms, release 200 ms, makeup +1.1×, knee 4 dB.
+  6. **True-peak limiter** (`alimiter`) — final safety net at -1 dB (-0.89 linear), 5 ms attack, 50 ms release. Guarantees no clipping and no dotty noise at any value, even 100.
+- **Value mapping formula:** `t = value / 100`, then `shelf_gain = 24 × t` dB, `peak_gain = 18 × t` dB, `virtual_strength = 0.3 + 2.7 × t`, `comp_threshold = max(0.05, 0.5 - 0.35 × t)`, `comp_ratio = 2.0 + 3.0 × t`.
+- **Audio input** → WAV (PCM 24-bit, 48 kHz, stereo). **Video input** → MP4 with video stream copied and audio re-encoded as AAC 256 kbps.
+- **Chaining tip:** combine with `quest volume` (overall loudness) + `quest speed` + `quest pitch` + `quest reverb` for a slowed+reverb+bass-boosted edit.
+
+```
+# Subtle warmth (+6 dB shelf)
+python voder.py quest bassboost 25 "song.wav"
+
+# Strong club bass (+12 dB shelf, +9 dB peak)
+python voder.py quest bassboost 50 "song.wav"
+
+# Maximum sub-destroyer (+24 dB shelf, +18 dB peak, full limiter engaged)
+python voder.py quest bassboost 100 "song.wav"
+
+# Bass boost a video's audio (video preserved, audio gets boosted)
+python voder.py quest bassboost 70 "clip.mp4"
+
+# Save result to a specific path
+python voder.py quest bassboost 50 "song.wav" result "./bass.wav"
+
+# Refused inputs:
+# python voder.py quest bassboost 0 "song.wav"   # ERROR: must be 1-100
+# python voder.py quest bassboost 101 "song.wav" # ERROR: must be 1-100
+# python voder.py quest bassboost abc "song.wav" # ERROR: must be an integer
+```
+
+### 9.12 `speed`
 
 | Argument | Description |
 |----------|-------------|
@@ -2030,7 +2072,7 @@ python voder.py quest speed 2.00 "song.wav" result "./slowed.wav"
 # python voder.py quest speed 2.00 "video.mp4"   # ERROR: audio files only
 ```
 
-### 9.12 `pitch`
+### 9.13 `pitch`
 
 | Argument | Description |
 |----------|-------------|
@@ -2051,7 +2093,7 @@ python voder.py quest speed 2.00 "song.wav" result "./slowed.wav"
 - `quest speed 2.00` → 2× slower, same pitch (tempo change, pitch preserved)
 - `quest pitch 0.50` → 1 octave down, same duration (pitch change, tempo preserved)
 - Combined (`speed 2.00` → `pitch 0.50`) → 2× slower AND 1 octave down = classic slowed+reverb character
-- Add `quest volume` before for a bass-boosted slowed+reverb, or `quest fade` after for a cinematic intro/outro.
+- Add `quest volume` (overall loudness) and `quest bassboost` (low-end punch) before for a louder, bass-boosted slowed+reverb, or `quest fade` after for a cinematic intro/outro.
 
 ```
 # Monster / demon voice (1 octave down)
@@ -2082,7 +2124,7 @@ python voder.py quest pitch 0.50 "voice.wav" result "./demon.wav"
 # python voder.py quest pitch abc "voice.wav"   # ERROR: must be a number
 ```
 
-### 9.13 `glue`
+### 9.14 `glue`
 
 | Argument | Description |
 |----------|-------------|
@@ -2103,7 +2145,7 @@ python voder.py quest pitch 0.50 "voice.wav" result "./demon.wav"
   - video+video (no audio to glue onto — use `quest noframes` on one of them first).
 - Output is MP4 (H.264 video, AAC 256 kbps audio, CRF 20, medium preset, +faststart for streaming). Output naming: `voder_quest_glue_<audio-name>_onto_<video-name>_<timestamp>.mp4`.
 
-**Chain pattern:** A common chain is `volume` → `speed` → `pitch` → `glue`. For example, take a song, bass-boost it, slow it down, pitch it down, then glue the result back onto the original music video — you get a "slowed+reverb+bass-boosted" version of the video without re-recording anything.
+**Chain pattern:** A common chain is `volume` → `bassboost` → `speed` → `pitch` → `glue`. For example, take a song, make it louder, bass-boost it, slow it down, pitch it down, then glue the result back onto the original music video — you get a "slowed+reverb+bass-boosted" version of the video without re-recording anything.
 
 ```
 # Glue a new audio track onto a video (audio replaces the original)
@@ -2128,7 +2170,7 @@ python voder.py quest glue "audio.wav" "video.mp4" result "./final.mp4"
 # python voder.py quest glue "only_one.wav"                         # ERROR: needs two arguments
 ```
 
-### 9.14 `reverb`
+### 9.15 `reverb`
 
 | Argument | Description |
 |----------|-------------|
@@ -2162,10 +2204,10 @@ python voder.py quest glue "audio.wav" "video.mp4" result "./final.mp4"
 **Chain pattern for the full demon-cathedral slowed+reverb edit:**
 
 ```
-volume → speed → pitch → reverb → glue (back onto the original video)
+volume → bassboost → speed → pitch → reverb → glue (back onto the original video)
 ```
 
-For example: take a song, bass-boost it, slow it down 2×, pitch it down 1 octave, drown it in cathedral reverb, then glue the result back onto the original music video.
+For example: take a song, make it louder, bass-boost it, slow it down 2×, pitch it down 1 octave, drown it in cathedral reverb, then glue the result back onto the original music video.
 
 ```
 # Barely-there small room (subtle glue on a dry recording)
@@ -2186,13 +2228,14 @@ python voder.py quest reverb 80 "https://youtube.com/watch?v=..."
 # Save result to a specific path
 python voder.py quest reverb 50 "voice.wav" result "./wet.wav"
 
-# Full slowed+reverb chain (bass boost → slow → pitch down → reverb → glue onto video)
+# Full slowed+reverb chain (loudness → bass boost → slow → pitch down → reverb → glue onto video)
 python voder.py chains \
-  "boost"  quest volume 300 "song.wav" / \
-  "slow"   quest speed 2.00 boost / \
-  "deep"   quest pitch 0.50 slow / \
-  "wet"    quest reverb 85 deep / \
-  "final"  quest glue wet "music_video.mp4" result "./slowed_reverb_demon.mp4"
+  "loud"  quest volume 200 "song.wav" / \
+  "bass"  quest bassboost 70 loud / \
+  "slow"  quest speed 2.00 bass / \
+  "deep"  quest pitch 0.50 slow / \
+  "wet"   quest reverb 85 deep / \
+  "final" quest glue wet "music_video.mp4" result "./slowed_reverb_demon.mp4"
 
 # Refused inputs:
 # python voder.py quest reverb 0 "voice.wav"     # ERROR: must be 1-100 (0 is a no-op)
