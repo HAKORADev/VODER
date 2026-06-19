@@ -1664,6 +1664,7 @@ python voder.py quest <quest-name> [quest args...] [result "<path>"]
 | `speed` | Professional time-stretch (rubberband, formant-preserved) on a 0.25–10.00 scale. Audio files only. | `voder_quest_speed_x<value>_<name>_<timestamp>.wav` |
 | `pitch` | Professional pitch shift (rubberband, formant-shifted) on a 0.01–10.00 scale. Audio output only. Accepts local audio / video / URL. | `voder_quest_pitch_p<value>_<name>_<timestamp>.wav` |
 | `glue` | Glue an audio file onto a video file (or vice versa). Auto-replaces existing audio; pads silence / black frames to match longer stream. Refuses URLs and same-type pairs. | `voder_quest_glue_<audio>_onto_<video>_<timestamp>.mp4` |
+| `reverb` | Professional Schroeder-style reverb (early reflections + late-reverb tail + pre-delay + air-absorption damping + dynamic normalization + true-peak limiter) on a 1–100 scale. Audio output only. Accepts local audio / video / URL. | `voder_quest_reverb_r<value>_<name>_<timestamp>.wav` |
 
 ### 9.1 `download`
 
@@ -2125,6 +2126,80 @@ python voder.py quest glue "audio.wav" "video.mp4" result "./final.mp4"
 # python voder.py quest glue "a.wav" "b.wav"                        # ERROR: refuses audio+audio
 # python voder.py quest glue "a.mp4" "b.mp4"                        # ERROR: refuses video+video
 # python voder.py quest glue "only_one.wav"                         # ERROR: needs two arguments
+```
+
+### 9.14 `reverb`
+
+| Argument | Description |
+|----------|-------------|
+| `<1-100>` | Reverb amount on an integer 1–100 scale. `1` = barely-there small room, `25` = chamber, `50` = concert hall, `75` = large hall, `100` = cathedral-drenched. Must be an integer (no decimals). |
+| `"<input>"` | A LOCAL audio file, LOCAL video file, or YouTube/Bilibili/TikTok URL. For video inputs, only the audio stream is read (video frames are dropped). For URLs, the audio is downloaded via yt-dlp before processing and the temp file is cleaned up after. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- **Professional algorithmic reverb** built in the classic Schroeder topology — the same architecture used by pro studio reverbs before convolution took over. Freeverb is not compiled into this build of FFmpeg, so the reverb is constructed from FFmpeg's `aecho` (multi-tap delay) plus `adelay` (pre-delay), `lowpass` (air-absorption damping), `acompressor` (peak control), `dynaudnorm` (dynamic normalization), and `alimiter` (true-peak limiter).
+- **Filter chain (in order):**
+  1. `highpass=f=60` — removes sub-60 Hz rumble for a clean input.
+  2. `adelay=<predelay>|<predelay>:all=1` — pre-delay scales linearly from 5 ms (small room) to 80 ms (cathedral). Pre-delay separates the dry signal from the reverb tail, which is what gives big reverbs their clarity (the dry vocal cuts through first, then the tail blooms).
+  3. `aecho` (early reflections) — 5 taps at 18, 27, 36, 46, 58 ms with decays 0.10–0.40 scaling with the value. These are the early reflections that give the brain its spatial cue (room size).
+  4. `aecho` (late reverb tail) — 7 taps at 61, 73, 89, 103, 127, 151, 181 ms with decays 0.15–0.55 scaling with the value. These produce the diffuse "wash" that's the actual reverb tail.
+  5. `lowpass=f=<cutoff>` — air-absorption damping. Cutoff scales from 6 kHz (small room — surfaces absorb HF, sounds tighter) to 13 kHz (cathedral — hard reflective surfaces preserve HF, sounds washy and bright).
+  6. `acompressor` — soft-knee compressor (threshold and ratio scale with the value) to keep peaks under control when the reverb builds up.
+  7. `dynaudnorm=f=200:g=15:p=0.95` — dynamic audio normalization. Works at any input level (unlike `loudnorm` with `linear=true`, which fails on quiet signals). Keeps the output at a consistent perceived loudness regardless of the reverb amount.
+  8. `alimiter=limit=0.95:attack=5:release=50` — true-peak limiter as the final safety net. No clipping is possible past this stage.
+- **Output:** WAV (PCM 24-bit, 48 kHz, stereo) for maximum fidelity. The output filename includes the value: `voder_quest_reverb_r<value>_<name>_<timestamp>.wav`.
+- **Audio output only.** Video inputs are accepted but only the audio stream is processed (video frames are dropped). To put reverbed audio back onto a video, chain with `quest glue`.
+
+**What reverb is NOT:**
+
+- Reverb is its own effect, independent of pitch and time-stretch. It simulates sound bouncing around a physical space (room, hall, cathedral) — adds decaying reflections after each sound event. No pitch change, no tempo change.
+- `quest speed 2.00` alone = 2× slower, same pitch (tempo change).
+- `quest pitch 0.50` alone = 1 octave down, same duration (pitch change).
+- `quest reverb 100` alone = cathedral-drenched, same pitch and tempo (space change).
+- The "slowed+reverb" genre chains all three: `speed` (slower) + `pitch` (lower) + `reverb` (spacey).
+
+**Chain pattern for the full demon-cathedral slowed+reverb edit:**
+
+```
+volume → speed → pitch → reverb → glue (back onto the original video)
+```
+
+For example: take a song, bass-boost it, slow it down 2×, pitch it down 1 octave, drown it in cathedral reverb, then glue the result back onto the original music video.
+
+```
+# Barely-there small room (subtle glue on a dry recording)
+python voder.py quest reverb 5 "voice.wav"
+
+# Concert hall (classic lush reverb for vocals)
+python voder.py quest reverb 50 "voice.wav"
+
+# Cathedral-drenched (full ambient wash)
+python voder.py quest reverb 100 "voice.wav"
+
+# Reverb audio extracted from a video (video frames dropped)
+python voder.py quest reverb 75 "clip.mp4"
+
+# Reverb a YouTube URL (audio is downloaded first)
+python voder.py quest reverb 80 "https://youtube.com/watch?v=..."
+
+# Save result to a specific path
+python voder.py quest reverb 50 "voice.wav" result "./wet.wav"
+
+# Full slowed+reverb chain (bass boost → slow → pitch down → reverb → glue onto video)
+python voder.py chains \
+  "boost"  quest volume 300 "song.wav" / \
+  "slow"   quest speed 2.00 boost / \
+  "deep"   quest pitch 0.50 slow / \
+  "wet"    quest reverb 85 deep / \
+  "final"  quest glue wet "music_video.mp4" result "./slowed_reverb_demon.mp4"
+
+# Refused inputs:
+# python voder.py quest reverb 0 "voice.wav"     # ERROR: must be 1-100 (0 is a no-op)
+# python voder.py quest reverb 101 "voice.wav"   # ERROR: must be 1-100
+# python voder.py quest reverb 50.5 "voice.wav"  # ERROR: must be an integer
+# python voder.py quest reverb abc "voice.wav"   # ERROR: must be an integer
+# python voder.py quest reverb 50                # ERROR: needs an input
 ```
 
 ---
