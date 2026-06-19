@@ -731,7 +731,7 @@ VODER leverages state-of-the-art open-source models for professional-grade audio
 
 ### GUI Mode
 
-1. Launch: `python src/voder.py`
+1. Launch: `python src/voder.py gui`
 2. Select mode from dropdown (8 available modes)
 3. Load input files based on mode:
    - **TTS:** Enter dialogue row‑by‑row in the script area, and fill the automatically generated voice prompts for each character. Use the `target` field for voice cloning from a reference audio file, or leave blank for voice design from a text prompt. Optionally set a `language` parameter for TTS output language. YouTube URLs are accepted as voice prompts for cloning.

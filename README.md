@@ -98,8 +98,11 @@ Paste a **YouTube, Bilibili, or TikTok URL** directly as input — VODER downloa
 git clone https://github.com/HAKORADev/VODER.git && cd VODER
 pip install -r requirements.txt && pip install --upgrade protobuf==5.29.6
 
-# GUI
+# Help
 python src/voder.py
+
+# GUI
+python src/voder.py gui
 
 # CLI (interactive)
 python src/voder.py cli

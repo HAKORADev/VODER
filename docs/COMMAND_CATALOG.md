@@ -9,8 +9,9 @@
 
 ```
 python voder.py <mode> [keyword] [value] [keyword] [value] ...
+python voder.py gui              # launch GUI
 python voder.py cli              # interactive CLI mode (no oneline commands)
-python voder.py                  # launch GUI (no commands)
+python voder.py                  # show help message
 ```
 
 ---

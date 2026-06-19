@@ -15913,6 +15913,10 @@ def parse_and_execute_oneline(args):
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
+        if sys.argv[1] == "gui" and len(sys.argv) == 2:
+            import gui
+            gui.launch()
+            sys.exit(0)
         if sys.argv[1] == "cli" and len(sys.argv) == 2:
             interactive_cli_mode()
             sys.exit(0)
@@ -15922,5 +15926,18 @@ if __name__ == "__main__":
         if len(sys.argv) > arg_offset:
             result = parse_and_execute_oneline(sys.argv[arg_offset:])
             sys.exit(0 if result else 1)
-    import gui
-    gui.launch()
+    print("VODER — Local voice processing toolkit")
+    print("=" * 60)
+    print()
+    print("Usage:")
+    print("  python voder.py                       Show this help message")
+    print("  python voder.py gui                   Launch the GUI")
+    print("  python voder.py cli                   Interactive CLI mode")
+    print("  python voder.py <mode> [args...]      Run a one-line command")
+    print()
+    print("Available modes: tts, sts, ttm, stt, se, sfx, svs, ss, train")
+    print()
+    print("Run 'python voder.py <mode>' with no further args for mode-specific help,")
+    print("or see docs/COMMAND_CATALOG.md for the full reference.")
+    print()
+    print("Documentation: https://github.com/HAKORADev/VODER")
