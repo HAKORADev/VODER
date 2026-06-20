@@ -56,6 +56,7 @@ BITRATE_FORMATS = {'mp3', 'ogg', 'oga', 'opus', 'aac', 'm4a', 'mp4', 'wma', 'asf
 
 class Quest(SideQuest):
     name = 'convert'
+    category = 'Media Manipulation'
     description = 'Convert a local audio file to any other audio format (wav, mp3, flac, ogg, opus, aac, m4a, wma, aiff, ac3, amr, au, gsm, tta, wv, ape, mpc, mp2, mka, caf, dsf, dff, sph, sln, raw, ...). Same-format just copies.'
 
     def parse(self, args):

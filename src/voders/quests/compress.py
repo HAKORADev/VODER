@@ -24,6 +24,7 @@ LOSSLESS_FORMATS = {'wav', 'flac', 'aiff', 'aif', 'aifc', 'amb', 'au', 'snd', 'c
 
 class Quest(SideQuest):
     name = 'compress'
+    category = 'Media Manipulation'
     description = 'Compress an audio file at level 1 (low), 2 (default), or 3 (highest). Lower bitrates for lossy formats, lower bit-depth/sample-rate for lossless.'
 
     def parse(self, args):

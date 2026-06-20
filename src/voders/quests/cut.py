@@ -28,6 +28,7 @@ def _to_seconds(token):
 
 class Quest(SideQuest):
     name = 'cut'
+    category = 'Media Manipulation'
     description = 'Extract a time range from a local audio/video file as a WAV. Syntax: quest cut <start>-<end> <path>  (seconds, e.g. 20-40 or 1:30-2:15).'
 
     def parse(self, args):

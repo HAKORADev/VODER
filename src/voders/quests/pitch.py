@@ -22,6 +22,7 @@ def _decompose_pitch(target):
 
 class Quest(SideQuest):
     name = 'pitch'
+    category = 'Media Manipulation'
     description = 'Professional pitch shift (rubberband, formant-shifted for that tape/vinyl character). Range 0.01-10.00 in 0.01 steps (1.00 is a no-op). 0.50 = -1 octave (monster/demon), 2.00 = +1 octave (baby/chipmunk), 0.01 = extreme deep, 10.00 = extreme high. Extreme ranges outside 0.50-2.00 are split into multiple one-octave passes for clean output. Audio output only. Accepts local audio, local video, and YouTube/Bilibili/TikTok URLs. Chain with quest speed for Spotify-style slowed+reverb. Syntax: quest pitch <0.01-10.00> "<audio|video|URL>".'
 
     def parse(self, args):

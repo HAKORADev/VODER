@@ -8,6 +8,7 @@ from voders.sidequests import SideQuest, _register_side_quest
 
 class Quest(SideQuest):
     name = 'silence'
+    category = 'Media Manipulation'
     description = 'Strip silent gaps from a local audio/video file and produce a continuous-speech WAV. Useful as a chain step before svs/stt to get tight, gap-free speech.'
 
     def parse(self, args):

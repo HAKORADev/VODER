@@ -8,6 +8,7 @@ from voders.sidequests import SideQuest, _register_side_quest
 
 class Quest(SideQuest):
     name = 'noframes'
+    category = 'Media Manipulation'
     description = 'Extract audio from a LOCAL VIDEO file. Refuses URLs and audio-only files.'
 
     def parse(self, args):

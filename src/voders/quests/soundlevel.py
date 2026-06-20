@@ -10,18 +10,19 @@ VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm', '.m4v', '.3
 
 
 class Quest(SideQuest):
-    name = 'volume'
-    description = 'Pure linear volume gain. Scale 1-1000: every 100 means +100% amplitude (100 = 2x, 200 = 3x, 1000 = 11x). Affects all frequencies equally. No bass boost, no compression, no loudness normalization. Syntax: quest volume <1-1000> <local-audio-or-video-path>.'
+    name = 'soundlevel'
+    category = 'Media Manipulation'
+    description = 'Linear sound-level multiplier. 1.00 = original, 0.01 = 1% of original, 0.25 = 25% of original, 1.99 = +99% louder, 10.00 = 10x louder. Affects all frequencies equally (no EQ, no compression, no loudness normalization). Syntax: quest soundlevel <0.01-10.00> <local-audio-or-video-path>.'
 
     def parse(self, args):
         if len(args) != 2:
-            return None, "quest volume takes exactly two arguments: <1-1000> <local-audio-or-video-path>"
+            return None, "quest soundlevel takes exactly two arguments: <0.01-10.00> <local-audio-or-video-path>"
         try:
-            value = int(args[0])
+            value = float(args[0])
         except ValueError:
-            return None, f"first argument must be an integer 1-1000 (got '{args[0]}')"
-        if not (1 <= value <= 1000):
-            return None, f"volume value must be between 1 and 1000 (got {value})"
+            return None, f"first argument must be a number 0.01-10.00 (got '{args[0]}')"
+        if not (0.01 <= value <= 10.00):
+            return None, f"soundlevel multiplier must be between 0.01 and 10.00 (got {value})"
         path = args[1]
         if not os.path.exists(path):
             return None, f"input file not found: {path}"
@@ -36,11 +37,11 @@ class Quest(SideQuest):
         original_name = os.path.splitext(os.path.basename(path))[0]
         safe_name = re.sub(r'[^A-Za-z0-9_\-]', '_', original_name)[:60] or 'input'
 
-        linear_gain = 1.0 + (value / 100.0)
-        af = f"volume={linear_gain:.3f}"
+        af = f"volume={value:.3f}"
+        value_tag = f"{value:.2f}".replace('.', 'p')
 
         if is_video:
-            out_name = f"voder_quest_volume_v{value}_{safe_name}_{timestamp}.mp4"
+            out_name = f"voder_quest_soundlevel_x{value_tag}_{safe_name}_{timestamp}.mp4"
             out_path = os.path.join(results_dir, out_name)
             cmd = [
                 'ffmpeg', '-y', '-i', path,
@@ -51,7 +52,7 @@ class Quest(SideQuest):
                 out_path,
             ]
         else:
-            out_name = f"voder_quest_volume_v{value}_{safe_name}_{timestamp}.wav"
+            out_name = f"voder_quest_soundlevel_x{value_tag}_{safe_name}_{timestamp}.wav"
             out_path = os.path.join(results_dir, out_name)
             cmd = [
                 'ffmpeg', '-y', '-i', path,
@@ -61,11 +62,11 @@ class Quest(SideQuest):
             ]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if not os.path.exists(out_path) or r.returncode != 0:
-            print(f"Error: ffmpeg failed to apply volume gain")
+            print(f"Error: ffmpeg failed to apply soundlevel multiplier")
             if r.stderr:
                 print(r.stderr[-800:])
             return False
-        print(f"Quest volume (value={value}, linear x{linear_gain:.2f}) complete: {out_path}")
+        print(f"Quest soundlevel (x{value:.2f}) complete: {out_path}")
         if result_path:
             try:
                 shutil.copy2(out_path, result_path)

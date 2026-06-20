@@ -11,6 +11,7 @@ VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm', '.m4v', '.3
 
 class Quest(SideQuest):
     name = 'reverse'
+    category = 'Media Manipulation'
     description = 'Reverse a local audio OR video file. Audio-only inputs produce a reversed WAV; video inputs produce a reversed MP4 (frames and audio both flipped).'
 
     def parse(self, args):

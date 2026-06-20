@@ -12,6 +12,7 @@ if _SRC_DIR not in sys.path:
 
 class SideQuest:
     name = None
+    category = None
     description = ""
 
     def parse(self, args):
@@ -60,15 +61,36 @@ def list_available_quests():
         print()
         print("Drop a new quest file into src/voders/quests/ to add one.")
         return
-    print("Available side-quests:")
-    print()
-    max_name = max(len(name) for name in SIDE_QUESTS.keys())
+
+    uncategorized = []
+    by_category = {}
     for name in sorted(SIDE_QUESTS.keys()):
         quest = SIDE_QUESTS[name]
-        desc = (quest.description or '').strip() or '(no description)'
-        print(f"  {name:<{max_name}}  -  {desc}")
+        cat = (getattr(quest, 'category', None) or '').strip() or None
+        if cat is None:
+            uncategorized.append(name)
+        else:
+            by_category.setdefault(cat, []).append(name)
+
+    def _print_quest_lines(names):
+        max_name = max(len(n) for n in names) if names else 0
+        for name in names:
+            quest = SIDE_QUESTS[name]
+            desc = (quest.description or '').strip() or '(no description)'
+            print(f"  {name:<{max_name}}  -  {desc}")
+
+    print("Available side-quests:")
     print()
+    if uncategorized:
+        _print_quest_lines(uncategorized)
+        print()
+    for cat in sorted(by_category.keys()):
+        names = by_category[cat]
+        print(f"{cat}:")
+        _print_quest_lines(names)
+        print()
     print("Usage:  python voder.py quest <name> [args...]")
+    print("(Side-quests in a category can be used directly by name — no prefix needed.)")
 
 
 def oneline_quest(params):

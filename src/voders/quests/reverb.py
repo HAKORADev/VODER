@@ -8,6 +8,7 @@ from voders.sidequests import SideQuest, _register_side_quest
 
 class Quest(SideQuest):
     name = 'reverb'
+    category = 'Media Manipulation'
     description = 'Professional Schroeder-style reverb (early reflections + late-reverb tail + pre-delay + air-absorption damping + compressor + dynamic normalization + true-peak limiter) on a 1-100 scale. 1 = barely-there small room, 25 = chamber, 50 = concert hall, 75 = large hall, 100 = cathedral-drenched. Audio output only. Accepts local audio, local video, and YouTube/Bilibili/TikTok URLs. Chain with quest speed + quest pitch for the full demon-cathedral slowed+reverb edit. Syntax: quest reverb <1-100> "<audio|video|URL>".'
 
     def parse(self, args):

@@ -54,7 +54,7 @@ The 3 task-layer features:
 | [6. SFX](#6-sfx--sound-effects-generation) | Sound effects |
 | [7. SVS](#7-svs--song-voice-separate) | Vocal/instrument separation |
 | [8. SS](#8-ss--speakers-separator) | Speaker extraction & separation |
-| [9. quest](#9-quest--side-quests) | Side-quests (utility tasks): download, noframes, convert, cut, merge, speed, pitch, reverb, ... |
+| [9. quest](#9-quest--side-quests) | Side-quests (utility tasks) grouped into Media Manipulation (convert, cut, remove, merge, silence, reverse, fade, soundlevel, bassboost, speed, pitch, glue, reverb, loudnorm, noframes) plus standalone `download`. |
 | [10. chains](#10-chains--user-defined-pipelines) | Compose multiple voder oneline tasks into a pipeline |
 | [Input Types](#input-types) | Supported file & URL formats |
 | [Output](#output) | Output directory & naming |
@@ -1649,23 +1649,27 @@ python voder.py quest <quest-name> [quest args...] [result "<path>"]
 
 ### Available quests
 
-| Quest | Description | Output naming |
-|-------|-------------|---------------|
-| `download` | Download a URL as audio (default) or video (`video` keyword). Also accepts local file paths (copies them). | `voder_quest_download_<original-name>_<timestamp>.<ext>` |
-| `noframes` | Extract audio from a LOCAL VIDEO file. Refuses URLs and audio-only files. | `voder_quest_noframes_<original-name>_<timestamp>.wav` |
-| `convert` | Convert a local audio file to any other audio format (40+ formats). Same-format just copies. | `voder_quest_convert_<name>_<timestamp>.<format>` |
-| `compress` | Compress an audio file at level 1 (low), 2 (default), or 3 (highest). | `voder_quest_compress_L<level>_<name>_<timestamp>.<ext>` |
-| `cut` | Extract a time range from a local audio/video file as a WAV. | `voder_quest_cut_<name>_<start>s-<end>s_<timestamp>.wav` |
-| `merge` | Concatenate two or more local audio files end-to-end (no upper limit). | `voder_quest_merge_<joined-names>_<timestamp>.wav` |
-| `silence` | Strip silent gaps from a local audio/video file → continuous-speech WAV. | `voder_quest_silence_<name>_<timestamp>.wav` |
-| `reverse` | Reverse a local audio OR video file (frames + audio both flipped for video). | `voder_quest_reverse_<name>_<timestamp>.{wav,mp4}` |
-| `fade` | Apply a cinematic 5s fade-in/out (not silence-based; rising gain). | `voder_quest_fade_<name>_<timestamp>.{wav,mp4}` |
-| `volume` | Pure linear volume gain on a 1–1000 scale (100 = 2×, 1000 = 11×). Affects all frequencies equally. No bass boost, no compression, no loudness normalization. | `voder_quest_volume_v<value>_<name>_<timestamp>.{wav,mp4}` |
-| `bassboost` | Professional multi-band bass booster (low frequencies only) on a 1–100 scale (1 = subtle warmth, 100 = +24 dB sub-destroyer). Mids and highs left untouched. | `voder_quest_bassboost_v<value>_<name>_<timestamp>.{wav,mp4}` |
-| `speed` | Professional time-stretch (rubberband, formant-preserved) on a 0.25–10.00 scale. Audio files only. | `voder_quest_speed_x<value>_<name>_<timestamp>.wav` |
-| `pitch` | Professional pitch shift (rubberband, formant-shifted) on a 0.01–10.00 scale. Audio output only. Accepts local audio / video / URL. | `voder_quest_pitch_p<value>_<name>_<timestamp>.wav` |
-| `glue` | Glue an audio file onto a video file (or vice versa). Auto-replaces existing audio; pads silence / black frames to match longer stream. Refuses URLs and same-type pairs. | `voder_quest_glue_<audio>_onto_<video>_<timestamp>.mp4` |
-| `reverb` | Professional Schroeder-style reverb (early reflections + late-reverb tail + pre-delay + air-absorption damping + dynamic normalization + true-peak limiter) on a 1–100 scale. Audio output only. Accepts local audio / video / URL. | `voder_quest_reverb_r<value>_<name>_<timestamp>.wav` |
+Side-quests are grouped by category in the `quest` listing. `download` stands alone; the rest form a single **Media Manipulation** category. The category is purely organizational — every side-quest is still called by its unique name (`quest <name> ...`), with no prefix.
+
+| Quest | Category | Description | Output naming |
+|-------|----------|-------------|---------------|
+| `download` | — | Download a URL as audio (default) or video (`video` keyword). Also accepts local file paths (copies them). | `voder_quest_download_<original-name>_<timestamp>.<ext>` |
+| `noframes` | Media Manipulation | Extract audio from a LOCAL VIDEO file. Refuses URLs and audio-only files. | `voder_quest_noframes_<original-name>_<timestamp>.wav` |
+| `convert` | Media Manipulation | Convert a local audio file to any other audio format (40+ formats). Same-format just copies. | `voder_quest_convert_<name>_<timestamp>.<format>` |
+| `compress` | Media Manipulation | Compress an audio file at level 1 (low), 2 (default), or 3 (highest). | `voder_quest_compress_L<level>_<name>_<timestamp>.<ext>` |
+| `cut` | Media Manipulation | Extract a time range from a local audio/video file as a WAV. | `voder_quest_cut_<name>_<start>s-<end>s_<timestamp>.wav` |
+| `remove` | Media Manipulation | Inverse of `cut`: remove one or more time ranges from a local audio/video file, keeping the rest. Multi-range supported; overlapping ranges are merged. | `voder_quest_remove_<name>_<ranges>_<timestamp>.{wav,mp4}` |
+| `merge` | Media Manipulation | Concatenate two or more local audio files end-to-end (no upper limit). | `voder_quest_merge_<joined-names>_<timestamp>.wav` |
+| `silence` | Media Manipulation | Strip silent gaps from a local audio/video file → continuous-speech WAV. | `voder_quest_silence_<name>_<timestamp>.wav` |
+| `reverse` | Media Manipulation | Reverse a local audio OR video file (frames + audio both flipped for video). | `voder_quest_reverse_<name>_<timestamp>.{wav,mp4}` |
+| `fade` | Media Manipulation | Apply a cinematic 5s fade-in/out (not silence-based; rising gain). | `voder_quest_fade_<name>_<timestamp>.{wav,mp4}` |
+| `soundlevel` | Media Manipulation | Linear sound-level multiplier on a 0.01–10.00 scale (1.00 = original, 0.25 = 25%, 2.00 = 2× louder, 10.00 = 10× louder). Affects all frequencies equally. No EQ, no compression, no loudness normalization. | `voder_quest_soundlevel_x<value>_<name>_<timestamp>.{wav,mp4}` |
+| `bassboost` | Media Manipulation | Professional multi-band bass booster (low frequencies only) on a 1–100 scale (1 = subtle warmth, 100 = +24 dB sub-destroyer). Mids and highs left untouched. | `voder_quest_bassboost_v<value>_<name>_<timestamp>.{wav,mp4}` |
+| `speed` | Media Manipulation | Professional time-stretch (rubberband, formant-preserved) on a 0.25–10.00 scale. Audio files only. | `voder_quest_speed_x<value>_<name>_<timestamp>.wav` |
+| `pitch` | Media Manipulation | Professional pitch shift (rubberband, formant-shifted) on a 0.01–10.00 scale. Audio output only. Accepts local audio / video / URL. | `voder_quest_pitch_p<value>_<name>_<timestamp>.wav` |
+| `glue` | Media Manipulation | Glue an audio file onto a video file (or vice versa). Auto-replaces existing audio; pads silence / black frames to match longer stream. Refuses URLs and same-type pairs. | `voder_quest_glue_<audio>_onto_<video>_<timestamp>.mp4` |
+| `reverb` | Media Manipulation | Professional Schroeder-style reverb (early reflections + late-reverb tail + pre-delay + air-absorption damping + dynamic normalization + true-peak limiter) on a 1–100 scale. Audio output only. Accepts local audio / video / URL. | `voder_quest_reverb_r<value>_<name>_<timestamp>.wav` |
+| `loudnorm` | Media Manipulation | EBU R128 perceptual loudness normalization. Analyzes the file, then applies a linear normalization so the whole signal sits at one consistent perceived level (-16 LUFS target, -1.5 dB true-peak limit). No quality loss, no dynamic-range compression. Audio and video supported. | `voder_quest_loudnorm_<name>_<timestamp>.{wav,mp4}` |
 
 ### 9.1 `download`
 
@@ -1826,7 +1830,55 @@ python voder.py quest cut 10-30 "song.wav" result "./clip.wav"
 # python voder.py quest cut abc-5 "song.wav"   # ERROR: not a valid range
 ```
 
-### 9.6 `merge`
+### 9.6 `remove`
+
+| Argument | Description |
+|----------|-------------|
+| `"<start1>-<end1>"` | First time range to remove, in seconds. Also accepts `mm:ss` and `hh:mm:ss`. `start` must be strictly smaller than `end`. |
+| `["<start2>-<end2>" ...]` | (optional) Additional ranges to remove. Any number of ranges can be passed; overlapping ranges are merged automatically so no part is ever cut twice. |
+| `"<input>"` | A LOCAL audio or video file path. URLs are refused — use `quest download` first. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- **Inverse of `cut`:** instead of keeping the requested range and dropping the rest, `remove` drops the requested ranges and keeps the rest. Use it to delete intros, outros, ad breaks, dead air, or any unwanted segments from a file.
+- **Multi-range:** pass any number of `"<start>-<end>"` tokens before the input path. They are parsed, sorted, and merged with a sweep-line algorithm — overlapping or adjacent ranges collapse into a single range so no part of the file is processed twice.
+- **Overlap-merge examples:**
+  - `"5-10" "8-15"` → merged to `5-15` (the overlapping 8-10 section is removed once, not twice).
+  - `"0-5" "3-8" "10-15"` → merged to `0-8, 10-15`.
+  - `"10-20" "5-10"` → merged to `5-20` (out-of-order input is normalized).
+- **File duration is read with `ffprobe`** so the final keep-segment is bounded by the actual file length (no out-of-bounds errors).
+- **Keeps the rest:** after computing the merged cut-ranges, the inverse (the segments to keep) is computed and concatenated with FFmpeg's `concat` filter. Sample-accurate joins, no gaps.
+- **Audio input** → WAV (PCM 24-bit, 48 kHz, stereo). **Video input** → MP4 with video re-encoded as H.264 CRF 18 (visually lossless) and audio as AAC 256 kbps. Both audio and video tracks are cut in lockstep so they stay in sync.
+- The output filename lists the merged cut-ranges: `voder_quest_remove_<name>_<start1>-<end1>s[_<start2>-<end2>s...]_<timestamp>.{wav,mp4}`.
+
+```
+# Remove a single range (e.g. drop an intro from 0-12s)
+python voder.py quest remove "0-12" "song.wav"
+
+# Remove multiple non-overlapping ranges (intro + outro)
+python voder.py quest remove "0-15" "180-200" "song.wav"
+
+# Remove overlapping ranges — auto-merged to 5-15
+python voder.py quest remove "5-10" "8-15" "song.wav"
+
+# Remove from a video (both video and audio are cut in lockstep)
+python voder.py quest remove "0-30" "120-150" "clip.mp4"
+
+# Use mm:ss notation
+python voder.py quest remove "1:00-1:30" "3:15-3:45" "podcast.wav"
+
+# Save result to a specific path
+python voder.py quest remove "10-20" "song.wav" result "./trimmed.wav"
+
+# Refused inputs:
+# python voder.py quest remove "10-5" "song.wav"    # ERROR: start must be smaller than end
+# python voder.py quest remove "abc-5" "song.wav"  # ERROR: not a valid range
+# python voder.py quest remove "0-99999" "song.wav"  # OK: range extends past EOF, gets clipped to file duration
+# python voder.py quest remove "0-100000" "clip.wav"  # If all ranges cover the entire file -> ERROR: nothing would remain
+```
+
+### 9.7 `merge`
 
 | Argument | Description |
 |----------|-------------|
@@ -1859,7 +1911,7 @@ python voder.py quest merge "a.wav" "b.wav" result "./combined.wav"
 # python voder.py quest merge "a.wav" "/nonexistent.wav"    # ERROR: file not found
 ```
 
-### 9.7 `silence`
+### 9.8 `silence`
 
 | Argument | Description |
 |----------|-------------|
@@ -1893,7 +1945,7 @@ python voder.py quest silence "podcast.wav" result "./tight.wav"
 # python voder.py quest silence "in.wav" 95    # ERROR: threshold must be 10-90
 ```
 
-### 9.8 `reverse`
+### 9.9 `reverse`
 
 | Argument | Description |
 |----------|-------------|
@@ -1918,7 +1970,7 @@ python voder.py quest reverse "clip.mp4"
 python voder.py quest reverse "song.wav" result "./backwards.wav"
 ```
 
-### 9.9 `fade`
+### 9.10 `fade`
 
 | Argument | Description |
 |----------|-------------|
@@ -1951,46 +2003,50 @@ python voder.py quest fade "song.wav" 5 result "./cinematic.wav"
 # python voder.py quest fade "song.wav" 100   # ERROR: fade duration must be 0.5-60s
 ```
 
-### 9.10 `volume`
+### 9.11 `soundlevel`
 
 | Argument | Description |
 |----------|-------------|
-| `<1-1000>` | Pure linear gain value. Every 100 means +100% amplitude (so 100 = 2×, 200 = 3×, 1000 = 11×). |
+| `<0.01-10.00>` | Linear sound-level multiplier. `1.00` = original amplitude, `0.01` = 1% of original, `0.25` = 25% of original, `1.99` = +99% louder, `2.00` = 2× louder, `10.00` = 10× louder. |
 | `"<input>"` | A LOCAL audio or video file path. URLs are refused — use `quest download` first. |
 | `result "<path>"` | (optional) Copy the result to a custom path. |
 
 **Behavior:**
 
-- **Pure linear volume gain** — multiplies every sample by the same factor. Affects ALL frequencies equally (bass, mids, highs all get louder together). The frequency spectrum keeps its shape, just gets taller.
+- **Linear sound-level multiplier** — multiplies every sample by the same factor. `1.00` is a no-op; `0.50` halves the amplitude (quietest usable level for typical sources); `2.00` doubles it (+6 dB); `10.00` is the maximum (+20 dB).
+- Affects ALL frequencies equally (bass, mids, highs all get scaled together). The frequency spectrum keeps its shape, just gets taller or shorter.
 - **What it does NOT do:** no bass boost, no treble lift, no compression, no loudness normalization. It is the simplest possible gain stage.
-- **Why use it:** when you just want the audio louder or quieter without changing its tonal character. For tonal shaping use `quest bassboost` (low frequencies) instead.
-- **Chaining tip:** pair with `quest bassboost` for independent control of overall loudness vs low-end punch. Example: `quest volume 200 "song.wav"` then `quest bassboost 50` makes the song 3× louder AND adds +12 dB of bass — two independent dimensions.
+- **Why use it:** when you just want the audio louder or quieter without changing its tonal character. For tonal shaping use `quest bassboost` (low frequencies) or `quest loudnorm` (perceptual loudness target).
+- **Chaining tip:** pair with `quest bassboost` for independent control of overall level vs low-end punch. Example: `quest soundlevel 2.00 "song.wav"` then `quest bassboost 50` makes the song 2× louder AND adds +12 dB of bass — two independent dimensions.
 - **Audio input** → WAV (PCM 24-bit, 48 kHz, stereo). **Video input** → MP4 with video stream copied and audio re-encoded as AAC 256 kbps.
-- **Note on clipping:** pure gain above the headroom of the source will clip. If you hear distortion at high values, follow with `quest bassboost` (which includes a true-peak limiter) or lower the value.
+- **Note on clipping:** pure gain above the headroom of the source will clip. If you hear distortion at values above ~3.00, follow with `quest bassboost` (which includes a true-peak limiter) or lower the value.
 
 ```
-# 2× louder
-python voder.py quest volume 100 "song.wav"
+# 2× louder (+6 dB)
+python voder.py quest soundlevel 2.00 "song.wav"
 
-# 6× louder
-python voder.py quest volume 500 "song.wav"
+# 10× louder (+20 dB, max)
+python voder.py quest soundlevel 10.00 "song.wav"
 
-# 11× louder (max)
-python voder.py quest volume 1000 "song.wav"
+# Half volume (-6 dB)
+python voder.py quest soundlevel 0.50 "song.wav"
+
+# 25% volume (very quiet)
+python voder.py quest soundlevel 0.25 "song.wav"
 
 # Make a video's audio louder (video preserved, audio re-encoded as AAC 256k)
-python voder.py quest volume 250 "clip.mp4"
+python voder.py quest soundlevel 2.50 "clip.mp4"
 
 # Save result to a specific path
-python voder.py quest volume 100 "song.wav" result "./louder.wav"
+python voder.py quest soundlevel 2.00 "song.wav" result "./louder.wav"
 
 # Refused inputs:
-# python voder.py quest volume 0 "song.wav"     # ERROR: must be 1-1000
-# python voder.py quest volume 1001 "song.wav"  # ERROR: must be 1-1000
-# python voder.py quest volume abc "song.wav"   # ERROR: must be an integer
+# python voder.py quest soundlevel 0.005 "song.wav"  # ERROR: must be 0.01-10.00
+# python voder.py quest soundlevel 11 "song.wav"     # ERROR: must be 0.01-10.00
+# python voder.py quest soundlevel abc "song.wav"    # ERROR: must be a number
 ```
 
-### 9.11 `bassboost`
+### 9.12 `bassboost`
 
 | Argument | Description |
 |----------|-------------|
@@ -2000,7 +2056,7 @@ python voder.py quest volume 100 "song.wav" result "./louder.wav"
 
 **Behavior:**
 
-- **Professional multi-band bass booster** — selectively boosts LOW frequencies only (20–250 Hz). Mids and highs are left untouched. The frequency spectrum's SHAPE changes (bass gets fatter relative to the rest), unlike `quest volume` which scales everything equally.
+- **Professional multi-band bass booster** — selectively boosts LOW frequencies only (20–250 Hz). Mids and highs are left untouched. The frequency spectrum's SHAPE changes (bass gets fatter relative to the rest), unlike `quest soundlevel` which scales everything equally.
 - **Signal chain** (6 stages, all designed to avoid dotty/buzzy artifacts):
   1. **Sub-sonic highpass** (`highpass=f=30`) — removes inaudible sub-30 Hz rumble that would otherwise eat headroom and trigger the compressor/limiter needlessly.
   2. **Low-shelf boost** (`bass` filter) — main bass boost at 80 Hz corner, 80 Hz width. Gain scales linearly from 0 dB (value=0) to +24 dB (value=100).
@@ -2010,7 +2066,7 @@ python voder.py quest volume 100 "song.wav" result "./louder.wav"
   6. **True-peak limiter** (`alimiter`) — final safety net at -1 dB (-0.89 linear), 5 ms attack, 50 ms release. Guarantees no clipping and no dotty noise at any value, even 100.
 - **Value mapping formula:** `t = value / 100`, then `shelf_gain = 24 × t` dB, `peak_gain = 18 × t` dB, `virtual_strength = 0.3 + 2.7 × t`, `comp_threshold = max(0.05, 0.5 - 0.35 × t)`, `comp_ratio = 2.0 + 3.0 × t`.
 - **Audio input** → WAV (PCM 24-bit, 48 kHz, stereo). **Video input** → MP4 with video stream copied and audio re-encoded as AAC 256 kbps.
-- **Chaining tip:** combine with `quest volume` (overall loudness) + `quest speed` + `quest pitch` + `quest reverb` for a slowed+reverb+bass-boosted edit.
+- **Chaining tip:** combine with `quest soundlevel` (overall loudness) + `quest speed` + `quest pitch` + `quest reverb` for a slowed+reverb+bass-boosted edit. For automatic broadcast-level loudness, finish with `quest loudnorm`.
 
 ```
 # Subtle warmth (+6 dB shelf)
@@ -2034,7 +2090,7 @@ python voder.py quest bassboost 50 "song.wav" result "./bass.wav"
 # python voder.py quest bassboost abc "song.wav" # ERROR: must be an integer
 ```
 
-### 9.12 `speed`
+### 9.13 `speed`
 
 | Argument | Description |
 |----------|-------------|
@@ -2072,7 +2128,7 @@ python voder.py quest speed 2.00 "song.wav" result "./slowed.wav"
 # python voder.py quest speed 2.00 "video.mp4"   # ERROR: audio files only
 ```
 
-### 9.13 `pitch`
+### 9.14 `pitch`
 
 | Argument | Description |
 |----------|-------------|
@@ -2093,7 +2149,7 @@ python voder.py quest speed 2.00 "song.wav" result "./slowed.wav"
 - `quest speed 2.00` → 2× slower, same pitch (tempo change, pitch preserved)
 - `quest pitch 0.50` → 1 octave down, same duration (pitch change, tempo preserved)
 - Combined (`speed 2.00` → `pitch 0.50`) → 2× slower AND 1 octave down = classic slowed+reverb character
-- Add `quest volume` (overall loudness) and `quest bassboost` (low-end punch) before for a louder, bass-boosted slowed+reverb, or `quest fade` after for a cinematic intro/outro.
+- Add `quest soundlevel` (overall loudness) and `quest bassboost` (low-end punch) before for a louder, bass-boosted slowed+reverb, or `quest fade` after for a cinematic intro/outro.
 
 ```
 # Monster / demon voice (1 octave down)
@@ -2124,7 +2180,7 @@ python voder.py quest pitch 0.50 "voice.wav" result "./demon.wav"
 # python voder.py quest pitch abc "voice.wav"   # ERROR: must be a number
 ```
 
-### 9.14 `glue`
+### 9.15 `glue`
 
 | Argument | Description |
 |----------|-------------|
@@ -2145,7 +2201,7 @@ python voder.py quest pitch 0.50 "voice.wav" result "./demon.wav"
   - video+video (no audio to glue onto — use `quest noframes` on one of them first).
 - Output is MP4 (H.264 video, AAC 256 kbps audio, CRF 20, medium preset, +faststart for streaming). Output naming: `voder_quest_glue_<audio-name>_onto_<video-name>_<timestamp>.mp4`.
 
-**Chain pattern:** A common chain is `volume` → `bassboost` → `speed` → `pitch` → `glue`. For example, take a song, make it louder, bass-boost it, slow it down, pitch it down, then glue the result back onto the original music video — you get a "slowed+reverb+bass-boosted" version of the video without re-recording anything.
+**Chain pattern:** A common chain is `soundlevel` → `bassboost` → `speed` → `pitch` → `glue`. For example, take a song, make it louder, bass-boost it, slow it down, pitch it down, then glue the result back onto the original music video — you get a "slowed+reverb+bass-boosted" version of the video without re-recording anything. Finish with `quest loudnorm` if you want broadcast-standard perceptual loudness.
 
 ```
 # Glue a new audio track onto a video (audio replaces the original)
@@ -2170,7 +2226,7 @@ python voder.py quest glue "audio.wav" "video.mp4" result "./final.mp4"
 # python voder.py quest glue "only_one.wav"                         # ERROR: needs two arguments
 ```
 
-### 9.15 `reverb`
+### 9.16 `reverb`
 
 | Argument | Description |
 |----------|-------------|
@@ -2204,7 +2260,7 @@ python voder.py quest glue "audio.wav" "video.mp4" result "./final.mp4"
 **Chain pattern for the full demon-cathedral slowed+reverb edit:**
 
 ```
-volume → bassboost → speed → pitch → reverb → glue (back onto the original video)
+soundlevel → bassboost → speed → pitch → reverb → glue (back onto the original video)
 ```
 
 For example: take a song, make it louder, bass-boost it, slow it down 2×, pitch it down 1 octave, drown it in cathedral reverb, then glue the result back onto the original music video.
@@ -2230,7 +2286,7 @@ python voder.py quest reverb 50 "voice.wav" result "./wet.wav"
 
 # Full slowed+reverb chain (loudness → bass boost → slow → pitch down → reverb → glue onto video)
 python voder.py chains \
-  "loud"  quest volume 200 "song.wav" / \
+  "loud"  quest soundlevel 2.00 "song.wav" / \
   "bass"  quest bassboost 70 loud / \
   "slow"  quest speed 2.00 bass / \
   "deep"  quest pitch 0.50 slow / \
@@ -2243,6 +2299,42 @@ python voder.py chains \
 # python voder.py quest reverb 50.5 "voice.wav"  # ERROR: must be an integer
 # python voder.py quest reverb abc "voice.wav"   # ERROR: must be an integer
 # python voder.py quest reverb 50                # ERROR: needs an input
+```
+
+### 9.17 `loudnorm`
+
+| Argument | Description |
+|----------|-------------|
+| `"<input>"` | A LOCAL audio or video file path. URLs are refused — use `quest download` first. |
+| `result "<path>"` | (optional) Copy the result to a custom path. |
+
+**Behavior:**
+
+- **EBU R128 perceptual loudness normalization.** The file is analyzed in a first pass to measure its integrated loudness (LUFS), true-peak (dBTP), loudness range (LU), and noise threshold. A second pass then applies a single linear gain (via `loudnorm` with `linear=true`) that brings the whole signal to the target integrated loudness of **-16 LUFS** with a true-peak ceiling of **-1.5 dBTP**.
+- **One consistent perceived level:** quiet parts and loud parts end up at the same perceptual medium. The whole file plays at a uniform loudness — ideal for podcasts, voice-overs, and dialogue recorded in different environments or with different microphones.
+- **No quality loss, no dynamic-range compression.** Because the normalization is a single linear gain (not dynamic), the relative dynamics inside the file are preserved — a whisper is still quieter than a shout within the same file, but the file as a whole sits at the same perceptual level as any other `loudnorm`-processed file.
+- **Difference from `quest soundlevel`:** `soundlevel` applies a user-specified fixed multiplier (e.g. `2.00` = +6 dB on every sample). `loudnorm` measures the file and computes the multiplier for you, targeting a perceptual standard (-16 LUFS). Use `soundlevel` when you know the exact gain you want; use `loudnorm` when you want every file to end up at the same perceptual level automatically.
+- **Difference from `quest compress`:** `compress` reduces the dynamic range *within* a file (loud parts pulled down, quiet parts pushed up — changes the dynamics). `loudnorm` only shifts the whole file up or down as one block (preserves the dynamics).
+- **Audio input** → WAV (PCM 24-bit, 48 kHz, stereo). **Video input** → MP4 with video stream copied and audio re-encoded as AAC 256 kbps.
+- If the input is already at -16 LUFS (within 0.2 LU), the pass-through still runs to apply the true-peak safety limit.
+
+```
+# Normalize a podcast to broadcast standard (-16 LUFS)
+python voder.py quest loudnorm "episode.wav"
+
+# Normalize a voice-over recorded quietly so it sits at the same level as other clips
+python voder.py quest loudnorm "quiet_voiceover.wav"
+
+# Normalize a video's audio (video preserved, audio re-encoded as AAC 256k)
+python voder.py quest loudnorm "clip.mp4"
+
+# Save result to a specific path
+python voder.py quest loudnorm "episode.wav" result "./episode_normalized.wav"
+
+# Refused inputs:
+# python voder.py quest loudnorm                  # ERROR: needs an input
+# python voder.py quest loudnorm "missing.wav"    # ERROR: file not found
+# python voder.py quest loudnorm "a" "b"          # ERROR: takes exactly one argument
 ```
 
 ---

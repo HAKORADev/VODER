@@ -4,6 +4,46 @@
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 - If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
+## 06/20/2026 (evening)
+- Status: Stable, all features work, still developing
+- **3 new / renamed Side-Quests + side-quest categorization system**
+
+### Added
+
+- **`quest remove "<start>-<end>" [...] "<input>"`** — Inverse of `quest cut`: drops the requested time range(s) from a local audio/video file and keeps the rest. Pass any number of `"<start>-<end>"` tokens before the input path — they are parsed, sorted, and merged with a sweep-line algorithm so overlapping or adjacent ranges collapse into a single range (no part is ever cut twice). Examples: `"5-10" "8-15"` → merged to `5-15`; `"0-5" "3-8" "10-15"` → merged to `0-8, 10-15`; out-of-order input is normalized. File duration is read with `ffprobe` so out-of-bounds ranges are clipped to the file length (no errors). The inverse (the segments to keep) is then concatenated with FFmpeg's `concat` filter for sample-accurate joins. Audio input → 24-bit/48k WAV. Video input → MP4 with video re-encoded as H.264 CRF 18 (visually lossless) and audio as AAC 256k; both audio and video tracks are cut in lockstep so they stay in sync. Output naming: `voder_quest_remove_<name>_<ranges>_<timestamp>.{wav,mp4}`. If the merged ranges cover the entire file, the quest refuses with an error.
+
+- **`quest loudnorm "<input>"`** — EBU R128 perceptual loudness normalization. Analyzes the file in a first pass to measure integrated loudness (LUFS), true-peak (dBTP), loudness range (LU), and noise threshold; then applies a single linear gain (via `loudnorm` with `linear=true`) that brings the whole signal to **-16 LUFS** with a **-1.5 dBTP** true-peak ceiling. Quiet parts and loud parts end up at the same perceptual medium — ideal for podcasts, voice-overs, and dialogue recorded in different environments. No quality loss, no dynamic-range compression (the relative dynamics inside the file are preserved; only the overall level shifts). Difference from `quest soundlevel`: `soundlevel` applies a user-specified fixed multiplier; `loudnorm` measures the file and computes the multiplier for you, targeting a perceptual standard. Difference from `quest compress`: `compress` reduces the dynamic range *within* a file; `loudnorm` only shifts the whole file up or down as one block. Audio input → 24-bit/48k WAV. Video input → MP4 with video copied, audio re-encoded as AAC 256k. If the input is already at -16 LUFS (within 0.2 LU), the pass-through still runs to apply the true-peak safety limit.
+
+### Renamed
+
+- **`quest volume` → `quest soundlevel`** with a new scale. The old `volume` quest used a 1–1000 integer scale where `100` meant ×2 and `1000` meant ×11 — that read like a percentage but wasn't. Renamed to `soundlevel` and re-scaled to a true linear multiplier: **1.00 = original, 0.01 = 1% of original, 0.25 = 25% of original, 1.99 = +99% louder, 2.00 = 2× louder, 10.00 = 10× louder (max)**. Decimals (not just integers) are accepted throughout the 0.01–10.00 range, so you can dial in any gain like `1.5`, `0.7`, or `3.33`. The behavior is unchanged — pure linear gain, no EQ, no compression, no loudness normalization. Audio input → 24-bit/48k WAV. Video input → MP4 with video copied, audio re-encoded as AAC 256k. Output naming: `voder_quest_soundlevel_x<value>_<name>_<timestamp>.{wav,mp4}` (value tag uses `p` for the decimal point, e.g. `x2p00`, `x0p25`).
+
+### Side-quest categorization system
+
+- **`SideQuest` base class** gained a `category` class attribute (default `None`). When `python voder.py quest` is run with no args, the listing now groups side-quests by category: `download` stands alone at the top (no category), then each category appears as a header followed by its side-quests.
+- All media-manipulation quests (convert, cut, remove, merge, silence, reverse, fade, soundlevel, bassboost, speed, pitch, glue, reverb, loudnorm, noframes) declare `category = 'Media Manipulation'`. `download` stays uncategorized because it's a fetch utility, not a manipulation.
+- **The category is purely organizational.** Every side-quest is still called by its unique name (`quest <name> ...`) with no prefix — the user does not type `quest "media manipulation" soundlevel 2.00 ...`. The dispatch logic in `oneline_quest` is unchanged; only the listing display is grouped. This keeps the command surface flat (one word per quest) while making the registry self-documenting (run `quest` with no args and you immediately see that download is the only fetch utility and everything else is media manipulation).
+- New quests can opt into a category by setting `category = 'Some Name'` on the class, or stay uncategorized by leaving it at `None`.
+
+### Docs
+
+- **README.md** — Updated the Side-Quests feature bullet and the Side-Quests (`quest`) section to mention the categorization and list the new quests (`remove`, `soundlevel`, `loudnorm`) by name. README remains minimal on side-quest detail (one paragraph + pointer to `docs/COMMAND_CATALOG.md`).
+- **docs/COMMAND_CATALOG.md** — Added the `category` column to the "Available quests" table. Inserted section **9.6 `remove`** (full argument table, overlap-merge algorithm description, examples for single/multi/overlapping/video/mm:ss ranges, refused inputs). Replaced section 9.10 `volume` with **9.10 → 9.11 `soundlevel`** (new 0.01–10.00 multiplier scale, examples for 0.25 / 0.50 / 2.00 / 10.00, refused inputs). Renumbered sections 9.6–9.16 to absorb the new `remove` insertion. Added section **9.17 `loudnorm`** (full argument table, two-pass analysis description, comparisons to `soundlevel` and `compress`, examples). Updated the slowed+reverb chain example to use `soundlevel 2.00` instead of `volume 200`. Updated the Mode Index entry for section 9 to list the new quest names. Updated cross-references in `bassboost`, `speed`, `pitch`, `glue`, and `reverb` sections that previously mentioned `quest volume` to mention `quest soundlevel` instead, plus a `quest loudnorm` finisher tip where relevant.
+- **docs/Bots.md** — Updated the side-quests row in the Features table to reflect the categorization and the full quest list.
+- **docs/READ.md** — Updated the "Side-Quests" feature summary to mention the categorization.
+- **docs/voder-skill.md** — Updated the side-quests coverage row in the skill table to mention Media Manipulation + download.
+- **voder.py print_usage** — Updated the `quest` mode description, the Side-Quests keywords block, and the Side-Quest examples block to show the new quests (`remove`, `soundlevel`, `loudnorm`) and the categorization.
+
+### Files
+
+- `src/voders/sidequests.py` — Added `category` class attribute to `SideQuest`; rewrote `list_available_quests()` to group by category (uncategorized first, then each category under a header).
+- `src/voders/quests/volume.py` → **renamed to `src/voders/quests/soundlevel.py`** — New 0.01–10.00 multiplier scale, accepts decimals, uses `volume=<value>` ffmpeg filter (linear gain).
+- `src/voders/quests/remove.py` — **NEW**. Multi-range cutter with sweep-line overlap merging, audio + video support, ffprobe-duration-bounded.
+- `src/voders/quests/loudnorm.py` — **NEW**. Two-pass EBU R128 loudness normalization to -16 LUFS / -1.5 dBTP with `linear=true` for clean output.
+- `src/voders/quests/{bassboost,compress,convert,cut,fade,glue,merge,noframes,pitch,reverb,reverse,silence,speed}.py` — Each got a `category = 'Media Manipulation'` class attribute added below the `name` attribute. No other code changes.
+
+---
+
 ## 06/20/2026
 - Status: Stable, all features work, still developing
 - **13 New Side-Quests: audio utility belt + slowed+reverb toolkit for the chains era**

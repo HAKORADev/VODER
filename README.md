@@ -36,7 +36,7 @@ VODER brings together **8 processing modes** under one interface — speech-to-t
 - **Language Dubbing** — Translate speech from one language to another while preserving the original speaker's voice identity. Dub entire videos with per-segment timing alignment and background music preservation.
 - **Any-to-Any Translation** — Translate between any of 76 languages using TranslateGemma 12B via the `translate (source-target)` syntax, decoupled from the ASR engine.
 - **Voice Re-Synthesis** — Transcribe speech and re-read it in a different voice using `tts svc`, with an optional `sts:` prefix for high-fidelity voice conversion via Seed-VC v2.
-- **Side-Quests** — Lightweight utility tasks that live outside the main engine: URL download, audio format conversion, cutting/merging, silence stripping, speed / pitch / volume / bassboost / reverb effects, and more. Run `python voder.py quest` to see all available quests.
+- **Side-Quests** — Lightweight utility tasks that live outside the main engine: URL download, audio format conversion, cutting / merging / removing ranges, silence stripping, speed / pitch / soundlevel / bassboost / reverb / loudnorm effects, and more. Run `python voder.py quest` to see all available quests, grouped by category.
 - **Chains** — User-defined pipelines that wire any number of voder tasks together: each chain is named, its output is captured to temp, and later chains can reference earlier chain names as input paths. Build a song, isolate its vocals, train a voice from them, then dub a video — all in one command.
 - **Smart Input Pipeline** — Paste a YouTube, Bilibili, or TikTok URL directly as input. Feed an image and VODER extracts text via OCR. Automatically extract voice clips from multi-speaker audio for one-click voice cloning.
 
@@ -94,7 +94,7 @@ Paste a **YouTube, Bilibili, or TikTok URL** directly as input — VODER downloa
 
 ### Side-Quests (`quest`)
 
-Lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow — URL download, audio format conversion, cutting, merging, speed/pitch/volume/bassboost/reverb, and more. Run `python voder.py quest` (no args) to list every available side-quest with its one-line description. See [COMMAND_CATALOG.md](docs/COMMAND_CATALOG.md) for the full list.
+Lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow — URL download, audio format conversion, cutting, merging, range removal, silence stripping, soundlevel / speed / pitch / bassboost / reverb / loudnorm, and more. Side-quests are grouped by category in the listing — `download` stands alone, the rest live under **Media Manipulation**. Run `python voder.py quest` (no args) to list every available side-quest with its one-line description. See [COMMAND_CATALOG.md](docs/COMMAND_CATALOG.md) for the full list.
 
 ### Chains (`chains`)
 
