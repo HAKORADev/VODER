@@ -220,7 +220,7 @@ The 3 task-layer features:
 | Feature | Section | Input Type | Output Type | One-Liner Support |
 |---------|---------|------------|-------------|-------------------|
 | Voice Training | 2.1a | Audio | .tts / .ttse file | ✅ Full (oneline only) |
-| Side-Quests | 2.9 | URL / local video / local audio | Audio / Video file | ✅ Full — `quest download` (standalone fetch) + Media Manipulation category (convert, cut, remove, merge, silence, reverse, fade, soundlevel, bassboost, speed, pitch, glue, reverb, loudnorm, noframes). Run `quest` with no args for the live grouped listing. |
+| Side-Quests | 2.9 | URL / local video / local audio | Audio / Video file | ✅ Full — `quest download` (standalone fetch) + Media Manipulation category (Sound Effects / Audio Editing / Format & File sub-categories — 16 quests total). Run `quest` with no args for the live grouped tree. |
 | Chains | 2.10 | A sequence of voder oneline commands | Final chain output | ✅ Full (pipeline of named chains) |
 
 > **Note**: `tts+vc` and `ttm+vc` are no longer accepted as commands and will produce an error. Use `tts` with `target` for voice cloning, and `ttm` with `vc` + `clone` for voice conversion in TTM. SLC is now a TTS sub-task (`tts slc`), not a standalone mode. STT+TTS is now integrated into TTS interactive mode.

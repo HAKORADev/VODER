@@ -23,7 +23,6 @@ def _ffprobe_duration(path):
 
 class Quest(SideQuest):
     name = 'glue'
-    category = 'Media Manipulation'
     description = 'Glue an audio file onto a video file (or vice versa). The "where-it-will-be-glued" gets the other source attached and any existing audio is auto-replaced. If audio is shorter than video, audio is padded with silence until the last video frame. If video is shorter than audio, video is extended with black frames until the audio ends. Refuses URLs and refuses audio-audio / video-video pairs. Syntax: quest glue "<input-to-use>" "<where-it-will-be-glued>".'
 
     def parse(self, args):

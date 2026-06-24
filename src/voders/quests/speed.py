@@ -15,7 +15,6 @@ while _v <= 10.005:
 
 class Quest(SideQuest):
     name = 'speed'
-    category = 'Media Manipulation'
     description = 'Professional time-stretch (Spotify-style slowed/sped-up) for local audio files. Values 0.25-10.00 in 0.25 steps (excluding 1.0). 0.25 = 4x faster, 10.00 = 10x slower. Pitch and formants are preserved via rubberband. Syntax: quest speed <0.25|0.50|0.75|1.25|...|10.00> <audio-path>.'
 
     def parse(self, args):

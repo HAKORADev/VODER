@@ -12,7 +12,6 @@ if _SRC_DIR not in sys.path:
 
 class SideQuest:
     name = None
-    category = None
     description = ""
 
     def parse(self, args):
@@ -62,35 +61,58 @@ def list_available_quests():
         print("Drop a new quest file into src/voders/quests/ to add one.")
         return
 
-    uncategorized = []
-    by_category = {}
-    for name in sorted(SIDE_QUESTS.keys()):
-        quest = SIDE_QUESTS[name]
-        cat = (getattr(quest, 'category', None) or '').strip() or None
-        if cat is None:
-            uncategorized.append(name)
-        else:
-            by_category.setdefault(cat, []).append(name)
+    try:
+        from voders.quests_categories import CATEGORIES
+    except Exception:
+        CATEGORIES = []
 
-    def _print_quest_lines(names):
-        max_name = max(len(n) for n in names) if names else 0
-        for name in names:
-            quest = SIDE_QUESTS[name]
-            desc = (quest.description or '').strip() or '(no description)'
-            print(f"  {name:<{max_name}}  -  {desc}")
+    categorized = set()
+    cat_structure = []
+    for cat in CATEGORIES:
+        cat_name = (cat.get('name') or '').strip()
+        top_quests = []
+        for q in cat.get('quests', []) or []:
+            if q in SIDE_QUESTS and q not in categorized:
+                top_quests.append(q)
+                categorized.add(q)
+        sub_cats = []
+        for sub in cat.get('subcategories', []) or []:
+            sub_name = (sub.get('name') or '').strip()
+            sub_quests = []
+            for q in sub.get('quests', []) or []:
+                if q in SIDE_QUESTS and q not in categorized:
+                    sub_quests.append(q)
+                    categorized.add(q)
+            if sub_quests:
+                sub_cats.append((sub_name, sub_quests))
+        if top_quests or sub_cats:
+            cat_structure.append((cat_name, top_quests, sub_cats))
+
+    uncategorized = [q for q in sorted(SIDE_QUESTS.keys()) if q not in categorized]
+    max_name = max((len(n) for n in SIDE_QUESTS.keys()), default=0)
+
+    def _quest_line(name, indent):
+        quest = SIDE_QUESTS[name]
+        desc = (quest.description or '').strip() or '(no description)'
+        print(f"{indent}{name:<{max_name}}  -  {desc}")
 
     print("Available side-quests:")
     print()
     if uncategorized:
-        _print_quest_lines(uncategorized)
+        for name in uncategorized:
+            _quest_line(name, '  ')
         print()
-    for cat in sorted(by_category.keys()):
-        names = by_category[cat]
-        print(f"{cat}:")
-        _print_quest_lines(names)
+    for cat_name, top_quests, sub_cats in cat_structure:
+        print(f"{cat_name}:")
+        for name in top_quests:
+            _quest_line(name, '  ')
+        for sub_name, sub_quests in sub_cats:
+            print(f"  {sub_name}:")
+            for name in sub_quests:
+                _quest_line(name, '    ')
         print()
     print("Usage:  python voder.py quest <name> [args...]")
-    print("(Side-quests in a category can be used directly by name — no prefix needed.)")
+    print("(Side-quests can be used directly by name — no prefix needed.)")
 
 
 def oneline_quest(params):

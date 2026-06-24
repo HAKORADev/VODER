@@ -50,7 +50,7 @@ VODER is a professional‑grade voice processing tool that enables seamless conv
 - **Extreme TTS Mode**: Higher quality voice cloning and broader language support using Fish Audio S2-Pro (80+ languages, voice effects via `[tag]` syntax including 64 S1 Pro tags)
 - **Extreme STS Mode**: Pre-process target voice reference through Fish S2 Pro for cleaner Seed-VC conversion — extracts dominant voice from mixed/noisy references
 - **Video I/O**: Video input with automatic audio extraction; video output with replaced audio (STS, SS with `video` flag, SE with `video` flag, SVS with `video` flag, TTS dub with `video` flag, TTM complete/bgm with `video` flag)
-- **Side-Quests (`quest`)**: Lightweight utility tasks, grouped by category in the `quest` listing. `download` (URL → audio/video file in `results/`) stands alone; everything else lives under Media Manipulation (convert, cut, remove, merge, silence, reverse, fade, soundlevel, bassboost, speed, pitch, glue, reverb, loudnorm, noframes). New quests can be added to the registry over time.
+- **Side-Quests (`quest`)**: Lightweight utility tasks, grouped by category in the `quest` listing (run `quest` with no args to see the live tree). `download` (URL → audio/video file in `results/`) stands alone at the top; the other 16 quests live under the **Media Manipulation** category, split into three sub-categories — **Sound Effects** (bassboost, fade, loudnorm, pitch, reverb, soundlevel, speed), **Audio Editing** (cut, merge, remove, reverse, silence), and **Format & File** (compress, convert, glue, noframes). Categorization is defined externally in `src/voders/quests_categories.py`. New quests can be added to the registry over time.
 - **Chains (`chains`)**: User-defined pipelines that wire any number of voder oneline tasks together. Each chain is named, its output is captured to `temp_chains/`, and later chains can reference earlier chain names as input paths. The last non-empty chain's output reaches `results/`. Empty chains are skipped (names remain reusable); duplicate names are an error.
 
 ---
@@ -384,7 +384,7 @@ The 3 task-layer features:
 | Feature | Description | GPU Required | One‑Liner |
 |---------|-------------|--------------|-----------|
 | `train` | Voice Training — train voice clones from reference audio and save them as `.tts` / `.ttse` files for reuse in TTS | No | ✅ Yes (`train voice:name "ref1.wav" "ref2.wav"`) |
-| `quest` | Side-Quests — lightweight utility tasks: URL `download` (standalone) plus the Media Manipulation category (convert, cut, remove, merge, silence, reverse, fade, soundlevel, bassboost, speed, pitch, glue, reverb, loudnorm, noframes). New quests can be added to the registry over time. | No | ✅ Yes |
+| `quest` | Side-Quests — lightweight utility tasks: URL `download` (standalone fetch) plus the Media Manipulation category (Sound Effects / Audio Editing / Format & File sub-categories — 16 quests total). Run `quest` with no args for the live grouped tree. New quests can be added to the registry over time. | No | ✅ Yes |
 | `chains` | User-Defined Pipelines — wire any number of voder oneline tasks together. Each chain is named, its output is captured to `temp_chains/`, and later chains can reference earlier chain names as input paths. The last non-empty chain's output reaches `results/`. | No | ✅ Yes |
 
 ### Side-Quests (`quest`)

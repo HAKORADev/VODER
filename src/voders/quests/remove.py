@@ -47,7 +47,6 @@ def _merge_overlapping(ranges):
 
 class Quest(SideQuest):
     name = 'remove'
-    category = 'Media Manipulation'
     description = 'Inverse of cut: remove one or more time ranges from a local audio/video file, keeping the rest. Multi-range supported. Overlapping ranges are merged (no double-cutting). Syntax: quest remove "<start1>-<end1>" ["<start2>-<end2>" ...] <local-path>.'
 
     def parse(self, args):

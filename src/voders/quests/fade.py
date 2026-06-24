@@ -23,7 +23,6 @@ def _ffprobe_duration(path):
 
 class Quest(SideQuest):
     name = 'fade'
-    category = 'Media Manipulation'
     description = 'Apply a 5-second cinematic fade-in and fade-out to a local audio or video file. Edges rise to ~15% gain then swell to full volume using a smooth quarter-sine curve — never silent, always rising.'
 
     def parse(self, args):

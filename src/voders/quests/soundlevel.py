@@ -11,7 +11,6 @@ VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm', '.m4v', '.3
 
 class Quest(SideQuest):
     name = 'soundlevel'
-    category = 'Media Manipulation'
     description = 'Linear sound-level multiplier. 1.00 = original, 0.01 = 1% of original, 0.25 = 25% of original, 1.99 = +99% louder, 10.00 = 10x louder. Affects all frequencies equally (no EQ, no compression, no loudness normalization). Syntax: quest soundlevel <0.01-10.00> <local-audio-or-video-path>.'
 
     def parse(self, args):

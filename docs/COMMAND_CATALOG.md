@@ -1649,27 +1649,27 @@ python voder.py quest <quest-name> [quest args...] [result "<path>"]
 
 ### Available quests
 
-Side-quests are grouped by category in the `quest` listing. `download` stands alone; the rest form a single **Media Manipulation** category. The category is purely organizational — every side-quest is still called by its unique name (`quest <name> ...`), with no prefix.
+Side-quests are grouped by category in the `quest` listing (run `python voder.py quest` with no args to see the live tree). `download` stands alone at the top (it's a fetch utility, not a manipulation); the other 16 quests live under the **Media Manipulation** category, split into three sub-categories — **Sound Effects**, **Audio Editing**, and **Format & File**. Categorization is defined externally in `src/voders/quests_categories.py`, not on the quest classes themselves. The grouping is purely organizational — every side-quest is still called by its unique name (`quest <name> ...`), with no prefix.
 
-| Quest | Category | Description | Output naming |
-|-------|----------|-------------|---------------|
-| `download` | — | Download a URL as audio (default) or video (`video` keyword). Also accepts local file paths (copies them). | `voder_quest_download_<original-name>_<timestamp>.<ext>` |
-| `noframes` | Media Manipulation | Extract audio from a LOCAL VIDEO file. Refuses URLs and audio-only files. | `voder_quest_noframes_<original-name>_<timestamp>.wav` |
-| `convert` | Media Manipulation | Convert a local audio file to any other audio format (40+ formats). Same-format just copies. | `voder_quest_convert_<name>_<timestamp>.<format>` |
-| `compress` | Media Manipulation | Compress an audio file at level 1 (low), 2 (default), or 3 (highest). | `voder_quest_compress_L<level>_<name>_<timestamp>.<ext>` |
-| `cut` | Media Manipulation | Extract a time range from a local audio/video file as a WAV. | `voder_quest_cut_<name>_<start>s-<end>s_<timestamp>.wav` |
-| `remove` | Media Manipulation | Inverse of `cut`: remove one or more time ranges from a local audio/video file, keeping the rest. Multi-range supported; overlapping ranges are merged. | `voder_quest_remove_<name>_<ranges>_<timestamp>.{wav,mp4}` |
-| `merge` | Media Manipulation | Concatenate two or more local audio files end-to-end (no upper limit). | `voder_quest_merge_<joined-names>_<timestamp>.wav` |
-| `silence` | Media Manipulation | Strip silent gaps from a local audio/video file → continuous-speech WAV. | `voder_quest_silence_<name>_<timestamp>.wav` |
-| `reverse` | Media Manipulation | Reverse a local audio OR video file (frames + audio both flipped for video). | `voder_quest_reverse_<name>_<timestamp>.{wav,mp4}` |
-| `fade` | Media Manipulation | Apply a cinematic 5s fade-in/out (not silence-based; rising gain). | `voder_quest_fade_<name>_<timestamp>.{wav,mp4}` |
-| `soundlevel` | Media Manipulation | Linear sound-level multiplier on a 0.01–10.00 scale (1.00 = original, 0.25 = 25%, 2.00 = 2× louder, 10.00 = 10× louder). Affects all frequencies equally. No EQ, no compression, no loudness normalization. | `voder_quest_soundlevel_x<value>_<name>_<timestamp>.{wav,mp4}` |
-| `bassboost` | Media Manipulation | Professional multi-band bass booster (low frequencies only) on a 1–100 scale (1 = subtle warmth, 100 = +24 dB sub-destroyer). Mids and highs left untouched. | `voder_quest_bassboost_v<value>_<name>_<timestamp>.{wav,mp4}` |
-| `speed` | Media Manipulation | Professional time-stretch (rubberband, formant-preserved) on a 0.25–10.00 scale. Audio files only. | `voder_quest_speed_x<value>_<name>_<timestamp>.wav` |
-| `pitch` | Media Manipulation | Professional pitch shift (rubberband, formant-shifted) on a 0.01–10.00 scale. Audio output only. Accepts local audio / video / URL. | `voder_quest_pitch_p<value>_<name>_<timestamp>.wav` |
-| `glue` | Media Manipulation | Glue an audio file onto a video file (or vice versa). Auto-replaces existing audio; pads silence / black frames to match longer stream. Refuses URLs and same-type pairs. | `voder_quest_glue_<audio>_onto_<video>_<timestamp>.mp4` |
-| `reverb` | Media Manipulation | Professional Schroeder-style reverb (early reflections + late-reverb tail + pre-delay + air-absorption damping + dynamic normalization + true-peak limiter) on a 1–100 scale. Audio output only. Accepts local audio / video / URL. | `voder_quest_reverb_r<value>_<name>_<timestamp>.wav` |
-| `loudnorm` | Media Manipulation | EBU R128 perceptual loudness normalization. Analyzes the file, then applies a linear normalization so the whole signal sits at one consistent perceived level (-16 LUFS target, -1.5 dB true-peak limit). No quality loss, no dynamic-range compression. Audio and video supported. | `voder_quest_loudnorm_<name>_<timestamp>.{wav,mp4}` |
+| Quest | Sub-category | Description | Output naming |
+|-------|--------------|-------------|---------------|
+| `download` | — (standalone) | Download a URL as audio (default) or video (`video` keyword). Also accepts local file paths (copies them). | `voder_quest_download_<original-name>_<timestamp>.<ext>` |
+| `noframes` | Format & File | Extract audio from a LOCAL VIDEO file. Refuses URLs and audio-only files. | `voder_quest_noframes_<original-name>_<timestamp>.wav` |
+| `convert` | Format & File | Convert a local audio file to any other audio format (40+ formats). Same-format just copies. | `voder_quest_convert_<name>_<timestamp>.<format>` |
+| `compress` | Format & File | Compress an audio file at level 1 (low), 2 (default), or 3 (highest). | `voder_quest_compress_L<level>_<name>_<timestamp>.<ext>` |
+| `glue` | Format & File | Glue an audio file onto a video file (or vice versa). Auto-replaces existing audio; pads silence / black frames to match longer stream. Refuses URLs and same-type pairs. | `voder_quest_glue_<audio>_onto_<video>_<timestamp>.mp4` |
+| `cut` | Audio Editing | Extract a time range from a local audio/video file as a WAV. | `voder_quest_cut_<name>_<start>s-<end>s_<timestamp>.wav` |
+| `remove` | Audio Editing | Inverse of `cut`: remove one or more time ranges from a local audio/video file, keeping the rest. Multi-range supported; overlapping ranges are merged. | `voder_quest_remove_<name>_<ranges>_<timestamp>.{wav,mp4}` |
+| `merge` | Audio Editing | Concatenate two or more local audio files end-to-end (no upper limit). | `voder_quest_merge_<joined-names>_<timestamp>.wav` |
+| `silence` | Audio Editing | Strip silent gaps from a local audio/video file → continuous-speech WAV. | `voder_quest_silence_<name>_<timestamp>.wav` |
+| `reverse` | Audio Editing | Reverse a local audio OR video file (frames + audio both flipped for video). | `voder_quest_reverse_<name>_<timestamp>.{wav,mp4}` |
+| `fade` | Sound Effects | Apply a cinematic 5s fade-in/out (not silence-based; rising gain). | `voder_quest_fade_<name>_<timestamp>.{wav,mp4}` |
+| `soundlevel` | Sound Effects | Linear sound-level multiplier on a 0.01–10.00 scale (1.00 = original, 0.25 = 25%, 2.00 = 2× louder, 10.00 = 10× louder). Affects all frequencies equally. No EQ, no compression, no loudness normalization. | `voder_quest_soundlevel_x<value>_<name>_<timestamp>.{wav,mp4}` |
+| `bassboost` | Sound Effects | Professional multi-band bass booster (low frequencies only) on a 1–100 scale (1 = subtle warmth, 100 = +24 dB sub-destroyer). Mids and highs left untouched. | `voder_quest_bassboost_v<value>_<name>_<timestamp>.{wav,mp4}` |
+| `speed` | Sound Effects | Professional time-stretch (rubberband, formant-preserved) on a 0.25–10.00 scale. Audio files only. | `voder_quest_speed_x<value>_<name>_<timestamp>.wav` |
+| `pitch` | Sound Effects | Professional pitch shift (rubberband, formant-shifted) on a 0.01–10.00 scale. Audio output only. Accepts local audio / video / URL. | `voder_quest_pitch_p<value>_<name>_<timestamp>.wav` |
+| `reverb` | Sound Effects | Professional Schroeder-style reverb (early reflections + late-reverb tail + pre-delay + air-absorption damping + dynamic normalization + true-peak limiter) on a 1–100 scale. Audio output only. Accepts local audio / video / URL. | `voder_quest_reverb_r<value>_<name>_<timestamp>.wav` |
+| `loudnorm` | Sound Effects | EBU R128 perceptual loudness normalization. Analyzes the file, then applies a linear normalization so the whole signal sits at one consistent perceived level (-16 LUFS target, -1.5 dB true-peak limit). No quality loss, no dynamic-range compression. Audio and video supported. | `voder_quest_loudnorm_<name>_<timestamp>.{wav,mp4}` |
 
 ### 9.1 `download`
 

@@ -32,7 +32,6 @@ def _probe_loudnorm(path):
 
 class Quest(SideQuest):
     name = 'loudnorm'
-    category = 'Media Manipulation'
     description = 'EBU R128 perceptual loudness normalization. Analyzes the file, computes the integrated loudness, then applies a linear normalization so the whole signal sits at one consistent perceived level (-16 LUFS target, -1.5 dB true-peak limit). Quiet parts and loud parts end up at the same perceptual medium — no quality loss, no dynamic-range compression. Audio and video supported. Syntax: quest loudnorm <local-audio-or-video-path>.'
 
     def parse(self, args):

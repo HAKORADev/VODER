@@ -9,7 +9,6 @@ from voders.sidequests import SideQuest, _register_side_quest
 
 class Quest(SideQuest):
     name = 'merge'
-    category = 'Media Manipulation'
     description = 'Concatenate two or more local audio files end-to-end into a single WAV. Syntax: quest merge <file1> <file2> [<file3> ...]  (no upper limit).'
 
     def parse(self, args):

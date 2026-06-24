@@ -11,7 +11,6 @@ VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm', '.m4v', '.3
 
 class Quest(SideQuest):
     name = 'bassboost'
-    category = 'Media Manipulation'
     description = 'Professional multi-band bass booster (low frequencies only). Scale 1-100: 1 = subtle warmth, 50 = strong club bass, 100 = +24 dB sub-destroyer. Signal chain: sub-sonic highpass -> lowshelf boost @ 80 Hz -> peaking boost @ 50 Hz for sub-bass punch -> virtualbass synthesizer for sub harmonics on small speakers -> soft-knee compressor to glue and prevent dotty noise -> safety true-peak limiter at -1 dB. Mids and highs are left untouched. Audio input -> 24-bit/48k WAV. Video input -> MP4 with video copied, audio re-encoded as AAC 256k. Syntax: quest bassboost <1-100> <local-audio-or-video-path>.'
 
     def parse(self, args):
