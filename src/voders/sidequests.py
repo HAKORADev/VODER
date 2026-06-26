@@ -292,6 +292,16 @@ class ChainPipeline:
 def oneline_chains(params):
     chains_args = params.get('chains_args', [])
     result_path = params.get('result_path')
+    subcmd = params.get('chains_subcmd')
+    if subcmd == 'build':
+        from voders.prebuilt_chains import handle_build
+        return handle_build(chains_args)
+    if subcmd == 'load':
+        from voders.prebuilt_chains import handle_load
+        return handle_load(chains_args, result_path=result_path)
+    if subcmd == 'analyze':
+        from voders.prebuilt_chains import handle_analyze
+        return handle_analyze(chains_args)
     if not chains_args:
         print("Error: chains mode requires at least one chain")
         return False

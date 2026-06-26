@@ -4072,6 +4072,21 @@ def validate_file_exists(path):
 
 VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm', '.m4v', '.3gp', '.wmv'}
 
+VOICE_PROFILE_EXTENSIONS = {'.tts', '.ttse'}
+
+MODE_INPUT_FORMATS = {
+    'tts':   'audio file / video file / supported platform URL / .tts or .ttse voice profile',
+    'sts':   'audio file / video file / supported platform URL / .tts or .ttse voice profile',
+    'ttm':   'audio file / video file / supported platform URL / text file (.txt)',
+    'stt':   'audio file / video file / supported platform URL',
+    'se':    'audio file / video file / supported platform URL',
+    'sfx':   '(no file input — uses inline text prompt via "sound <text>")',
+    'svs':   'audio file / video file / supported platform URL',
+    'ss':    'audio file / video file / supported platform URL',
+    'train': 'audio file / video file / supported platform URL',
+    'quest': 'varies by quest type',
+}
+
 SUPPORTED_TTS_LANGUAGES = {
     "zh": "Chinese", "en": "English", "ja": "Japanese", "ko": "Korean",
     "de": "German", "fr": "French", "ru": "Russian", "pt": "Portuguese",
@@ -5054,6 +5069,10 @@ def parse_oneline_args(args):
     if mode == 'chains':
         chains_args = []
         result_path = None
+        chains_subcmd = None
+        if i < len(args) and args[i].lower() in ('build', 'load', 'analyze'):
+            chains_subcmd = args[i].lower()
+            i += 1
         while i < len(args):
             arg = args[i]
             arg_lower = arg.lower()
@@ -5068,6 +5087,7 @@ def parse_oneline_args(args):
                 chains_args.append(arg)
                 i += 1
         result['params']['chains_args'] = chains_args
+        result['params']['chains_subcmd'] = chains_subcmd
         result['params']['result_path'] = result_path
         return result
 

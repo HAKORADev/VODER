@@ -2412,6 +2412,123 @@ python voder.py chains "vocal" svs voice "song.wav" / "enhanced" se voice "vocal
 
 ---
 
+## 10a. Prebuilt Chains — Build, Load, Analyze
+
+> **Note:** Prebuilt chains extend the `chains` feature with a persistent `.chain` file format. You compose a chain once with `chains build`, then load and re-run it any time with `chains load` (oneline) or via the interactive CLI's option 9. The `chains analyze` command produces a Markdown report describing the chain's structure and any verification errors.
+
+Prebuilt chains live in `src/chains/VODER_<name>_<timestamp>.chain`. Each file is plain text in a custom key:value format. The first line is the magic header `# VODER_CHAIN v1 <timestamp> <name>`. Subsequent lines form a header block (`title:`, `description:`) followed by `---`-separated step blocks (`chain:`, `comment:`, `content:`).
+
+### File format
+
+```
+# VODER_CHAIN v1 20260627_143022 bombo
+title: Bombo Pipeline
+description: Extract vocals from a song, transcribe them, then re-synthesize with a chosen voice.
+---
+chain: vocals
+comment: Provide the source song. Accepts audio file, video file, or supported platform URL.
+content: svs voice input
+---
+chain: lyrics
+comment: This step is automated — uses the vocals extracted in chain 1.
+content: stt vocals timestamp
+---
+chain: cover
+comment: Provide a reference voice (audio file, URL, or .tts/.ttse voice profile).
+content: tts script lyrics voice input
+---
+```
+
+- **Line 1**: exactly 5 whitespace-separated tokens — `#`, `VODER_CHAIN`, `v1`, `<timestamp>` (YYYYMMDD_HHMMSS), `<name>` (`[A-Za-z0-9_-]+`, no spaces).
+- **Header block**: `title:` and `description:` keys (both optional — empty values produce warnings but no errors).
+- **Step blocks**: separated by `---`. Each step has `chain:` (required, must match `[A-Za-z0-9_-]+`, unique within file), `comment:` (optional), `content:` (required — single line, space-separated oneline command). Use the literal token `input` as the placeholder for a manual file input. Reference prior chain names verbatim to make the step automated.
+
+### Step classification
+
+A step is classified by counting `input` placeholders and chain-name references in its `content:`:
+
+- **manual**: has `input` placeholder(s), no chain references. The user must supply file paths.
+- **automated**: only chain references, no `input`. The user just presses Enter.
+- **semi-automated**: both. The user supplies files for the `input` slots; chain references auto-resolve.
+- A step with **neither** (e.g., `sfx sound boom duration 5`) produces a warning, not an error.
+
+### `chains build` — create a `.chain` file
+
+```
+python voder.py chains build "<name>" description "<title - description>" \
+    chain "<step1-name>" "<comment1>" "<content1>" \
+    chain "<step2-name>" "<comment2>" "<content2>" \
+    ...
+```
+
+- `<name>` must match `[A-Za-z0-9_-]+`. Errors and stops if invalid or missing.
+- `description` is a literal keyword followed by a single quoted string (the title/description). Can be empty `""` (warning, not error).
+- Each `chain` block is 4 tokens: the literal `chain`, then quoted `<name>`, `<comment>`, `<content>`. The content is parsed internally by whitespace splitting.
+- After basic structural validation, the builder runs full verification (format, naming, syntax, references) and reports every error before saving. The file is only written if all checks pass.
+- Output: `src/chains/VODER_<name>_<timestamp>.chain`.
+
+Example:
+
+```
+python voder.py chains build "bombo" description "Bombo - extract vocals, transcribe, re-synth" \
+    chain "vocals" "Provide the source song (audio/video/URL)" "svs voice input" \
+    chain "lyrics" "Automated - uses vocals from chain 1" "stt vocals timestamp" \
+    chain "cover" "Provide a reference voice (audio/URL/.tts/.ttse)" "tts script lyrics voice input"
+```
+
+### `chains load` — run a `.chain` file (oneline)
+
+```
+python voder.py chains load "<chain-name-or-path>" [N:"(v1/v2/...)]... [<another-chain> [N:"(...)"]...]...
+```
+
+- `<chain-name-or-path>`: a chain name (resolves to the latest matching file by timestamp) or a direct `.chain` file path.
+- `N:"(v1/v2/...)"`: a marker supplying **manual inputs** for chain step `N`. Slash-separated values fill the `input` placeholders in content order. Number of values must match the number of `input` placeholders in that step.
+- A marker value can be either a file path/URL (used as-is) or a **chain number** (digits only) — the chain number resolves to that step's output and is substituted at runtime via the existing name-substitution mechanism. The chain number must be less than the current step's number (i.e., reference a prior step only).
+- Automated steps (chain-name references in content) are always auto-resolved and do NOT take marker values. If you provide values for an automated step, that's an error.
+- Multiple prebuilt chains can be loaded in one command: each chain name/path starts a new section. Each subsequent chain can reference prior prebuilt chain names by name (the runner maintains a global index across prebuilts).
+
+Examples:
+
+```
+# Run bombo, supply 2 manual inputs (step 1 and step 3)
+python voder.py chains load "bombo" 1:"(song.wav)" 3:"(ref.wav)"
+
+# Override step 3's manual input with chain 1's output instead of a file
+python voder.py chains load "bombo" 1:"(song.wav)" 3:"(1)"
+
+# Multi-prebuilt: run bombo, then run second_chain which references bombo's output by name
+python voder.py chains load "bombo" 1:"(song.wav)" 3:"(ref.wav)" "second_chain" 1:"(bombo)"
+```
+
+### `chains analyze` — generate a Markdown report
+
+```
+python voder.py chains analyze "<chain-name-or-path>" [<another> ...]
+```
+
+- Runs full verification on each chain.
+- Output: `results/voder_analyze_chain_<safe-name>_<timestamp>.md`.
+- The report contains:
+  - **Analyzed Chains** summary table (name, path, steps, status).
+  - **Per-chain detail**: file metadata, step summary table (name, type, manual/auto counts, comment excerpt).
+  - **Journey narrative**: walks each step in execution order, showing the raw content, the resolved content (with `<output of step N 'name'>` placeholders for references and `<manual input N>` for inputs), and inline OK/ERROR markers. When a step has an error, the journey **continues hypothetically** — the error is shown inline and the narrative proceeds as if the step would have succeeded, so you can see the full intended path plus all errors at once.
+  - **Overall Summary** with an All Errors table (chain, step, category, message, fix).
+
+### Interactive CLI — option 9 (Prebuilt Chains)
+
+Run `python voder.py cli` and choose `9. Prebuilt Chains` for a guided UX:
+
+- **List mode** (option 1): numbered list of all `.chain` files in `src/chains/`, sorted newest first. Pick a number, or type `back`.
+- **Name/path mode** (option 2): enter a chain name (resolves to latest by timestamp) or a full file path.
+- **Multi-chain**: after loading one chain, you can add more (each subsequent chain can reference prior prebuilt names).
+- **Input gathering**: for each step, shows the chain name, comment, content, classification (manual/automated/semi-automated), and the valid input formats for the step's mode. Manual inputs are gathered one by one with in-time validation (file exists, URL supported, or chain number in range). Automated steps just prompt "Press Enter to continue".
+- **Progress tracker**: shows `Prebuilt X/Y (name) — Step N/M (step-name) — <type>` plus `Input K/L for step 'name' — overall P/Q (NN%)`.
+- **Execution**: after all inputs are gathered, prints "Press Enter to start execution" and runs each step. On mid-run error, prints `Something went further than expected.` with the error message (max 500 chars) and the chain/step where it failed.
+- **Verification up front**: before asking for any inputs, the runner verifies the `.chain` file. If verification fails, lists all errors and aborts without prompting for inputs.
+
+---
+
 ## Input Types
 
 Most modes that accept file paths also support (see exceptions below):

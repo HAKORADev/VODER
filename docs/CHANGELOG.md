@@ -4,6 +4,68 @@
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 - If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
+## 06/27/2026
+- Status: Stable, all features work, still developing
+- **Prebuilt Chains: persistent `.chain` files + `build` / `load` / `analyze` subcommands + interactive CLI option 9**
+
+The prebuilt chains subsystem extends the existing `chains` task-layer feature with a persistent file format. Users compose a chain once with `chains build`, then re-run it any time with `chains load` (oneline) or via the interactive CLI's new option 9 (`Prebuilt Chains`). A `chains analyze` subcommand produces a Markdown report describing the chain's structure, journey, and any verification errors. Prebuilt chain files live in `src/chains/VODER_<name>_<timestamp>.chain` and use a custom key:value text format with `---`-separated step blocks. The whole subsystem is implemented in a new module `src/voders/prebuilt_chains.py` (~720 lines) plus a new interactive CLI module `src/voders/interactiveCLI/chains.py` (~265 lines). No in-code comments, per project convention.
+
+### Added — Prebuilt chain file format
+
+- **`.chain` file format** — plain-text custom KV format. Line 1 is the magic header `# VODER_CHAIN v1 <timestamp> <name>` (exactly 5 whitespace-separated tokens; name must match `[A-Za-z0-9_-]+`, no spaces). Subsequent lines form a header block (`title:`, `description:` — both optional, empty values produce warnings but no errors), followed by `---`-separated step blocks. Each step has `chain:` (required, must be unique within the file), `comment:` (optional), `content:` (required — single line, space-separated oneline command). The literal token `input` is the placeholder for manual file inputs. Prior chain names referenced verbatim in `content:` are automated references resolved at runtime via the existing `ChainPipeline.substitute_refs` mechanism.
+- **Step classification** — each step is auto-classified by counting `input` placeholders and chain-name references in its content: **manual** (has `input`, no refs), **automated** (only refs, no `input`), **semi-automated** (both), or **error** (neither — produces a warning, not an error, since modes like `sfx` legitimately take no file input).
+
+### Added — `chains build` subcommand
+
+- **`chains build <name> description "<title-desc>" chain <name1> <comment1> <content1> chain <name2> <comment2> <content2> ...`** — creates a new `.chain` file. Performs basic structural validation (name format, description keyword presence, chain block 4-tuple completeness, duplicate name detection) then runs full verification (format, naming, syntax, references). The file is only written if all checks pass. Output: `src/chains/VODER_<name>_<timestamp>.chain` (creates the directory on demand). Prints a summary (number of steps, manual inputs, automated references) and usage hints for `load` / `analyze` on success.
+
+### Added — `chains load` subcommand (oneline prebuilt execution)
+
+- **`chains load <name-or-path> [N:"(v1/v2/...)]... [<another-chain> [N:"(...)"]...]...`** — loads and runs one or more prebuilt chain files. Each chain name resolves to the latest matching file by timestamp (or accepts a direct `.chain` path). Markers `N:"(v1/v2/...)"` supply **manual inputs** for chain step `N` in content order — number of values must match the number of `input` placeholders in that step. A marker value can be either a file path/URL (used as-is) or a **chain number** (digits only) — chain numbers are resolved to the corresponding step's output via the existing name-substitution mechanism. The chain number must be less than the current step's number (prior steps only). Automated steps (chain-name references in content) are always auto-resolved and do NOT take marker values. Multiple prebuilt chains can be loaded in one command — each subsequent chain can reference prior prebuilt chain names by name (the runner maintains a global index across prebuilts via `ChainPipeline.index`).
+
+### Added — `chains analyze` subcommand (Markdown report)
+
+- **`chains analyze <name-or-path> [<another> ...]`** — runs full verification on each chain and writes a Markdown report to `results/voder_analyze_chain_<safe-name>_<timestamp>.md`. The report contains: (1) an **Analyzed Chains** summary table (name, path, steps, status); (2) per-chain detail with file metadata and a step summary table (name, type, manual/auto counts, comment excerpt); (3) a **Journey narrative** that walks each step in execution order showing raw content, resolved content (with `<output of step N 'name'>` placeholders for references and `<manual input N>` for inputs), and inline OK/ERROR markers — when a step has an error, the journey **continues hypothetically** as if the step would have succeeded, so the user sees the full intended path plus all errors at once; (4) an **Overall Summary** with an All Errors table (chain, step, category, message, fix). Multi-chain analyze is supported — the filename uses the first chain's name.
+
+### Added — Interactive CLI option 9 (Prebuilt Chains)
+
+- **New menu item** — `9. Prebuilt Chains` added to the interactive CLI dispatch table in `src/voders/interactiveCLI/__init__.py`. The new `cli_chains_mode()` function in `src/voders/interactiveCLI/chains.py` provides a guided UX:
+  - **List mode** (option 1): numbered list of all `.chain` files in `src/chains/`, sorted newest first. Pick a number, or type `back`.
+  - **Name/path mode** (option 2): enter a chain name (resolves to latest by timestamp) or a full file path. Invalid inputs retry with a warning.
+  - **Multi-chain selection**: after loading one chain, the user can add more (each subsequent chain can reference prior prebuilt names). Selected chains run in order.
+  - **Verification up front**: before asking for any inputs, the runner verifies the `.chain` file. If verification fails, lists all errors and aborts without prompting for inputs.
+  - **Per-step input gathering**: for each step, shows the chain name, comment, content, classification (manual/automated/semi-automated), and the valid input formats for the step's mode (from the new `MODE_INPUT_FORMATS` table). Manual inputs are gathered one by one with in-time validation (file exists, URL supported, or chain number in range). Automated steps just prompt "Press Enter to continue".
+  - **Progress tracker**: shows `Prebuilt X/Y (name) — Step N/M (step-name) — <type>` plus `Input K/L for step 'name' — overall P/Q (NN%)`.
+  - **Execution**: after all inputs are gathered, prints "Press Enter to start execution" and runs each step. On mid-run error, prints `Something went further than expected.` with the error message (max 500 chars) and the chain/step where it failed.
+  - **Blend Again / Exit loop**: standard tail loop matching the other interactive modes.
+
+### Added — Engine-level support
+
+- **`src/voders/prebuilt_chains.py`** (new, ~720 lines, no in-code comments) — contains: file format constants (`CHAIN_FILE_MAGIC`, `CHAIN_FILE_EXT`, `PREBUILT_CHAINS_DIR`); `build_chain_text()` (serializes a chain spec to the .chain file text); `parse_chain_file()` / `_parse_chain_text()` (deserializes a .chain file to a structured dict); `verify_chain_file()` / `verify_chain_text()` (full verification — format, naming, syntax, references — returns `(ok, errors, warnings)`); `_verify_content_syntax()` (per-step oneline syntax check, gracefully skips if voder.py can't be imported — e.g. in test envs without torch); `_verify_references()` (forward-reference detection); `classify_chain_step()` (returns type + manual/auto counts); `find_chain_by_name()` (latest by timestamp); `list_chains()` (all .chain files sorted newest first); `resolve_chain_path()` (name-or-path → absolute path); `get_input_formats_for_step()` (returns the format string for a step's mode); `handle_build()` / `handle_load()` / `handle_analyze()` (the three subcommand handlers); `_parse_load_args()` (parses the `chains load` argv syntax into sections + markers); `_find_manual_slots()` / `_find_auto_slots()` (slot detection helpers).
+- **`src/voders/interactiveCLI/chains.py`** (new, ~265 lines, no in-code comments) — contains: `cli_chains_mode()` (interactive entry point); `_select_chain()` / `_select_chain_by_list()` / `_select_chain_by_name()` (chain selection UX); `_select_multiple_chains()` (multi-chain selection loop); `_validate_input_file()` (in-time input validation); `_gather_inputs_for_chain()` (per-step input gathering with progress tracker); `_execute_prebuilt()` (execution orchestrator with 500-char error truncation and "things went further than expected" framing).
+- **`src/voders/sidequests.py` `oneline_chains()`** — extended to dispatch to `handle_build` / `handle_load` / `handle_analyze` based on the new `chains_subcmd` param. Falls through to the original `ChainPipeline.execute()` path when no subcommand is present (preserving backward compat with existing `chains` invocations).
+- **`src/voder.py` `parse_oneline_args()`** — the `mode == 'chains'` branch now peels off a leading `build` / `load` / `analyze` keyword (case-insensitive) into `result['params']['chains_subcmd']` before slurping the rest as `chains_args`.
+- **`MODE_INPUT_FORMATS` constant** (new, in `voder.py` near line 4077) — declarative table mapping each oneline mode to its accepted input formats. Used by the interactive CLI to advertise valid inputs per step. Example: `'tts': 'audio file / video file / supported platform URL / .tts or .ttse voice profile'`. Voice profiles (`.tts` / `.ttse`) are valid wherever audio is valid (per design decision #4).
+- **`VOICE_PROFILE_EXTENSIONS` constant** (new, in `voder.py` near line 4075) — `{'.tts', '.ttse'}`, used alongside `VIDEO_EXTENSIONS` for input validation.
+- **Interactive CLI dispatch table** — `src/voders/interactiveCLI/__init__.py` updated: `'9'` → `cli_chains_mode` (imported lazily from `voders.interactiveCLI.chains`). Menu text and validation updated to accept choices 1-9.
+
+### Verification behavior
+
+The same `verify_chain_file()` function is reused across all four contexts (`build`, `load`, `analyze`, interactive CLI), ensuring consistent checking:
+
+- **File-level format**: magic line has exactly 5 tokens, timestamp matches `YYYYMMDD_HHMMSS`, name matches `[A-Za-z0-9_-]+`, header block has only `title:` / `description:` keys, at least one step block exists.
+- **Per-step format**: each step block has `chain:` (required) and `content:` (required, non-empty). `comment:` optional. No unknown keys.
+- **Naming**: chain names match `[A-Za-z0-9_-]+`, are unique within the file.
+- **Syntax**: each step's content's first token is a valid oneline mode (`tts`/`sts`/`ttm`/`stt`/`se`/`sfx`/`svs`/`ss`/`train`/`quest`); `parse_oneline_args()` accepts the full content without error (skipped gracefully if voder.py can't be imported — e.g. in test envs).
+- **References**: forward references (a token matching a LATER chain name) are flagged as errors. Self-references are NOT flagged (they pass through harmlessly at runtime since the chain hasn't completed yet).
+- **Warnings** (non-fatal): empty title, empty description, empty comment per step, step with no `input` and no references (OK for `sfx`, unusual for `tts`/`sts`/etc.), step with more than 5 manual inputs (suggest splitting).
+
+### Notes
+
+- The prebuilt chains subsystem reuses the existing `ChainPipeline` machinery from `src/voders/sidequests.py` for the actual step execution and output capture (snapshot-based detection in `results/` + `voices/`, intermediate outputs moved to `temp_chains/`). No new execution path was added — only an orchestration layer on top.
+- The `chains` parser change is backward-compatible: existing `chains "name" cmd / "name2" cmd2` invocations continue to work unchanged (no leading `build` / `load` / `analyze` keyword → falls through to the original `ChainPipeline.execute()` path).
+- Prebuilt chain files are plain text and can be hand-edited, but the verifier will catch most format errors on the next `build` / `load` / `analyze` / interactive run.
+
 ## 06/19/2026
 - Status: Stable, all features work, still developing
 - **Chains & Side-Quests: User-Defined Pipelines + the 17-quest Media Manipulation toolkit + side-quest categorization**

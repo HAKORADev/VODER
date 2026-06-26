@@ -34,6 +34,7 @@ def _load_dispatch_table():
     from voders.interactiveCLI.svs import cli_svs_mode
     from voders.interactiveCLI.stt import cli_stt_mode
     from voders.interactiveCLI.ss import cli_ss_mode
+    from voders.interactiveCLI.chains import cli_chains_mode
     _MODE_DISPATCH = {
         '1': cli_tts_mode,
         '2': cli_sts_mode,
@@ -43,6 +44,7 @@ def _load_dispatch_table():
         '6': cli_svs_mode,
         '7': cli_stt_mode,
         '8': cli_ss_mode,
+        '9': cli_chains_mode,
     }
     return _MODE_DISPATCH
 
@@ -60,10 +62,11 @@ def interactive_cli_mode():
         print("6. SVS (Song Voice Separate)")
         print("7. STT (Speech-to-Text)")
         print("8. SS (Speakers Separator)")
-        choice = input("\nEnter your choice (1-8): ").strip()
+        print("9. Prebuilt Chains (load and run saved chain files)")
+        choice = input("\nEnter your choice (1-9): ").strip()
         handler = dispatch.get(choice)
         if handler is None:
-            print("Invalid choice. Please enter 1-8.")
+            print("Invalid choice. Please enter 1-9.")
             continue
         success = handler()
         print("\n--- What's Next? ---")
