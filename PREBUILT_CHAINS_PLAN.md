@@ -461,5 +461,5 @@ Each phase = one commit. Each phase is independently testable.
 - [x] Phase 4: `chains load` command
 - [x] Phase 5: `MODE_INPUT_FORMATS` table
 - [x] Phase 6: Interactive CLI chains mode
-- [ ] Phase 7: Docs + CHANGELOG
-- [ ] Phase 8: Verification + commit + push
+- [x] Phase 7: Docs + CHANGELOG
+- [x] Phase 8: Verification + commit + push (commit deb4c6f pushed to origin/main)
