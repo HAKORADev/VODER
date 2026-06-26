@@ -47,7 +47,7 @@
   - [What It Does](#what-it-does)
   - [How It Works](#how-it-works-4)
   - [Integration with TTS+VC](#integration-with-ttsvc)
-  - [YouTube URL Support](#youtube-url-support)
+  - [YouTube URL Support](#url-support)
 - [The Dialogue System](#the-dialogue-system)
   - [What Dialogue Mode Is](#what-dialogue-mode-is)
   - [How It Works](#how-it-works)
@@ -79,7 +79,7 @@
   - [Voice Cloning Best Practices](#voice-cloning-best-practices)
   - [Background Music Best Practices](#background-music-best-practices)
   - [Diarization Best Practices](#diarization-best-practices)
-  - [YouTube Download Tips](#youtube-download-tips)
+  - [YouTube Download Tips](#url-download-tips)
   - [OCR Accuracy Tips](#ocr-accuracy-tips)
   - [Voice Clip Extraction Best Practices](#voice-clip-extraction-best-practices)
   - [Sound Effects Best Practices](#sound-effects-best-practices)
@@ -1237,7 +1237,7 @@ Additionally, `remix` and `repaint` sub-tasks now support a `reference` paramete
 - `reference music "ref.wav"` — Extract instrumental from the reference for guidance
 - `reference "ref.wav"` — Use the reference audio as‑is (no extraction)
 
-The `reference` parameter accepts audio files, video files, and URLs (YouTube, Bilibili, TikTok). It works with both standard and overdose quality modes.
+The `reference` parameter accepts audio files, video files, and URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter). It works with both standard and overdose quality modes.
 
 **Vocal Extraction (`voice` keyword):**
 
@@ -2030,7 +2030,7 @@ Side-quests are lightweight utility tasks that live outside the voder engine but
 
 | Quest | Purpose | Inputs accepted | Inputs refused | Output |
 |-------|---------|-----------------|----------------|--------|
-| `download` | Fetch a URL as audio (default) or video (`video` keyword). Also copies local files. | YouTube/Bilibili/TikTok URLs, local audio/video files | — | `voder_quest_download_<name>_<timestamp>.<ext>` in `results/` |
+| `download` | Fetch a URL as audio (default) or video (`video` keyword). Also copies local files. | URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter), local audio/video files | — | `voder_quest_download_<name>_<timestamp>.<ext>` in `results/` |
 | `noframes` | Extract audio from a local video file. | Local video files (`.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`, `.flv`, `.wmv`, `.m4v`) | URLs, audio-only files | `voder_quest_noframes_<name>_<timestamp>.wav` in `results/` (PCM 16-bit 44.1 kHz stereo) |
 
 **`download` behavior:**
@@ -2285,51 +2285,68 @@ Memory usage for EasyOCR is minimal (a few hundred MB) on top of VODER's base re
 
 ---
 
-## YouTube & Video Platform Support
+## Video Platform URL Support
 
-VODER can download audio directly from YouTube and other video platforms, then process it with any mode that accepts audio input. This eliminates the manual step of downloading files with a separate tool.
+VODER can download audio (and optionally video) directly from a wide range of platforms, then process it with any mode that accepts audio input. This eliminates the manual step of downloading files with a separate tool.
 
 ### Supported Platforms
 
 | Platform | URL Patterns |
 |----------|-------------|
-| YouTube | `youtube.com/watch?v=*`, `youtu.be/*`, `youtube.com/shorts/*` |
+| YouTube | `youtube.com/watch?v=*`, `youtu.be/*`, `youtube.com/shorts/*`, `youtube.com/embed/*`, `youtube.com/live/*` |
+| TikTok | `tiktok.com/@user/video/*`, `vm.tiktok.com/*`, `vt.tiktok.com/*` |
 | Bilibili | `bilibili.com/video/*`, `b23.tv/*` |
-| TikTok | `tiktok.com/@user/video/*`, `vm.tiktok.com/*` |
+| Snapchat | `snapchat.com/spotlight/*`, `snapchat.com/u/*`, `snapchat.com/t/*`, `snapchat.com/p/*` |
+| Instagram | `instagram.com/reel/*`, `instagram.com/reels/*`, `instagram.com/p/*`, `instagram.com/tv/*`, `instagr.am/p/*` |
+| Facebook | `facebook.com/watch?v=*`, `facebook.com/<user>/videos/*`, `facebook.com/reel/*`, `fb.watch/*` |
+| X / Twitter | `twitter.com/<user>/status/*`, `x.com/<user>/status/*`, `t.co/*` |
+
+### Two-Step URL Detection
+
+VODER's URL pipeline runs two independent checks before downloading anything:
+
+1. **Shape check (instant, offline).** The URL is parsed and its host + path are matched against per-platform patterns. This step decides whether the URL belongs to a supported platform at all, and whether the path shape looks like a single video or a non-video page (channel / profile / playlist / explore / discover / search / etc.). Non-video URLs are rejected immediately without contacting the platform — for example `youtube.com/@SomeChannel`, `tiktok.com/@user`, `instagram.com/explore`, or `facebook.com/groups/123` produce a clear error and stop right there.
+2. **Video verification (online, via yt-dlp).** URLs that pass the shape check are then resolved through `yt-dlp` (with `download=False`) to confirm the link actually points to a downloadable video stream. This catches photo posts, slideshows, deleted/private videos, and playlists. If `yt-dlp` cannot extract a single video, VODER drops the link with an error and stops — no half-broken processing.
+
+This two-step design means the user does not have to think about which platform they are pasting from or whether the link is "the right kind of link" — if VODER accepts it, the link will actually produce a video.
 
 ### How It Works
 
-When VODER detects a URL as input (starting with `http://` or `https://`), it:
+When VODER detects a URL as input (starting with `http://` or `https://`, or just `youtube.com/...` / `tiktok.com/...` / etc.), it:
 
-1. Uses `yt-dlp` to download the best available audio stream
-2. Converts the audio to MP3 format at 192kbps quality
-3. Saves the temporary file for processing
-4. Cleans up the temporary file after processing completes
+1. Identifies the platform from the host (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, or X/Twitter)
+2. Runs the two-step detection above (shape check, then yt-dlp video verification)
+3. Downloads the best available audio stream via `yt-dlp`
+4. Converts the audio to MP3 format at 192 kbps quality
+5. Saves the temporary file for processing
+6. Cleans up the temporary file after processing completes
 
 The download happens automatically — you just paste the URL where VODER expects an audio file path.
 
 ### Cross-Mode Integration
 
-YouTube/video support works across multiple VODER modes:
+URL support works across multiple VODER modes:
 
-| Mode | YouTube Support |
+| Mode | URL Support |
 |------|----------------|
 | STT | Direct transcription from URL (audio download) |
-| TTS (voice clone) | Use YouTube video as voice reference via `target` parameter (audio download) |
-| TTS (dialogue source) | Use video as dialogue source (audio download) |
-| Voice clip extraction | Extract clips from YouTube video (audio download) |
-| STS | YouTube video as target voice reference (audio download) |
-| TTS (SLC) | Direct translation to English from YouTube URL, with optional `music` flag for preserving background music (audio download) |
-| TTS (dub) | Direct dubbing from YouTube URL — audio downloaded by default (WAV); add `video` keyword for MP4 output, or `subtitle` keyword (forces video download for frame burning) |
-| SS | Direct speaker separation from YouTube URL — audio downloaded by default (WAV); add `video` keyword for MP4 output |
-| SE | Direct enhancement from YouTube URL — audio downloaded by default (WAV); add `video` keyword for MP4 output |
-| SVS | Direct stem separation from YouTube URL — audio downloaded by default (WAV); add `video` keyword for MP4 output (one per stem) |
+| TTS (voice clone) | Use URL video as voice reference via `target` parameter (audio download) |
+| TTS (dialogue source) | Use URL video as dialogue source (audio download) |
+| Voice clip extraction | Extract clips from URL video (audio download) |
+| STS | URL video as target voice reference (audio download) |
+| TTS (SLC) | Direct translation to English from URL, with optional `music` flag for preserving background music (audio download) |
+| TTS (dub) | Direct dubbing from URL — audio downloaded by default (WAV); add `video` keyword for MP4 output, or `subtitle` keyword (forces video download for frame burning) |
+| SS | Direct speaker separation from URL — audio downloaded by default (WAV); add `video` keyword for MP4 output |
+| SE | Direct enhancement from URL — audio downloaded by default (WAV); add `video` keyword for MP4 output |
+| SVS | Direct stem separation from URL — audio downloaded by default (WAV); add `video` keyword for MP4 output (one per stem) |
 | TTM (complete/bgm) | Audio downloaded by default; add `video` keyword for MP4 output |
 
 ### Error Handling & Fallbacks
 
-- **Invalid URLs**: Clear error message, processing stops
-- **Private videos**: Error message explaining the limitation
+- **Unsupported platform URLs**: Clear error message identifying the platform, processing stops
+- **Non-video URLs** (channel pages, profiles, playlists, photo posts): Detected by the shape check and rejected without a network call
+- **Photo / slideshow / non-video posts**: Caught by yt-dlp video verification; processing stops with a clear error
+- **Private / deleted videos**: Error message explaining the limitation
 - **Region-locked content**: Error message, cannot process
 - **Network errors**: Retry suggestion with connection check
 - **Format fallbacks**: If MP3 conversion fails, falls back to M4A, WAV, or WebM
@@ -2363,13 +2380,14 @@ In TTS interactive CLI mode with voice cloning, after you enter your dialogue sc
 3. Clips are matched to dialogue characters **alphabetically**
 4. You can accept the auto-assignment or provide manual paths
 
-### YouTube URL Support
+### URL Support
 
-Voice clip extraction works directly with YouTube URLs. If you provide a YouTube video URL as the multi-speaker source:
+Voice clip extraction works directly with URLs from any supported platform. If you provide a video URL (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, or X/Twitter) as the multi-speaker source:
 
-1. Audio is downloaded via yt-dlp
-2. Extraction proceeds as normal
-3. Temporary files are cleaned up automatically
+1. The URL is verified by the two-step detection (shape check + yt-dlp video verification)
+2. Audio is downloaded via yt-dlp
+3. Extraction proceeds as normal
+4. Temporary files are cleaned up automatically
 
 ---
 
@@ -2405,7 +2423,7 @@ VODER can analyze existing audio to generate dialogue scripts:
 - Parsed directly for character:text format
 
 **YouTube URLs:**
-- Downloaded, transcribed, and optionally diarized
+- Downloaded, transcribed, and optionally diarized (same flow applies to TikTok, Bilibili, Snapchat, Instagram, Facebook, and X/Twitter URLs)
 
 ### Dialogue Input in GUI
 
@@ -2639,7 +2657,7 @@ python src/voder.py tts \
   reference "https://youtube.com/watch?v=..."
 ```
 
-The optional `reference` parameter provides a reference audio, video, or URL that is processed through the SVS music pipe (BS-RoFormer) to extract clean instrumental content before being passed to ACE-Step as stylistic guidance. This is useful when you want the generated background music to match the style or feel of a specific existing track. Video files have their audio extracted automatically, and YouTube/TikTok/Bilibili URLs are downloaded as audio-only before processing.
+The optional `reference` parameter provides a reference audio, video, or URL that is processed through the SVS music pipe (BS-RoFormer) to extract clean instrumental content before being passed to ACE-Step as stylistic guidance. This is useful when you want the generated background music to match the style or feel of a specific existing track. Video files have their audio extracted automatically, and URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter) are downloaded as audio-only before processing.
 
 ### Music Volume Level Control
 
@@ -2739,7 +2757,7 @@ python src/voder.py ttm bgm "interview.wav" sfx "coffee shop ambience/30-0/25" s
 - `bgm` requires `music` **or** `sfx:` (at least one must be provided)
 - If only `sfx:` specs are provided (no `music`), no new background music is generated; sound effects are overlaid directly onto the clean voice after music stripping
 - `bgm` cannot be combined with `vc`, `remix`, `repaint`, `complete`, `lego`, or `extract`
-- Source accepts audio files, video files, and URLs (YouTube, Bilibili, TikTok)
+- Source accepts audio files, video files, and URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter)
 - `video` flag: when source is a YouTube URL, downloads the video file (not just audio) and merges the result back into .mp4. For local video files, video output is automatic (no flag needed). If `video` is used with an audio source, outputs .wav with a warning.
 - Reference accepts audio files, video files, and URLs — always processed through SVS music pipe for clean instrumental
 - Normal (non-overdose) uses ACE-Step turbo 1.5; overdose uses ACE-Step XL 1.5 turbo
@@ -2758,7 +2776,7 @@ In the GUI, TTM tab now includes a **BGM** sub-mode with fields for source file,
 2. **Start low** — Default 35% is a safe starting point; increase gradually if speech clarity allows
 3. **Use reference for style consistency** — Provide a reference track that matches the desired feel; SVS music pipe cleans it automatically
 4. **Overdose for important content** — Use `overdose` flag when music quality is critical (final exports, professional productions)
-5. **URL support** — You can directly reference YouTube, Bilibili, or TikTok URLs as the source, no manual download needed
+5. **URL support** — You can directly reference URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter) as the source, no manual download needed
 6. **Video URLs with `video` flag** — Add the `video` keyword before the URL to download the video file and get a .mp4 output with replaced background music
 7. **Use SFX overlay for sound design** — Add `sfx:` specs to place sound effects at specific moments without manual editing
 8. **SFX-only mode for clean narration** — Skip `music` and use only `sfx:` when you just need spot effects on clean speech (e.g., adding ambient sounds to a dry recording)
@@ -2885,12 +2903,13 @@ If you use the **same input file** for both dialogue source and auto-clone, the 
 3. **Adequate length** — 60+ seconds gives better speaker separation
 4. **Limited speakers** — 2-4 speakers optimal; more than 6 reduces accuracy
 
-### YouTube Download Tips
+### URL Download Tips
 
 1. **Check availability** — Private or region-locked videos won't work
 2. **Stable connection** — Network issues can corrupt downloads
 3. **Patience for long videos** — Long content takes time to download
 4. **Quality varies** — Source audio quality depends on original upload
+5. **Verify the link is a video** — VODER's two-step detection will reject channel pages, profile pages, playlists, photo posts, and slideshows before downloading
 
 ### OCR Accuracy Tips
 

@@ -56,7 +56,7 @@ INPUT TYPES:
 │ Audio + Audio ref ─────► TTS svc (speaker voice change sub-task) │
 │ Video ─────────────────► STS, STT, SE, SVS, SS (auto-extract)    │
 │ Image ─────────────────► STT (OCR text extraction)               │
-│ YouTube/URL ───────────► STT, STS, TTM, SVS, SE, SS, TTS dub     │
+│ Platform URL ──────────► STT, STS, TTM, SVS, SE, SS, TTS dub     │
 │                          (audio auto-dl; add `video` flag for    │
 │                           MP4 output. TTS dub subtitle forces     │
 │                           video download for frame burning.)     │
@@ -484,7 +484,7 @@ python src/voder.py tts script "First paragraph\nSecond paragraph" voice "profes
 SLC (Spoken Language Conversion) is now a TTS oneline sub-task that translates spoken content from any language to English and re-synthesizes it with the original speaker's voice. It combines Whisper large-v3's translation capability with Qwen3-TTS's voice synthesis to produce **dubbed audio** — the content is translated but the voice character is preserved. Translation to English is performed by default; no separate `translate` flag is needed. For any-to-any translation (76 languages), use the `translate (source-target)` syntax (or shorthand `translate (target)`, which auto-detects the source) which employs TranslateGemma 12B instead of Whisper for the translation step.
 
 **How It Works:**
-1. **Source Input**: Accepts audio files, video files, and YouTube/URL sources
+1. **Source Input**: Accepts audio files, video files, and URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter)
 2. **SVS Voice Isolation**: BS-RoFormer isolates the voice from the source (handles mixed audio/video)
 3. **Music Extraction** (optional): When the `music` flag is used, SVS also extracts the instrumental track for later blending
 4. **Translation**: Whisper large-v3 (not turbo) transcribes and translates the isolated voice to English. If `translate (source-target)` or `translate (target)` is specified, TranslateGemma 12B handles any-to-any translation instead
@@ -1514,9 +1514,7 @@ STT mode converts audio, video, images, and URLs into text. It uses Whisper for 
 | Audio file (WAV, MP3, FLAC, etc.) | Direct transcription |
 | Video file (MP4, MKV, AVI, etc.) | Audio track extracted, then transcribed |
 | Image file (PNG, JPG, etc.) | Text extracted via EasyOCR |
-| YouTube URL | Audio downloaded via yt-dlp, then transcribed |
-| Bilibili URL | Audio downloaded via yt-dlp, then transcribed |
-| TikTok URL | Audio downloaded via yt-dlp, then transcribed |
+| Platform URL (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter) | Audio downloaded via yt-dlp after two-step verification, then transcribed |
 
 ### Flags: translate and overdose
 
@@ -1926,8 +1924,8 @@ SVS mode separates mixed audio into individual stems using BS-RoFormer Resurrect
 | `music` | Instrumental track | Everything except vocals |
 | `both` | Two files (sequential) | Extracts voice stem first, then music stem |
 
-### YouTube URL Support
-SVS can directly download and process audio from YouTube, Bilibili, and TikTok URLs. By default, only audio is downloaded (WAV output). Add the `video` keyword to download the full video and produce MP4 output (one video per stem, with the separated stem muxed back into the original frames).
+### URL Support
+SVS can directly download and process audio from URLs on YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, and X/Twitter. URLs are verified by the two-step detection (shape check + yt-dlp video verification) before downloading. By default, only audio is downloaded (WAV output). Add the `video` keyword to download the full video and produce MP4 output (one video per stem, with the separated stem muxed back into the original frames).
 
 ### Command Catalog
 
@@ -2092,7 +2090,7 @@ Side-quests are lightweight utility tasks that live outside the voder engine. Th
 
 | Quest | Purpose | Inputs accepted | Inputs refused | Output naming |
 |-------|---------|-----------------|----------------|---------------|
-| `download` | Fetch a URL as audio (default) or video (`video` keyword). Also copies local files. | YouTube/Bilibili/TikTok URLs, local audio/video files | — | `voder_quest_download_<name>_<timestamp>.<ext>` in `results/` |
+| `download` | Fetch a URL as audio (default) or video (`video` keyword). Also copies local files. | URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter), local audio/video files | — | `voder_quest_download_<name>_<timestamp>.<ext>` in `results/` |
 | `noframes` | Extract audio from a local video file. | Local video files (`.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`, `.flv`, `.wmv`, `.m4v`) | URLs, audio-only files | `voder_quest_noframes_<name>_<timestamp>.wav` in `results/` (PCM 16-bit 44.1 kHz stereo) |
 
 ### How It Works

@@ -22,7 +22,7 @@ def _decompose_pitch(target):
 
 class Quest(SideQuest):
     name = 'pitch'
-    description = 'Professional pitch shift (rubberband, formant-shifted for that tape/vinyl character). Range 0.01-10.00 in 0.01 steps (1.00 is a no-op). 0.50 = -1 octave (monster/demon), 2.00 = +1 octave (baby/chipmunk), 0.01 = extreme deep, 10.00 = extreme high. Extreme ranges outside 0.50-2.00 are split into multiple one-octave passes for clean output. Audio output only. Accepts local audio, local video, and YouTube/Bilibili/TikTok URLs. Chain with quest speed for Spotify-style slowed+reverb. Syntax: quest pitch <0.01-10.00> "<audio|video|URL>".'
+    description = 'Professional pitch shift (rubberband, formant-shifted for that tape/vinyl character). Range 0.01-10.00 in 0.01 steps (1.00 is a no-op). 0.50 = -1 octave (monster/demon), 2.00 = +1 octave (baby/chipmunk), 0.01 = extreme deep, 10.00 = extreme high. Extreme ranges outside 0.50-2.00 are split into multiple one-octave passes for clean output. Audio output only. Accepts local audio, local video, and any supported URL (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter). Chain with quest speed for Spotify-style slowed+reverb. Syntax: quest pitch <0.01-10.00> "<audio|video|URL>".'
 
     def parse(self, args):
         if len(args) != 2:
@@ -37,10 +37,10 @@ class Quest(SideQuest):
         if abs(rounded - 1.00) < 0.001:
             return None, "pitch value 1.00 is a no-op; please pick a different value"
         location = args[1]
-        from voder import is_youtube_url
-        is_url = is_youtube_url(location)
+        from voder import is_supported_url
+        is_url = is_supported_url(location)
         if not is_url and not os.path.exists(location):
-            return None, f"input not found and not a recognized URL: {location} (only local files and YouTube/Bilibili/TikTok URLs are supported)"
+            return None, f"input not found and not a recognized URL: {location} (only local files and supported URLs are accepted — YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter)"
         return {'value': rounded, 'location': location, 'is_url': is_url}, None
 
     def execute(self, parsed, results_dir, timestamp, result_path=None):
@@ -51,13 +51,17 @@ class Quest(SideQuest):
 
         cleanup_temp = False
         if is_url:
-            from voder import download_youtube_audio
-            ok, err, audio_path = download_youtube_audio(location)
+            from voder import download_url_audio, derive_output_name, is_video_url
+            is_vid, verify_err, _pid = is_video_url(location, verify=True)
+            if not is_vid:
+                print(f"Error: {verify_err or 'This link is not a video'}")
+                return False
+            ok, err, audio_path = download_url_audio(location, skip_verify=True)
             if not ok:
                 print(f"Error: failed to download URL: {err}")
                 return False
             local_input = audio_path
-            original_name = re.sub(r'[^A-Za-z0-9_\-]', '_', os.path.splitext(os.path.basename(location))[0])[:40] or 'url'
+            original_name = derive_output_name(location)
             cleanup_temp = True
         else:
             local_input = location

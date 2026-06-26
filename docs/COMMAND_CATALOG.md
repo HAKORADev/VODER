@@ -87,7 +87,7 @@ Generate speech from text using voice descriptions (VoiceDesign) or voice clone 
 | `target` | `"<path>"` or `"CharName: path"` | Audio path for voice cloning. Single mode: one path. Dialogue mode: `"CharName: path"` per character. **Multi-reference**: `(path1)(path2)(path3)` wraps multiple references in parentheses — each is resolved, SVS-cleaned, and concatenated into a composite for richer voice extraction. **`first` keyword**: add `first` before the references (`target first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling. **`sts:` prefix**: `target "sts:path"` triggers an additional Seed-VC v2 non-mimic voice conversion pass after cloning. Can appear multiple times. |
 | `music` | `"<description>"` | Background music description (dialogue mode only). Generated via ACE-Step and mixed under speech. |
 | `level` | `"<spec>"` | Music volume levels per dialogue segment, e.g. `"10:20-50 30:60-80"`. Format: `<volume%>:<start_sec>-<end_sec>`. Default: 35%. Dialogue mode only. |
-| `reference` | `"<path>"` | Optional reference audio/video/URL for dialogue background music style guidance. Processed through SVS music pipe to extract clean instrumental before use. Accepts audio files, video files, and YouTube/TikTok/Bilibili URLs. Dialogue mode only. |
+| `reference` | `"<path>"` | Optional reference audio/video/URL for dialogue background music style guidance. Processed through SVS music pipe to extract clean instrumental before use. Accepts audio files, video files, and URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter). Dialogue mode only. |
 | `ocr` | `"<image_path>"` | Extract text from an image via EasyOCR, then use that text as the script. Supported formats: PNG, JPG, JPEG, BMP, GIF, TIFF, WebP. |
 | `<number>` | `10-300` | Duration in seconds (TTM only, ignored in pure TTS). |
 | `slc` | (flag) | Enable SLC (Speaker Language Conversion) sub-task. Transcribe source, clone voice, re-synthesize. See SLC Sub-Task below. |
@@ -211,7 +211,7 @@ Speaker Language Conversion: transcribe speech from an audio/video source, trans
 | `slc` | (flag) | Enable SLC sub-task. Translates to English by default. |
 | `translate (source-target)` or `translate (target)` | `(auto-en)` / `(ja-en)` / `(ar)` etc. | Any-to-any translation via TranslateGemma 12B (76 languages). Overrides default English-only translation. `(target)` is shorthand for `(auto-target)`. |
 | `music` | (flag) | Preserve non-vocals: extract music from source via SVS music and blend with voice output. |
-| `"<path>"` | file | Audio/video file path or YouTube/TikTok/Bilibili URL. |
+| `"<path>"` | file | Audio/video file path or YouTube/TikTok/Bilibili/Snapchat/Instagram/Facebook/X-Twitter URL. |
 | `result` | `"<path>"` | Copy output to custom path. |
 
 #### Rules
@@ -219,7 +219,7 @@ Speaker Language Conversion: transcribe speech from an audio/video source, trans
 - Pipeline: SVS voice isolation → Whisper large-v3 (transcribe + translate to English) → Qwen-TTS with voice cloning. With `translate (source-target)` or `translate (target)`: SVS voice isolation → Whisper large-v3 (transcribe) → TranslateGemma 12B (translate to target language) → Qwen-TTS with voice cloning.
 - Default translation target is English. With `translate (source-target)` or `translate (target)`, TranslateGemma 12B handles translation to any of 76 languages.
 - Uses Whisper large-v3 (not turbo) for maximum translation accuracy.
-- Supports audio files, video files, and YouTube/TikTok/Bilibili URLs.
+- Supports audio files, video files, and YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, and X/Twitter URLs.
 - `music` flag extracts the instrumental track from the source and blends it with the voice output, preserving background music.
 - `overdose slc` runs an additional STS v2 pass after TTS for better voice preservation.
 - `extreme slc` uses Fish S2-Pro instead of Qwen3-TTS for the resynthesis step, producing higher quality voice cloning.
@@ -582,7 +582,7 @@ Convert voice from a base audio to match a target voice. Source vocals are autom
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `base` | `"<path>"` | Source audio/video file path or YouTube/TikTok/Bilibili URL. The audio whose content will be preserved. |
+| `base` | `"<path>"` | Source audio/video file path or YouTube/TikTok/Bilibili/Snapchat/Instagram/Facebook/X-Twitter URL. The audio whose content will be preserved. |
 | `target` | `"<path>"` | Reference voice audio. The voice characteristics to apply. Auto-extracts clean vocals. **Multi-reference**: `(path1)(path2)(path3)` wraps multiple references in parentheses — each is resolved, SVS-cleaned, and concatenated into a composite for richer voice extraction. **`first` keyword**: add `first` before the references (`target first "(path1)(path2)"`) to extract only the first reference's speaker from all others via TSE before compiling. |
 | `music` | (flag) | Use Seed-VC v1 (44.1kHz music model) instead of v2 (22.05kHz speech model). Input must be audio (not video). Auto-extracts vocals from source and target. |
 | `mimic` | (flag) | Convert style + voice (not just voice). Uses Seed-VC v2 with `convert_style=True`. Cannot be combined with `music`. Input must be audio (not video). |
@@ -838,7 +838,7 @@ Re-generate a song in a new style. Uses ACE-Step cover method. Supports **multi-
 - Multi-source composition: total duration = sum of all source durations; each source contributes equal time.
 - Multi-reference composition (2 refs): 10s front of ref1 + 5s mid of ref1 + 5s mid of ref2 + 10s end of ref2 = 30s.
 - Multi-reference composition (3 refs): 10s front of ref1 + 10s mid of ref2 + 10s end of ref3 = 30s.
-- Reference can be a local file, video file, or YouTube/TikTok/Bilibili URL.
+- Reference can be a local file, video file, or YouTube/TikTok/Bilibili/Snapchat/Instagram/Facebook/X-Twitter URL.
 
 ```
 # Basic remix
@@ -894,7 +894,7 @@ Re-generate a specific time range of a song in a new style. Supports two modes: 
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `repaint` | `[voice/music] "<path>"` | Source audio/video file or YouTube/TikTok/Bilibili URL to repaint. Optional `voice`/`music` prefix isolates vocals or instruments via SVS before repainting. |
+| `repaint` | `[voice/music] "<path>"` | Source audio/video file or YouTube/TikTok/Bilibili/Snapchat/Instagram/Facebook/X-Twitter URL to repaint. Optional `voice`/`music` prefix isolates vocals or instruments via SVS before repainting. |
 | `styling` | `"<text>"` | New style prompt for the repainted section. Required. |
 | `time:start-end` | `"<start>-<end>"` | Time range in seconds (e.g., `time:20-80` or `time:20.5-80.5`). Required. Supports float values. |
 | `lyrics` | `"<text>"` | Optional lyrics for the repainted section. Defaults to `"..."` if omitted. |
@@ -936,7 +936,7 @@ Each pass is a quoted string containing a time range and optional parameters. Ea
 - `reference "<path>"` uses the reference audio as-is.
 - Up to 3 references; excess entries produce a warning and are trimmed.
 - Multiple references are composed into a 30s composite (same logic as remix).
-- Reference can be a local file, video file, or YouTube/TikTok/Bilibili URL.
+- Reference can be a local file, video file, or YouTube/TikTok/Bilibili/Snapchat/Instagram/Facebook/X-Twitter URL.
 - In multi-pass mode, each pass uses the output of the previous pass as its source. The model is loaded once and reused for all passes. Intermediate pass outputs are cleaned up; only the final output is retained.
 
 ```
@@ -992,7 +992,7 @@ Add missing instruments to an existing track. Uses ACE-Step XL-Base + 1.7B LM + 
 | Keyword | Value | Description |
 |---------|-------|-------------|
 | `complete` | (flag) | Enable complete sub-task. |
-| `"<path>"` | source | Source audio/video file or YouTube/TikTok/Bilibili URL (positional, after all keywords). |
+| `"<path>"` | source | Source audio/video file or YouTube/TikTok/Bilibili/Snapchat/Instagram/Facebook/X-Twitter URL (positional, after all keywords). |
 | `add` | `"<instruments>"` | Instruments to add. See **Instruments Reference** below. Optional if `sfx:` specs are provided. |
 | `styling` | `"<text>"` | Optional style prompt to influence the mood and genre of generated instruments (e.g., `"dramatic cinematic"`, `"upbeat pop"`). |
 | `noblend` | (flag) | Output the generated instruments only, without blending with the original source audio. Output filename includes `_noblend_`. |
@@ -1069,7 +1069,7 @@ Generate individual instrument tracks from a source. Uses ACE-Step XL-Base + 1.7
 | Keyword | Value | Description |
 |---------|-------|-------------|
 | `lego` | (flag) | Enable lego sub-task. |
-| `"<path>"` | source | Source audio/video file or YouTube/TikTok/Bilibili URL (positional). |
+| `"<path>"` | source | Source audio/video file or YouTube/TikTok/Bilibili/Snapchat/Instagram/Facebook/X-Twitter URL (positional). |
 | `make` | `"<instruments>"` | Instruments to generate. See **Instruments Reference** below. |
 | `styling` | `"<text>"` | Optional style prompt to influence the mood and genre of generated instruments (e.g., `"jazz trio"`, `"ambient electronic"`). |
 | `voice` | (flag) | Pre-extract vocals from source via SVS. |
@@ -1083,7 +1083,7 @@ Generate individual instrument tracks from a source. Uses ACE-Step XL-Base + 1.7
 - Requires a source path and `make` with instruments.
 - Without `mix` or `blend`, each track is exported as a separate file.
 - `mix` and `blend` are mutually exclusive.
-- Source and references accept audio files, video files, and YouTube/TikTok/Bilibili URLs.
+- Source and references accept audio files, video files, and YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, and X/Twitter URLs.
 
 ```
 # Generate individual drum and bass tracks
@@ -1137,7 +1137,7 @@ Extract/separate individual instrument stems from a source. Uses ACE-Step XL-Bas
 | Keyword | Value | Description |
 |---------|-------|-------------|
 | `extract` | (flag) | Enable extract sub-task. |
-| `"<path>"` | source | Source audio/video file or YouTube/TikTok/Bilibili URL (positional). |
+| `"<path>"` | source | Source audio/video file or YouTube/TikTok/Bilibili/Snapchat/Instagram/Facebook/X-Twitter URL (positional). |
 | `stems` | `"<instruments>"` | Instruments to extract. See **Instruments Reference** below. |
 | `only` | (flag) | Invert selection: extract everything EXCEPT the specified stems, then mix into one file. Cannot combine with `mix`. |
 | `mix` | (flag) | Mix all extracted stems into one file. Cannot combine with `only`. |
@@ -1207,7 +1207,7 @@ Replace background music in an existing audio or video file. Strips existing mus
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `bgm` | `"<path>"` | Source audio/video file or YouTube/TikTok/Bilibili URL whose background music will be replaced. |
+| `bgm` | `"<path>"` | Source audio/video file or YouTube/TikTok/Bilibili/Snapchat/Instagram/Facebook/X-Twitter URL whose background music will be replaced. |
 | `music` | `"<description>"` | Description for the new background music to generate. Optional if `sfx:` specs are provided. |
 | `level` | `<0-100>` | Music volume level (0 = silent, 100 = full volume). Default: 35. |
 | `video` | (flag) | Preserve video output. When source is a URL, downloads the video file and merges result back into .mp4. For local video files, video output is automatic (no flag needed). |
@@ -1310,7 +1310,7 @@ Transcribe audio/video to text using Whisper.
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `"<path>"` | file | Audio/video/image file path or YouTube/TikTok/Bilibili URL. Can specify multiple files (each is transcribed separately). |
+| `"<path>"` | file | Audio/video/image file path or YouTube/TikTok/Bilibili/Snapchat/Instagram/Facebook/X-Twitter URL. Can specify multiple files (each is transcribed separately). |
 | `timestamp` | (flag) | Keep Whisper word-level timestamps in the output. |
 | `dialogue` | (flag) | Enable speaker diarization (requires HF_TOKEN and pyannote model access). |
 | `translate` | (flag) | Translate transcription to English (uses Whisper large-v3 model). |
@@ -1521,7 +1521,7 @@ Extract vocals or instruments from a song using BS-RoFormer.
 | `voice` | (flag) | Extract vocals (remove instruments). |
 | `music` | (flag) | Extract instruments (remove vocals). |
 | `both` | (flag) | Extract both vocals and instruments (runs two separations, outputs two files). |
-| `"<path>"` | file | Audio/video file path or YouTube/TikTok/Bilibili URL. |
+| `"<path>"` | file | Audio/video file path or YouTube/TikTok/Bilibili/Snapchat/Instagram/Facebook/X-Twitter URL. |
 | `result` | `"<path>"` | Copy output to custom path. |
 | `video` | (flag) | When source is a URL, download the full video (default: audio download). Output is MP4 with separated stem muxed back, one per stem. |
 
@@ -1531,7 +1531,7 @@ Extract vocals or instruments from a song using BS-RoFormer.
 - `both` extracts both vocals and instruments, producing two output files.
 - Video input: outputs `.mp4` with separated audio merged back.
 - Audio input: outputs `.wav`.
-- YouTube/TikTok/Bilibili URLs: default downloads **audio** and outputs `.wav`; add the `video` flag to download the full video and output `.mp4` (one per stem).
+- YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, and X/Twitter URLs: default downloads **audio** and outputs `.wav`; add the `video` flag to download the full video and output `.mp4` (one per stem).
 
 ```
 # Extract vocals
@@ -1566,7 +1566,7 @@ Extract all individual speakers from an audio source one by one, or extract a sp
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `"<path>"` | file | Audio/video file path or YouTube/TikTok/Bilibili URL. |
+| `"<path>"` | file | Audio/video file path or YouTube/TikTok/Bilibili/Snapchat/Instagram/Facebook/X-Twitter URL. |
 | `target` | `"<path>"` | Target voice reference audio/URL. When provided, extracts only the speaker matching this reference from the source audio. Outputs a single file containing the targeted speaker's content. The model looks at the target voice and tries to find/extract that speaker from the source. |
 | `se` | (flag) | Apply sound enhancement before separation (denoise/dereverb the input first). |
 | `overdose` | (flag) | Use VibeVoice ASR instead of Whisper + pyannote for transcription and diarization, providing better separation accuracy. Requires 24GB+ VRAM or 48GB+ RAM. **Skipped when `target` is provided** (target uses TSE extraction, not diarization). |
@@ -1583,7 +1583,7 @@ Extract all individual speakers from an audio source one by one, or extract a sp
 - `overdose` is only used in the no-target pipeline (switches from Whisper+pyannote to VibeVoice ASR for better accuracy). It is completely skipped when `target` is provided.
 - `blend` works with both target and non-target modes, and with `se`, `overdose`, and `video`.
 - `video` works with both target and non-target modes, and with `se`, `overdose`, and `blend`.
-- Supports audio, video, YouTube, TikTok, and Bilibili URLs.
+- Supports audio, video, and URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter).
 - `se` runs sound enhancement before anything else (cleaner input = better results).
 
 ```
@@ -1676,14 +1676,14 @@ Side-quests are grouped by category in the `quest` listing (run `python voder.py
 | Argument | Description |
 |----------|-------------|
 | `video` | (optional) Switch to a full video download instead of audio. |
-| `"<url>"` or `"<path>"` | A YouTube / Bilibili / TikTok URL or a local file path. |
+| `"<url>"` or `"<path>"` | A URL from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter) or a local file path. |
 | `result "<path>"` | (optional) Copy the result to a custom path. |
 
 **Behavior:**
 
-- URL input: downloads via yt-dlp. Audio path uses `download_youtube_audio` (MP3 @ 192 kbps); video path uses `download_youtube_video` (MP4, best quality).
+- URL input: downloads via yt-dlp. Audio path uses `download_url_audio` (MP3 @ 192 kbps); video path uses `download_url_video` (MP4, best quality). The URL is verified by the universal URL handler before downloading (shape check + yt-dlp video verification).
 - Local file input: copies the file to `results/` with the quest naming scheme (no re-encoding).
-- The `<original-name>` is derived from the YouTube video ID (for URLs) or the file's stem (for local files), sanitized to safe filename characters and capped at 40–60 characters.
+- The `<original-name>` is derived from the platform video ID (for URLs — e.g. YouTube video ID, TikTok video ID, Bilibili BV id, Instagram reel id, Facebook video id, Twitter status id) or the file's stem (for local files), sanitized to safe filename characters and capped at 40–60 characters.
 
 ```
 # Download a YouTube URL as audio (default, MP3)
@@ -2133,7 +2133,7 @@ python voder.py quest speed 2.00 "song.wav" result "./slowed.wav"
 | Argument | Description |
 |----------|-------------|
 | `<0.01-10.00>` | Pitch scale factor in 0.01 increments. `1.00` is excluded (no-op). `0.50` = −1 octave (monster/demon voice), `2.00` = +1 octave (baby/chipmunk voice), `0.01` = extreme deep (≈6.64 octaves down), `10.00` = extreme high (≈3.32 octaves up). |
-| `"<input>"` | A LOCAL audio file, LOCAL video file, or YouTube/Bilibili/TikTok URL. For video inputs, only the audio stream is read (video frames are dropped). For URLs, the audio is downloaded via yt-dlp before processing and the temp file is cleaned up after. |
+| `"<input>"` | A LOCAL audio file, LOCAL video file, or a URL from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter). For video inputs, only the audio stream is read (video frames are dropped). For URLs, the audio is downloaded via yt-dlp before processing and the temp file is cleaned up after. |
 | `result "<path>"` | (optional) Copy the result to a custom path. |
 
 **Behavior:**
@@ -2231,7 +2231,7 @@ python voder.py quest glue "audio.wav" "video.mp4" result "./final.mp4"
 | Argument | Description |
 |----------|-------------|
 | `<1-100>` | Reverb amount on an integer 1–100 scale. `1` = barely-there small room, `25` = chamber, `50` = concert hall, `75` = large hall, `100` = cathedral-drenched. Must be an integer (no decimals). |
-| `"<input>"` | A LOCAL audio file, LOCAL video file, or YouTube/Bilibili/TikTok URL. For video inputs, only the audio stream is read (video frames are dropped). For URLs, the audio is downloaded via yt-dlp before processing and the temp file is cleaned up after. |
+| `"<input>"` | A LOCAL audio file, LOCAL video file, or a URL from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter). For video inputs, only the audio stream is read (video frames are dropped). For URLs, the audio is downloaded via yt-dlp before processing and the temp file is cleaned up after. |
 | `result "<path>"` | (optional) Copy the result to a custom path. |
 
 **Behavior:**
@@ -2420,11 +2420,15 @@ Most modes that accept file paths also support (see exceptions below):
 |------------|-------------|
 | Local audio | `.wav`, `.mp3`, `.flac`, `.ogg`, etc. |
 | Local video | `.mp4`, `.avi`, `.mov`, `.mkv`, `.flv`, `.webm`, `.m4v`, `.3gp`, `.wmv`, `.ts`, `.mts` |
-| YouTube URL | `https://youtube.com/watch?v=...` — auto-downloads audio/video |
-| TikTok URL | Auto-downloads audio/video |
-| Bilibili URL | Auto-downloads audio/video |
+| YouTube URL | `https://youtube.com/watch?v=...`, `https://youtu.be/...`, `https://youtube.com/shorts/...`, etc. |
+| TikTok URL | `https://www.tiktok.com/@user/video/...`, `https://vm.tiktok.com/...`, etc. |
+| Bilibili URL | `https://www.bilibili.com/video/...`, `https://b23.tv/...` |
+| Snapchat URL | `https://www.snapchat.com/spotlight/...`, `https://www.snapchat.com/u/...`, etc. |
+| Instagram URL | `https://www.instagram.com/reel/...`, `https://www.instagram.com/p/...`, etc. |
+| Facebook URL | `https://www.facebook.com/watch?v=...`, `https://fb.watch/...`, etc. |
+| X / Twitter URL | `https://twitter.com/<user>/status/...`, `https://x.com/<user>/status/...`, `https://t.co/...` |
 
-> **Note:** Internally, all three URL types are handled by the same URL detection function. YouTube Shorts and Bilibili links are also supported.
+> **Note:** All URL types go through the same universal URL handler (`src/url_handler.py`). The handler runs a two-step detection: first a shape check (host + path patterns per platform, instant and offline) that rejects channel pages, profiles, playlists, and other non-video URLs; then a `yt-dlp` video verification step (online, `download=False`) that confirms the link actually resolves to a downloadable video stream before downloading. Short-link domains (`youtu.be`, `b23.tv`, `vm.tiktok.com`, `fb.watch`, `t.co`, etc.) are recognized as video URLs by default.
 
 Video files are automatically handled: audio is extracted for processing, then merged back with the original video track for output (where applicable).
 

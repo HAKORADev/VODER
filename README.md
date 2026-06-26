@@ -38,7 +38,7 @@ VODER brings together **8 processing modes** under one interface — speech-to-t
 - **Voice Re-Synthesis** — Transcribe speech and re-read it in a different voice using `tts svc`, with an optional `sts:` prefix for high-fidelity voice conversion via Seed-VC v2.
 - **Side-Quests** — Lightweight utility tasks that live outside the main engine: URL download, audio format conversion, cutting / merging / removing ranges, silence stripping, speed / pitch / soundlevel / bassboost / reverb / loudnorm effects, and more. Run `python voder.py quest` to see all available quests, grouped by category.
 - **Chains** — User-defined pipelines that wire any number of voder tasks together: each chain is named, its output is captured to temp, and later chains can reference earlier chain names as input paths. Build a song, isolate its vocals, train a voice from them, then dub a video — all in one command.
-- **Smart Input Pipeline** — Paste a YouTube, Bilibili, or TikTok URL directly as input. Feed an image and VODER extracts text via OCR. Automatically extract voice clips from multi-speaker audio for one-click voice cloning.
+- **Smart Input Pipeline** — Paste a YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, or X/Twitter URL directly as input. VODER verifies the link actually points to a video before downloading. Feed an image and VODER extracts text via OCR. Automatically extract voice clips from multi-speaker audio for one-click voice cloning.
 
 ---
 
@@ -66,7 +66,7 @@ Generate full songs from lyrics and style descriptions. Beyond basic generation,
 
 ### Vocal & Music Separation
 
-Isolate clean vocals from any song, or extract the instrumental. Works with audio files, videos, and direct YouTube URLs. This separation engine also runs automatically behind the scenes in TTS (to clean voice cloning references), STS (to improve conversion quality), and STT (to pre-clean audio before transcription).
+Isolate clean vocals from any song, or extract the instrumental. Works with audio files, videos, and direct URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter). This separation engine also runs automatically behind the scenes in TTS (to clean voice cloning references), STS (to improve conversion quality), and STT (to pre-clean audio before transcription).
 
 ### Speech-to-Text with Speaker Intelligence
 
@@ -82,7 +82,7 @@ Extract individual speakers from multi-speaker recordings into separate audio fi
 
 ### Language Conversion (TTS Sub-Task)
 
-Translate speech from any language to English while **preserving the original speaker's voice identity** — `tts slc "audio.wav"`. Supports any-to-any translation via TranslateGemma with the `translate (source-target)` syntax. An optional `music` flag preserves the original instrumental track, and `overdose` adds a voice fidelity pass. Accepts audio files, videos, and YouTube URLs.
+Translate speech from any language to English while **preserving the original speaker's voice identity** — `tts slc "audio.wav"`. Supports any-to-any translation via TranslateGemma with the `translate (source-target)` syntax. An optional `music` flag preserves the original instrumental track, and `overdose` adds a voice fidelity pass. Accepts audio files, videos, and supported platform URLs.
 
 ### Video/Audio Dubbing (TTS Sub-Task)
 
@@ -90,7 +90,7 @@ Dub entire videos to another language with **per-segment timing alignment** — 
 
 ### Smart Input Pipeline
 
-Paste a **YouTube, Bilibili, or TikTok URL** directly as input — VODER downloads and processes it automatically. Feed an **image** containing text and VODER extracts it via OCR for TTS processing. Automatic voice clip extraction from multi-speaker audio enables one-click voice cloning for dialogue characters.
+Paste a URL from **YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, or X/Twitter** directly as input — VODER auto-detects the platform, verifies the link points to a real video (not a channel page, profile, photo post, or playlist), then downloads and processes it. Feed an **image** containing text and VODER extracts it via OCR for TTS processing. Automatic voice clip extraction from multi-speaker audio enables one-click voice cloning for dialogue characters.
 
 ### Side-Quests (`quest`)
 

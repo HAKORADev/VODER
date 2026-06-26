@@ -1,3 +1,11 @@
+import os
+import sys
+
+_VODER_SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _VODER_SRC not in sys.path:
+    sys.path.insert(0, _VODER_SRC)
+
+
 def print_banner():
     print("""
 ██    ██  ██████  ██████  ███████ ██████
@@ -11,9 +19,36 @@ def print_banner():
     print("=" * 60)
 
 
+_MODE_DISPATCH = None
+
+
+def _load_dispatch_table():
+    global _MODE_DISPATCH
+    if _MODE_DISPATCH is not None:
+        return _MODE_DISPATCH
+    from voders.interactiveCLI.tts import cli_tts_mode
+    from voders.interactiveCLI.sts import cli_sts_mode
+    from voders.interactiveCLI.ttm import cli_ttm_mode
+    from voders.interactiveCLI.se import cli_se_mode
+    from voders.interactiveCLI.sfx import cli_sfx_mode
+    from voders.interactiveCLI.svs import cli_svs_mode
+    from voders.interactiveCLI.stt import cli_stt_mode
+    from voders.interactiveCLI.ss import cli_ss_mode
+    _MODE_DISPATCH = {
+        '1': cli_tts_mode,
+        '2': cli_sts_mode,
+        '3': cli_ttm_mode,
+        '4': cli_se_mode,
+        '5': cli_sfx_mode,
+        '6': cli_svs_mode,
+        '7': cli_stt_mode,
+        '8': cli_ss_mode,
+    }
+    return _MODE_DISPATCH
+
+
 def interactive_cli_mode():
-    from voder import (cli_tts_mode, cli_sts_mode, cli_ttm_mode, cli_se_mode,
-                       cli_sfx_mode, cli_svs_mode, cli_stt_mode, cli_ss_mode)
+    dispatch = _load_dispatch_table()
     while True:
         print_banner()
         print("\nSelect Mode:")
@@ -26,26 +61,11 @@ def interactive_cli_mode():
         print("7. STT (Speech-to-Text)")
         print("8. SS (Speakers Separator)")
         choice = input("\nEnter your choice (1-8): ").strip()
-        success = False
-        if choice == '1':
-            success = cli_tts_mode()
-        elif choice == '2':
-            success = cli_sts_mode()
-        elif choice == '3':
-            success = cli_ttm_mode()
-        elif choice == '4':
-            success = cli_se_mode()
-        elif choice == '5':
-            success = cli_sfx_mode()
-        elif choice == '6':
-            success = cli_svs_mode()
-        elif choice == '7':
-            success = cli_stt_mode()
-        elif choice == '8':
-            success = cli_ss_mode()
-        else:
+        handler = dispatch.get(choice)
+        if handler is None:
             print("Invalid choice. Please enter 1-8.")
             continue
+        success = handler()
         print("\n--- What's Next? ---")
         print("1. Blend Again")
         print("2. Exit")

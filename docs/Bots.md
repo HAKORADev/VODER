@@ -35,10 +35,10 @@ VODER is a professional‑grade voice processing tool that enables seamless conv
 - **Sound Effects Generation**: Text-to-audio synthesis for custom sound design
 - **Sound Enhancement**: Denoise, dereverberate, and restore speech audio; voice isolation and super-resolution via AudioSR (basic + speech models)
 - **Voice Cloning**: Extract and replicate voice characteristics from reference audio
-- **Standalone STT**: Transcribe audio, video, images, and YouTube URLs to text
+- **Standalone STT**: Transcribe audio, video, images, and platform URLs to text
 - **Speaker Diarization**: Identify and label individual speakers in multi‑speaker audio
 - **Image OCR**: Extract text from images as dialogue input for TTS processing
-- **YouTube/Video Download**: Process audio from YouTube, Bilibili, and TikTok URLs directly
+- **URL Download**: Process audio from URLs on YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, and X/Twitter directly (two-step verification: URL shape check + yt-dlp video verification)
 - **Automatic Voice Extraction**: Extract individual voice clips from multi‑speaker sources for cloning
 - **Result Routing**: Copy results to any filesystem path using the `result` parameter
 - **Song Voice Separation (SVS)**: Separate vocals from music using BS‑RoFormer
@@ -149,7 +149,7 @@ pip install --upgrade protobuf==5.29.6
 | `hydra-core` | Configuration framework |
 | `huggingface_hub` | Model download and caching |
 | `soundfile` | Audio file I/O operations |
-| `yt-dlp` | YouTube, Bilibili, and TikTok video/audio download |
+| `yt-dlp` | Video/audio download from YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter |
 | `easyocr` | Image text extraction (OCR) for processing images as dialogue input |
 | `lightning` | PyTorch Lightning backend required by pyannote for speaker diarization |
 | `sox` | Audio processing utilities (resampling, format conversion, channel manipulation) |
@@ -474,7 +474,7 @@ python src/voder.py chains "skip1" / "skip2" / "real" tts script "hi" voice "mal
 Generate speech from text using Qwen3‑TTS VoiceDesign model.
 **Supports both single and dialogue modes. Dialogue mode supports optional background music and SFX lines.**
 **Voice cloning is available via the `target` parameter — supply a voice reference audio path to clone that voice. Multi-reference cloning is supported using parenthesized format: `(path1)(path2)(path3)`. Add the `first` keyword before the references (`target first "(path1)(path2)(path3)"`) to extract only the first reference's speaker from all others via TSE before compiling.**
-**SLC (Speaker Language Conversion) is available as a sub‑task: `tts slc "path.wav"`, `tts slc music "path.wav"`, `tts overdose slc "path.wav"`, `tts overdose slc music "path.wav"`. Always translates to English using Whisper large-v3. Supports audio files, video files, and YouTube/URL input with automatic SVS voice isolation on source. The `music` flag preserves non-vocals by extracting and blending the instrumental track.**
+**SLC (Speaker Language Conversion) is available as a sub‑task: `tts slc "path.wav"`, `tts slc music "path.wav"`, `tts overdose slc "path.wav"`, `tts overdose slc music "path.wav"`. Always translates to English using Whisper large-v3. Supports audio files, video files, and URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter) with automatic SVS voice isolation on source. The `music` flag preserves non-vocals by extracting and blending the instrumental track.**
 **SVC (Speaker Voice Change) is available as a sub‑task: `tts svc "path.wav" target "voice_ref.wav"`. Transcribes single-speaker audio and re-synthesizes it with a different target voice. The pipeline runs SVS voice isolation → Whisper/VibeVoice transcription → Qwen‑TTS synthesis with the specified target voice. Add the `overdose` flag to use VibeVoice ASR instead of Whisper. Supports the `sts:` prefix on `target` to route through STS v2 (Seed‑VC) for voice conversion instead of Qwen‑TTS, preserving more of the original prosody.**
 **Dub (Video/Audio Dubbing) is available as a sub‑task: `tts dub "video.mp4"`. Dubs video/audio with voice cloning, translation, optional subtitle burning, and speed adjustment. Auto‑implies `overdose` and `extreme`. Supports `translate (source-target)` or `translate (target)` for language override, `subtitle` (transcribes dubbed audio for accurate subtitles) / `subtitle original` (subtitles from original audio chain) / `subtitle (source-target)` / `subtitle (target)` for subtitle burning (independent translation), and `se` for sound enhancement.**
 
@@ -611,7 +611,7 @@ When `extreme` is used:
 
 **SLC (Speaker Language Conversion) — TTS Sub‑task:**
 
-Translate speech from any language to English while preserving the speaker's voice. SLC is now a TTS sub‑task accessed via `tts slc`. Always translates to English using Whisper large-v3 (not turbo). Supports audio files, video files, and YouTube/URL input. SVS voice isolation runs automatically on the source before processing.
+Translate speech from any language to English while preserving the speaker's voice. SLC is now a TTS sub‑task accessed via `tts slc`. Always translates to English using Whisper large-v3 (not turbo). Supports audio files, video files, and URLs from any supported platform. SVS voice isolation runs automatically on the source before processing.
 
 **Translate to English:**
 ```bash
@@ -1514,7 +1514,7 @@ python src/voder.py ttm vc lyrics "Chorus:\nThis is our moment" styling "rock ba
 
 ### Speech‑to‑Text (stt)
 
-Transcribe audio, video, images, or YouTube URLs to text using Whisper. Supports timestamps, speaker diarization, batch processing, translation, overdose quality, and automatic result routing. **Translation**: add `translate` flag to translate transcribed speech to English (Whisper large-v3), or use `translate (source-target)` or `translate (target)` syntax for any-to-any translation across 76 languages via TranslateGemma 12B. **Overdose**: add `overdose` flag for enhanced transcription quality using VibeVoice ASR. **SVS pre‑cleanup**: SVS vocal separation runs automatically before transcription to improve accuracy. **Note:** `overdose` and bare `translate` (without parentheses) are mutually exclusive, but `overdose` and `translate (source-target)` or `translate (target)` are compatible.
+Transcribe audio, video, images, or platform URLs (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter) to text using Whisper. Supports timestamps, speaker diarization, batch processing, translation, overdose quality, and automatic result routing. **Translation**: add `translate` flag to translate transcribed speech to English (Whisper large-v3), or use `translate (source-target)` or `translate (target)` syntax for any-to-any translation across 76 languages via TranslateGemma 12B. **Overdose**: add `overdose` flag for enhanced transcription quality using VibeVoice ASR. **SVS pre‑cleanup**: SVS vocal separation runs automatically before transcription to improve accuracy. **Note:** `overdose` and bare `translate` (without parentheses) are mutually exclusive, but `overdose` and `translate (source-target)` or `translate (target)` are compatible.
 
 **Basic transcription:**
 ```bash
@@ -1617,9 +1617,10 @@ python src/voder.py stt "file1.wav" "file2.mp3" "file3.mp4" timestamp result "/o
 - **Audio**: WAV, MP3, FLAC, OGG, AAC, M4A, WMA
 - **Video**: MP4, AVI, MOV, MKV, WebM (audio auto‑extracted via FFmpeg)
 - **Images**: PNG, JPG, JPEG, BMP, TIFF (text extracted via EasyOCR)
-- **YouTube**: Direct YouTube URL (audio downloaded via yt-dlp)
-- **Bilibili**: Direct Bilibili URL (audio downloaded via yt-dlp)
-- **TikTok**: Direct TikTok URL (audio downloaded via yt-dlp)
+- **YouTube**: Direct platform URL (audio downloaded via yt-dlp after two-step verification)
+- **Bilibili**: Direct Bilibili URL (audio downloaded via yt-dlp after two-step verification)
+- **TikTok**: Direct TikTok URL (audio downloaded via yt-dlp after two-step verification)
+- **Snapchat / Instagram / Facebook / X-Twitter**: Same pipeline — URL is verified (shape check + yt-dlp video verification) and audio is downloaded via yt-dlp
 
 **Output Format:**
 
@@ -1673,7 +1674,7 @@ python src/voder.py svs "song.mp3" both
 python src/voder.py svs "song.mp3" voice result "/output/vocals.wav"
 ```
 
-**From YouTube URL:**
+**From any supported platform URL:**
 ```bash
 # Audio downloaded by default → WAV output
 python src/voder.py svs "https://youtube.com/watch?v=..." voice
@@ -2051,9 +2052,9 @@ python src/voder.py stt overdose subtitle translate "(ar)" "video.mp4"
 
 **Note:** `subtitle` cannot be used with bare `translate` or with non‑video files. `subtitle` with `translate (source-target)` or `translate (target)` is supported.
 
-### YouTube URL Input
+### URL Input
 
-Pass a YouTube, Bilibili, or TikTok URL directly as input for STT transcription or dialogue analysis. Audio is downloaded automatically via yt-dlp.
+Pass a URL from YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, or X/Twitter directly as input for STT transcription or dialogue analysis. VODER verifies the URL with two-step detection (shape check + yt-dlp video verification) and downloads the audio automatically via yt-dlp.
 
 ```bash
 # Transcribe a YouTube video
@@ -2113,7 +2114,7 @@ VODER offers different experiences depending on the interface. Understanding the
 | **STT Overdose Mode** | Enhanced transcription quality using VibeVoice ASR |
 | **TTS Overdose Mode** | VibeVoice ASR for dialogue source analysis + enhanced music generation using ACE-Step XL turbo |
 | **STT Translation** | Automatic translation of transcribed speech to English |
-| **YouTube/URL Input** | Direct transcription from YouTube, Bilibili, TikTok URLs |
+| **Platform URL Input** | Direct transcription from YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter URLs |
 | **Image OCR Input** | Text extraction from images via EasyOCR |
 | **Result Routing** | Copy output to arbitrary filesystem paths with `result` parameter |
 | **Sound Enhancement** | Denoise, dereverberate, restore speech audio; voice isolation and super-resolution via AudioSR (basic + speech models) |

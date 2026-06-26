@@ -21,7 +21,7 @@ VODER requires several system and Python dependencies:
   # macOS: brew install sox
   # Linux: sudo apt install sox
   ```
-- **yt-dlp** — Required for YouTube/Bilibili/TikTok URL support (`pip install yt-dlp`).
+- **yt-dlp** — Required for URL support (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter) (`pip install yt-dlp`).
 - **protobuf** — After installing requirements, upgrade to avoid compatibility issues:
   ```bash
   pip install --upgrade protobuf==5.29.6
@@ -92,7 +92,7 @@ Text-to-Speech with Voice Design and Cloning. TTS is VODER's most feature-rich m
 **Supported Inputs:**
 - Text (single line or multi-line dialogue script)
 - Image files (PNG, JPG, etc.) — text extracted via OCR and processed as dialogue content
-- YouTube URLs accepted as voice cloning references
+- URLs from any supported platform accepted as voice cloning references
 
 **Key Parameters:**
 - `script` — Text or dialogue lines to synthesize
@@ -232,7 +232,7 @@ SLC translates speech from one language to another while preserving the speaker'
 
 **Supported Inputs:**
 - Audio files (WAV, MP3, FLAC, OGG, etc.)
-- YouTube URLs — downloaded and processed automatically
+- URLs from any supported platform — downloaded and processed automatically
 
 **Features:**
 - Same-language resynthesis — re-synthesize speech preserving the original voice and language
@@ -265,7 +265,7 @@ Dub translates and replaces speech in a video or audio file while preserving the
 **Supported Inputs:**
 - Video files (MP4, MKV, AVI, etc.)
 - Audio files (WAV, MP3, FLAC, OGG, etc.)
-- YouTube URLs — downloaded and processed automatically
+- URLs from any supported platform — downloaded and processed automatically
 
 **Features:**
 - Auto-translate to English by default (no `translate` keyword needed)
@@ -454,7 +454,7 @@ TTM can output up to **12 individual instrument tracks** in addition to the mixe
 
 ## 4. STT Mode
 
-STT is a **standalone transcription mode** available as a one-line CLI command. It transcribes audio, video, images, or YouTube URLs into plain text with optional enhancements.
+STT is a **standalone transcription mode** available as a one-line CLI command. It transcribes audio, video, images, or platform URLs into plain text with optional enhancements.
 
 ### 4.1 Features
 
@@ -462,7 +462,7 @@ STT is a **standalone transcription mode** available as a one-line CLI command. 
 - Audio files (WAV, MP3, FLAC, OGG, etc.)
 - Video files (MP4, MKV, AVI, etc.)
 - Image files containing text (PNG, JPG, etc.) — text is extracted via OCR before transcription
-- YouTube / Bilibili / TikTok URLs — downloaded and processed automatically
+- URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter) — downloaded and processed automatically
 
 **Capabilities:**
 - Clean text transcription output
@@ -624,7 +624,7 @@ SVS isolates vocals from music or extracts instrumental tracks from songs using 
 **Supported Inputs:**
 - Audio files (WAV, MP3, FLAC, OGG, etc.)
 - Video files (MP4, MKV, AVI, etc.) — audio is extracted automatically
-- YouTube URLs — downloaded and processed automatically
+- URLs from any supported platform — downloaded and processed automatically
 
 **Features:**
 - Vocal isolation — extracts clean vocals from mixed audio
@@ -673,7 +673,7 @@ SS extracts individual speaker audio from multi-speaker recordings using VibeVoi
 **Supported Inputs:**
 - Audio files (WAV, MP3, FLAC, OGG, etc.)
 - Video files (MP4, MKV, AVI, etc.)
-- YouTube / Bilibili / TikTok URLs
+- URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter)
 
 **Features:**
 - Automatic speaker identification and separation
@@ -737,7 +737,7 @@ Once trained, the voice can be referenced in TTS via `voice "narrator"` (latest 
 Side-quests are lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow. They are designed to grow over time as more quests are added. Each quest is implemented as a small class registered in a side-quest registry, so future quests can be added without touching the rest of the codebase.
 
 **Supported Inputs:**
-- `download` — YouTube / Bilibili / TikTok URLs (audio or video)
+- `download` — URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter) (audio or video)
 - `noframes` — local video files only (refuses URLs and audio-only files)
 
 #### download
@@ -762,7 +762,7 @@ python src/voder.py quest download video "https://youtube.com/watch?v=..." resul
 
 **Output naming:** `voder_quest_download_<original-name>_<timestamp>.<ext>`
 
-- For YouTube URLs, `<original-name>` is derived from the video ID (sanitized to safe filename characters).
+- For platform URLs, `<original-name>` is derived from the platform video ID (YouTube video ID, TikTok video ID, Bilibili BV id, Instagram reel id, Facebook video id, Twitter status id, Snapchat spotlight id — sanitized to safe filename characters).
 - For local files, `<original-name>` is the file's stem (without extension).
 - Extension matches the downloaded/copied file (`.mp3` for audio, `.mp4` for video, etc.).
 
@@ -845,7 +845,7 @@ python src/voder.py chains "skip1" / "skip2" / "real" tts script "hi" voice "mal
 
 VODER supports **cross-platform source input** — a unified input pipeline that accepts audio, video, images, and URLs across multiple processing modes. This enables powerful new workflows:
 
-- **YouTube / Bilibili / TikTok URL Support:** Paste a video URL directly as input in STT, SVS, SLC (via TTS), and dialogue modes. VODER automatically downloads the audio track and processes it — no manual downloading or conversion required.
+- **Universal URL Support:** Paste a video URL from YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, or X/Twitter directly as input in STT, SVS, SLC (via TTS), and dialogue modes. VODER's two-step detection first checks the URL shape (host + path patterns per platform) to reject channel pages, profiles, playlists, and photo posts offline; then runs yt-dlp with `download=False` to verify the link actually resolves to a downloadable video stream before downloading. Once verified, the audio track is downloaded automatically — no manual downloading or conversion required.
 - **Image Text Extraction (OCR):** Feed image files (PNG, JPG, etc.) as input. VODER uses EasyOCR to extract embedded text, which is then processed as dialogue script content. This works in STT, TTS, and TTS modes — enabling workflows like "photo of a script → spoken audio."
 - **Automatic Voice Clip Extraction:** When processing multi-speaker audio (e.g., a podcast recording), VODER can automatically identify and extract individual speaker segments. This replaces the previous manual approach of splitting audio files.
 - **Speaker Diarization:** Powered by pyannote, VODER identifies who spoke when in multi-speaker audio. Each speaker is labeled consistently, and the diarization output can be combined with transcription for fully annotated results.
@@ -880,7 +880,7 @@ VODER leverages state-of-the-art open-source models for professional-grade audio
 1. Launch: `python src/voder.py gui`
 2. Select mode from dropdown (8 available modes)
 3. Load input files based on mode:
-   - **TTS:** Enter dialogue row‑by‑row in the script area, and fill the automatically generated voice prompts for each character. Use the `target` field for voice cloning from a reference audio file, or leave blank for voice design from a text prompt. Optionally set a `language` parameter for TTS output language. YouTube URLs are accepted as voice prompts for cloning.
+   - **TTS:** Enter dialogue row‑by‑row in the script area, and fill the automatically generated voice prompts for each character. Use the `target` field for voice cloning from a reference audio file, or leave blank for voice design from a text prompt. Optionally set a `language` parameter for TTS output language. URLs from any supported platform are accepted as voice prompts for cloning.
      **Optional:** Before generation, a dialog will ask if you want background music; enter a description or press Skip.
      **Modify Speech:** At the start, a prompt asks "modify speech? (Y/N)" — answer yes to load audio/video/URL, transcribe, edit text, choose voice, and re-synthesize.
    - **STS:** Load base audio/video and target voice audio. Video input is accepted and video output is produced automatically. When a target contains mixed audio, vocals are extracted via BS-RoFormer.
@@ -888,7 +888,7 @@ VODER leverages state-of-the-art open-source models for professional-grade audio
    - **STT:** Load audio, video, image, or enter a URL for transcription
    - **SE:** Load audio or video file for enhancement
    - **SFX:** Enter a text description of the desired sound effect
-   - **SVS:** Load audio, video, or enter a YouTube URL for vocal/music isolation
+   - **SVS:** Load audio, video, or enter a platform URL for vocal/music isolation
    - **SS:** Load audio or video for speaker separation
 4. Click **"Generate"** (TTS/TTM) or **"Patch"** (STS) or **"Transcribe"** (STT) or **"Enhance"** (SE) or **"Separate"** (SVS/SS)
 5. Listen to output and save results
@@ -1115,12 +1115,12 @@ python src/voder.py chains "audio" quest download "https://youtube.com/watch?v=.
 - **Side-Quests (`quest`):** Lightweight utility tasks, grouped by category in the `quest` listing (run `quest` with no args to see the live tree). `download` (URL → audio/video file in `results/`) stands alone at the top; the other 16 quests live under the **Media Manipulation** category, split into three sub-categories — **Sound Effects** (bassboost, fade, loudnorm, pitch, reverb, soundlevel, speed), **Audio Editing** (cut, merge, remove, reverse, silence), and **Format & File** (compress, convert, glue, noframes). Categorization is defined externally in `src/voders/quests_categories.py`. New quests can be added to the registry without touching the dispatcher.
 - **Chains (`chains`):** User-defined pipelines that wire any number of voder tasks together — each chain is named, its output is captured to `temp_chains/`, and later chains can reference earlier chain names as input paths. The last non-empty chain's output reaches `results/`. Empty chains are skipped (names remain reusable); duplicate names are an error.
 - **Cross-Modal Transformation:** Speech-to-speech, text-to-speech, speech-to-text, text-to-text, and speech language conversion
-- **Cross-Platform Source Input:** Unified input pipeline accepts audio files, video files, images, and URLs (YouTube, Bilibili, TikTok) across multiple modes — no manual format conversion required
+- **Cross-Platform Source Input:** Unified input pipeline accepts audio files, video files, images, and URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter) across multiple modes — no manual format conversion required
 - **VibeVoice ASR:** Microsoft VibeVoice for overdose transcription, speaker diarization, and speaker separation with automatic fallback to Whisper + pyannote
 - **Language Parameter in TTS:** Specify output language for TTS synthesis
 - **Translation Capability in STT:** Translate audio to English from any of Whisper's 99 supported languages
 - **Video I/O for STS Mode:** Feed video files directly into STS and receive video output with converted voice audio
-- **YouTube URL Expansion:** YouTube/Bilibili/TikTok URL support expanded across STT, SVS, SLC (via TTS), and dialogue modes
+- **Universal URL Expansion:** URL support expanded across STT, SVS, SLC (via TTS), and dialogue modes for YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, and X/Twitter
 - **Automatic Speaker Identification:** Multi-speaker audio is automatically segmented and labeled using pyannote speaker diarization, with individual voice clips extracted for downstream processing
 - **Speaker Diarization with Word-Level Alignment:** Combines Whisper transcription with pyannote diarization to produce speaker-labeled, timestamped transcripts with per-word speaker attribution
 - **MSTS (Music-STS):** STS mode supports musical inputs using Seed-VC v1 at 44.1kHz for better music voice conversion

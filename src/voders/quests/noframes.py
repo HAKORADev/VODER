@@ -11,11 +11,11 @@ class Quest(SideQuest):
     description = 'Extract audio from a LOCAL VIDEO file. Refuses URLs and audio-only files.'
 
     def parse(self, args):
-        from voder import is_youtube_url
+        from voder import is_supported_url
         if len(args) != 1:
             return None, "quest noframes takes exactly one argument: a local video file path"
         path = args[0]
-        if is_youtube_url(path):
+        if is_supported_url(path):
             return None, "quest noframes refuses URLs — provide a local video file"
         if not os.path.exists(path):
             return None, f"file not found: {path}"
