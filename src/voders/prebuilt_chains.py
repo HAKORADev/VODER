@@ -556,9 +556,11 @@ def _analyze_one_chain(chain_idx, chain_result):
         lines.append("")
 
         resolved_tokens = []
+        slot_index_in_step = 0
         for tok in c["content_tokens"]:
             if tok == "input":
-                resolved_tokens.append(f"`<manual input {m_count}>`")
+                slot_index_in_step += 1
+                resolved_tokens.append(f"`<manual input {slot_index_in_step}>`")
             elif tok in prior:
                 prior_idx = chain_names.index(tok) + 1
                 resolved_tokens.append(f"`<output of step {prior_idx} '{tok}'>`")
@@ -566,6 +568,18 @@ def _analyze_one_chain(chain_idx, chain_result):
                 resolved_tokens.append(f"`{tok}`")
         lines.append(f"**Content (resolved):** {' '.join(resolved_tokens)}")
         lines.append("")
+
+        manual_positions = [(pos, tok) for pos, tok in enumerate(c["content_tokens"]) if tok == "input"]
+        if manual_positions:
+            lines.append("**Manual input slots:**")
+            lines.append("")
+            for slot_i, (pos, _) in enumerate(manual_positions, start=1):
+                desc = describe_input_slot(c["content_tokens"], pos)
+                vp_marker = ""
+                if _is_voice_profile_position(c["content_tokens"], pos):
+                    vp_marker = " \u2014 **voice-profile eligible**"
+                lines.append(f"- slot {slot_i} (position {pos}): {desc}{vp_marker}")
+            lines.append("")
 
         step_errors = [e for e in errors if e["step_index"] == si]
         if step_errors:
@@ -604,6 +618,7 @@ def handle_load(args, result_path=None):
         return False
     from voders.sidequests import ChainPipeline
     pipeline = ChainPipeline()
+    prior_prebuilt_names = set()
     for sec_idx, sec in enumerate(sections, start=1):
         path, err = resolve_chain_path(sec["name_or_path"])
         if err:
@@ -623,6 +638,8 @@ def handle_load(args, result_path=None):
             print(f"  Title: {parsed['title']}")
         if parsed["description"]:
             print(f"  Description: {parsed['description']}")
+        if prior_prebuilt_names:
+            print(f"  Available prior prebuilt outputs to reference by name: {', '.join(sorted(prior_prebuilt_names))}")
         chains_args = []
         for step_idx, c in enumerate(parsed["chains"], start=1):
             tokens = list(c["content_tokens"])
@@ -632,29 +649,22 @@ def handle_load(args, result_path=None):
             if user_values is not None:
                 if len(user_values) != len(manual_slots):
                     print(f"  Error: step {step_idx} '{c['name']}' has {len(manual_slots)} manual input slot(s) but marker provides {len(user_values)} value(s)")
-                    print(f"         (automated slots are auto-resolved and don't need values)")
+                    print(f"         (automated slots are auto-resolved and never take values)")
                     return False
                 substituted = list(tokens)
                 for (pos, _), value in zip(manual_slots, user_values):
-                    if value.isdigit():
-                        ref_step = int(value)
-                        if ref_step < 1 or ref_step > len(parsed["chains"]):
-                            print(f"  Error: chain number '{value}' is out of range (must be 1..{len(parsed['chains'])})")
-                            return False
-                        if ref_step >= step_idx:
-                            print(f"  Error: chain number '{value}' must be less than current step {step_idx}")
-                            return False
-                        ref_name = chain_names[ref_step - 1]
-                        substituted[pos] = ref_name
-                        print(f"    [step {step_idx}] manual slot -> chain {ref_step} '{ref_name}' (will resolve at runtime)")
-                    else:
+                    resolved = _resolve_manual_value(value, prior_prebuilt_names, pipeline)
+                    if resolved is None:
+                        print(f"    [step {step_idx}] manual slot -> file/URL: {value}")
                         substituted[pos] = value
-                        print(f"    [step {step_idx}] manual slot -> file: {value}")
+                    else:
+                        print(f"    [step {step_idx}] manual slot -> prior prebuilt '{value}' output: {resolved}")
+                        substituted[pos] = resolved
             else:
                 substituted = list(tokens)
                 if manual_slots:
                     print(f"  Error: step {step_idx} '{c['name']}' has {len(manual_slots)} manual input(s) but no marker was provided")
-                    print(f"         Provide a marker: {step_idx}:(value1/value2/...)")
+                    print(f"         Provide a marker: {step_idx}:\"(value1/value2/...)\"")
                     return False
             if auto_slots:
                 for pos, slot_name in auto_slots:
@@ -669,13 +679,29 @@ def handle_load(args, result_path=None):
             chains_args.extend(substituted)
         ok, err = pipeline.execute(chains_args, result_path=result_path if sec_idx == len(sections) else None)
         if not ok:
-            print(f"Error: prebuilt chain '{parsed['name']}' failed: {err}")
+            err_msg = (err or "unknown error")[:500]
+            print()
+            print("=" * 60)
+            print("Something went further than expected.")
+            print(f"Error (at prebuilt {sec_idx} '{parsed['name']}'): {err_msg}")
+            print("=" * 60)
             return False
         final_step = parsed["chains"][-1]["name"]
         if final_step in pipeline.index:
             pipeline.index[parsed["name"]] = pipeline.index[final_step]
+            prior_prebuilt_names.add(parsed["name"])
             print(f"\n[Prebuilt {sec_idx}] '{parsed['name']}' completed. Final output registered under name '{parsed['name']}'.")
     return True
+
+
+def _resolve_manual_value(value, prior_prebuilt_names, pipeline):
+    if not value:
+        return None
+    if value in prior_prebuilt_names:
+        if value in pipeline.index:
+            return pipeline.index[value]
+        return None
+    return None
 
 
 def _find_manual_slots(tokens):
@@ -694,6 +720,17 @@ def _find_auto_slots(tokens, all_chain_names, global_index, current_step_name):
     return slots
 
 
+def _is_voice_profile_position(content_tokens, slot_pos):
+    try:
+        from voder import slot_accepts_voice_profile
+    except ImportError:
+        return False
+    if not content_tokens:
+        return False
+    mode = content_tokens[0].lower()
+    return slot_accepts_voice_profile(mode, content_tokens, slot_pos)
+
+
 def get_input_formats_for_step(content_tokens):
     if not content_tokens:
         return "(unknown — content is empty)"
@@ -705,17 +742,40 @@ def get_input_formats_for_step(content_tokens):
         return _FALLBACK_INPUT_FORMATS.get(mode, f"(unknown mode '{mode}')")
 
 
+def describe_input_slot(content_tokens, slot_pos):
+    if not content_tokens:
+        return "(unknown — content is empty)"
+    mode = content_tokens[0].lower()
+    try:
+        from voder import describe_input_slot as _voder_describe
+        return _voder_describe(mode, content_tokens, slot_pos)
+    except ImportError:
+        return get_input_formats_for_step(content_tokens)
+
+
+def is_voice_profile_value(value):
+    if not value:
+        return False
+    if ':' in value:
+        _, _, rest = value.partition(':')
+        value = rest.strip()
+    if not value:
+        return False
+    lower = value.lower()
+    return lower.endswith('.tts') or lower.endswith('.ttse')
+
+
 _FALLBACK_INPUT_FORMATS = {
-    'tts':   'audio file / video file / URL / .tts or .ttse voice profile',
-    'sts':   'audio file / video file / URL / .tts or .ttse voice profile',
-    'ttm':   'audio file / video file / URL / text file',
-    'stt':   'audio file / video file / URL',
-    'se':    'audio file / video file / URL',
-    'sfx':   '(no file input)',
-    'svs':   'audio file / video file / URL',
-    'ss':    'audio file / video file / URL',
-    'train': 'audio file / video file / URL',
-    'quest': 'varies by quest',
+    'tts':   'audio file / video file / supported platform URL / .tts or .ttse voice profile (only at voice slots or target slots using sts: prefix)',
+    'sts':   'audio file / video file / supported platform URL',
+    'ttm':   'audio file / video file / supported platform URL / text file (.txt)',
+    'stt':   'audio file / video file / supported platform URL',
+    'se':    'audio file / video file / supported platform URL',
+    'sfx':   '(no file input — uses inline text prompt via "sound <text>")',
+    'svs':   'audio file / video file / supported platform URL',
+    'ss':    'audio file / video file / supported platform URL',
+    'train': 'audio file / video file / supported platform URL',
+    'quest': 'varies by quest type',
 }
 
 

@@ -2479,27 +2479,42 @@ python voder.py chains build "bombo" description "Bombo - extract vocals, transc
 ### `chains load` — run a `.chain` file (oneline)
 
 ```
-python voder.py chains load "<chain-name-or-path>" [N:"(v1/v2/...)]... [<another-chain> [N:"(...)"]...]...
+python voder.py chains load "<chain-name-or-path>" [N:(v1/v2/...)]... [<another-chain> [N:(...)]...]...
 ```
 
 - `<chain-name-or-path>`: a chain name (resolves to the latest matching file by timestamp) or a direct `.chain` file path.
-- `N:"(v1/v2/...)"`: a marker supplying **manual inputs** for chain step `N`. Slash-separated values fill the `input` placeholders in content order. Number of values must match the number of `input` placeholders in that step.
-- A marker value can be either a file path/URL (used as-is) or a **chain number** (digits only) — the chain number resolves to that step's output and is substituted at runtime via the existing name-substitution mechanism. The chain number must be less than the current step's number (i.e., reference a prior step only).
-- Automated steps (chain-name references in content) are always auto-resolved and do NOT take marker values. If you provide values for an automated step, that's an error.
-- Multiple prebuilt chains can be loaded in one command: each chain name/path starts a new section. Each subsequent chain can reference prior prebuilt chain names by name (the runner maintains a global index across prebuilts).
+- `N:(v1/v2/...)`: a marker supplying **manual inputs** for chain step `N`. Slash-separated values fill the `input` placeholders in content order. Number of values must match the number of `input` placeholders in that step.
+- A marker value is one of:
+  - A **file path** or **URL** (audio/video file, supported platform URL, voice-profile file `.tts`/`.ttse` at voice-profile-eligible slots — see below) — used verbatim.
+  - The **main name of a previously-loaded prebuilt chain** — resolved at runtime to that prebuilt's final output path. The prebuilt must appear earlier in the same `chains load` invocation.
+- **Automated steps (chain-name references in content) are never overridable**. If a step's `content:` references a prior chain name, that reference is auto-resolved at runtime; you cannot supply a marker value for it. This is by design — overriding automated slots would break the prebuilt chain's "ease-of-use" guarantee.
+- Multiple prebuilt chains can be loaded in one command: each chain name/path starts a new section. Each subsequent chain can reference prior prebuilt chain names by main name (the runner maintains a global index across prebuilts via `ChainPipeline.index`).
 
 Examples:
 
 ```
 # Run bombo, supply 2 manual inputs (step 1 and step 3)
-python voder.py chains load "bombo" 1:"(song.wav)" 3:"(ref.wav)"
+python voder.py chains load "bombo" 1:(song.wav) 3:(ref.wav)
 
-# Override step 3's manual input with chain 1's output instead of a file
-python voder.py chains load "bombo" 1:"(song.wav)" 3:"(1)"
-
-# Multi-prebuilt: run bombo, then run second_chain which references bombo's output by name
-python voder.py chains load "bombo" 1:"(song.wav)" 3:"(ref.wav)" "second_chain" 1:"(bombo)"
+# Multi-prebuilt: run bombo, then run second_chain whose step 1
+# uses bombo's final output (referenced by main name "bombo")
+python voder.py chains load "bombo" 1:(song.wav) 3:(ref.wav) "second_chain" 1:(bombo)
 ```
+
+#### Voice-profile-eligible positions
+
+Voice profiles (`.tts` / `.ttse`) are valid only at specific positions the engine actually consumes them — not at every "audio-accepting" slot. The prebuilt-chains subsystem marks these positions in the `chains analyze` report and in the interactive CLI's per-slot input prompt:
+
+| Mode | Position | Voice-profile accepted? |
+|------|----------|-------------------------|
+| `tts` | `voice input` (single-mode voice slot) | Yes — engine resolves via `_resolve_voice_ref` |
+| `tts` | `target input` (single-mode target slot, when user supplies `sts:<voice-ref>` value) | Yes — engine resolves via `_resolve_voice_ref` after stripping `sts:` prefix |
+| `tts` | `script` / `music` / `level` / `ocr` / `duration` slots | No |
+| `sts` | `base` / `target` slots | No (STS consumes audio for voice conversion, not voice profiles) |
+| `stt` / `se` / `sfx` / `svs` / `ss` / `train` | any slot | No |
+| `quest` | varies by quest | No |
+
+If a user supplies a `.tts` / `.ttse` value at a non-voice-profile-eligible position, the engine will reject it at runtime with a "File not found" or "Unsupported format" error — the validator cannot catch this at build time because the value is supplied at load time, not at build time. The position-aware markers in the analyze report and interactive CLI prompts help the user supply the right value at the right slot.
 
 ### `chains analyze` — generate a Markdown report
 
@@ -2522,7 +2537,7 @@ Run `python voder.py cli` and choose `9. Prebuilt Chains` for a guided UX:
 - **List mode** (option 1): numbered list of all `.chain` files in `src/chains/`, sorted newest first. Pick a number, or type `back`.
 - **Name/path mode** (option 2): enter a chain name (resolves to latest by timestamp) or a full file path.
 - **Multi-chain**: after loading one chain, you can add more (each subsequent chain can reference prior prebuilt names).
-- **Input gathering**: for each step, shows the chain name, comment, content, classification (manual/automated/semi-automated), and the valid input formats for the step's mode. Manual inputs are gathered one by one with in-time validation (file exists, URL supported, or chain number in range). Automated steps just prompt "Press Enter to continue".
+- **Input gathering**: for each step, shows the chain name, comment, content, classification (manual/automated/semi-automated), and a per-slot description of accepted input formats. Voice-profile-eligible slots are tagged `[voice-profile eligible]` so the user knows where `.tts`/`.ttse` files are valid. Manual inputs are gathered one by one with in-time validation (file exists, URL supported, or matches the name of a previously-loaded prebuilt chain — which is resolved to that prebuilt's final output). Automated steps just prompt "Press Enter to continue" — automated slots are never overridable.
 - **Progress tracker**: shows `Prebuilt X/Y (name) — Step N/M (step-name) — <type>` plus `Input K/L for step 'name' — overall P/Q (NN%)`.
 - **Execution**: after all inputs are gathered, prints "Press Enter to start execution" and runs each step. On mid-run error, prints `Something went further than expected.` with the error message (max 500 chars) and the chain/step where it failed.
 - **Verification up front**: before asking for any inputs, the runner verifies the `.chain` file. If verification fails, lists all errors and aborts without prompting for inputs.

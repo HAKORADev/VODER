@@ -19,6 +19,8 @@ from voders.prebuilt_chains import (
     list_chains,
     resolve_chain_path,
     get_input_formats_for_step,
+    describe_input_slot,
+    _is_voice_profile_position,
     PREBUILT_CHAINS_DIR,
     CHAIN_FILE_EXT,
 )
@@ -143,17 +145,19 @@ def _select_multiple_chains():
             print("Please enter 'y' or 'n'.")
 
 
-def _validate_input_file(value, content_tokens):
-    if value.isdigit():
+def _validate_input_file(value, content_tokens, slot_pos, prior_prebuilt_names):
+    if not value:
+        return False, "Empty input. Please enter a file path, URL, or a prior prebuilt chain name."
+    if prior_prebuilt_names and value in prior_prebuilt_names:
         return True, None
     if os.path.isfile(value):
         return True, None
     if is_youtube_url(value):
         return True, None
-    return False, "File not found and not a supported URL. Please enter a valid file path or URL."
+    return False, "Not a file, supported URL, or prior prebuilt chain name. Please enter a valid value."
 
 
-def _gather_inputs_for_chain(parsed, pipeline, prebuilt_idx, total_prebuilts):
+def _gather_inputs_for_chain(parsed, pipeline, prebuilt_idx, total_prebuilts, prior_prebuilt_names):
     chain_names = [c["name"] for c in parsed["chains"]]
     total_steps = len(parsed["chains"])
     total_manual = sum(1 for c in parsed["chains"]
@@ -194,34 +198,33 @@ def _gather_inputs_for_chain(parsed, pipeline, prebuilt_idx, total_prebuilts):
             print("You also need to provide manual input(s) below.")
         else:
             print(f"\nThis step requires {m_count} manual input(s).")
-        formats = get_input_formats_for_step(tokens)
-        print(f"Valid inputs: {formats}")
+        if prior_prebuilt_names:
+            print(f"Available prior prebuilt outputs (use the name as a value to reference its final output): {', '.join(sorted(prior_prebuilt_names))}")
         manual_slots = [(pos, tok) for pos, tok in enumerate(tokens) if tok == "input"]
         step_inputs = []
         for slot_idx, (pos, _) in enumerate(manual_slots, start=1):
             manual_gathered_count += 1
             overall_pct = int(100 * manual_gathered_count / max(1, total_manual))
+            slot_desc = describe_input_slot(tokens, pos)
+            vp_tag = " [voice-profile eligible]" if _is_voice_profile_position(tokens, pos) else ""
             print(f"\n  [Input {slot_idx}/{len(manual_slots)} for step '{step_name}' "
                   f"— overall {manual_gathered_count}/{total_manual} ({overall_pct}%)]")
+            print(f"  Accepted: {slot_desc}{vp_tag}")
             while True:
                 value = input("  > ").strip()
                 if not value:
-                    print("  Empty input. Please enter a value (or a chain number to use that chain's output).")
+                    print("  Empty input. Please enter a value.")
                     continue
-                ok, err = _validate_input_file(value, tokens)
+                ok, err = _validate_input_file(value, tokens, pos, prior_prebuilt_names)
                 if not ok:
                     print(f"  Warning: {err}")
                     continue
-                if value.isdigit():
-                    ref_step = int(value)
-                    if ref_step < 1 or ref_step > total_steps:
-                        print(f"  Warning: chain number {ref_step} out of range (1-{total_steps}). Try again.")
-                        continue
-                    if ref_step >= step_idx:
-                        print(f"  Warning: chain number must be less than current step {step_idx}. Try again.")
-                        continue
-                    ref_name = chain_names[ref_step - 1]
-                    print(f"  OK — will use output of chain {ref_step} '{ref_name}'.")
+                if prior_prebuilt_names and value in prior_prebuilt_names:
+                    resolved = pipeline.index.get(value)
+                    if resolved:
+                        print(f"  OK — will use prior prebuilt '{value}' final output: {resolved}")
+                    else:
+                        print(f"  OK — will use prior prebuilt '{value}' (output will resolve at runtime).")
                 else:
                     print(f"  OK — using: {value}")
                 step_inputs.append(value)
@@ -230,7 +233,7 @@ def _gather_inputs_for_chain(parsed, pipeline, prebuilt_idx, total_prebuilts):
     return gathered
 
 
-def _execute_prebuilt(parsed, gathered, pipeline, prebuilt_idx, total_prebuilts):
+def _execute_prebuilt(parsed, gathered, pipeline, prebuilt_idx, total_prebuilts, prior_prebuilt_names):
     chain_names = [c["name"] for c in parsed["chains"]]
     total_steps = len(parsed["chains"])
     print()
@@ -244,17 +247,18 @@ def _execute_prebuilt(parsed, gathered, pipeline, prebuilt_idx, total_prebuilts)
         substituted = list(tokens)
         step_inputs = gathered.get(step_idx, [])
         for (pos, _), value in zip(manual_slots, step_inputs):
-            if value.isdigit():
-                ref_step = int(value)
-                ref_name = chain_names[ref_step - 1]
-                substituted[pos] = ref_name
+            if prior_prebuilt_names and value in prior_prebuilt_names:
+                resolved = pipeline.index.get(value)
+                if resolved:
+                    substituted[pos] = resolved
+                else:
+                    substituted[pos] = value
             else:
                 substituted[pos] = value
         if step_idx > 1:
             chains_args.append(ChainPipeline.CHAIN_SEPARATOR)
         chains_args.append(c["name"])
         chains_args.extend(substituted)
-    is_last_prebuilt = (prebuilt_idx == total_prebuilts)
     try:
         ok, err = pipeline.execute(chains_args, result_path=None)
     except Exception as e:
@@ -276,6 +280,7 @@ def _execute_prebuilt(parsed, gathered, pipeline, prebuilt_idx, total_prebuilts)
     final_step = parsed["chains"][-1]["name"]
     if final_step in pipeline.index:
         pipeline.index[parsed["name"]] = pipeline.index[final_step]
+        prior_prebuilt_names.add(parsed["name"])
     return True
 
 
@@ -306,6 +311,7 @@ def cli_chains_mode():
     print()
 
     pipeline = ChainPipeline()
+    prior_prebuilt_names = set()
     all_gathered = []
     for sec_idx, path in enumerate(selected_paths, start=1):
         parsed, _ = parse_chain_file(path)
@@ -329,11 +335,11 @@ def cli_chains_mode():
             print(f"Title: {parsed['title']}")
         if parsed["description"]:
             print(f"Description: {parsed['description']}")
-        gathered = _gather_inputs_for_chain(parsed, pipeline, sec_idx, len(selected_paths))
+        gathered = _gather_inputs_for_chain(parsed, pipeline, sec_idx, len(selected_paths), prior_prebuilt_names)
         all_gathered.append((parsed, gathered))
 
     for sec_idx, (parsed, gathered) in enumerate(all_gathered, start=1):
-        ok = _execute_prebuilt(parsed, gathered, pipeline, sec_idx, len(all_gathered))
+        ok = _execute_prebuilt(parsed, gathered, pipeline, sec_idx, len(all_gathered), prior_prebuilt_names)
         if not ok:
             return False
 

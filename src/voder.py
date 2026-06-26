@@ -4074,18 +4074,53 @@ VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm', '.m4v', '.3
 
 VOICE_PROFILE_EXTENSIONS = {'.tts', '.ttse'}
 
+_AUDIO_VIDEO_URL = 'audio file / video file / supported platform URL'
+
 MODE_INPUT_FORMATS = {
-    'tts':   'audio file / video file / supported platform URL / .tts or .ttse voice profile',
-    'sts':   'audio file / video file / supported platform URL / .tts or .ttse voice profile',
-    'ttm':   'audio file / video file / supported platform URL / text file (.txt)',
-    'stt':   'audio file / video file / supported platform URL',
-    'se':    'audio file / video file / supported platform URL',
+    'tts':   f'{_AUDIO_VIDEO_URL} / .tts or .ttse voice profile (only at voice slots or target slots using sts: prefix)',
+    'sts':   _AUDIO_VIDEO_URL,
+    'ttm':   f'{_AUDIO_VIDEO_URL} / text file (.txt)',
+    'stt':   _AUDIO_VIDEO_URL,
+    'se':    _AUDIO_VIDEO_URL,
     'sfx':   '(no file input — uses inline text prompt via "sound <text>")',
-    'svs':   'audio file / video file / supported platform URL',
-    'ss':    'audio file / video file / supported platform URL',
-    'train': 'audio file / video file / supported platform URL',
+    'svs':   _AUDIO_VIDEO_URL,
+    'ss':    _AUDIO_VIDEO_URL,
+    'train': _AUDIO_VIDEO_URL,
     'quest': 'varies by quest type',
 }
+
+
+def slot_accepts_voice_profile(mode, content_tokens, slot_pos):
+    if mode != 'tts':
+        return False
+    if slot_pos < 0 or slot_pos >= len(content_tokens):
+        return False
+    if content_tokens[slot_pos] != 'input':
+        return False
+    prev = content_tokens[slot_pos - 1] if slot_pos > 0 else None
+    if prev == 'voice':
+        return True
+    if prev == 'target':
+        return True
+    if prev is None:
+        return True
+    return False
+
+
+def describe_input_slot(mode, content_tokens, slot_pos):
+    if mode == 'sfx':
+        return '(no file input — sfx uses inline sound <text> prompt)'
+    if mode == 'quest':
+        return 'varies by quest type — see quest documentation'
+    base = _AUDIO_VIDEO_URL
+    if slot_accepts_voice_profile(mode, content_tokens, slot_pos):
+        prev = content_tokens[slot_pos - 1] if slot_pos > 0 else None
+        if prev == 'voice':
+            return f'{base} / .tts or .ttse voice profile (voice slot — engine resolves trained voice refs)'
+        if prev == 'target':
+            return f'{base} / .tts or .ttse voice profile (target slot — only when value starts with "sts:" prefix)'
+        return f'{base} / .tts or .ttse voice profile'
+    return base
 
 SUPPORTED_TTS_LANGUAGES = {
     "zh": "Chinese", "en": "English", "ja": "Japanese", "ko": "Korean",
