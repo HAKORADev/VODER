@@ -4,66 +4,11 @@
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 - If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
-## 06/27/2026 (afternoon refinement)
-- Status: Stable, all features work, still developing
-- **Prebuilt chains refinement: position-aware voice-profile detection, removal of automated-slot override, cross-prebuilt name resolution, plan file removal**
-
-Three follow-up fixes to the morning's prebuilt-chains subsystem, all driven by user feedback:
-
-### Changed — Voice profiles advertised only at engine-supported positions
-
-- The flat `MODE_INPUT_FORMATS` string previously advertised `.tts` / `.ttse` voice profiles as valid wherever audio is accepted — but the engine only consumes them in TTS mode at `voice` slots and `target` slots (when the value uses the `sts:` prefix). STS, STT, SE, SFX, SVS, SS, and train modes never consume voice profiles. The flat string is now more accurate, and a new position-aware helper `slot_accepts_voice_profile(mode, content_tokens, slot_pos)` exposes the exact per-slot eligibility.
-- New helper `describe_input_slot(mode, content_tokens, slot_pos)` returns a per-slot format string that explicitly mentions voice profiles only at eligible positions, with a clarifying note (`voice slot` / `target slot — only when value starts with sts: prefix`).
-- The `chains analyze` report now lists each manual input slot's accepted formats and marks voice-profile-eligible slots with `**voice-profile eligible**` next to the slot description.
-- The interactive CLI's per-input prompt (`Input K/L for step 'name'`) now prints the per-slot accepted-formats string and tags voice-profile-eligible slots with `[voice-profile eligible]`.
-- This is detection / annotation only — the validator does not error or warn on voice-profile values at non-eligible positions, because the actual value is supplied at load time (not at build time) and could legitimately be a file path that happens to end in `.tts` for unrelated reasons. The position-aware markers help the user supply the right value at the right slot.
-
-### Changed — Automated slots are never overridable
-
-- The previous `chains load` design allowed a marker value to be a chain number (digits only) which overrode a manual slot by substituting the output of the referenced prior chain. This was a misfeature — the entire point of a prebuilt chain is ease-of-use, and allowing the user to override what the chain author intended breaks that contract.
-- Removed: chain-number-as-marker-value syntax. Markers now supply **only** manual input values (file paths / URLs / prior-prebuilt-chain main names). Attempting to pass a marker for an automated step (which has 0 manual slots) fails with a clear error.
-- The interactive CLI's input prompt no longer accepts chain numbers either — only file paths, URLs, or prior prebuilt chain main names.
-
-### Added — Cross-prebuilt name resolution for manual inputs
-
-- When loading multiple prebuilt chains in one `chains load` invocation (or in one interactive CLI session), each subsequent prebuilt can now reference the **main name** of any previously-loaded prebuilt as a manual input value. The runner resolves the name to that prebuilt's final output path at runtime (same `pipeline.index` mechanism used for in-chain chain-name substitution).
-- Example: `python voder.py chains load "bombo" 1:(song.wav) 3:(ref.wav) "second_chain" 1:(bombo)` — here `bombo` in `second_chain`'s step 1 marker is the main name of the previously-loaded prebuilt, resolved to bombo's final output path.
-- The interactive CLI prints the available prior prebuilt names before each step's input gathering, so the user knows what they can reference.
-
-### Removed — `PREBUILT_CHAINS_PLAN.md`
-
-- The development plan file `PREBUILT_CHAINS_PLAN.md` has been removed from the repository. It was a working artifact used during the initial implementation and is no longer needed now that the subsystem is shipped and refined.
-
-### Engine-level changes
-
-- **`src/voder.py`**:
-  - `MODE_INPUT_FORMATS` strings tightened — the `tts` entry now reads `audio file / video file / supported platform URL / .tts or .ttse voice profile (only at voice slots or target slots using sts: prefix)`; the `sts` entry no longer mentions voice profiles at all (STS doesn't consume them).
-  - New `slot_accepts_voice_profile(mode, content_tokens, slot_pos)` — returns `True` only for `tts` mode slots where the previous token is `voice` or `target` (or the slot is the first token after the mode).
-  - New `describe_input_slot(mode, content_tokens, slot_pos)` — returns a per-slot format string that names voice profiles only at eligible positions, with a clarifying note.
-  - New private `_AUDIO_VIDEO_URL` constant factored out for reuse across the table.
-- **`src/voders/prebuilt_chains.py`**:
-  - New `_is_voice_profile_position(content_tokens, slot_pos)` — bridges to `voder.slot_accepts_voice_profile`, returns `False` if voder.py can't be imported (e.g. test envs).
-  - New `describe_input_slot(content_tokens, slot_pos)` — bridges to `voder.describe_input_slot`, falls back to the mode-level string if voder.py can't be imported.
-  - New `is_voice_profile_value(value)` — heuristic for detecting `.tts` / `.ttse` extensions in a supplied value (including after a `:` prefix like `sts:`).
-  - `handle_load()` rewritten: removed chain-number-as-marker-value path; added `_resolve_manual_value()` that resolves a marker value to a prior prebuilt's final output path when the value matches a prior prebuilt main name; threads `prior_prebuilt_names` set through the load loop; added 500-char error truncation with "Something went further than expected." framing on `pipeline.execute` failure (matching the interactive CLI's error UX).
-  - `_analyze_one_chain()` journey narrative now shows a **Manual input slots** block per step listing each slot's position, accepted formats (via `describe_input_slot`), and a `**voice-profile eligible**` marker where applicable. The resolved-content tokens now number slots within the step (`<manual input 1>`, `<manual input 2>`, …) instead of using the step's total manual count.
-- **`src/voders/interactiveCLI/chains.py`**:
-  - `_validate_input_file()` signature changed to `(value, content_tokens, slot_pos, prior_prebuilt_names)` — accepts files, URLs, and (new) prior prebuilt chain main names. Chain numbers are no longer accepted.
-  - `_gather_inputs_for_chain()` signature changed to accept `prior_prebuilt_names`; per-slot prompt now prints `describe_input_slot(tokens, pos)` plus a `[voice-profile eligible]` tag where applicable; the available prior prebuilt names are listed before each step's input gathering.
-  - `_execute_prebuilt()` signature changed to accept `prior_prebuilt_names`; substitutes prior-prebuilt-name values with their resolved output paths at runtime; registers the just-completed prebuilt's main name in `prior_prebuilt_names` after a successful run.
-  - `cli_chains_mode()` threads `prior_prebuilt_names` through the gather + execute loops.
-
-### Verification
-
-- New smoke-test script `scripts/test_prebuilt_chains_v2.py` (39 checks, all passing) covers: position-aware voice-profile detection across all modes; `_parse_load_args` parsing of markers (file values only, no chain numbers); `handle_load` accepting file values and rejecting markers targeting automated steps; `_resolve_manual_value` resolving prior prebuilt names to output paths; plan file removal (verified via `git ls-files --error-unmatch`); analyze report marking voice-profile-eligible positions.
-- No in-code comments added, per project convention.
-- All AST-parse checks pass on the three modified Python files.
-
 ## 06/27/2026
 - Status: Stable, all features work, still developing
-- **Prebuilt Chains: persistent `.chain` files + `build` / `load` / `analyze` subcommands + interactive CLI option 9**
+- **Prebuilt chains and chains system upgrades**
 
-The prebuilt chains subsystem extends the existing `chains` task-layer feature with a persistent file format. Users compose a chain once with `chains build`, then re-run it any time with `chains load` (oneline) or via the interactive CLI's new option 9 (`Prebuilt Chains`). A `chains analyze` subcommand produces a Markdown report describing the chain's structure, journey, and any verification errors. Prebuilt chain files live in `src/chains/VODER_<name>_<timestamp>.chain` and use a custom key:value text format with `---`-separated step blocks. The whole subsystem is implemented in a new module `src/voders/prebuilt_chains.py` (~720 lines) plus a new interactive CLI module `src/voders/interactiveCLI/chains.py` (~265 lines). No in-code comments, per project convention.
+This entry consolidates the prebuilt chains subsystem launch and its same-day refinements into a single update. The prebuilt chains subsystem extends the existing `chains` task-layer feature with a persistent file format. Users compose a chain once with `chains build`, then re-run it any time with `chains load` (oneline) or via the interactive CLI's new option 9 (`Prebuilt Chains`). A `chains analyze` subcommand produces a Markdown report describing the chain's structure, journey, and any verification errors. Prebuilt chain files live in `src/chains/VODER_<name>_<timestamp>.chain` and use a custom key:value text format with `---`-separated step blocks. The subsystem is implemented in `src/voders/prebuilt_chains.py` plus a new interactive CLI module `src/voders/interactiveCLI/chains.py`. Same-day refinements tightened voice-profile advertising to engine-supported positions only, removed the automated-slot override misfeature, added cross-prebuilt name resolution for manual inputs, and removed the development plan file. A final fix to the chains core makes multi-file chain outputs deterministic by using the first file produced. No in-code comments, per project convention.
 
 ### Added — Prebuilt chain file format
 
@@ -76,33 +21,65 @@ The prebuilt chains subsystem extends the existing `chains` task-layer feature w
 
 ### Added — `chains load` subcommand (oneline prebuilt execution)
 
-- **`chains load <name-or-path> [N:"(v1/v2/...)]... [<another-chain> [N:"(...)"]...]...`** — loads and runs one or more prebuilt chain files. Each chain name resolves to the latest matching file by timestamp (or accepts a direct `.chain` path). Markers `N:"(v1/v2/...)"` supply **manual inputs** for chain step `N` in content order — number of values must match the number of `input` placeholders in that step. A marker value can be either a file path/URL (used as-is) or a **chain number** (digits only) — chain numbers are resolved to the corresponding step's output via the existing name-substitution mechanism. The chain number must be less than the current step's number (prior steps only). Automated steps (chain-name references in content) are always auto-resolved and do NOT take marker values. Multiple prebuilt chains can be loaded in one command — each subsequent chain can reference prior prebuilt chain names by name (the runner maintains a global index across prebuilts via `ChainPipeline.index`).
+- **`chains load <name-or-path> [N:"(v1/v2/...)]... [<another-chain> [N:"(...)"]...]...`** — loads and runs one or more prebuilt chain files. Each chain name resolves to the latest matching file by timestamp (or accepts a direct `.chain` path). Markers `N:"(v1/v2/...)"` supply **manual inputs** for chain step `N` in content order — number of values must match the number of `input` placeholders in that step. A marker value can be a file path/URL (used as-is) or the **main name** of a previously-loaded prebuilt chain (resolved to that prebuilt's final output path at runtime via `ChainPipeline.index`). Automated steps (chain-name references in content) are always auto-resolved and never take marker values — automated slots are not overridable, by design (the whole point of a prebuilt chain is ease-of-use; allowing override would break the chain author's contract). Multiple prebuilt chains can be loaded in one command and reference each other by main name.
 
 ### Added — `chains analyze` subcommand (Markdown report)
 
-- **`chains analyze <name-or-path> [<another> ...]`** — runs full verification on each chain and writes a Markdown report to `results/voder_analyze_chain_<safe-name>_<timestamp>.md`. The report contains: (1) an **Analyzed Chains** summary table (name, path, steps, status); (2) per-chain detail with file metadata and a step summary table (name, type, manual/auto counts, comment excerpt); (3) a **Journey narrative** that walks each step in execution order showing raw content, resolved content (with `<output of step N 'name'>` placeholders for references and `<manual input N>` for inputs), and inline OK/ERROR markers — when a step has an error, the journey **continues hypothetically** as if the step would have succeeded, so the user sees the full intended path plus all errors at once; (4) an **Overall Summary** with an All Errors table (chain, step, category, message, fix). Multi-chain analyze is supported — the filename uses the first chain's name.
+- **`chains analyze <name-or-path> [<another> ...]`** — runs full verification on each chain and writes a Markdown report to `results/voder_analyze_chain_<safe-name>_<timestamp>.md`. The report contains: (1) an **Analyzed Chains** summary table (name, path, steps, status); (2) per-chain detail with file metadata and a step summary table (name, type, manual/auto counts, comment excerpt); (3) a **Journey narrative** that walks each step in execution order showing raw content, resolved content (with `<output of step N 'name'>` placeholders for references and `<manual input N>` for inputs), a per-slot **Manual input slots** block listing each slot's position, accepted formats, and a `**voice-profile eligible**` marker where applicable, plus inline OK/ERROR markers — when a step has an error, the journey **continues hypothetically** as if the step would have succeeded, so the user sees the full intended path plus all errors at once; (4) an **Overall Summary** with an All Errors table (chain, step, category, message, fix). Multi-chain analyze is supported — the filename uses the first chain's name.
 
 ### Added — Interactive CLI option 9 (Prebuilt Chains)
 
 - **New menu item** — `9. Prebuilt Chains` added to the interactive CLI dispatch table in `src/voders/interactiveCLI/__init__.py`. The new `cli_chains_mode()` function in `src/voders/interactiveCLI/chains.py` provides a guided UX:
   - **List mode** (option 1): numbered list of all `.chain` files in `src/chains/`, sorted newest first. Pick a number, or type `back`.
   - **Name/path mode** (option 2): enter a chain name (resolves to latest by timestamp) or a full file path. Invalid inputs retry with a warning.
-  - **Multi-chain selection**: after loading one chain, the user can add more (each subsequent chain can reference prior prebuilt names). Selected chains run in order.
+  - **Multi-chain selection**: after loading one chain, the user can add more. Selected chains run in order. Each subsequent chain can reference prior prebuilt main names as manual input values; the available prior names are listed before each step's input gathering.
   - **Verification up front**: before asking for any inputs, the runner verifies the `.chain` file. If verification fails, lists all errors and aborts without prompting for inputs.
-  - **Per-step input gathering**: for each step, shows the chain name, comment, content, classification (manual/automated/semi-automated), and the valid input formats for the step's mode (from the new `MODE_INPUT_FORMATS` table). Manual inputs are gathered one by one with in-time validation (file exists, URL supported, or chain number in range). Automated steps just prompt "Press Enter to continue".
+  - **Per-step input gathering**: for each step, shows the chain name, comment, content, classification (manual/automated/semi-automated), and a per-slot format string that names voice profiles only at eligible positions (via `describe_input_slot`). Manual inputs are gathered one by one with in-time validation (file exists, URL supported, or prior prebuilt chain main name). Automated steps just prompt "Press Enter to continue" — they cannot be overridden.
   - **Progress tracker**: shows `Prebuilt X/Y (name) — Step N/M (step-name) — <type>` plus `Input K/L for step 'name' — overall P/Q (NN%)`.
   - **Execution**: after all inputs are gathered, prints "Press Enter to start execution" and runs each step. On mid-run error, prints `Something went further than expected.` with the error message (max 500 chars) and the chain/step where it failed.
   - **Blend Again / Exit loop**: standard tail loop matching the other interactive modes.
 
 ### Added — Engine-level support
 
-- **`src/voders/prebuilt_chains.py`** (new, ~720 lines, no in-code comments) — contains: file format constants (`CHAIN_FILE_MAGIC`, `CHAIN_FILE_EXT`, `PREBUILT_CHAINS_DIR`); `build_chain_text()` (serializes a chain spec to the .chain file text); `parse_chain_file()` / `_parse_chain_text()` (deserializes a .chain file to a structured dict); `verify_chain_file()` / `verify_chain_text()` (full verification — format, naming, syntax, references — returns `(ok, errors, warnings)`); `_verify_content_syntax()` (per-step oneline syntax check, gracefully skips if voder.py can't be imported — e.g. in test envs without torch); `_verify_references()` (forward-reference detection); `classify_chain_step()` (returns type + manual/auto counts); `find_chain_by_name()` (latest by timestamp); `list_chains()` (all .chain files sorted newest first); `resolve_chain_path()` (name-or-path → absolute path); `get_input_formats_for_step()` (returns the format string for a step's mode); `handle_build()` / `handle_load()` / `handle_analyze()` (the three subcommand handlers); `_parse_load_args()` (parses the `chains load` argv syntax into sections + markers); `_find_manual_slots()` / `_find_auto_slots()` (slot detection helpers).
-- **`src/voders/interactiveCLI/chains.py`** (new, ~265 lines, no in-code comments) — contains: `cli_chains_mode()` (interactive entry point); `_select_chain()` / `_select_chain_by_list()` / `_select_chain_by_name()` (chain selection UX); `_select_multiple_chains()` (multi-chain selection loop); `_validate_input_file()` (in-time input validation); `_gather_inputs_for_chain()` (per-step input gathering with progress tracker); `_execute_prebuilt()` (execution orchestrator with 500-char error truncation and "things went further than expected" framing).
+- **`src/voders/prebuilt_chains.py`** (new, no in-code comments) — contains: file format constants (`CHAIN_FILE_MAGIC`, `CHAIN_FILE_EXT`, `PREBUILT_CHAINS_DIR`); `build_chain_text()` (serializes a chain spec to the .chain file text); `parse_chain_file()` / `_parse_chain_text()` (deserializes a .chain file to a structured dict); `verify_chain_file()` / `verify_chain_text()` (full verification — format, naming, syntax, references — returns `(ok, errors, warnings)`); `_verify_content_syntax()` (per-step oneline syntax check, gracefully skips if voder.py can't be imported — e.g. in test envs without torch); `_verify_references()` (forward-reference detection); `classify_chain_step()` (returns type + manual/auto counts); `find_chain_by_name()` (latest by timestamp); `list_chains()` (all .chain files sorted newest first); `resolve_chain_path()` (name-or-path → absolute path); `get_input_formats_for_step()` (returns the format string for a step's mode); `describe_input_slot()` (bridges to `voder.describe_input_slot` for per-slot format strings with voice-profile-eligible markers, falls back to mode-level string if voder.py can't be imported); `_is_voice_profile_position()` (bridges to `voder.slot_accepts_voice_profile`); `is_voice_profile_value()` (heuristic for detecting `.tts` / `.ttse` extensions in a supplied value, including after a `:` prefix like `sts:`); `handle_build()` / `handle_load()` / `handle_analyze()` (the three subcommand handlers); `_parse_load_args()` (parses the `chains load` argv syntax into sections + markers — markers supply only manual input values, no chain-number override); `_find_manual_slots()` / `_find_auto_slots()` (slot detection helpers); `_resolve_manual_value()` (resolves a marker value to a prior prebuilt's final output path when the value matches a prior prebuilt main name).
+- **`src/voders/interactiveCLI/chains.py`** (new, no in-code comments) — contains: `cli_chains_mode()` (interactive entry point); `_select_chain()` / `_select_chain_by_list()` / `_select_chain_by_name()` (chain selection UX); `_select_multiple_chains()` (multi-chain selection loop); `_validate_input_file()` (in-time input validation — accepts files, URLs, and prior prebuilt chain main names; chain numbers are NOT accepted); `_gather_inputs_for_chain()` (per-step input gathering with progress tracker and per-slot format string with voice-profile-eligible tag); `_execute_prebuilt()` (execution orchestrator with 500-char error truncation and "things went further than expected" framing, substitutes prior-prebuilt-name values with their resolved output paths at runtime, registers the just-completed prebuilt's main name in `prior_prebuilt_names` after a successful run).
 - **`src/voders/sidequests.py` `oneline_chains()`** — extended to dispatch to `handle_build` / `handle_load` / `handle_analyze` based on the new `chains_subcmd` param. Falls through to the original `ChainPipeline.execute()` path when no subcommand is present (preserving backward compat with existing `chains` invocations).
 - **`src/voder.py` `parse_oneline_args()`** — the `mode == 'chains'` branch now peels off a leading `build` / `load` / `analyze` keyword (case-insensitive) into `result['params']['chains_subcmd']` before slurping the rest as `chains_args`.
-- **`MODE_INPUT_FORMATS` constant** (new, in `voder.py` near line 4077) — declarative table mapping each oneline mode to its accepted input formats. Used by the interactive CLI to advertise valid inputs per step. Example: `'tts': 'audio file / video file / supported platform URL / .tts or .ttse voice profile'`. Voice profiles (`.tts` / `.ttse`) are valid wherever audio is valid (per design decision #4).
-- **`VOICE_PROFILE_EXTENSIONS` constant** (new, in `voder.py` near line 4075) — `{'.tts', '.ttse'}`, used alongside `VIDEO_EXTENSIONS` for input validation.
+- **`MODE_INPUT_FORMATS` constant** (in `voder.py` near line 4077) — declarative table mapping each oneline mode to its accepted input formats. Used by the interactive CLI to advertise valid inputs per step. The `tts` entry now reads `audio file / video file / supported platform URL / .tts or .ttse voice profile (only at voice slots or target slots using sts: prefix)`; the `sts` entry no longer mentions voice profiles at all (STS doesn't consume them). Voice profiles are advertised only at engine-supported positions, not wherever audio is valid.
+- **`slot_accepts_voice_profile(mode, content_tokens, slot_pos)`** (new, in `voder.py`) — returns `True` only for `tts` mode slots where the previous token is `voice` or `target` (or the slot is the first token after the mode). Exposes the exact per-slot voice-profile eligibility.
+- **`describe_input_slot(mode, content_tokens, slot_pos)`** (new, in `voder.py`) — returns a per-slot format string that names voice profiles only at eligible positions, with a clarifying note (`voice slot` / `target slot — only when value starts with sts: prefix`).
+- **`VOICE_PROFILE_EXTENSIONS` constant** (in `voder.py` near line 4075) — `{'.tts', '.ttse'}`, used alongside `VIDEO_EXTENSIONS` for input validation.
 - **Interactive CLI dispatch table** — `src/voders/interactiveCLI/__init__.py` updated: `'9'` → `cli_chains_mode` (imported lazily from `voders.interactiveCLI.chains`). Menu text and validation updated to accept choices 1-9.
+
+### Changed — Voice profiles advertised only at engine-supported positions
+
+- The flat `MODE_INPUT_FORMATS` string previously advertised `.tts` / `.ttse` voice profiles as valid wherever audio is accepted — but the engine only consumes them in TTS mode at `voice` slots and `target` slots (when the value uses the `sts:` prefix). STS, STT, SE, SFX, SVS, SS, and train modes never consume voice profiles. The flat string is now more accurate, and the new position-aware helpers `slot_accepts_voice_profile` and `describe_input_slot` expose the exact per-slot eligibility.
+- The `chains analyze` report and the interactive CLI's per-input prompt now mark voice-profile-eligible slots with `**voice-profile eligible**` / `[voice-profile eligible]` next to the slot description.
+- This is detection / annotation only — the validator does not error or warn on voice-profile values at non-eligible positions, because the actual value is supplied at load time (not at build time) and could legitimately be a file path that happens to end in `.tts` for unrelated reasons.
+
+### Changed — Automated slots are never overridable
+
+- The original `chains load` design allowed a marker value to be a chain number (digits only) which overrode a manual slot by substituting the output of the referenced prior chain. This was a misfeature — the entire point of a prebuilt chain is ease-of-use, and allowing the user to override what the chain author intended breaks that contract.
+- Removed: chain-number-as-marker-value syntax. Markers now supply **only** manual input values (file paths / URLs / prior-prebuilt-chain main names). Attempting to pass a marker for an automated step (which has 0 manual slots) fails with a clear error.
+- The interactive CLI's input prompt no longer accepts chain numbers either — only file paths, URLs, or prior prebuilt chain main names.
+
+### Added — Cross-prebuilt name resolution for manual inputs
+
+- When loading multiple prebuilt chains in one `chains load` invocation (or in one interactive CLI session), each subsequent prebuilt can now reference the **main name** of any previously-loaded prebuilt as a manual input value. The runner resolves the name to that prebuilt's final output path at runtime (same `pipeline.index` mechanism used for in-chain chain-name substitution).
+- Example: `python voder.py chains load "bombo" 1:(song.wav) 3:(ref.wav) "second_chain" 1:(bombo)` — here `bombo` in `second_chain`'s step 1 marker is the main name of the previously-loaded prebuilt, resolved to bombo's final output path.
+- The interactive CLI prints the available prior prebuilt names before each step's input gathering, so the user knows what they can reference.
+
+### Changed — Multi-file chain outputs use the first file produced
+
+- Some oneline modes produce more than one output file per invocation. The most prominent is `ss` (Speakers Separator) without a `target` keyword — it writes one WAV per detected speaker (`voder_ss_<name>_<ts>_speaker1.wav`, `_speaker2.wav`, …). `svs both` produces vocals + instruments. SS with `overdose` produces one file per speaker after the multi-pass TSE refinement.
+- When such a mode runs as a step inside a `chains` pipeline, the chains core (`ChainPipeline.execute()` in `src/voders/sidequests.py`) snapshots `results/` and `voices/` before and after the step, then picks ONE file from the new files to expose as that chain step's output (later chains that reference this step by name receive that one file).
+- Previously the picker used `all_new.sort(key=getmtime, reverse=True)` then `all_new[0]` — i.e. the **latest** file by mtime. For multi-speaker SS this was non-deterministic: which speaker's file was kept depended on filesystem write timing rather than the user's intent.
+- The picker now sorts ascending by mtime and takes `all_new[0]` — i.e. the **first** file produced. This is deterministic and predictable: the first speaker detected by the diarization order is the one whose file is kept. Extra files are still cleaned up for intermediate chains as before (only the picked file is moved to `temp_chains/`).
+- The fix is in the chains core only, so it propagates to every consumer of `ChainPipeline.execute()` — oneline `chains`, prebuilt `chains load`, and the interactive CLI's prebuilt chains mode — without touching any of those callers. Modes that produce a single output file are unaffected.
+
+### Removed — `PREBUILT_CHAINS_PLAN.md`
+
+- The development plan file `PREBUILT_CHAINS_PLAN.md` has been removed from the repository. It was a working artifact used during the initial implementation and is no longer needed now that the subsystem is shipped and refined.
 
 ### Verification behavior
 
@@ -115,11 +92,18 @@ The same `verify_chain_file()` function is reused across all four contexts (`bui
 - **References**: forward references (a token matching a LATER chain name) are flagged as errors. Self-references are NOT flagged (they pass through harmlessly at runtime since the chain hasn't completed yet).
 - **Warnings** (non-fatal): empty title, empty description, empty comment per step, step with no `input` and no references (OK for `sfx`, unusual for `tts`/`sts`/etc.), step with more than 5 manual inputs (suggest splitting).
 
+### Verification
+
+- Smoke-test scripts in `scripts/` cover: position-aware voice-profile detection across all modes; `_parse_load_args` parsing of markers (file values only, no chain numbers); `handle_load` accepting file values and rejecting markers targeting automated steps; `_resolve_manual_value` resolving prior prebuilt names to output paths; plan file removal (verified via `git ls-files --error-unmatch`); analyze report marking voice-profile-eligible positions.
+- All AST-parse checks pass on the modified Python files.
+- No in-code comments added, per project convention.
+
 ### Notes
 
 - The prebuilt chains subsystem reuses the existing `ChainPipeline` machinery from `src/voders/sidequests.py` for the actual step execution and output capture (snapshot-based detection in `results/` + `voices/`, intermediate outputs moved to `temp_chains/`). No new execution path was added — only an orchestration layer on top.
 - The `chains` parser change is backward-compatible: existing `chains "name" cmd / "name2" cmd2` invocations continue to work unchanged (no leading `build` / `load` / `analyze` keyword → falls through to the original `ChainPipeline.execute()` path).
 - Prebuilt chain files are plain text and can be hand-edited, but the verifier will catch most format errors on the next `build` / `load` / `analyze` / interactive run.
+- The multi-file-output fix in `ChainPipeline.execute()` applies to every chains consumer (oneline `chains`, prebuilt `chains load`, interactive CLI chains mode) because they all route through `ChainPipeline.execute()`. The fix changes the file picked from "latest by mtime" to "first by mtime" — for modes that produce exactly one output file (the common case), behavior is unchanged.
 
 ## 06/19/2026
 - Status: Stable, all features work, still developing

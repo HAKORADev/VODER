@@ -262,7 +262,7 @@ class ChainPipeline:
             if not all_new:
                 print(f"Warning: chain '{name}' produced no output file")
                 continue
-            all_new.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+            all_new.sort(key=lambda p: os.path.getmtime(p))
             chain_output = all_new[0]
             ts = time.strftime("%Y%m%d_%H%M%S")
             if is_last:
