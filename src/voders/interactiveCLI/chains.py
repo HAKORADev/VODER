@@ -9,9 +9,7 @@ from voder import (
     is_youtube_url,
     VIDEO_EXTENSIONS,
     VOICE_PROFILE_EXTENSIONS,
-)
-
-from voders.prebuilt_chains import (
+    ChainPipeline,
     parse_chain_file,
     verify_chain_file,
     classify_chain_step,
@@ -24,7 +22,6 @@ from voders.prebuilt_chains import (
     PREBUILT_CHAINS_DIR,
     CHAIN_FILE_EXT,
 )
-from voders.sidequests import ChainPipeline
 
 
 def _print_separator(title=None):
@@ -205,7 +202,8 @@ def _gather_inputs_for_chain(parsed, pipeline, prebuilt_idx, total_prebuilts, pr
         for slot_idx, (pos, _) in enumerate(manual_slots, start=1):
             manual_gathered_count += 1
             overall_pct = int(100 * manual_gathered_count / max(1, total_manual))
-            slot_desc = describe_input_slot(tokens, pos)
+            slot_mode = tokens[0].lower() if tokens else ""
+            slot_desc = describe_input_slot(slot_mode, tokens, pos)
             vp_tag = " [voice-profile eligible]" if _is_voice_profile_position(tokens, pos) else ""
             print(f"\n  [Input {slot_idx}/{len(manual_slots)} for step '{step_name}' "
                   f"— overall {manual_gathered_count}/{total_manual} ({overall_pct}%)]")
