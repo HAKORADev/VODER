@@ -91,6 +91,23 @@ This entry consolidates the prebuilt chains subsystem launch and its same-day re
 - The bridge functions `_is_voice_profile_position()` and the helper `describe_input_slot()` (which used to live in `prebuilt_chains.py` and delegate to `voder.slot_accepts_voice_profile` / `voder.describe_input_slot`) have been removed where redundant. `_is_voice_profile_position()` is kept as a thin local helper (it extracts the mode token then calls `slot_accepts_voice_profile`). The two-arg `describe_input_slot(content_tokens, slot_pos)` bridge has been removed; the two callers (`_analyze_one_chain` in `voder.py` and `_gather_inputs_for_chain` in `interactiveCLI/chains.py`) now extract the mode token themselves and call the canonical three-arg `describe_input_slot(mode, content_tokens, slot_pos)` directly. The fallback `_FALLBACK_INPUT_FORMATS` constant has been removed (it was only used by the now-removed fallback path in `get_input_formats_for_step`).
 - Prebuilt chain files still live at `src/chains/VODER_<name>_<timestamp>.chain` — the `PREBUILT_CHAINS_DIR` constant now resolves to `os.path.join(_src_dir, "chains")` where `_src_dir` is `voder.py`'s own directory (`src/`), so the `chains/` folder sits next to `voder.py` inside `src/` as intended.
 
+### Added — SS speaker number parameter (one-file output)
+
+- The SS (Speakers Separator) oneline command now requires a **speaker number** when used without a `target` keyword (i.e. blind SS mode). The number is placed after the keyword flags and before the input path: `python voder.py ss overdose 3 "input.wav"`. The speaker number selects which speaker to extract and output as a single file — the pipeline stops after extracting that speaker instead of running all speakers.
+- **Syntax**: `ss [overdose] [se] [blend] [video] <N> "<path>"` where `<N>` is the speaker number. With `target`, the number is not required (target mode already outputs one file).
+- **Resolution rules**: `1` = first speaker (by diarization order), `N` = Nth speaker, `999` (or any number higher than the actual count) = last speaker. `0` resolves to `1`. Numbers must be non-negative integers; non-numeric values produce an error. No default — the number is mandatory for blind SS.
+- **Implementation**: `parse_oneline_args()` for `mode == 'ss'` now accepts a pure-numeric argument (`arg.isdigit()`) as the speaker number, stores it in `result['params']['speaker_num']`, and validates that it is provided when `target_path` is `None`. `_ss_run_pipeline()` accepts a new `speaker_num` parameter; when provided, it extracts only the requested speaker instead of all speakers, producing exactly one output file.
+- The `show_oneline_usage()` examples and mode description have been updated to reflect the new syntax.
+
+### Changed — SS overdose uses forced-alignment refinement
+
+- The SS overdose pipeline now uses the same **forced-alignment multi-level extraction** that the TTS dub pipeline's `_extract_speakers_for_subtitles()` uses, instead of relying on VibeVoice ASR re-transcription alone for the multi-pass refinement.
+- **How it works**: after the initial TSE extraction (pass 1), the extracted audio is transcribed by VibeVoice ASR to get text, then `_forced_align_words()` produces word-level timestamps. Words that fall within **overlap regions** (computed from the original diarization segments) are filtered out, and the best non-overlapping aligned words are used to cut a refined enrollment clip. A second TSE extraction with this aligned enrollment produces significantly better speaker isolation because the enrollment audio contains only clean, non-overlapping speech precisely aligned to the speaker's actual words.
+- **Overlap detection**: for the overdose path, overlap regions are computed by checking all pairs of VibeVoice ASR segments from different speakers for temporal intersection. For the non-overdose path, pyannote's `get_overlap()` is used (same as before).
+- If forced alignment or enrollment refinement fails for any reason, the pipeline falls back to the existing multi-pass TSE with VibeVoice re-checking — no regression compared to the previous behavior.
+- The non-overdose (pyannote) single-speaker path uses the existing multi-pass TSE with pyannote re-checking, unchanged.
+- The all-speakers extraction path (when `speaker_num` is not provided, used by the interactive CLI) retains the previous behavior for backward compatibility.
+
 ### Verification behavior
 
 The same `verify_chain_file()` function is reused across all four contexts (`build`, `load`, `analyze`, interactive CLI), ensuring consistent checking:
