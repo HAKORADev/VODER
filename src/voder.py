@@ -5111,7 +5111,7 @@ def parse_oneline_args(args):
         chains_args = []
         result_path = None
         chains_subcmd = None
-        if i < len(args) and args[i].lower() in ('build', 'load', 'analyze', 'comment', 'journey'):
+        if i < len(args) and args[i].lower() in ('build', 'load', 'comment', 'journey'):
             chains_subcmd = args[i].lower()
             i += 1
         while i < len(args):
@@ -14456,7 +14456,7 @@ def oneline_chains(params):
         return handle_build(chains_args)
     if subcmd == 'load':
         return handle_load(chains_args, result_path=result_path)
-    if subcmd in ('analyze', 'journey'):
+    if subcmd == 'journey':
         return handle_journey(chains_args)
     if subcmd == 'comment':
         return handle_comment(chains_args)
@@ -14977,9 +14977,6 @@ def handle_journey(args):
     return True
 
 
-handle_analyze = handle_journey
-
-
 def _journey_report(chain_results, ts):
     lines = []
     lines.extend(_journey_opening(chain_results, ts))
@@ -15371,18 +15368,6 @@ def _journey_epilogue(chain_results):
     lines.append("> *The journey ends here. For now.*")
     lines.append("")
     return lines
-
-
-def _analyze_one_chain(chain_idx, chain_result):
-    return _journey_one_chain(chain_idx, chain_result, 1)
-
-
-def _analyze_multi_chain_narrative(chain_results):
-    return _journey_saga(chain_results)
-
-
-def _what_if_fixed(step_idx, chain_step, all_chain_names, step_errors):
-    return _what_if_dimension(step_idx, chain_step, all_chain_names, step_errors)
 
 
 def handle_load(args, result_path=None):

@@ -2450,7 +2450,7 @@ python voder.py chains "vocal" svs voice "song.wav" / "enhanced" se voice "vocal
 
 ## 10a. Prebuilt Chains — Build, Load, Journey
 
-> **Note:** Prebuilt chains extend the `chains` feature with a persistent `.chain` file format. You compose a chain once with `chains build`, then load and re-run it any time with `chains load` (oneline) or via the interactive CLI's option 9. The `chains journey` command produces an RPG-like Markdown report narrating the chain's path, errors, and alternate dimensions. (`chains analyze` is kept as a backward-compatible alias for `chains journey`.)
+> **Note:** Prebuilt chains extend the `chains` feature with a persistent `.chain` file format. You compose a chain once with `chains build`, then load and re-run it any time with `chains load` (oneline) or via the interactive CLI's option 9. The `chains journey` command produces an RPG-like Markdown report narrating the chain's path, errors, and alternate dimensions.
 
 Prebuilt chains live in `src/chains/VODER_<name>_<timestamp>.chain`. Each file is plain text in a custom key:value format. The first line is the magic header `# VODER_CHAIN v1 <timestamp> <name>`. Subsequent lines form a header block (`title:`, `description:`) followed by `---`-separated step blocks (`chain:`, `comment:`, `content:`).
 
@@ -2607,8 +2607,6 @@ After `chains comment` runs, the new annotations appear in:
 ```
 python voder.py chains journey "<chain-name-or-path>" [<another> ...]
 ```
-
-(`chains analyze` is a backward-compatible alias for `chains journey` — both produce the same report.)
 
 - Runs full verification on each chain.
 - Output: `results/voder_journey_<safe-name>_<timestamp>.md`.
