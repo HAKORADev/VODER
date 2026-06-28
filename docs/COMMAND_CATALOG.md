@@ -2448,9 +2448,9 @@ python voder.py chains "vocal" svs voice "song.wav" / "enhanced" se voice "vocal
 
 ---
 
-## 10a. Prebuilt Chains — Build, Load, Analyze
+## 10a. Prebuilt Chains — Build, Load, Journey
 
-> **Note:** Prebuilt chains extend the `chains` feature with a persistent `.chain` file format. You compose a chain once with `chains build`, then load and re-run it any time with `chains load` (oneline) or via the interactive CLI's option 9. The `chains analyze` command produces a Markdown report describing the chain's structure and any verification errors.
+> **Note:** Prebuilt chains extend the `chains` feature with a persistent `.chain` file format. You compose a chain once with `chains build`, then load and re-run it any time with `chains load` (oneline) or via the interactive CLI's option 9. The `chains journey` command produces an RPG-like Markdown report narrating the chain's path, errors, and alternate dimensions. (`chains analyze` is kept as a backward-compatible alias for `chains journey`.)
 
 Prebuilt chains live in `src/chains/VODER_<name>_<timestamp>.chain`. Each file is plain text in a custom key:value format. The first line is the magic header `# VODER_CHAIN v1 <timestamp> <name>`. Subsequent lines form a header block (`title:`, `description:`) followed by `---`-separated step blocks (`chain:`, `comment:`, `content:`).
 
@@ -2540,7 +2540,7 @@ python voder.py chains load "bombo" 1:(song.wav) 3:(ref.wav) "second_chain" 1:(b
 
 #### Voice-profile-eligible positions
 
-Voice profiles (`.tts` / `.ttse`) are valid only at specific positions the engine actually consumes them — not at every "audio-accepting" slot. The prebuilt-chains subsystem marks these positions in the `chains analyze` report and in the interactive CLI's per-slot input prompt:
+Voice profiles (`.tts` / `.ttse`) are valid only at specific positions the engine actually consumes them — not at every "audio-accepting" slot. The prebuilt-chains subsystem marks these positions in the `chains journey` report and in the interactive CLI's per-slot input prompt:
 
 | Mode | Position | Voice-profile accepted? |
 |------|----------|-------------------------|
@@ -2551,7 +2551,7 @@ Voice profiles (`.tts` / `.ttse`) are valid only at specific positions the engin
 | `stt` / `se` / `sfx` / `svs` / `ss` / `train` | any slot | No |
 | `quest` | varies by quest | No |
 
-If a user supplies a `.tts` / `.ttse` value at a non-voice-profile-eligible position, the engine will reject it at runtime with a "File not found" or "Unsupported format" error — the validator cannot catch this at build time because the value is supplied at load time, not at build time. The position-aware markers in the analyze report and interactive CLI prompts help the user supply the right value at the right slot.
+If a user supplies a `.tts` / `.ttse` value at a non-voice-profile-eligible position, the engine will reject it at runtime with a "File not found" or "Unsupported format" error — the validator cannot catch this at build time because the value is supplied at load time, not at build time. The position-aware markers in the journey report and interactive CLI prompts help the user supply the right value at the right slot.
 
 ### `chains comment` — edit chain and per-input comments on an existing `.chain` file
 
@@ -2598,24 +2598,33 @@ python voder.py chains comment "bombo" 3:(1:)
 ```
 
 After `chains comment` runs, the new annotations appear in:
-- `chains analyze` Markdown report (per-input comments are listed under each manual input slot)
+- `chains journey` Markdown report (per-input comments are listed under each manual input slot)
 - Interactive CLI option 9 (per-input comments appear as `Input note:` under the `Accepted:` line during input gathering)
 - The `.chain` file itself as `comment.input.N:` lines
 
-### `chains analyze` — generate a Markdown report
+### `chains journey` — generate an RPG-like Markdown journey report
 
 ```
-python voder.py chains analyze "<chain-name-or-path>" [<another> ...]
+python voder.py chains journey "<chain-name-or-path>" [<another> ...]
 ```
+
+(`chains analyze` is a backward-compatible alias for `chains journey` — both produce the same report.)
 
 - Runs full verification on each chain.
-- Output: `results/voder_analyze_chain_<safe-name>_<timestamp>.md`.
-- The report contains:
-  - **Analyzed Chains** summary table (name, path, steps, status).
-  - **Per-chain detail**: file metadata, step summary table (name, type, manual/auto counts, input comment count, comment excerpt).
-  - **Journey narrative**: walks each step in execution order, showing the raw content, the resolved content (with `<output of step N 'name'>` placeholders for references and `<manual input N>` for inputs), and inline OK/ERROR markers. When a step has an error, the journey shows the error, a **Fix** suggestion, a **What if fixed** note describing what the step would do if the error were corrected (e.g. "if the referenced step were moved before this step, the automated reference would resolve to that step's output file at runtime"), and then continues hypothetically — assuming the step would have succeeded — so you can see the full intended path plus all errors at once.
-  - **Multi-Chain Journey** (when 2+ chains are analyzed): shows the load order, each prebuilt's step/manual-input counts, which prior prebuilt names are available for cross-prebuilt reference at each position, and the linearity rule (prebuilts execute strictly in order; a later prebuilt's output does not exist yet when an earlier prebuilt runs).
-  - **Overall Summary** with an All Errors table (chain, step, category, message, fix).
+- Output: `results/voder_journey_<safe-name>_<timestamp>.md`.
+- The report is structured as an RPG-like narrative with these sections:
+  - **Opening narrative**: a storytelling intro that adapts to whether the chain(s) passed or failed. Single-chain: "In a world full of complexity and many of the unknowns, someone decided to build a chain called **name** to make their path easier. But did they? We shall find out." Multi-chain: the same but with "not one but N chains" and "the saga unfolds, chapter by chapter."
+  - **Cast of Chains**: a summary table (name, path, steps, status).
+  - **Per-chain chapter** (titled "Chapter N" for multi-chain, "Act N" for single-chain): file metadata (scroll, forged date in human-readable format, title, purpose), step/offering/echo counts, a **Waypoints** summary table, then **The Path Walked** — a step-by-step narrative where each step is a "Waypoint" with:
+    - The step's intent (comment)
+    - **The artisan** — a per-mode persona name with a descriptive verb: `tts` = "the Voice Weaver" (weaves spoken words from text), `sts` = "the Shape Shifter" (transforms one voice into another), `ttm` = "the Song Smith" (forging music from lyrics), `stt` = "the Scribe" (transcribes speech to text), `se` = "the Restorer" (cleanses noise), `sfx` = "the Sound Conjurer" (conjures sound effects), `svs` = "the Separator" (isolates vocals), `ss` = "the Crowd Sorter" (extracts individual speakers), `train` = "the Voice Keeper" (trains voice clones), `quest` = "the Errand Runner" (utility tasks), `chains` = "the Chain Master" (orchestrates pipelines). Unrecognized modes get "the Unknown Artisan".
+    - Content (raw and resolved, with `<output of step N 'name'>` and `<manual input N>` placeholders)
+    - A classification narrative: manual = "The traveler must provide N offering(s) to proceed", automated = "This step requires no offerings from the traveler; it draws entirely from what came before", semi-automated = "This step blends fate and choice", error = "This step stands at a crossroads with no clear path".
+    - **Offerings awaited** at this step (per-slot format, voice-profile-eligible marker, per-input guidance from `comment.input.N`)
+    - **Alternate dimension** block (when the step has errors): "But the step falters. Errors are found:" followed by the error list with fixes, then "In another dimension — where the chain took another path, a valid path — what could have happened if the error were the correct thing?" with a per-error-category what-if description (reference errors: "if the referenced step had been placed before this step, the automated reference would have resolved..."; syntax errors with invalid mode: "if the mode had been a recognized one, the artisan would have taken the stage..."; syntax errors with valid mode: "if the oneline syntax had been correct, the artisan would have executed..."; naming errors; format errors).
+  - **The Saga: How the Chapters Connect** (when 2+ chains): shows the load order, each chapter's step/offering counts, which prior chapter names are available for cross-chapter reference at each position, and the linearity rule.
+  - **The Ledger of the Journey**: a statistics table (chapters, waypoints, offerings, echoes, errors, whispers/warnings) plus an **Artisans summoned** table showing the per-mode persona and step count. When there are errors, an **All Errors** table (chapter, waypoint, category, message, fix) is included.
+  - **Epilogue**: the final verdict — "The journey of this chain is whole. No errors were found. The path is clear — the traveler may now walk it with `chains load`." (success) or "The journey falters at N point(s). The errors above must be mended before this chain can be walked." (failure), ending with "*The journey ends here. For now.*"
 
 ### Interactive CLI — option 9 (Prebuilt Chains)
 

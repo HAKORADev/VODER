@@ -5111,7 +5111,7 @@ def parse_oneline_args(args):
         chains_args = []
         result_path = None
         chains_subcmd = None
-        if i < len(args) and args[i].lower() in ('build', 'load', 'analyze', 'comment'):
+        if i < len(args) and args[i].lower() in ('build', 'load', 'analyze', 'comment', 'journey'):
             chains_subcmd = args[i].lower()
             i += 1
         while i < len(args):
@@ -14456,8 +14456,8 @@ def oneline_chains(params):
         return handle_build(chains_args)
     if subcmd == 'load':
         return handle_load(chains_args, result_path=result_path)
-    if subcmd == 'analyze':
-        return handle_analyze(chains_args)
+    if subcmd in ('analyze', 'journey'):
+        return handle_journey(chains_args)
     if subcmd == 'comment':
         return handle_comment(chains_args)
     if not chains_args:
@@ -14938,14 +14938,14 @@ def handle_build(args):
                      if t in chain_names and t != s["name"])
     print(f"Summary: {len(parsed['steps'])} chain(s), {total_manual} manual input(s), {total_auto} automated reference(s).")
     print(f"\nTest it with:  python voder.py chains load \"{parsed['name']}\"")
-    print(f"Analyze it with:  python voder.py chains analyze \"{parsed['name']}\"")
+    print(f"Journey it with:  python voder.py chains journey \"{parsed['name']}\"")
     return True
 
 
-def handle_analyze(args):
+def handle_journey(args):
     if not args:
-        print("Error: 'chains analyze' requires at least one chain name or path.")
-        print("Usage: python voder.py chains analyze <chain-name-or-path> [<another> ...]")
+        print("Error: 'chains journey' requires at least one chain name or path.")
+        print("Usage: python voder.py chains journey <chain-name-or-path> [<another> ...]")
         return False
     targets = []
     for arg in args:
@@ -14954,191 +14954,199 @@ def handle_analyze(args):
             print(f"Error: {err}")
             return False
         targets.append(path)
-    report_lines = []
-    report_lines.append("# VODER Prebuilt Chain Analysis Report")
-    ts = time.strftime("%Y%m%d_%H%M%S")
-    report_lines.append("")
-    report_lines.append(f"Generated: {ts}")
-    report_lines.append("")
-    report_lines.append("## Analyzed Chains")
-    report_lines.append("")
-    report_lines.append("| # | Name | Path | Steps | Status |")
-    report_lines.append("|---|------|------|-------|--------|")
     chain_results = []
     for idx, path in enumerate(targets, start=1):
         parsed, _ = parse_chain_file(path)
-        cname = parsed["name"] if parsed else os.path.basename(path)
-        nsteps = len(parsed["chains"]) if parsed else 0
         ok, errors, warnings = verify_chain_file(path)
-        status = "OK" if ok else f"{len(errors)} error(s)"
-        report_lines.append(f"| {idx} | {cname} | `{path}` | {nsteps} | {status} |")
         chain_results.append({"path": path, "parsed": parsed, "ok": ok,
                               "errors": errors, "warnings": warnings})
-    report_lines.append("")
-
-    for idx, cr in enumerate(chain_results, start=1):
-        report_lines.extend(_analyze_one_chain(idx, cr))
-        report_lines.append("")
-
-    if len(chain_results) > 1:
-        report_lines.extend(_analyze_multi_chain_narrative(chain_results))
-        report_lines.append("")
-
-    any_errors = any(not cr["ok"] for cr in chain_results)
-    report_lines.append("## Overall Summary")
-    report_lines.append("")
-    if any_errors:
-        total_errors = sum(len(cr["errors"]) for cr in chain_results)
-        report_lines.append(f"**{total_errors} error(s) found across {len(chain_results)} chain(s).**")
-        report_lines.append("")
-        report_lines.append("Errors must be fixed before the chain(s) can be used.")
-        report_lines.append("")
-        report_lines.append("### All Errors")
-        report_lines.append("")
-        report_lines.append("| Chain | Step | Category | Message | Fix |")
-        report_lines.append("|-------|------|----------|---------|-----|")
-        for ci, cr in enumerate(chain_results, start=1):
-            cname = cr["parsed"]["name"] if cr["parsed"] else f"chain {ci}"
-            for e in cr["errors"]:
-                step = f"{e['step_index']} '{e['step_name']}'" if e["step_index"] else "file"
-                msg = e["message"].replace("|", "\\|")
-                fix = (e["fix"] or "").replace("|", "\\|")
-                report_lines.append(f"| {cname} | {step} | {e['category']} | {msg} | {fix} |")
-        report_lines.append("")
-    else:
-        report_lines.append(f"**All {len(chain_results)} chain(s) passed verification.**")
-        report_lines.append("")
-        report_lines.append("Chains are ready to use.")
-        report_lines.append("")
-
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    report_lines = _journey_report(chain_results, ts)
     safe_name = re.sub(r'[^A-Za-z0-9_\-]', '_', chain_results[0]["parsed"]["name"] if chain_results[0]["parsed"] else "unknown")[:60] or "unknown"
     results_dir = os.path.join(os.getcwd(), "results")
     os.makedirs(results_dir, exist_ok=True)
-    out_path = os.path.join(results_dir, f"voder_analyze_chain_{safe_name}_{ts}.md")
+    out_path = os.path.join(results_dir, f"voder_journey_{safe_name}_{ts}.md")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(report_lines))
-    print(f"Analyze report saved to: {out_path}")
+    print(f"Journey report saved to: {out_path}")
+    any_errors = any(not cr["ok"] for cr in chain_results)
     if any_errors:
-        print(f"{sum(len(cr['errors']) for cr in chain_results)} error(s) found — see report for details.")
+        print(f"{sum(len(cr['errors']) for cr in chain_results)} error(s) found — see report for the full journey.")
         return False
-    print("All checks passed.")
+    print("All checks passed — the journey is complete.")
     return True
 
 
-def _analyze_multi_chain_narrative(chain_results):
+handle_analyze = handle_journey
+
+
+def _journey_report(chain_results, ts):
     lines = []
-    lines.append("## Multi-Chain Journey")
+    lines.extend(_journey_opening(chain_results, ts))
     lines.append("")
-    lines.append("> When multiple prebuilt chains are loaded in one `chains load` command or one interactive CLI session, they execute in the order provided. Each prebuilt's final output is registered under its main name. Subsequent prebuilts can reference prior prebuilt main names as manual input values — the runner resolves the name to the prior prebuilt's final output path at runtime.")
+    lines.append("## Cast of Chains")
     lines.append("")
-    lines.append("**Load order and cross-prebuilt reference possibilities:**")
-    lines.append("")
+    lines.append("| # | Name | Path | Steps | Status |")
+    lines.append("|---|------|------|-------|--------|")
     for idx, cr in enumerate(chain_results, start=1):
         parsed = cr["parsed"]
-        if not parsed:
-            lines.append(f"{idx}. _(could not parse — see errors above)_")
-            continue
-        name = parsed["name"]
-        manual_count = sum(1 for c in parsed["chains"] for t in c["content_tokens"] if t == "input")
-        if idx == 1:
-            lines.append(f"{idx}. **{name}** — {len(parsed['chains'])} step(s), {manual_count} manual input(s). This is the first prebuilt; no prior prebuilts are available to reference.")
-        else:
-            prior_names = [cr2["parsed"]["name"] for cr2 in chain_results[:idx-1] if cr2["parsed"]]
-            prior_str = ", ".join(f"'{n}'" for n in prior_names) if prior_names else "(none)"
-            lines.append(f"{idx}. **{name}** — {len(parsed['chains'])} step(s), {manual_count} manual input(s). Can reference prior prebuilt outputs by name: {prior_str}.")
+        cname = parsed["name"] if parsed else os.path.basename(cr["path"])
+        nsteps = len(parsed["chains"]) if parsed else 0
+        status = "OK" if cr["ok"] else f"{len(cr['errors'])} error(s)"
+        lines.append(f"| {idx} | {cname} | `{cr['path']}` | {nsteps} | {status} |")
     lines.append("")
-    lines.append("> **Linearity rule:** prebuilts execute strictly in order. A prebuilt cannot reference a later prebuilt's output — the file does not exist yet at that point. If you need chain B's output in chain A, load B before A.")
+    for idx, cr in enumerate(chain_results, start=1):
+        lines.extend(_journey_one_chain(idx, cr, len(chain_results)))
+        lines.append("")
+    if len(chain_results) > 1:
+        lines.extend(_journey_saga(chain_results))
+        lines.append("")
+    lines.extend(_journey_statistics(chain_results))
+    lines.append("")
+    lines.extend(_journey_epilogue(chain_results))
     lines.append("")
     return lines
 
 
-def _what_if_fixed(step_idx, chain_step, all_chain_names, step_errors):
-    tokens = chain_step["content_tokens"]
-    if not tokens:
-        return None
-    mode = tokens[0].lower() if tokens[0] else ""
-    error_categories = set(e["category"] for e in step_errors)
-    has_reference_error = "reference" in error_categories
-    has_syntax_error = "syntax" in error_categories
-    parts = []
-    if has_reference_error:
-        forward_refs = []
-        prior = set()
-        for n in all_chain_names:
-            if n == chain_step["name"]:
-                break
-            prior.add(n)
-        for tok in tokens:
-            if tok in all_chain_names and tok not in prior and tok != chain_step["name"]:
-                ref_step = all_chain_names.index(tok) + 1
-                forward_refs.append(f"step {ref_step} '{tok}' would need to be moved before this step")
-        if forward_refs:
-            parts.append("if the referenced step(s) were moved before this step: " + "; ".join(forward_refs) + ", the automated reference would resolve to that step's output file at runtime")
-    if has_syntax_error:
-        if mode not in _VALID_CONTENT_MODES:
-            parts.append(f"if the mode were changed to a valid oneline mode (e.g. tts, sts, ttm, stt, se, sfx, svs, ss, train, quest), the step would execute that mode's pipeline")
+_MODE_PERSONA = {
+    'tts':   {'name': 'the Voice Weaver',    'verb': 'weaves spoken words from text, designing or cloning the speaker\'s voice'},
+    'sts':   {'name': 'the Shape Shifter',   'verb': 'transforms one voice into another, preserving words and emotion'},
+    'ttm':   {'name': 'the Song Smith',      'verb': 'forging music from lyrics and style descriptions'},
+    'stt':   {'name': 'the Scribe',          'verb': 'transcribes speech to text, optionally identifying speakers'},
+    'se':    {'name': 'the Restorer',        'verb': 'cleanses noise, dereverberates, and restores clarity to degraded audio'},
+    'sfx':   {'name': 'the Sound Conjurer',  'verb': 'conjures sound effects from text descriptions'},
+    'svs':   {'name': 'the Separator',       'verb': 'isolates vocals from music, or extracts the instrumental'},
+    'ss':    {'name': 'the Crowd Sorter',    'verb': 'extracts individual speakers from multi-speaker recordings'},
+    'train': {'name': 'the Voice Keeper',    'verb': 'trains and saves a voice clone for later reuse'},
+    'quest': {'name': 'the Errand Runner',   'verb': 'runs a lightweight utility task outside the main engine'},
+    'chains':{'name': 'the Chain Master',    'verb': 'orchestrates a pipeline of voder tasks'},
+}
+
+
+def _mode_persona(mode):
+    return _MODE_PERSONA.get(mode, {'name': 'the Unknown Artisan', 'verb': 'performs an unrecognized operation'})
+
+
+_CLASSIFICATION_NARRATIVE = {
+    'manual':         'The traveler must provide {n} offering(s) to proceed — without them, this step cannot begin.',
+    'automated':      'This step requires no offerings from the traveler; it draws entirely from what came before.',
+    'semi-automated': 'This step blends fate and choice — {n} offering(s) from the traveler, plus the fruits of prior steps.',
+    'error':          'This step stands at a crossroads with no clear path — neither offerings nor prior outputs guide it.',
+}
+
+
+def _journey_opening(chain_results, ts):
+    lines = []
+    lines.append("# VODER Chain Journey")
+    lines.append("")
+    readable_ts = _human_readable_timestamp(ts)
+    lines.append(f"*The journey began on {readable_ts}.*")
+    lines.append("")
+    total_chains = len(chain_results)
+    any_errors = any(not cr["ok"] for cr in chain_results)
+    if total_chains == 1:
+        parsed = chain_results[0]["parsed"]
+        name = parsed["name"] if parsed else "an unknown chain"
+        nsteps = len(parsed["chains"]) if parsed else 0
+        if any_errors:
+            lines.append(f"> In a world full of complexity and many of the unknowns, someone decided to build a chain called **{name}** to make their path easier. But did they? We shall find out.")
         else:
-            parts.append(f"if the oneline syntax were corrected, the step would execute as a `{mode}` command with the provided arguments")
-    if not parts:
-        return None
-    return " ".join(parts)
+            lines.append(f"> In a world full of complexity and many of the unknowns, someone decided to build a chain called **{name}** to make their path easier — and so the journey of {nsteps} step(s) unfolds.")
+    else:
+        names = [cr["parsed"]["name"] if cr["parsed"] else f"chain {i+1}" for i, cr in enumerate(chain_results)]
+        names_str = ", ".join(f"**{n}**" for n in names)
+        if any_errors:
+            lines.append(f"> In a world full of complexity and many of the unknowns, someone decided to build not one but {total_chains} chains — {names_str} — to make their path easier. But did they? We shall find out as the saga unfolds, chapter by chapter.")
+        else:
+            lines.append(f"> In a world full of complexity and many of the unknowns, someone decided to build {total_chains} chains — {names_str} — to make their path easier. The saga unfolds, chapter by chapter.")
+    lines.append("")
+    return lines
 
 
-def _analyze_one_chain(chain_idx, chain_result):
+def _human_readable_timestamp(ts):
+    try:
+        dt = time.strptime(ts, "%Y%m%d_%H%M%S")
+        return time.strftime("%B %d, %Y at %H:%M:%S", dt)
+    except Exception:
+        return ts
+
+
+def _journey_one_chain(chain_idx, chain_result, total_chains):
     parsed = chain_result["parsed"]
     errors = chain_result["errors"]
     warnings = chain_result["warnings"]
     path = chain_result["path"]
+    if parsed is None:
+        lines = []
+        lines.append(f"## Chapter {chain_idx}: The Broken Scroll")
+        lines.append("")
+        lines.append(f"> The scroll at `{path}` could not be read. Its runes are too corrupted to parse.")
+        lines.append("")
+        for e in errors:
+            lines.append(f"- **[{e['category']}]** {e['message']}")
+            if e["fix"]:
+                lines.append(f"  - _Fix:_ {e['fix']}")
+        lines.append("")
+        return lines
     lines = []
-    lines.append(f"## Chain {chain_idx}: {parsed['name']}")
+    chapter_word = "Chapter" if total_chains > 1 else "Act"
+    lines.append(f"## {chapter_word} {chain_idx}: The Chain of **{parsed['name']}**")
     lines.append("")
-    lines.append(f"- **File:** `{path}`")
-    lines.append(f"- **Timestamp:** {parsed['timestamp']}")
-    lines.append(f"- **Title:** {parsed['title'] or '_(empty)_'}")
-    lines.append(f"- **Description:** {parsed['description'] or '_(empty)_'}")
-    lines.append(f"- **Total steps:** {len(parsed['chains'])}")
+    readable_file_ts = _human_readable_timestamp(parsed["timestamp"])
+    lines.append(f"> The journey of chain **{parsed['name']}** began on {readable_file_ts}, when it was first forged.")
+    lines.append("")
+    lines.append(f"- **Scroll:** `{path}`")
+    lines.append(f"- **Forged:** {readable_file_ts}")
+    lines.append(f"- **Title:** {parsed['title'] or '_(untitled)_'}")
+    lines.append(f"- **Purpose:** {parsed['description'] or '_(unstated)_'}")
+    lines.append(f"- **Steps in this chain:** {len(parsed['chains'])}")
     total_manual = sum(1 for c in parsed["chains"] for t in c["content_tokens"] if t == "input")
     total_auto = sum(1 for c in parsed["chains"] for t in c["content_tokens"]
                      if t in [cc["name"] for cc in parsed["chains"]] and t != c["name"])
-    lines.append(f"- **Manual inputs (total):** {total_manual}")
-    lines.append(f"- **Automated references (total):** {total_auto}")
+    lines.append(f"- **Offerings required (manual inputs):** {total_manual}")
+    lines.append(f"- **Echoes from prior steps (automated references):** {total_auto}")
     lines.append("")
-
-    lines.append("### Step Summary")
+    lines.append("### The Waypoints")
     lines.append("")
-    lines.append("| # | Name | Type | Manual | Auto | Input comments | Comment |")
-    lines.append("|---|------|------|--------|------|----------------|---------|")
+    lines.append("| # | Name | Type | Manual | Auto | Input comments | Step comment |")
+    lines.append("|---|------|------|--------|------|----------------|--------------|")
     chain_names = [c["name"] for c in parsed["chains"]]
     for si, c in enumerate(parsed["chains"], start=1):
         prior = set(chain_names[:si-1])
         ctype, m, a = classify_chain_step(c, prior)
         ic_count = len([k for k, v in (c.get("input_comments") or {}).items() if v])
         ic_display = str(ic_count) if ic_count else "0"
-        comment_excerpt = (c["comment"][:40] + "...") if len(c["comment"]) > 40 else (c["comment"] or "_(empty)_")
+        comment_excerpt = (c["comment"][:50] + "...") if len(c["comment"]) > 50 else (c["comment"] or "_(empty)_")
         comment_excerpt = comment_excerpt.replace("|", "\\|")
         lines.append(f"| {si} | {c['name']} | {ctype} | {m} | {a} | {ic_display} | {comment_excerpt} |")
     lines.append("")
-
-    lines.append("### Journey")
+    lines.append("### The Path Walked")
     lines.append("")
-    lines.append("> The journey walks through each step in execution order. When a step has verification errors, the error is shown inline and the journey continues hypothetically (assuming the step would have succeeded) so you can see the full intended path.")
+    lines.append("> Walk each step in execution order. Where a step falters, the error is shown — and a glimpse of an alternate dimension, where the error was corrected, reveals what could have been.")
     lines.append("")
     for si, c in enumerate(parsed["chains"], start=1):
         prior = set(chain_names[:si-1])
         ctype, m_count, a_count = classify_chain_step(c, prior)
-        lines.append(f"#### Step {si}: `{c['name']}` ({ctype})")
+        lines.append(f"#### Waypoint {si}: `{c['name']}` — {ctype}")
         lines.append("")
         if c["comment"]:
-            lines.append(f"**Comment:** {c['comment']}")
+            lines.append(f"**The step's intent:** {c['comment']}")
         else:
-            lines.append("**Comment:** _(empty — users won't know what to provide)_")
+            lines.append("**The step's intent:** _(none written — the traveler must infer the purpose from the content below)_")
+        lines.append("")
+        tokens = c["content_tokens"]
+        mode = tokens[0].lower() if tokens else ""
+        persona = _mode_persona(mode)
+        if mode in _VALID_CONTENT_MODES:
+            lines.append(f"**The artisan:** {persona['name']} — {persona['verb']}.")
+        else:
+            lines.append(f"**The artisan:** {persona['name']} — the engine does not recognize this mode (`{mode}`).")
         lines.append("")
         lines.append(f"**Content (raw):** `{c['content']}`")
         lines.append("")
-
         resolved_tokens = []
         slot_index_in_step = 0
-        for tok in c["content_tokens"]:
+        for tok in tokens:
             if tok == "input":
                 slot_index_in_step += 1
                 resolved_tokens.append(f"`<manual input {slot_index_in_step}>`")
@@ -15149,56 +15157,232 @@ def _analyze_one_chain(chain_idx, chain_result):
                 resolved_tokens.append(f"`{tok}`")
         lines.append(f"**Content (resolved):** {' '.join(resolved_tokens)}")
         lines.append("")
-
-        manual_positions = [(pos, tok) for pos, tok in enumerate(c["content_tokens"]) if tok == "input"]
+        narr = _CLASSIFICATION_NARRATIVE.get(ctype, _CLASSIFICATION_NARRATIVE['error'])
+        narr_text = narr.format(n=m_count) if '{n}' in narr else narr
+        lines.append(f"> _{narr_text}_")
+        lines.append("")
+        manual_positions = [(pos, tok) for pos, tok in enumerate(tokens) if tok == "input"]
         if manual_positions:
-            lines.append("**Manual input slots:**")
+            lines.append("**Offerings awaited at this step:**")
             lines.append("")
             input_comments = c.get("input_comments") or {}
             for slot_i, (pos, _) in enumerate(manual_positions, start=1):
-                step_tokens = c["content_tokens"]
-                step_mode = step_tokens[0].lower() if step_tokens else ""
-                desc = describe_input_slot(step_mode, step_tokens, pos)
+                step_mode = tokens[0].lower() if tokens else ""
+                desc = describe_input_slot(step_mode, tokens, pos)
                 vp_marker = ""
-                if _is_voice_profile_position(c["content_tokens"], pos):
+                if _is_voice_profile_position(tokens, pos):
                     vp_marker = " \u2014 **voice-profile eligible**"
-                lines.append(f"- slot {slot_i} (position {pos}): {desc}{vp_marker}")
+                lines.append(f"- offering {slot_i} (position {pos}): {desc}{vp_marker}")
                 if slot_i in input_comments and input_comments[slot_i]:
-                    lines.append(f"    - **input comment:** {input_comments[slot_i]}")
+                    lines.append(f"  - _guidance:_ {input_comments[slot_i]}")
             lines.append("")
-
         step_errors = [e for e in errors if e["step_index"] == si]
         if step_errors:
-            for e in step_errors:
-                lines.append(f"> **ERROR** [{e['category']}]: {e['message']}")
-                if e["fix"]:
-                    lines.append(f"> **Fix:** {e['fix']}")
+            lines.extend(_journey_alternate_dimension(si, c, chain_names, step_errors))
             lines.append("")
-            whatif = _what_if_fixed(si, c, chain_names, step_errors)
-            if whatif:
-                lines.append(f"> **What if fixed:** {whatif}")
-                lines.append("")
-            lines.append("> _Assuming this step succeeded, the journey continues..._")
+            lines.append("> _The path continues, assuming this step had succeeded..._")
             lines.append("")
         else:
             if ctype == "manual":
-                lines.append(f"> **OK** — Step will ask the user for {m_count} manual input(s).")
+                lines.append(f"> **The step holds.** It will ask the traveler for {m_count} offering(s).")
             elif ctype == "automated":
-                lines.append(f"> **OK** — Step is fully automated, uses output(s) of prior step(s). User just presses Enter.")
+                lines.append(f"> **The step holds.** It is fully automated — the traveler need only press onward.")
             elif ctype == "semi-automated":
-                lines.append(f"> **OK** — Step is semi-automated: {m_count} manual input(s) + {a_count} automated reference(s).")
+                lines.append(f"> **The step holds.** Semi-automated: {m_count} offering(s) from the traveler, {a_count} echo(es) from prior steps.")
             else:
-                lines.append("> **OK** — Step has no external inputs (will run with only its inline arguments).")
+                lines.append("> **The step holds.** It carries no external inputs — it will run on its inline arguments alone.")
             lines.append("")
-
     if warnings:
-        lines.append("### Warnings")
+        lines.append("### Whispers Along the Path")
+        lines.append("")
+        lines.append("> Not all is amiss, but the path whispers of things to watch:")
         lines.append("")
         for w in warnings:
             lines.append(f"- {w}")
         lines.append("")
-
     return lines
+
+
+def _journey_alternate_dimension(step_idx, chain_step, all_chain_names, step_errors):
+    lines = []
+    lines.append("> **But the step falters.** Errors are found:")
+    lines.append("")
+    for e in step_errors:
+        lines.append(f"> - **[{e['category']}]** {e['message']}")
+        if e["fix"]:
+            lines.append(f">   - _Fix:_ {e['fix']}")
+    lines.append("")
+    lines.append("> **In another dimension** — where the chain took another path, a valid path — what could have happened if the error were the correct thing?")
+    lines.append("")
+    whatif = _what_if_dimension(step_idx, chain_step, all_chain_names, step_errors)
+    if whatif:
+        lines.append(f"> {whatif}")
+        lines.append("")
+    else:
+        lines.append("> _(The alternate dimension for this error category has not been charted yet.)_")
+        lines.append("")
+    return lines
+
+
+def _what_if_dimension(step_idx, chain_step, all_chain_names, step_errors):
+    tokens = chain_step["content_tokens"]
+    if not tokens:
+        return None
+    mode = tokens[0].lower() if tokens[0] else ""
+    error_categories = set(e["category"] for e in step_errors)
+    parts = []
+    if "reference" in error_categories:
+        forward_refs = []
+        prior = set()
+        for n in all_chain_names:
+            if n == chain_step["name"]:
+                break
+            prior.add(n)
+        for tok in tokens:
+            if tok in all_chain_names and tok not in prior and tok != chain_step["name"]:
+                ref_step = all_chain_names.index(tok) + 1
+                forward_refs.append(f"step {ref_step} '{tok}' would have been placed before this step")
+        if forward_refs:
+            parts.append("If " + "; and ".join(forward_refs) + ", the automated reference would have resolved to that step's output file at runtime, and the path would have continued unbroken.")
+    if "syntax" in error_categories:
+        persona = _mode_persona(mode)
+        if mode not in _VALID_CONTENT_MODES:
+            parts.append(f"If the mode had been a recognized one (tts, sts, ttm, stt, se, sfx, svs, ss, train, or quest), {persona['name']} would have taken the stage and the step would have executed that mode's pipeline.")
+        else:
+            parts.append(f"If the oneline syntax had been correct, {persona['name']} would have executed as a `{mode}` command with the provided arguments, and the step would have produced its output for the next waypoint.")
+    if "naming" in error_categories:
+        parts.append("If the name had matched `[A-Za-z0-9_-]+` and been unique within the file, the step would have been registered under that name and available for later steps to reference.")
+    if "format" in error_categories:
+        parts.append("If the format had been correct, the step block would have parsed cleanly and taken its place in the chain's sequence.")
+    if not parts:
+        return None
+    return " ".join(parts)
+
+
+def _journey_saga(chain_results):
+    lines = []
+    lines.append("## The Saga: How the Chapters Connect")
+    lines.append("")
+    lines.append("> When multiple prebuilt chains are loaded in one `chains load` command or one interactive CLI session, they execute in the order told here. Each prebuilt's final output is registered under its main name. Subsequent chapters can reference prior chapters' main names as manual input values — the runner resolves the name to that chapter's final output at runtime.")
+    lines.append("")
+    lines.append("**The order of the saga:**")
+    lines.append("")
+    for idx, cr in enumerate(chain_results, start=1):
+        parsed = cr["parsed"]
+        if not parsed:
+            lines.append(f"{idx}. _(could not be read — see the chapter above)_")
+            continue
+        name = parsed["name"]
+        manual_count = sum(1 for c in parsed["chains"] for t in c["content_tokens"] if t == "input")
+        step_count = len(parsed["chains"])
+        if idx == 1:
+            lines.append(f"{idx}. **Chapter {idx}: {name}** — {step_count} step(s), {manual_count} offering(s). The first chapter; no prior chapters exist to echo from.")
+        else:
+            prior_names = [cr2["parsed"]["name"] for cr2 in chain_results[:idx-1] if cr2["parsed"]]
+            prior_str = ", ".join(f"'{n}'" for n in prior_names) if prior_names else "(none)"
+            lines.append(f"{idx}. **Chapter {idx}: {name}** — {step_count} step(s), {manual_count} offering(s). Can echo from prior chapters: {prior_str}.")
+    lines.append("")
+    lines.append("> **The linearity rule of the saga:** chapters execute strictly in order. A chapter cannot echo from a later chapter — that chapter's output does not exist yet at this point in the story. If you need chapter B's output in chapter A, tell chapter B's story first.")
+    lines.append("")
+    return lines
+
+
+def _journey_statistics(chain_results):
+    lines = []
+    lines.append("## The Ledger of the Journey")
+    lines.append("")
+    total_chains = len(chain_results)
+    total_steps = sum(len(cr["parsed"]["chains"]) for cr in chain_results if cr["parsed"])
+    total_manual = sum(1 for cr in chain_results if cr["parsed"]
+                       for c in cr["parsed"]["chains"]
+                       for t in c["content_tokens"] if t == "input")
+    total_auto = 0
+    for cr in chain_results:
+        if not cr["parsed"]:
+            continue
+        chain_names = [c["name"] for c in cr["parsed"]["chains"]]
+        for c in cr["parsed"]["chains"]:
+            for t in c["content_tokens"]:
+                if t in chain_names and t != c["name"]:
+                    total_auto += 1
+    total_errors = sum(len(cr["errors"]) for cr in chain_results)
+    total_warnings = sum(len(cr["warnings"]) for cr in chain_results)
+    lines.append("| Metric | Count |")
+    lines.append("|--------|-------|")
+    lines.append(f"| Chapters (prebuilt chains) | {total_chains} |")
+    lines.append(f"| Waypoints (steps) | {total_steps} |")
+    lines.append(f"| Offerings awaited (manual inputs) | {total_manual} |")
+    lines.append(f"| Echoes from prior steps (automated references) | {total_auto} |")
+    lines.append(f"| Errors found | {total_errors} |")
+    lines.append(f"| Whispers (warnings) | {total_warnings} |")
+    lines.append("")
+    mode_counts = {}
+    for cr in chain_results:
+        if not cr["parsed"]:
+            continue
+        for c in cr["parsed"]["chains"]:
+            tokens = c["content_tokens"]
+            if tokens:
+                mode = tokens[0].lower()
+                mode_counts[mode] = mode_counts.get(mode, 0) + 1
+    if mode_counts:
+        lines.append("**Artisans summoned (by mode):**")
+        lines.append("")
+        lines.append("| Mode | Artisan | Steps |")
+        lines.append("|------|---------|-------|")
+        for mode in sorted(mode_counts.keys()):
+            persona = _mode_persona(mode)
+            lines.append(f"| `{mode}` | {persona['name']} | {mode_counts[mode]} |")
+        lines.append("")
+    if total_errors > 0:
+        lines.append("### All Errors")
+        lines.append("")
+        lines.append("| Chapter | Waypoint | Category | Message | Fix |")
+        lines.append("|---------|----------|----------|---------|-----|")
+        for ci, cr in enumerate(chain_results, start=1):
+            cname = cr["parsed"]["name"] if cr["parsed"] else f"chain {ci}"
+            for e in cr["errors"]:
+                step = f"{e['step_index']} '{e['step_name']}'" if e["step_index"] else "file"
+                msg = e["message"].replace("|", "\\|")
+                fix = (e["fix"] or "").replace("|", "\\|")
+                lines.append(f"| {cname} | {step} | {e['category']} | {msg} | {fix} |")
+        lines.append("")
+    return lines
+
+
+def _journey_epilogue(chain_results):
+    lines = []
+    lines.append("## Epilogue")
+    lines.append("")
+    any_errors = any(not cr["ok"] for cr in chain_results)
+    total_errors = sum(len(cr["errors"]) for cr in chain_results)
+    total_chains = len(chain_results)
+    if not any_errors:
+        if total_chains == 1:
+            lines.append("> The journey of this chain is whole. No errors were found. The path is clear — the traveler may now walk it with `chains load`.")
+        else:
+            lines.append(f"> The saga of {total_chains} chapters is whole. No errors were found. The path is clear — the traveler may now walk it with `chains load`.")
+    else:
+        if total_chains == 1:
+            lines.append(f"> The journey falters at {total_errors} point(s). The errors above must be mended before this chain can be walked. Tend to them, and the path will open.")
+        else:
+            lines.append(f"> The saga falters at {total_errors} point(s) across its chapters. The errors above must be mended before these chains can be walked. Tend to them, and the path will open.")
+    lines.append("")
+    lines.append("> *The journey ends here. For now.*")
+    lines.append("")
+    return lines
+
+
+def _analyze_one_chain(chain_idx, chain_result):
+    return _journey_one_chain(chain_idx, chain_result, 1)
+
+
+def _analyze_multi_chain_narrative(chain_results):
+    return _journey_saga(chain_results)
+
+
+def _what_if_fixed(step_idx, chain_step, all_chain_names, step_errors):
+    return _what_if_dimension(step_idx, chain_step, all_chain_names, step_errors)
 
 
 def handle_load(args, result_path=None):
