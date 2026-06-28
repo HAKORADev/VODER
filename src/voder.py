@@ -4919,9 +4919,6 @@ def parse_oneline_args(args):
         if file_path is None:
             result['error'] = 'SS mode requires an audio/video file path or URL'
             return result
-        if target_path is None and speaker_num is None:
-            result['error'] = 'SS blind mode requires a speaker number (1 for first, N for Nth, 999 for last)'
-            return result
         if speaker_num is not None:
             if speaker_num < 0:
                 result['error'] = 'SS speaker number must be 0 or higher (0 resolves to 1)'
@@ -5799,7 +5796,7 @@ def show_oneline_usage():
     print("  se       - Sound Enhancement (denoise, dereverb, restore, super-resolution)")
     print("  sfx      - Sound Effects (text prompt + duration → audio)")
     print("  svs      - Song Voice Separate (extract vocals/music from song)")
-    print("  ss       - Speakers Separator (extract a specific speaker by number)")
+    print("  ss       - Speakers Separator (extract all speakers, or a specific one by number)")
     print("  train    - Train and save voice clones")
     print("  quest    - Side-quests (utility tasks): download + Media Manipulation (Sound Effects / Audio Editing / Format & File). Run `quest` with no args to list them all as a tree.")
     print("  chains   - Chain multiple voder tasks: each chain's output feeds later chains")
@@ -5817,6 +5814,7 @@ def show_oneline_usage():
     print('  python voder.py svs voice video "https://youtube.com/watch?v=..."')
     print()
     print("SS examples (Speakers Separator):")
+    print('  python voder.py ss "path/to/audio.wav"')
     print('  python voder.py ss 1 "path/to/audio.wav"')
     print('  python voder.py ss 999 "path/to/video.mp4"')
     print('  python voder.py ss 1 "https://youtube.com/watch?v=..."')

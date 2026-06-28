@@ -1560,13 +1560,13 @@ python voder.py svs music video "https://youtube.com/watch?v=..."
 
 ## 8. `ss` — Speakers Separator
 
-Extract a specific speaker from an audio source by speaker number, or extract a target speaker using a reference audio. With `blend`, the separated speaker's audio is mixed with the original non-vocals (instrumental/background) track. With `video`, separated audio is muxed with the original video to produce video output.
+Extract all speakers from an audio source one by one (one file per detected speaker), or extract a specific speaker by number, or extract a target speaker using a reference audio. With `blend`, each separated speaker's audio is mixed with the original non-vocals (instrumental/background) track. With `video`, separated audio is muxed with the original video to produce video output.
 
 ### Keywords
 
 | Keyword | Value | Description |
 |---------|-------|-------------|
-| `<N>` | number | **Required** for blind SS (no `target`). Speaker number to extract: `1` = first speaker, `N` = Nth speaker, `999` (or any number higher than actual count) = last speaker. `0` resolves to `1`. Must be a non-negative integer; non-numeric values produce an error. No default. |
+| `<N>` | number | **Optional** for blind SS (no `target`). When omitted, all detected speakers are extracted one by one (one file per speaker). When provided, only the requested speaker is extracted and the pipeline stops after that speaker. Resolution: `1` = first speaker (by diarization order), `N` = Nth speaker, `999` (or any number higher than actual count) = last speaker, `0` resolves to `1`. Must be a non-negative integer; non-numeric values produce an error. Ignored when `target` is provided. |
 | `"<path>"` | file | Audio/video file path or YouTube/TikTok/Bilibili/Snapchat/Instagram/Facebook/X-Twitter URL. |
 | `target` | `"<path>"` | Target voice reference audio/URL. When provided, extracts only the speaker matching this reference from the source audio. Outputs a single file. Speaker number is not needed with `target`. |
 | `se` | (flag) | Apply sound enhancement before separation (denoise/dereverb the input first). |
@@ -1577,9 +1577,10 @@ Extract a specific speaker from an audio source by speaker number, or extract a 
 
 ### Rules
 
-- **Pipeline (blind SS, no target):** SVS voice isolation → STT + diarization → TSE extraction of the requested speaker only. Outputs exactly one file. Speaker number `<N>` is required.
-- **Pipeline (with target):** SVS voice isolation → TSE (Target Speaker Extraction). Looks at the target reference and extracts matching speaker from source. Outputs one file. No speaker number needed.
-- **Pipeline (overdose, blind SS):** SVS voice isolation → VibeVoice ASR + forced-alignment multi-level extraction → TSE with aligned enrollment for the requested speaker. The aligner provides word-level timestamps; overlap regions are filtered out; refined enrollment clips are cut from non-overlapping aligned speech for significantly better isolation. Outputs one file.
+- **Pipeline (blind SS, no target, no number):** SVS voice isolation → STT + diarization → TSE extraction of every detected speaker, one by one. Outputs one file per speaker (`voder_ss_<name>_<ts>_speaker1.wav`, `_speaker2.wav`, …).
+- **Pipeline (blind SS, no target, with `<N>`):** SVS voice isolation → STT + diarization → TSE extraction of the requested speaker only. Outputs exactly one file.
+- **Pipeline (with target):** SVS voice isolation → TSE (Target Speaker Extraction). Looks at the target reference and extracts matching speaker from source. Outputs one file. No speaker number needed (a number is ignored if provided).
+- **Pipeline (overdose, blind SS):** SVS voice isolation → VibeVoice ASR + forced-alignment multi-level extraction → TSE with aligned enrollment. The aligner provides word-level timestamps; overlap regions are filtered out; refined enrollment clips are cut from non-overlapping aligned speech for significantly better isolation. When `<N>` is provided, outputs one file for that speaker; when omitted, runs the alignment-refined pass for every speaker and outputs one file per speaker.
 - **Pipeline (with blend):** SVS voice isolation (+ music extraction) → TSE extraction → blend speaker with non-vocals. Output file has `_blend` suffix.
 - **Pipeline (with video):** Same as standard pipeline, then mux output audio with the original video frames. Output is MP4 instead of WAV. Ignored for audio-only inputs.
 - `overdose` is only used in the blind SS pipeline (switches from pyannote to VibeVoice ASR + forced alignment for better accuracy). It is completely skipped when `target` is provided.
@@ -1589,7 +1590,16 @@ Extract a specific speaker from an audio source by speaker number, or extract a 
 - `se` runs sound enhancement before anything else (cleaner input = better results).
 
 ```
-# Extract first speaker (standard pipeline)
+# Extract ALL speakers one by one (one file per detected speaker)
+python voder.py ss "conversation.wav"
+
+# Extract ALL speakers from a video
+python voder.py ss "interview.mp4"
+
+# Extract ALL speakers from a URL
+python voder.py ss "https://youtube.com/watch?v=..."
+
+# Extract first speaker only (standard pipeline)
 python voder.py ss 1 "conversation.wav"
 
 # Extract last speaker (number resolves to last detected)
@@ -1604,17 +1614,26 @@ python voder.py ss 2 "interview.mp4"
 # From YouTube, first speaker
 python voder.py ss 1 "https://youtube.com/watch?v=..."
 
-# With sound enhancement pre-processing
+# With sound enhancement pre-processing (single speaker)
 python voder.py ss se 1 "noisy_conversation.wav"
+
+# With sound enhancement, extract ALL speakers
+python voder.py ss se "noisy_conversation.wav"
 
 # With overdose (better accuracy, uses VibeVoice ASR + forced alignment)
 python voder.py ss overdose 1 "conversation.wav"
 
+# Overdose, extract ALL speakers (alignment-refined pass per speaker)
+python voder.py ss overdose "conversation.wav"
+
 # Overdose with specific speaker
 python voder.py ss overdose 3 "conversation.wav"
 
-# With blend (speaker + non-vocals)
+# With blend (speaker + non-vocals), single speaker
 python voder.py ss blend 1 "vlog.wav"
+
+# With blend, extract ALL speakers (each speaker blended with non-vocals)
+python voder.py ss blend "vlog.wav"
 
 # Extract specific target speaker from source (outputs one file, no number needed)
 python voder.py ss target "speaker_ref.wav" "conversation.wav"
@@ -1625,8 +1644,11 @@ python voder.py ss target "speaker_ref.wav" blend "conversation.wav"
 # Target extraction from URL
 python voder.py ss target "speaker_ref.wav" "https://youtube.com/watch?v=..."
 
-# With video output (mux separated audio with original video)
+# With video output (mux separated audio with original video), single speaker
 python voder.py ss video 1 "interview.mp4"
+
+# With video output, extract ALL speakers (one MP4 per speaker)
+python voder.py ss video "interview.mp4"
 
 # Target extraction with video output
 python voder.py ss target "speaker_ref.wav" video "interview.mp4"
@@ -1636,6 +1658,9 @@ python voder.py ss video 1 "https://youtube.com/watch?v=..."
 
 # Full pipeline: overdose + sound enhancement + blend + video, speaker 1
 python voder.py ss overdose se blend video 1 "vlog.mp4"
+
+# Full pipeline, extract ALL speakers
+python voder.py ss overdose se blend video "vlog.mp4"
 ```
 
 ---
