@@ -5111,7 +5111,7 @@ def parse_oneline_args(args):
         chains_args = []
         result_path = None
         chains_subcmd = None
-        if i < len(args) and args[i].lower() in ('build', 'load', 'analyze'):
+        if i < len(args) and args[i].lower() in ('build', 'load', 'analyze', 'comment'):
             chains_subcmd = args[i].lower()
             i += 1
         while i < len(args):
@@ -14458,6 +14458,8 @@ def oneline_chains(params):
         return handle_load(chains_args, result_path=result_path)
     if subcmd == 'analyze':
         return handle_analyze(chains_args)
+    if subcmd == 'comment':
+        return handle_comment(chains_args)
     if not chains_args:
         print("Error: chains mode requires at least one chain")
         return False
@@ -14483,6 +14485,20 @@ def _err(step_index, step_name, category, message, fix=""):
     }
 
 
+def _resolve_linear_index(user_value, total, kind, context_label):
+    if not isinstance(user_value, int) or user_value < 1:
+        valid = list(range(1, total + 1)) if total > 0 else []
+        likely = ", ".join(str(v) for v in valid[:10]) if valid else "(none — no %s exist)" % kind
+        return None, (f"failed to resolve '{user_value}' {context_label} — {kind} index must be a positive integer. "
+                      f"Likely meant: {likely}.")
+    if user_value > total:
+        valid = list(range(1, total + 1)) if total > 0 else []
+        likely = ", ".join(str(v) for v in valid[:10]) if valid else "(none — no %s exist)" % kind
+        return None, (f"failed to resolve '{user_value}' {context_label} — chain has {total} {kind}(s). "
+                      f"Likely meant: {likely}.")
+    return user_value - 1, None
+
+
 def build_chain_text(name, timestamp, title, description, steps):
     lines = [f"{CHAIN_FILE_MAGIC} {timestamp} {name}"]
     if title:
@@ -14501,6 +14517,9 @@ def build_chain_text(name, timestamp, title, description, steps):
         else:
             lines.append("comment:")
         lines.append(f"content: {step['content']}")
+        input_comments = step.get("input_comments") or {}
+        for input_idx in sorted(input_comments.keys()):
+            lines.append(f"comment.input.{input_idx}: {input_comments[input_idx]}")
     lines.append("---")
     return "\n".join(lines) + "\n"
 
@@ -14573,10 +14592,24 @@ def _parse_chain_text(raw):
         else:
             if key in ("chain", "comment", "content"):
                 current[key] = value
+            elif key.startswith("comment.input."):
+                idx_str = key[len("comment.input."):]
+                if not idx_str.isdigit():
+                    errors.append(_err(None, None, "format",
+                                       f"Invalid input comment key '{key}:' — input index must be a positive integer",
+                                       "Use 'comment.input.N:' where N is the 1-indexed input slot number."))
+                else:
+                    input_idx = int(idx_str)
+                    if input_idx < 1:
+                        errors.append(_err(None, None, "format",
+                                           f"Invalid input comment key '{key}:' — input index must be >= 1",
+                                           "Input slots are 1-indexed; use 'comment.input.1:' for the first input."))
+                    else:
+                        current.setdefault("_input_comments", {})[input_idx] = value
             else:
                 errors.append(_err(None, None, "format",
                                    f"Unknown step key '{key}'",
-                                   "Step blocks only allow 'chain', 'comment', 'content'."))
+                                   "Step blocks only allow 'chain', 'comment', 'content', and 'comment.input.N'."))
     if current:
         blocks.append(current)
 
@@ -14615,11 +14648,13 @@ def _parse_chain_text(raw):
                                "Add the oneline command for this step."))
             continue
         comment = blk.get("comment", "")
+        input_comments = blk.get("_input_comments", {})
         chains.append({
             "name": cname,
             "comment": comment,
             "content": content,
             "content_tokens": content.split(),
+            "input_comments": input_comments,
         })
 
     if not chains and not any(e["category"] == "format" for e in errors):
@@ -14666,7 +14701,7 @@ def verify_chain_text(raw):
         seen.add(c["name"])
 
     for idx, c in enumerate(parsed["chains"], start=1):
-        errors.extend(_verify_content_syntax(idx, c))
+        errors.extend(_verify_content_syntax(idx, c, chain_names))
 
     for idx, c in enumerate(parsed["chains"], start=1):
         errors.extend(_verify_references(idx, c, chain_names))
@@ -14690,7 +14725,7 @@ def verify_chain_text(raw):
     return len(errors) == 0, errors, warnings
 
 
-def _verify_content_syntax(step_idx, chain_step):
+def _verify_content_syntax(step_idx, chain_step, all_chain_names=None):
     errors = []
     tokens = chain_step["content_tokens"]
     if not tokens:
@@ -14704,13 +14739,40 @@ def _verify_content_syntax(step_idx, chain_step):
                            f"Unknown oneline mode '{mode}'",
                            "Use one of: tts, sts, ttm, stt, se, sfx, svs, ss, train, quest."))
         return errors
+    names_set = set(all_chain_names or [])
+    placeholder_path = None
     try:
-        parsed = parse_oneline_args(tokens)
+        fd, placeholder_path = tempfile.mkstemp(suffix=".wav", prefix="_voder_chain_input_")
+        os.close(fd)
     except Exception:
+        placeholder_path = None
+    try:
+        verify_tokens = []
+        for t in tokens:
+            if placeholder_path and (t == "input" or t in names_set):
+                verify_tokens.append(placeholder_path)
+            else:
+                verify_tokens.append(t)
+        parsed = parse_oneline_args(verify_tokens)
+    except Exception:
+        if placeholder_path and os.path.exists(placeholder_path):
+            try:
+                os.remove(placeholder_path)
+            except Exception:
+                pass
         return errors
+    finally:
+        if placeholder_path and os.path.exists(placeholder_path):
+            try:
+                os.remove(placeholder_path)
+            except Exception:
+                pass
     if parsed.get("error"):
+        msg = parsed['error']
+        if placeholder_path:
+            msg = msg.replace(placeholder_path, "input")
         errors.append(_err(step_idx, chain_step["name"], "syntax",
-                           f"Oneline parser error: {parsed['error']}",
+                           f"Oneline parser error: {msg}",
                            "Fix the oneline syntax for this step."))
     return errors
 
@@ -14981,15 +15043,17 @@ def _analyze_one_chain(chain_idx, chain_result):
 
     lines.append("### Step Summary")
     lines.append("")
-    lines.append("| # | Name | Type | Manual | Auto | Comment |")
-    lines.append("|---|------|------|--------|------|---------|")
+    lines.append("| # | Name | Type | Manual | Auto | Input comments | Comment |")
+    lines.append("|---|------|------|--------|------|----------------|---------|")
     chain_names = [c["name"] for c in parsed["chains"]]
     for si, c in enumerate(parsed["chains"], start=1):
         prior = set(chain_names[:si-1])
         ctype, m, a = classify_chain_step(c, prior)
+        ic_count = len([k for k, v in (c.get("input_comments") or {}).items() if v])
+        ic_display = str(ic_count) if ic_count else "0"
         comment_excerpt = (c["comment"][:40] + "...") if len(c["comment"]) > 40 else (c["comment"] or "_(empty)_")
         comment_excerpt = comment_excerpt.replace("|", "\\|")
-        lines.append(f"| {si} | {c['name']} | {ctype} | {m} | {a} | {comment_excerpt} |")
+        lines.append(f"| {si} | {c['name']} | {ctype} | {m} | {a} | {ic_display} | {comment_excerpt} |")
     lines.append("")
 
     lines.append("### Journey")
@@ -15027,6 +15091,7 @@ def _analyze_one_chain(chain_idx, chain_result):
         if manual_positions:
             lines.append("**Manual input slots:**")
             lines.append("")
+            input_comments = c.get("input_comments") or {}
             for slot_i, (pos, _) in enumerate(manual_positions, start=1):
                 step_tokens = c["content_tokens"]
                 step_mode = step_tokens[0].lower() if step_tokens else ""
@@ -15035,6 +15100,8 @@ def _analyze_one_chain(chain_idx, chain_result):
                 if _is_voice_profile_position(c["content_tokens"], pos):
                     vp_marker = " \u2014 **voice-profile eligible**"
                 lines.append(f"- slot {slot_i} (position {pos}): {desc}{vp_marker}")
+                if slot_i in input_comments and input_comments[slot_i]:
+                    lines.append(f"    - **input comment:** {input_comments[slot_i]}")
             lines.append("")
 
         step_errors = [e for e in errors if e["step_index"] == si]
@@ -15088,7 +15155,13 @@ def handle_load(args, result_path=None):
             return False
         parsed, _ = parse_chain_file(path)
         chain_names = [c["name"] for c in parsed["chains"]]
-        print(f"\n[Prebuilt {sec_idx}/{len(sections)}] Loading '{parsed['name']}' ({len(parsed['chains'])} steps)")
+        total_steps_this = len(parsed["chains"])
+        for step_num in sec["markers"]:
+            _, idx_err = _resolve_linear_index(step_num, total_steps_this, "step", f"in '{parsed['name']}'")
+            if idx_err:
+                print(f"Error: {idx_err}")
+                return False
+        print(f"\n[Prebuilt {sec_idx}/{len(sections)}] Loading '{parsed['name']}' ({total_steps_this} steps)")
         if parsed["title"]:
             print(f"  Title: {parsed['title']}")
         if parsed["description"]:
@@ -15230,6 +15303,128 @@ def _parse_load_args(args):
     if not sections:
         return None, "At least one chain name or path is required"
     return sections, None
+
+
+def _parse_comment_args(args):
+    if not args:
+        return None, "Usage: chains comment <chain-name-or-path> [N:\"<new chain comment>\"]... [N:(I1:<input comment>/I2:<input comment>/...)]..."
+    name_or_path = args[0]
+    rest = args[1:]
+    chain_comment_edits = {}
+    input_comment_edits = {}
+    chain_comment_re = re.compile(r'^(\d+):"(.*)"$')
+    input_block_re = re.compile(r'^(\d+):\((.*)\)$')
+    for arg in rest:
+        m = chain_comment_re.match(arg)
+        if m:
+            step_num = int(m.group(1))
+            new_comment = m.group(2)
+            if step_num in chain_comment_edits:
+                return None, f"Duplicate chain-comment edit for step {step_num}"
+            chain_comment_edits[step_num] = new_comment
+            continue
+        m = input_block_re.match(arg)
+        if m:
+            step_num = int(m.group(1))
+            body = m.group(2)
+            if step_num in input_comment_edits:
+                return None, f"Duplicate input-comment edit for step {step_num}"
+            slot_edits = {}
+            if body.strip():
+                parts = body.split('/')
+                for part in parts:
+                    if ':' not in part:
+                        return None, f"Malformed input comment '{part}' — expected 'I:<comment>' (input index, colon, comment text)"
+                    idx_str, _, comment_text = part.partition(':')
+                    idx_str = idx_str.strip()
+                    if not idx_str.isdigit():
+                        return None, f"Malformed input comment '{part}' — input index must be a positive integer"
+                    input_idx = int(idx_str)
+                    if input_idx < 1:
+                        return None, f"Invalid input index '{input_idx}' — input slots are 1-indexed; use 1 for the first input"
+                    if input_idx in slot_edits:
+                        return None, f"Duplicate input index {input_idx} in step {step_num}'s input-comment block"
+                    slot_edits[input_idx] = comment_text
+            input_comment_edits[step_num] = slot_edits
+            continue
+        return None, f"Unrecognized argument '{arg}' — expected N:\"<chain comment>\" or N:(I1:<comment>/I2:<comment>/...)"
+    if not chain_comment_edits and not input_comment_edits:
+        return None, "At least one edit is required — provide N:\"<chain comment>\" or N:(I:<input comment>/...)"
+    return {
+        "name_or_path": name_or_path,
+        "chain_comment_edits": chain_comment_edits,
+        "input_comment_edits": input_comment_edits,
+    }, None
+
+
+def handle_comment(args):
+    parsed, err = _parse_comment_args(args)
+    if err:
+        print(f"Error: {err}")
+        return False
+    path, err = resolve_chain_path(parsed["name_or_path"])
+    if err:
+        print(f"Error: {err}")
+        return False
+    chain_parsed, parse_errs = parse_chain_file(path)
+    if chain_parsed is None:
+        print(f"Error: chain file could not be parsed:")
+        for e in parse_errs:
+            loc = f"step {e['step_index']} '{e['step_name']}'" if e["step_index"] else "file"
+            print(f"  [{loc}] {e['category']}: {e['message']}")
+        return False
+    chains = chain_parsed["chains"]
+    total_steps = len(chains)
+    chain_comment_edits = parsed["chain_comment_edits"]
+    input_comment_edits = parsed["input_comment_edits"]
+    for step_num in chain_comment_edits:
+        _, err = _resolve_linear_index(step_num, total_steps, "step", f"in '{chain_parsed['name']}'")
+        if err:
+            print(f"Error: {err}")
+            return False
+    for step_num, slot_edits in input_comment_edits.items():
+        zero_idx, err = _resolve_linear_index(step_num, total_steps, "step", f"in '{chain_parsed['name']}'")
+        if err:
+            print(f"Error: {err}")
+            return False
+        step = chains[zero_idx]
+        manual_count = sum(1 for t in step["content_tokens"] if t == "input")
+        for input_idx in slot_edits:
+            _, err = _resolve_linear_index(input_idx, manual_count, "input slot", f"in step {step_num} '{step['name']}'")
+            if err:
+                print(f"Error: {err}")
+                return False
+    for step_num, new_comment in chain_comment_edits.items():
+        zero_idx = step_num - 1
+        chains[zero_idx]["comment"] = new_comment
+    for step_num, slot_edits in input_comment_edits.items():
+        zero_idx = step_num - 1
+        step = chains[zero_idx]
+        existing = dict(step.get("input_comments") or {})
+        for input_idx, comment_text in slot_edits.items():
+            existing[input_idx] = comment_text
+        step["input_comments"] = existing
+    raw = build_chain_text(chain_parsed["name"], chain_parsed["timestamp"],
+                           chain_parsed["title"], chain_parsed["description"], chains)
+    ok, errors, warnings = verify_chain_text(raw)
+    if not ok:
+        print("Error: verification failed after applying comment edits — file was NOT saved:")
+        for e in errors:
+            loc = f"step {e['step_index']} '{e['step_name']}'" if e["step_index"] else "file"
+            print(f"  [{loc}] {e['category']}: {e['message']}")
+            if e["fix"]:
+                print(f"          fix: {e['fix']}")
+        return False
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(raw)
+    print(f"Updated: {path}")
+    print(f"Summary: {len(chain_comment_edits)} chain comment(s) edited, "
+          f"{sum(len(v) for v in input_comment_edits.values())} input comment(s) edited across "
+          f"{len(input_comment_edits)} step(s).")
+    if warnings:
+        for w in warnings:
+            print(f"  [WARN] {w}")
+    return True
 
 
 if __name__ == "__main__":

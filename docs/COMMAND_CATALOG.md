@@ -2477,7 +2477,7 @@ content: tts script lyrics voice input
 
 - **Line 1**: exactly 5 whitespace-separated tokens — `#`, `VODER_CHAIN`, `v1`, `<timestamp>` (YYYYMMDD_HHMMSS), `<name>` (`[A-Za-z0-9_-]+`, no spaces).
 - **Header block**: `title:` and `description:` keys (both optional — empty values produce warnings but no errors).
-- **Step blocks**: separated by `---`. Each step has `chain:` (required, must match `[A-Za-z0-9_-]+`, unique within file), `comment:` (optional), `content:` (required — single line, space-separated oneline command). Use the literal token `input` as the placeholder for a manual file input. Reference prior chain names verbatim to make the step automated.
+- **Step blocks**: separated by `---`. Each step has `chain:` (required, must match `[A-Za-z0-9_-]+`, unique within file), `comment:` (optional — the step-level description shown to users), `content:` (required — single line, space-separated oneline command), and zero or more `comment.input.N:` lines (optional — per-input-slot descriptions, where `N` is the 1-indexed position of the `input` placeholder in `content:`). Use the literal token `input` as the placeholder for a manual file input. Reference prior chain names verbatim to make the step automated. Per-input comments are typically added via `chains comment` after the chain is built, but can also be hand-edited.
 
 ### Step classification
 
@@ -2552,6 +2552,55 @@ Voice profiles (`.tts` / `.ttse`) are valid only at specific positions the engin
 
 If a user supplies a `.tts` / `.ttse` value at a non-voice-profile-eligible position, the engine will reject it at runtime with a "File not found" or "Unsupported format" error — the validator cannot catch this at build time because the value is supplied at load time, not at build time. The position-aware markers in the analyze report and interactive CLI prompts help the user supply the right value at the right slot.
 
+### `chains comment` — edit chain and per-input comments on an existing `.chain` file
+
+```
+python voder.py chains comment "<chain-name-or-path>" [N:"<new chain comment>"]... [N:(I1:<input comment>/I2:<input comment>/...)]...
+```
+
+`chains comment` rewrites an existing `.chain` file in place — it lets the chain developer add or update the step-level `comment:` and the per-input-slot `comment.input.N:` annotations after the chain has been built with `chains build`. This is the only way to attach per-input descriptions to a chain: `chains build` only takes a single per-step comment, so chains typically get built first, then documented with `chains comment`.
+
+- `<chain-name-or-path>`: a chain name (resolves to the latest matching file by timestamp) or a direct `.chain` file path. The resolved file is rewritten in place.
+- `N:"<new chain comment>"`: replaces the step-level `comment:` for step `N` (1-indexed). The double quotes are required. An empty string `N:""` clears the comment.
+- `N:(I1:<input comment>/I2:<input comment>/...)`: sets per-input comments for step `N`. Each `I:<comment>` pair sets the comment for input slot `I` (1-indexed, in the order `input` placeholders appear in the step's `content:`). The `/` separates input entries. Only mentioned input indices are touched — unmentioned input slots keep their existing comment. An empty comment (`I:`) clears that input's comment.
+- **Chain numbers and input numbers are 1-indexed and linear** — they correspond to the step's position in the file and the `input` placeholder's position in `content:`. They do **not** need to be in sorted order: you can write `7` then `4` then `3` for chains, and `8` / `19` / `3` / `2` for inputs. Only mentioned slots are touched; everything else is preserved verbatim.
+- **Invalid numbers fail with "failed to resolve"** — if you write `9` and the chain only has 3 steps, the command fails immediately with `failed to resolve '9' in '<chain>' — chain has 3 step(s). Likely meant: 1, 2, 3.` and the file is **not** modified. Same for input indices: `4` on a step with 1 input slot fails with `failed to resolve '4' in step N '<name>' — chain has 1 input slot(s). Likely meant: 1.`
+- After applying edits, the rewritten file is re-verified. If verification fails, the file is **not** saved and all errors are printed.
+- The same number-resolution core is used for both chain indices and input indices, so error messages are consistent.
+
+Examples:
+
+```
+# Linear edit: set chain comments for steps 1 and 3, set input comments for step 3
+python voder.py chains comment "bombo" \
+    1:"Provide the source song (audio/video/URL)" \
+    3:"Provide a reference voice" \
+    3:(1:The reference voice file to clone from/2:Optional style hint, e.g. "warm, slow")
+
+# Non-linear edit: step 7 then 4 then 3 (order doesn't matter; only mentioned slots touched)
+python voder.py chains comment "bombo" \
+    7:"Updated comment for step 7" \
+    4:(3:third input of step 4) \
+    3:(8:eighth input/19:nineteenth input/2:second input)
+
+# Only chain comment (no input comments)
+python voder.py chains comment "bombo" 2:"This step is automated — uses the vocals from step 1."
+
+# Only input comments (no chain comment)
+python voder.py chains comment "bombo" 1:(1:The source song) 3:(1:Reference voice/2:Style hint)
+
+# Clear a chain comment (empty string)
+python voder.py chains comment "bombo" 2:""
+
+# Clear an input comment (empty after the colon)
+python voder.py chains comment "bombo" 3:(1:)
+```
+
+After `chains comment` runs, the new annotations appear in:
+- `chains analyze` Markdown report (per-input comments are listed under each manual input slot)
+- Interactive CLI option 9 (per-input comments appear as `Input note:` under the `Accepted:` line during input gathering)
+- The `.chain` file itself as `comment.input.N:` lines
+
 ### `chains analyze` — generate a Markdown report
 
 ```
@@ -2573,7 +2622,7 @@ Run `python voder.py cli` and choose `9. Prebuilt Chains` for a guided UX:
 - **List mode** (option 1): numbered list of all `.chain` files in `src/chains/`, sorted newest first. Pick a number, or type `back`.
 - **Name/path mode** (option 2): enter a chain name (resolves to latest by timestamp) or a full file path.
 - **Multi-chain**: after loading one chain, you can add more (each subsequent chain can reference prior prebuilt names).
-- **Input gathering**: for each step, shows the chain name, comment, content, classification (manual/automated/semi-automated), and a per-slot description of accepted input formats. Voice-profile-eligible slots are tagged `[voice-profile eligible]` so the user knows where `.tts`/`.ttse` files are valid. Manual inputs are gathered one by one with in-time validation (file exists, URL supported, or matches the name of a previously-loaded prebuilt chain — which is resolved to that prebuilt's final output). Automated steps just prompt "Press Enter to continue" — automated slots are never overridable.
+- **Input gathering**: for each step, shows the chain name, comment, content, classification (manual/automated/semi-automated), and a per-slot description of accepted input formats. Voice-profile-eligible slots are tagged `[voice-profile eligible]` so the user knows where `.tts`/`.ttse` files are valid. Per-input comments (set via `chains comment`) appear as `Input note:` under the `Accepted:` line. Manual inputs are gathered one by one with in-time validation (file exists, URL supported, or matches the name of a previously-loaded prebuilt chain — which is resolved to that prebuilt's final output). Automated steps show a compact `→ Automated input — press Enter to continue` line followed by a `[details]` block underneath (positioned below the progress tracker so it doesn't pollute the simple-user view) listing `recalls:` (the prior chain name and which step produced it), `file:` (the resolved output path, or `(will resolve at runtime)` if not yet available), and `command:` (the chain command with references substituted). Semi-automated steps show the same `[details]` block above the manual-input prompts.
 - **Progress tracker**: shows `Prebuilt X/Y (name) — Step N/M (step-name) — <type>` plus `Input K/L for step 'name' — overall P/Q (NN%)`.
 - **Execution**: after all inputs are gathered, prints "Press Enter to start execution" and runs each step. On mid-run error, prints `Something went further than expected.` with the error message (max 500 chars) and the chain/step where it failed.
 - **Verification up front**: before asking for any inputs, the runner verifies the `.chain` file. If verification fails, lists all errors and aborts without prompting for inputs.

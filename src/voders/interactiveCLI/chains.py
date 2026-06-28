@@ -154,6 +154,44 @@ def _validate_input_file(value, content_tokens, slot_pos, prior_prebuilt_names):
     return False, "Not a file, supported URL, or prior prebuilt chain name. Please enter a valid value."
 
 
+def _format_automated_details(parsed, c, pipeline, prior_prebuilt_names):
+    chain_names = [cc["name"] for cc in parsed["chains"]]
+    tokens = c["content_tokens"]
+    out_lines = []
+    for pos, tok in enumerate(tokens):
+        is_prior_chain_ref = (tok in chain_names and tok != c["name"])
+        is_prior_prebuilt_ref = (tok in prior_prebuilt_names)
+        if not (is_prior_chain_ref or is_prior_prebuilt_ref):
+            continue
+        if is_prior_chain_ref:
+            prior_step_num = chain_names.index(tok) + 1
+            recalls_label = f"'{tok}' (output of step {prior_step_num} '{tok}')"
+        else:
+            recalls_label = f"'{tok}' (prior prebuilt chain's final output)"
+        resolved_file = pipeline.index.get(tok)
+        if resolved_file:
+            file_label = resolved_file
+        else:
+            file_label = "(will resolve at runtime)"
+        substituted_tokens = []
+        for t in tokens:
+            if t == tok:
+                substituted_tokens.append(resolved_file if resolved_file else f"<pending:{t}>")
+            elif t in chain_names and t != c["name"] and t in pipeline.index:
+                substituted_tokens.append(pipeline.index[t])
+            elif t in prior_prebuilt_names and t in pipeline.index:
+                substituted_tokens.append(pipeline.index[t])
+            elif t == "input":
+                substituted_tokens.append("<manual input>")
+            else:
+                substituted_tokens.append(t)
+        command_label = " ".join(substituted_tokens)
+        out_lines.append(f"  recalls:  {recalls_label}")
+        out_lines.append(f"  file:     {file_label}")
+        out_lines.append(f"  command:  {command_label}")
+    return out_lines
+
+
 def _gather_inputs_for_chain(parsed, pipeline, prebuilt_idx, total_prebuilts, prior_prebuilt_names):
     chain_names = [c["name"] for c in parsed["chains"]]
     total_steps = len(parsed["chains"])
@@ -179,10 +217,14 @@ def _gather_inputs_for_chain(parsed, pipeline, prebuilt_idx, total_prebuilts, pr
                 if tok in prior_names:
                     ref_descs.append(f"'{tok}'")
             if ref_descs:
-                print(f"\nThis step is fully automated. It uses output(s) from: {', '.join(ref_descs)}.")
+                print(f"\n  → Automated input — press Enter to continue")
+                print()
+                print("  [details]")
+                detail_lines = _format_automated_details(parsed, c, pipeline, prior_prebuilt_names)
+                for dl in detail_lines:
+                    print(dl)
             else:
-                print("\nThis step has no external inputs (runs with inline arguments only).")
-            print("Press Enter to continue to the next step.")
+                print("\n  → No external inputs — press Enter to continue")
             input()
             gathered[step_idx] = []
             continue
@@ -191,12 +233,17 @@ def _gather_inputs_for_chain(parsed, pipeline, prebuilt_idx, total_prebuilts, pr
             for tok in tokens:
                 if tok in prior_names:
                     ref_descs.append(f"'{tok}'")
-            print(f"\nThis step is semi-automated. It auto-uses output(s) from: {', '.join(ref_descs)}.")
-            print("You also need to provide manual input(s) below.")
+            print(f"\n  → Automated input(s) — auto-resolved at runtime")
+            print()
+            print("  [details]")
+            detail_lines = _format_automated_details(parsed, c, pipeline, prior_prebuilt_names)
+            for dl in detail_lines:
+                print(dl)
+            print(f"\n  You also need to provide {m_count} manual input(s) below.")
         else:
-            print(f"\nThis step requires {m_count} manual input(s).")
+            print(f"\n  This step requires {m_count} manual input(s).")
         if prior_prebuilt_names:
-            print(f"Available prior prebuilt outputs (use the name as a value to reference its final output): {', '.join(sorted(prior_prebuilt_names))}")
+            print(f"  Available prior prebuilt outputs (use the name as a value to reference its final output): {', '.join(sorted(prior_prebuilt_names))}")
         manual_slots = [(pos, tok) for pos, tok in enumerate(tokens) if tok == "input"]
         step_inputs = []
         for slot_idx, (pos, _) in enumerate(manual_slots, start=1):
@@ -205,9 +252,12 @@ def _gather_inputs_for_chain(parsed, pipeline, prebuilt_idx, total_prebuilts, pr
             slot_mode = tokens[0].lower() if tokens else ""
             slot_desc = describe_input_slot(slot_mode, tokens, pos)
             vp_tag = " [voice-profile eligible]" if _is_voice_profile_position(tokens, pos) else ""
+            input_comment = (c.get("input_comments") or {}).get(slot_idx, "")
             print(f"\n  [Input {slot_idx}/{len(manual_slots)} for step '{step_name}' "
                   f"— overall {manual_gathered_count}/{total_manual} ({overall_pct}%)]")
             print(f"  Accepted: {slot_desc}{vp_tag}")
+            if input_comment:
+                print(f"  Input note: {input_comment}")
             while True:
                 value = input("  > ").strip()
                 if not value:
