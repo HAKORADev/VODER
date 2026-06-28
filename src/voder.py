@@ -14980,6 +14980,10 @@ def handle_analyze(args):
         report_lines.extend(_analyze_one_chain(idx, cr))
         report_lines.append("")
 
+    if len(chain_results) > 1:
+        report_lines.extend(_analyze_multi_chain_narrative(chain_results))
+        report_lines.append("")
+
     any_errors = any(not cr["ok"] for cr in chain_results)
     report_lines.append("## Overall Summary")
     report_lines.append("")
@@ -15019,6 +15023,65 @@ def handle_analyze(args):
         return False
     print("All checks passed.")
     return True
+
+
+def _analyze_multi_chain_narrative(chain_results):
+    lines = []
+    lines.append("## Multi-Chain Journey")
+    lines.append("")
+    lines.append("> When multiple prebuilt chains are loaded in one `chains load` command or one interactive CLI session, they execute in the order provided. Each prebuilt's final output is registered under its main name. Subsequent prebuilts can reference prior prebuilt main names as manual input values — the runner resolves the name to the prior prebuilt's final output path at runtime.")
+    lines.append("")
+    lines.append("**Load order and cross-prebuilt reference possibilities:**")
+    lines.append("")
+    for idx, cr in enumerate(chain_results, start=1):
+        parsed = cr["parsed"]
+        if not parsed:
+            lines.append(f"{idx}. _(could not parse — see errors above)_")
+            continue
+        name = parsed["name"]
+        manual_count = sum(1 for c in parsed["chains"] for t in c["content_tokens"] if t == "input")
+        if idx == 1:
+            lines.append(f"{idx}. **{name}** — {len(parsed['chains'])} step(s), {manual_count} manual input(s). This is the first prebuilt; no prior prebuilts are available to reference.")
+        else:
+            prior_names = [cr2["parsed"]["name"] for cr2 in chain_results[:idx-1] if cr2["parsed"]]
+            prior_str = ", ".join(f"'{n}'" for n in prior_names) if prior_names else "(none)"
+            lines.append(f"{idx}. **{name}** — {len(parsed['chains'])} step(s), {manual_count} manual input(s). Can reference prior prebuilt outputs by name: {prior_str}.")
+    lines.append("")
+    lines.append("> **Linearity rule:** prebuilts execute strictly in order. A prebuilt cannot reference a later prebuilt's output — the file does not exist yet at that point. If you need chain B's output in chain A, load B before A.")
+    lines.append("")
+    return lines
+
+
+def _what_if_fixed(step_idx, chain_step, all_chain_names, step_errors):
+    tokens = chain_step["content_tokens"]
+    if not tokens:
+        return None
+    mode = tokens[0].lower() if tokens[0] else ""
+    error_categories = set(e["category"] for e in step_errors)
+    has_reference_error = "reference" in error_categories
+    has_syntax_error = "syntax" in error_categories
+    parts = []
+    if has_reference_error:
+        forward_refs = []
+        prior = set()
+        for n in all_chain_names:
+            if n == chain_step["name"]:
+                break
+            prior.add(n)
+        for tok in tokens:
+            if tok in all_chain_names and tok not in prior and tok != chain_step["name"]:
+                ref_step = all_chain_names.index(tok) + 1
+                forward_refs.append(f"step {ref_step} '{tok}' would need to be moved before this step")
+        if forward_refs:
+            parts.append("if the referenced step(s) were moved before this step: " + "; ".join(forward_refs) + ", the automated reference would resolve to that step's output file at runtime")
+    if has_syntax_error:
+        if mode not in _VALID_CONTENT_MODES:
+            parts.append(f"if the mode were changed to a valid oneline mode (e.g. tts, sts, ttm, stt, se, sfx, svs, ss, train, quest), the step would execute that mode's pipeline")
+        else:
+            parts.append(f"if the oneline syntax were corrected, the step would execute as a `{mode}` command with the provided arguments")
+    if not parts:
+        return None
+    return " ".join(parts)
 
 
 def _analyze_one_chain(chain_idx, chain_result):
@@ -15111,6 +15174,10 @@ def _analyze_one_chain(chain_idx, chain_result):
                 if e["fix"]:
                     lines.append(f"> **Fix:** {e['fix']}")
             lines.append("")
+            whatif = _what_if_fixed(si, c, chain_names, step_errors)
+            if whatif:
+                lines.append(f"> **What if fixed:** {whatif}")
+                lines.append("")
             lines.append("> _Assuming this step succeeded, the journey continues..._")
             lines.append("")
         else:
@@ -15139,9 +15206,9 @@ def handle_load(args, result_path=None):
     if err:
         print(f"Error: {err}")
         return False
-    pipeline = ChainPipeline()
-    prior_prebuilt_names = set()
-    for sec_idx, sec in enumerate(sections, start=1):
+    resolved_sections = []
+    all_prebuilt_names_in_order = []
+    for sec in sections:
         path, err = resolve_chain_path(sec["name_or_path"])
         if err:
             print(f"Error: {err}")
@@ -15154,6 +15221,11 @@ def handle_load(args, result_path=None):
                 print(f"  [{loc}] {e['category']}: {e['message']}")
             return False
         parsed, _ = parse_chain_file(path)
+        all_prebuilt_names_in_order.append(parsed["name"])
+        resolved_sections.append((sec, path, parsed))
+    pipeline = ChainPipeline()
+    prior_prebuilt_names = set()
+    for sec_idx, (sec, path, parsed) in enumerate(resolved_sections, start=1):
         chain_names = [c["name"] for c in parsed["chains"]]
         total_steps_this = len(parsed["chains"])
         for step_num in sec["markers"]:
@@ -15161,7 +15233,8 @@ def handle_load(args, result_path=None):
             if idx_err:
                 print(f"Error: {idx_err}")
                 return False
-        print(f"\n[Prebuilt {sec_idx}/{len(sections)}] Loading '{parsed['name']}' ({total_steps_this} steps)")
+        later_prebuilt_names = set(all_prebuilt_names_in_order[sec_idx:])
+        print(f"\n[Prebuilt {sec_idx}/{len(resolved_sections)}] Loading '{parsed['name']}' ({total_steps_this} steps)")
         if parsed["title"]:
             print(f"  Title: {parsed['title']}")
         if parsed["description"]:
@@ -15181,6 +15254,10 @@ def handle_load(args, result_path=None):
                     return False
                 substituted = list(tokens)
                 for (pos, _), value in zip(manual_slots, user_values):
+                    if value in later_prebuilt_names and value not in prior_prebuilt_names:
+                        print(f"  Error: step {step_idx} '{c['name']}' marker value '{value}' is a forward reference — prebuilt '{value}' is loaded later in this command (position {all_prebuilt_names_in_order.index(value) + 1}) but hasn't run yet")
+                        print(f"         Reorder: load '{value}' before '{parsed['name']}', or provide a file path/URL instead.")
+                        return False
                     resolved = _resolve_manual_value(value, prior_prebuilt_names, pipeline)
                     if resolved is None:
                         print(f"    [step {step_idx}] manual slot -> file/URL: {value}")
@@ -15205,7 +15282,7 @@ def handle_load(args, result_path=None):
                 chains_args.append(ChainPipeline.CHAIN_SEPARATOR)
             chains_args.append(c["name"])
             chains_args.extend(substituted)
-        ok, err = pipeline.execute(chains_args, result_path=result_path if sec_idx == len(sections) else None)
+        ok, err = pipeline.execute(chains_args, result_path=result_path if sec_idx == len(resolved_sections) else None)
         if not ok:
             err_msg = (err or "unknown error")[:500]
             print()

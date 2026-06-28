@@ -360,7 +360,6 @@ def cli_chains_mode():
 
     pipeline = ChainPipeline()
     prior_prebuilt_names = set()
-    all_gathered = []
     for sec_idx, path in enumerate(selected_paths, start=1):
         parsed, _ = parse_chain_file(path)
         if parsed is None:
@@ -384,16 +383,14 @@ def cli_chains_mode():
         if parsed["description"]:
             print(f"Description: {parsed['description']}")
         gathered = _gather_inputs_for_chain(parsed, pipeline, sec_idx, len(selected_paths), prior_prebuilt_names)
-        all_gathered.append((parsed, gathered))
-
-    for sec_idx, (parsed, gathered) in enumerate(all_gathered, start=1):
-        ok = _execute_prebuilt(parsed, gathered, pipeline, sec_idx, len(all_gathered), prior_prebuilt_names)
+        ok = _execute_prebuilt(parsed, gathered, pipeline, sec_idx, len(selected_paths), prior_prebuilt_names)
         if not ok:
             return False
 
     print()
     _print_separator("All prebuilt chains completed!")
-    final_name = all_gathered[-1][0]["name"]
+    final_parsed, _ = parse_chain_file(selected_paths[-1])
+    final_name = final_parsed["name"] if final_parsed else ""
     if final_name in pipeline.index:
         print(f"Final output: {pipeline.index[final_name]}")
     else:
