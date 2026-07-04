@@ -2448,9 +2448,9 @@ python voder.py chains "vocal" svs voice "song.wav" / "enhanced" se voice "vocal
 
 ---
 
-## 10a. Prebuilt Chains — Build, Load, Journey
+## 10a. Prebuilt Chains — Build, Load, Comment, Decompile, Compile, Journey
 
-> **Note:** Prebuilt chains extend the `chains` feature with a persistent `.chain` file format. You compose a chain once with `chains build`, then load and re-run it any time with `chains load` (oneline) or via the interactive CLI's option 9. The `chains journey` command produces an RPG-like Markdown report narrating the chain's path, errors, and alternate dimensions.
+> **Note:** Prebuilt chains extend the `chains` feature with a persistent `.chain` file format. You compose a chain once with `chains build`, then load and re-run it any time with `chains load` (oneline) or via the interactive CLI's option 9. `chains comment` edits chain and per-input comments post-build. `chains decompile` extracts a `.chain` to a raw oneline `.txt` file you can edit; `chains compile` rebuilds a `.chain` from such a `.txt`. `chains journey` produces an RPG-like Markdown report narrating the chain's path, errors, and alternate dimensions.
 
 Prebuilt chains live in `src/chains/VODER_<name>_<timestamp>.chain`. Each file is plain text in a custom key:value format. The first line is the magic header `# VODER_CHAIN v1 <timestamp> <name>`. Subsequent lines form a header block (`title:`, `description:`) followed by `---`-separated step blocks (`chain:`, `comment:`, `content:`).
 
@@ -2601,6 +2601,66 @@ After `chains comment` runs, the new annotations appear in:
 - `chains journey` Markdown report (per-input comments are listed under each manual input slot)
 - Interactive CLI option 9 (per-input comments appear as `Input note:` under the `Accepted:` line during input gathering)
 - The `.chain` file itself as `comment.input.N:` lines
+
+### `chains decompile` — extract a `.chain` to a raw oneline `.txt` file
+
+```
+python voder.py chains decompile "<chain-name-or-path>" [<another> ...]
+```
+
+`chains decompile` extracts the pipeline from a `.chain` file into a plain-text `.txt` file containing the raw chains oneline command — the same command you would type at the terminal if you ran the chain inline. This lets you edit the pipeline as a single oneline command, then recompile it back into a `.chain` file with `chains compile`.
+
+- `<chain-name-or-path>`: a chain name (resolves to the latest matching file by timestamp) or a direct `.chain` file path. Multiple chains can be decompiled in one command — each produces its own `.txt` file.
+- **Output**: `results/VODER_chains_<safe-name>_decompiled_<timestamp>.txt`.
+- **File format**: the `.txt` file starts with comment lines (`#`) containing the chain name, source path, decompile timestamp, title, description, and step count. Then a single line contains the raw oneline command: `"step1" <oneline command> / "step2" <oneline command> / ...`. Each step is quoted-named, followed by its oneline command. Steps are separated by ` / ` (space slash space). The literal token `input` marks a manual file input slot; prior chain names referenced verbatim are automated references.
+- **Verification + error commenting**: the source `.chain` file is verified before decompiling. If verification passes, the `.txt` contains only the oneline command. If verification finds errors, the errors are **commented out** at the bottom of the `.txt` file (under a `# --- VERIFICATION ERRORS ---` header) so the file is still valid text but the user sees what's wrong. Warnings are similarly commented out under a `# --- WARNINGS ---` header. The oneline command is always written, even for a corrupted chain — so you can edit the command to fix the errors, then recompile.
+- **Return value**: returns `False` if any decompiled chain had errors (so the user knows to check the commented-out sections), `True` if all chains were clean.
+
+Example decompiled `.txt` file:
+
+```
+# VODER decompiled chain: bombo
+# Source: src/chains/VODER_bombo_20260627_143022.chain
+# Decompiled: July 04, 2026 at 21:32:35
+# Title: Bombo Pipeline
+# Description: Extract vocals from a song, transcribe them, then re-synthesize.
+# Steps: 3
+#
+# This file contains the raw chains oneline command that produces the same
+# pipeline as the source .chain file. Edit the command below, then recompile with:
+#   python voder.py chains compile "VODER_bombo_20260627_143022.txt"
+#
+# Each chain step is quoted-named, followed by its oneline command.
+# Steps are separated by ' / ' (space slash space).
+# The literal token 'input' marks a manual file input slot.
+# Prior chain names referenced verbatim are automated references.
+
+"vocals" svs voice input / "lyrics" stt vocals timestamp / "cover" tts script lyrics voice input target input
+```
+
+### `chains compile` — rebuild a `.chain` from a decompiled `.txt` file
+
+```
+python voder.py chains compile "<txt-path>" [<another> ...]
+```
+
+`chains compile` is the inverse of `chains decompile`. It reads a `.txt` file produced by decompile (or hand-written in the same format), parses the oneline command, and builds a new `.chain` file. This lets you edit a pipeline as a single oneline command and then save it as a prebuilt chain.
+
+- `<txt-path>`: a direct path to a `.txt` file. Multiple `.txt` files can be compiled in one command — each produces its own `.chain` file.
+- **Output**: `src/chains/VODER_<name>_<timestamp>.chain` (same location as `chains build`).
+- **Parsing**: the compiler reads the `# VODER decompiled chain: <name>` header to get the chain name, `# Title:` and `# Description:` comment lines for metadata, and the first non-comment line as the oneline command. The oneline command is split on ` / ` (space slash space) into segments, respecting quoted strings. Each segment's first quoted token is the step name; the rest is the step's content. Step names must match `[A-Za-z0-9_-]+` and be unique within the file.
+- **Verification + no-build-on-error**: the compiled `.chain` text is verified via `verify_chain_text()` before saving. If verification finds any errors, the errors are printed to the terminal and the `.chain` file is **NOT saved**. This matches `chains build` behavior — a corrupted `.txt` never produces a corrupted `.chain`.
+- **Comments**: `chains compile` does not preserve step-level or per-input comments from the source `.chain` (the decompiled `.txt` format doesn't carry them). The compiled `.chain` has empty step comments and no per-input comments. Use `chains comment` after compiling to re-add documentation.
+- **Return value**: returns `True` if all `.txt` files compiled successfully, `False` if any had errors or couldn't be read.
+
+Example:
+
+```
+# Decompile, edit, recompile
+python voder.py chains decompile "bombo"
+# edit results/VODER_chains_bombo_decompiled_*.txt in your text editor
+python voder.py chains compile "results/VODER_chains_bombo_decompiled_20260704_213235.txt"
+```
 
 ### `chains journey` — generate an RPG-like Markdown journey report
 

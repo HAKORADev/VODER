@@ -5111,7 +5111,7 @@ def parse_oneline_args(args):
         chains_args = []
         result_path = None
         chains_subcmd = None
-        if i < len(args) and args[i].lower() in ('build', 'load', 'comment', 'journey'):
+        if i < len(args) and args[i].lower() in ('build', 'load', 'comment', 'journey', 'decompile', 'compile'):
             chains_subcmd = args[i].lower()
             i += 1
         while i < len(args):
@@ -14460,6 +14460,10 @@ def oneline_chains(params):
         return handle_journey(chains_args)
     if subcmd == 'comment':
         return handle_comment(chains_args)
+    if subcmd == 'decompile':
+        return handle_decompile(chains_args)
+    if subcmd == 'compile':
+        return handle_compile(chains_args)
     if not chains_args:
         print("Error: chains mode requires at least one chain")
         return False
@@ -15671,6 +15675,245 @@ def handle_comment(args):
         for w in warnings:
             print(f"  [WARN] {w}")
     return True
+
+
+def handle_decompile(args):
+    if not args:
+        print("Error: 'chains decompile' requires at least one chain name or path.")
+        print("Usage: python voder.py chains decompile <chain-name-or-path> [<another> ...]")
+        return False
+    targets = []
+    for arg in args:
+        path, err = resolve_chain_path(arg)
+        if err:
+            print(f"Error: {err}")
+            return False
+        targets.append(path)
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    results_dir = os.path.join(os.getcwd(), "results")
+    os.makedirs(results_dir, exist_ok=True)
+    any_errors = False
+    for idx, path in enumerate(targets, start=1):
+        parsed, parse_errs = parse_chain_file(path)
+        ok, errors, warnings = verify_chain_file(path)
+        if parsed is None:
+            print(f"\n[{idx}/{len(targets)}] Could not parse: {path}")
+            for e in parse_errs:
+                loc = f"step {e['step_index']} '{e['step_name']}'" if e["step_index"] else "file"
+                print(f"  [{loc}] {e['category']}: {e['message']}")
+                if e["fix"]:
+                    print(f"          fix: {e['fix']}")
+            any_errors = True
+            continue
+        txt_lines = []
+        txt_lines.append(f"# VODER decompiled chain: {parsed['name']}")
+        txt_lines.append(f"# Source: {path}")
+        txt_lines.append(f"# Decompiled: {_human_readable_timestamp(ts)}")
+        txt_lines.append(f"# Title: {parsed['title'] or '(empty)'}")
+        txt_lines.append(f"# Description: {parsed['description'] or '(empty)'}")
+        txt_lines.append(f"# Steps: {len(parsed['chains'])}")
+        txt_lines.append("#")
+        txt_lines.append("# This file contains the raw chains oneline command that produces the same")
+        txt_lines.append("# pipeline as the source .chain file. Edit the command below, then recompile with:")
+        txt_lines.append(f"#   python voder.py chains compile \"{os.path.basename(path).replace(CHAIN_FILE_EXT, '.txt')}\"")
+        txt_lines.append("#")
+        txt_lines.append("# Each chain step is quoted-named, followed by its oneline command.")
+        txt_lines.append("# Steps are separated by ' / ' (space slash space).")
+        txt_lines.append("# The literal token 'input' marks a manual file input slot.")
+        txt_lines.append("# Prior chain names referenced verbatim are automated references.")
+        txt_lines.append("")
+        segments = []
+        for c in parsed["chains"]:
+            tokens = c["content_tokens"]
+            content_str = " ".join(tokens)
+            segments.append(f'"{c["name"]}" {content_str}')
+        oneline_command = " / ".join(segments)
+        txt_lines.append(oneline_command)
+        if errors:
+            txt_lines.append("")
+            txt_lines.append("# --- VERIFICATION ERRORS (commented out — fix the source chain to clear these) ---")
+            for e in errors:
+                loc = f"step {e['step_index']} '{e['step_name']}'" if e["step_index"] else "file"
+                txt_lines.append(f"# [{loc}] {e['category']}: {e['message']}")
+                if e["fix"]:
+                    txt_lines.append(f"#   fix: {e['fix']}")
+        if warnings:
+            txt_lines.append("")
+            txt_lines.append("# --- WARNINGS ---")
+            for w in warnings:
+                txt_lines.append(f"# {w}")
+        safe_name = re.sub(r'[^A-Za-z0-9_\-]', '_', parsed["name"])[:60] or "unknown"
+        out_path = os.path.join(results_dir, f"VODER_chains_{safe_name}_decompiled_{ts}.txt")
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(txt_lines) + "\n")
+        status_tag = "OK" if ok else f"{len(errors)} error(s) commented"
+        print(f"\n[{idx}/{len(targets)}] Decompiled '{parsed['name']}' ({len(parsed['chains'])} step(s), {status_tag})")
+        print(f"  Source: {path}")
+        print(f"  Output: {out_path}")
+        if errors:
+            any_errors = True
+            print(f"  {len(errors)} error(s) found — commented out at the bottom of the .txt file.")
+        if warnings:
+            print(f"  {len(warnings)} warning(s) — commented out at the bottom of the .txt file.")
+    print(f"\nDecompiled {len(targets)} chain(s) to results/.")
+    if any_errors:
+        print("Some chain(s) had errors — see the commented-out sections in the .txt file(s).")
+        return False
+    return True
+
+
+def handle_compile(args):
+    if not args:
+        print("Error: 'chains compile' requires at least one .txt file path.")
+        print("Usage: python voder.py chains compile <txt-path> [<another> ...]")
+        return False
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    os.makedirs(PREBUILT_CHAINS_DIR, exist_ok=True)
+    all_ok = True
+    for idx, txt_path in enumerate(args, start=1):
+        if not os.path.isfile(txt_path):
+            print(f"\n[{idx}/{len(args)}] Error: file not found: {txt_path}")
+            all_ok = False
+            continue
+        try:
+            with open(txt_path, "r", encoding="utf-8") as f:
+                raw_txt = f.read()
+        except Exception as e:
+            print(f"\n[{idx}/{len(args)}] Error: could not read {txt_path}: {e}")
+            all_ok = False
+            continue
+        compiled = _compile_txt_to_chain(raw_txt, txt_path)
+        if compiled is None:
+            print(f"\n[{idx}/{len(args)}] Error: could not parse .txt structure: {txt_path}")
+            print("  Expected a header line '# VODER decompiled chain: <name>' and a command line.")
+            all_ok = False
+            continue
+        name = compiled["name"]
+        title = compiled["title"]
+        description = compiled["description"]
+        steps = compiled["steps"]
+        new_ts = time.strftime("%Y%m%d_%H%M%S")
+        chain_raw = build_chain_text(name, new_ts, title, description, steps)
+        ok, errors, warnings = verify_chain_text(chain_raw)
+        print(f"\n[{idx}/{len(args)}] Compile verification for '{name}':")
+        if errors:
+            for e in errors:
+                loc = f"step {e['step_index']} '{e['step_name']}'" if e["step_index"] else "file"
+                print(f"  [ERROR] [{loc}] {e['category']}: {e['message']}")
+                if e["fix"]:
+                    print(f"          fix: {e['fix']}")
+            print(f"  {len(errors)} error(s) found. Chain file was NOT saved.")
+            all_ok = False
+            continue
+        if warnings:
+            for w in warnings:
+                print(f"  [WARN] {w}")
+        print(f"  [OK] All checks passed ({len(steps)} step(s), 0 errors, {len(warnings)} warning(s)).")
+        filename = f"VODER_{name}_{new_ts}{CHAIN_FILE_EXT}"
+        out_path = os.path.join(PREBUILT_CHAINS_DIR, filename)
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(chain_raw)
+        print(f"  Saved: {out_path}")
+        total_manual = sum(1 for s in steps for t in s["content"].split() if t == "input")
+        chain_names = [s["name"] for s in steps]
+        total_auto = sum(1 for s in steps for t in s["content"].split()
+                         if t in chain_names and t != s["name"])
+        print(f"  Summary: {len(steps)} chain(s), {total_manual} manual input(s), {total_auto} automated reference(s).")
+        print(f"  Test it with:  python voder.py chains load \"{name}\"")
+        print(f"  Journey it with:  python voder.py chains journey \"{name}\"")
+    return all_ok
+
+
+def _compile_txt_to_chain(raw_txt, source_path):
+    lines = raw_txt.splitlines()
+    name = None
+    title = ""
+    description = ""
+    command_line = None
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            if stripped.lower().startswith("# voder decompiled chain:"):
+                rest = stripped[len("# voder decompiled chain:"):].strip()
+                name = rest
+            elif stripped.lower().startswith("# title:"):
+                title = stripped[len("# title:"):].strip()
+                if title == "(empty)":
+                    title = ""
+            elif stripped.lower().startswith("# description:"):
+                description = stripped[len("# description:"):].strip()
+                if description == "(empty)":
+                    description = ""
+            continue
+        if command_line is None:
+            command_line = stripped
+            break
+    if name is None or command_line is None:
+        return None
+    if not _NAME_RE.match(name):
+        return None
+    segments = _split_oneline_segments(command_line)
+    if segments is None:
+        return None
+    steps = []
+    seen_names = set()
+    for seg in segments:
+        seg = seg.strip()
+        if not seg:
+            continue
+        if seg.startswith('"'):
+            end_quote = seg.find('"', 1)
+            if end_quote == -1:
+                return None
+            step_name = seg[1:end_quote]
+            content = seg[end_quote + 1:].strip()
+        else:
+            tokens = seg.split(None, 1)
+            step_name = tokens[0] if tokens else ""
+            content = tokens[1] if len(tokens) > 1 else ""
+        if not step_name or not _NAME_RE.match(step_name):
+            return None
+        if step_name in seen_names:
+            return None
+        seen_names.add(step_name)
+        if not content.strip():
+            return None
+        steps.append({
+            "name": step_name,
+            "comment": "",
+            "content": content,
+            "content_tokens": content.split(),
+            "input_comments": {},
+        })
+    if not steps:
+        return None
+    return {"name": name, "title": title, "description": description, "steps": steps}
+
+
+def _split_oneline_segments(command_line):
+    segments = []
+    current = []
+    i = 0
+    n = len(command_line)
+    while i < n:
+        if command_line[i] == '"':
+            end = command_line.find('"', i + 1)
+            if end == -1:
+                return None
+            current.append(command_line[i:end + 1])
+            i = end + 1
+        elif command_line[i] == ' ' and i + 2 < n and command_line[i + 1] == '/' and command_line[i + 2] == ' ':
+            segments.append("".join(current))
+            current = []
+            i += 3
+        else:
+            current.append(command_line[i])
+            i += 1
+    if current:
+        segments.append("".join(current))
+    return segments
 
 
 if __name__ == "__main__":
