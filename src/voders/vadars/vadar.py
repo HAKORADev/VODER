@@ -109,7 +109,7 @@ def _execute_tool_call(tool_name, tool_args, session_dir=None, act_outputs=None,
 
 
 def _execute_act(title, command, session_dir, act_outputs, user_request="",
-                 summarize_threshold=1500, used_titles=None):
+                 summarize_threshold=1500, used_titles=None, interactive=False):
     if used_titles is not None and title in used_titles:
         return False, f"Act title '{title}' already exists in this session. Use a unique title."
     if used_titles is not None:
@@ -121,21 +121,37 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
         return False, "Empty command"
 
     results_before = _snapshot_results()
+    act_t0 = time.time()
 
-    try:
+    if interactive:
+        print(f"\n[ACT] {title}: PENDING — {command}")
         old_stdout = sys.stdout
-        captured = []
+        capture_buf = []
+        class _SilentCapture:
+            def write(self, text):
+                capture_buf.append(text)
+            def flush(self):
+                pass
+        sys.stdout = _SilentCapture()
+    else:
+        print(f"\n[ACT]: {title} -> {command}")
+        print(f"{'─'*40}")
+        old_stdout = sys.stdout
+        capture_buf = []
         class _Capture:
             def write(self, text):
-                captured.append(text)
+                capture_buf.append(text)
                 old_stdout.write(text)
             def flush(self):
                 old_stdout.flush()
         sys.stdout = _Capture()
+
+    try:
         success = parse_and_execute_oneline(cmd_tokens)
         sys.stdout = old_stdout
-        output = ''.join(captured)
-        act_outputs[title] = output
+        output = ''.join(capture_buf)
+        act_elapsed = time.time() - act_t0
+
         log_act(session_dir, title, command, output, success)
 
         new_files = _new_result_files(results_before)
@@ -144,6 +160,20 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
         elif success:
             output += "\n[WARNING]: Command reported success but no new result files were found in results/."
 
+        lines = output.split('\n')
+        if len(lines) > 100:
+            act_outputs[title] = '\n'.join(lines[-100:])
+        else:
+            act_outputs[title] = output
+
+        if interactive:
+            status_str = '✓ SUCCESS' if success else '✗ FAILED'
+            print(f"[ACT] {title}: {status_str} ({act_elapsed:.1f}s)")
+        else:
+            print(f"{'─'*40}")
+            status = 'SUCCESS' if success else 'FAILED'
+            print(f"[ACT RESULT]: {title} -> {status} ({act_elapsed:.1f}s)")
+
         if user_request:
             verdict, reason = evaluate_act_result(user_request, title, command, output, success)
             print(f"[EVAL]: {verdict.upper()} — {reason}")
@@ -151,14 +181,21 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
 
         if len(output) > summarize_threshold:
             summary = summarize_output(output, context_label=title)
-            print(f"[SUMMARIZER]: condensed {len(output)} chars -> {len(summary)} chars")
+            if not interactive:
+                print(f"[SUMMARIZER]: condensed {len(output)} chars -> {len(summary)} chars")
             return success, summary
 
         return success, output
     except Exception as e:
         sys.stdout = old_stdout
+        act_elapsed = time.time() - act_t0
         act_outputs[title] = str(e)
         log_act(session_dir, title, command, str(e), False)
+        if interactive:
+            print(f"[ACT] {title}: ✗ FAILED ({act_elapsed:.1f}s) — {e}")
+        else:
+            print(f"{'─'*40}")
+            print(f"[ACT RESULT]: {title} -> FAILED ({act_elapsed:.1f}s)")
         return False, str(e)
 
 
@@ -378,7 +415,8 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
                 print(f"{'─'*40}")
                 success, output = _execute_act(
                     title, command, session_dir, act_outputs,
-                    user_request=user_input, used_titles=used_titles
+                    user_request=user_input, used_titles=used_titles,
+                    interactive=interactive
                 )
                 print(f"{'─'*40}")
                 status = 'SUCCESS' if success else 'FAILED'
@@ -623,6 +661,9 @@ def run_vadar_interactive():
 def _finalize_session(session_dir, ctx):
     try:
         from voders.vadars import VADAR_GLOBAL_CONTEXT_FILE
+        from voder import vadar_load_config
+        config = vadar_load_config()
+        gc_cap_pct = config.get('global_context_cap_percent', 15) / 100.0
         messages = ctx.get_messages()
         conv_text = '\n'.join(f"[{m['role'].upper()}] {m['content'][:300]}" for m in messages)
         if len(conv_text) > 500:
@@ -635,7 +676,7 @@ def _finalize_session(session_dir, ctx):
             parts.append(f"Session {os.path.basename(session_dir)}:\n{summary}")
             parts = parts[-5:]
             combined = '\n---\n'.join(parts)
-            max_global_tokens = int(ctx.max_tokens * 0.15)
+            max_global_tokens = int(ctx.max_tokens * gc_cap_pct)
             combined_tokens = len(combined) // 4 + 1
             if combined_tokens > max_global_tokens:
                 while parts and len('\n---\n'.join(parts)) // 4 + 1 > max_global_tokens:

@@ -1,0 +1,52 @@
+{
+    "_comment_model_repo": "HuggingFace repo ID for the VADAR model. Default: OpenYourMind/gemma-4-12B-it-abliterated-uncensored",
+    "model_repo": "OpenYourMind/gemma-4-12B-it-abliterated-uncensored",
+
+    "_comment_context_length": "How many tokens the model can see at once. Gemma 4 12B supports up to 262144 (256K). Lower = less VRAM/RAM. Min: 4096, Max: 262144",
+    "context_length": 262144,
+
+    "_comment_sliding_window_threshold": "When total message tokens reach this % of context_length, the oldest non-system messages are trimmed. Min: 50, Max: 99",
+    "sliding_window_threshold_percent": 95,
+
+    "_comment_sliding_window_delete": "What % of messages to delete when sliding triggers. Min: 1, Max: 50",
+    "sliding_window_delete_percent": 5,
+
+    "_comment_memory_cap": "Maximum % of context that memory content can occupy. Min: 1, Max: 50",
+    "memory_cap_percent": 20,
+
+    "_comment_global_context_cap": "Maximum % of context that global (cross-session) context can occupy. Min: 1, Max: 50",
+    "global_context_cap_percent": 15,
+
+    "_comment_temperature": "Generation temperature. Higher = more creative/random. Min: 0.1, Max: 2.0",
+    "temperature": 0.8,
+
+    "_comment_top_p": "Nucleus sampling: only sample from tokens with cumulative probability <= top_p. Min: 0.1, Max: 1.0",
+    "top_p": 0.95,
+
+    "_comment_top_k": "Only sample from the top K tokens at each step. Min: 1, Max: 1000",
+    "top_k": 64,
+
+    "_comment_max_new_tokens": "Maximum new tokens to generate per inference. Min: 64, Max: 32768",
+    "max_new_tokens": 1024,
+
+    "_comment_stream": "Stream output tokens to terminal in real-time. true or false",
+    "stream": true,
+
+    "_comment_ping_time": "Seconds of silence before VADAR gets pinged in interactive mode. 0 = disabled. 1-4 = reset to 15. Min: 0, Max: 3600",
+    "ping_time": 15,
+
+    "_comment_summarize_threshold": "Act output longer than this many characters gets summarized by the Summarizer brother. Min: 100, Max: 50000",
+    "summarize_threshold": 1500,
+
+    "_comment_read_preview_lines": "How many lines to show when read is called without a line range. Min: 10, Max: 500",
+    "read_preview_lines": 100,
+
+    "_comment_listen_max_segment": "Maximum seconds for a listen/watch segment. Min: 5, Max: 300",
+    "listen_max_segment": 60,
+
+    "_comment_listen_auto_threshold": "Audio shorter than this (seconds) can be listened to without specifying a range. Min: 5, Max: 120",
+    "listen_auto_threshold": 30,
+
+    "_comment_catcher_max_retries": "How many times Catcher retries a failed tool call before giving up. Min: 1, Max: 10",
+    "catcher_max_retries": 3
+}

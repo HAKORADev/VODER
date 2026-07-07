@@ -6,11 +6,26 @@ from voders.vadars import VADAR_SESSIONS_DIR
 
 
 class ContextManager:
-    def __init__(self, session_dir, max_context_tokens=8192, slide_ratio=0.95, memory_cap_ratio=0.20):
+    def __init__(self, session_dir, max_context_tokens=None, slide_ratio=None,
+                 memory_cap_ratio=None, global_context_cap_ratio=None):
+        try:
+            from voder import vadar_load_config
+            config = vadar_load_config()
+            ctx_len = config.get('context_length', 262144)
+            slide_thresh = config.get('sliding_window_threshold_percent', 95) / 100.0
+            mem_cap = config.get('memory_cap_percent', 20) / 100.0
+            gc_cap = config.get('global_context_cap_percent', 15) / 100.0
+        except Exception:
+            ctx_len = 262144
+            slide_thresh = 0.95
+            mem_cap = 0.20
+            gc_cap = 0.15
+
         self.session_dir = session_dir
-        self.max_tokens = max_context_tokens
-        self.slide_ratio = slide_ratio
-        self.memory_cap_ratio = memory_cap_ratio
+        self.max_tokens = max_context_tokens if max_context_tokens is not None else ctx_len
+        self.slide_ratio = slide_ratio if slide_ratio is not None else slide_thresh
+        self.memory_cap_ratio = memory_cap_ratio if memory_cap_ratio is not None else mem_cap
+        self.global_context_cap_ratio = global_context_cap_ratio if global_context_cap_ratio is not None else gc_cap
         self.messages = []
         self.dropped_count = 0
         self.memory_tokens = 0

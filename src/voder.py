@@ -26,6 +26,71 @@ AUDIOSR_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "audiosr")
 ALIGNER_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "aligner")
 VADAR_MODEL_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "vadar")
 VADAR_MODEL_REPO = "OpenYourMind/gemma-4-12B-it-abliterated-uncensored"
+VADAR_CONFIG_PATH = os.path.join(_src_dir, "voders", "vadars", "config.json")
+
+_VADAR_CONFIG_DEFAULTS = {
+    'model_repo': ('OpenYourMind/gemma-4-12B-it-abliterated-uncensored', str, None, None),
+    'context_length': (262144, int, 4096, 262144),
+    'sliding_window_threshold_percent': (95, int, 50, 99),
+    'sliding_window_delete_percent': (5, int, 1, 50),
+    'memory_cap_percent': (20, int, 1, 50),
+    'global_context_cap_percent': (15, int, 1, 50),
+    'temperature': (0.8, float, 0.1, 2.0),
+    'top_p': (0.95, float, 0.1, 1.0),
+    'top_k': (64, int, 1, 1000),
+    'max_new_tokens': (1024, int, 64, 32768),
+    'stream': (True, bool, None, None),
+    'ping_time': (15, int, 0, 3600),
+    'summarize_threshold': (1500, int, 100, 50000),
+    'read_preview_lines': (100, int, 10, 500),
+    'listen_max_segment': (60, int, 5, 300),
+    'listen_auto_threshold': (30, int, 5, 120),
+    'catcher_max_retries': (3, int, 1, 10),
+}
+
+_VADAR_CONFIG = None
+
+
+def vadar_load_config(force=False):
+    global _VADAR_CONFIG
+    if _VADAR_CONFIG is not None and not force:
+        return _VADAR_CONFIG
+    config = {}
+    for key, (default, typ, min_val, max_val) in _VADAR_CONFIG_DEFAULTS.items():
+        config[key] = default
+    if os.path.exists(VADAR_CONFIG_PATH):
+        try:
+            import json
+            with open(VADAR_CONFIG_PATH, 'r', encoding='utf-8') as f:
+                user_config = json.load(f)
+            for key, (default, typ, min_val, max_val) in _VADAR_CONFIG_DEFAULTS.items():
+                if key in user_config:
+                    val = user_config[key]
+                    try:
+                        if typ == bool:
+                            val = bool(val)
+                        elif typ == int:
+                            val = int(val)
+                        elif typ == float:
+                            val = float(val)
+                        elif typ == str:
+                            val = str(val)
+                    except (ValueError, TypeError):
+                        continue
+                    if min_val is not None and val < min_val:
+                        val = min_val
+                    if max_val is not None and val > max_val:
+                        val = max_val
+                    if key == 'ping_time' and isinstance(val, int):
+                        if val == 0:
+                            pass
+                        elif val < 5:
+                            val = 15
+                    config[key] = val
+        except Exception:
+            pass
+    _VADAR_CONFIG = config
+    return config
 
 os.environ["HF_HOME"] = MODELS_DIR
 os.environ["HF_HUB_CACHE"] = MODELS_TMP_DIR
