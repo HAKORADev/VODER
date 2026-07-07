@@ -45,8 +45,14 @@ def _load_dispatch_table():
         '7': cli_stt_mode,
         '8': cli_ss_mode,
         '9': cli_chains_mode,
+        '10': _cli_vadar_mode,
     }
     return _MODE_DISPATCH
+
+
+def _cli_vadar_mode():
+    from voders.vadars.vadar import run_vadar_interactive
+    return run_vadar_interactive()
 
 
 def interactive_cli_mode():
@@ -63,10 +69,11 @@ def interactive_cli_mode():
         print("7. STT (Speech-to-Text)")
         print("8. SS (Speakers Separator)")
         print("9. Prebuilt Chains (load and run saved chain files)")
-        choice = input("\nEnter your choice (1-9): ").strip()
+        print("10. VADAR (AI agent — talk naturally, it decides what to run)")
+        choice = input("\nEnter your choice (1-10): ").strip()
         handler = dispatch.get(choice)
         if handler is None:
-            print("Invalid choice. Please enter 1-9.")
+            print("Invalid choice. Please enter 1-10.")
             continue
         success = handler()
         print("\n--- What's Next? ---")

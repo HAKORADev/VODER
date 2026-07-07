@@ -1,1 +1,5 @@
 __pycache__/
+*.pyc
+vadars/sessions/
+vadars/memories/
+vadars/context.txt

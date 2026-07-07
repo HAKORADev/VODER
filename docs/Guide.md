@@ -27,6 +27,7 @@
 - [Task-Layer Features (beyond the 8 modes)](#task-layer-features-beyond-the-8-modes)
   - [Side-Quests (`quest`)](#side-quests-quest)
   - [Chains (`chains`)](#chains-chains)
+  - [VADAR (`vadar`) — the natural-language AI agent](#vadar-vadar--the-natural-language-ai-agent)
 - [Speaker Diarization](#speaker-diarization)
   - [What It Is](#what-it-is)
   - [How It Works](#how-it-works-2)
@@ -2012,7 +2013,7 @@ SS mode works on both CPU and GPU. The standard pipeline requires HF_TOKEN for P
 
 ## Task-Layer Features (beyond the 8 modes)
 
-The eight main processing modes (TTS, STS, TTM, STT, SE, SFX, SVS, SS) are VODER's audio transformation engine. On top of them, three task-layer features are available as oneline commands: `train` (covered above as part of the deep dive, since it produces voice clones for TTS), `quest` (side-quests — lightweight utility tasks), and `chains` (user-defined pipelines of voder oneline tasks).
+The eight main processing modes (TTS, STS, TTM, STT, SE, SFX, SVS, SS) are VODER's audio transformation engine. On top of them, three task-layer features are available as oneline commands: `train` (covered above as part of the deep dive, since it produces voice clones for TTS), `quest` (side-quests — lightweight utility tasks), and `chains` (user-defined pipelines of voder oneline tasks). Sitting above all of them is **VADAR**, a natural-language AI agent that can call any of the modes or features on your behalf — covered as the last sub-section below.
 
 ### Side-Quests (`quest`)
 
@@ -2032,6 +2033,9 @@ Side-quests are lightweight utility tasks that live outside the voder engine but
 |-------|---------|-----------------|----------------|--------|
 | `download` | Fetch a URL as audio (default) or video (`video` keyword). Also copies local files. | URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter), local audio/video files | — | `voder_quest_download_<name>_<timestamp>.<ext>` in `results/` |
 | `noframes` | Extract audio from a local video file. | Local video files (`.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`, `.flv`, `.wmv`, `.m4v`) | URLs, audio-only files | `voder_quest_noframes_<name>_<timestamp>.wav` in `results/` (PCM 16-bit 44.1 kHz stereo) |
+| `mix` | Overlay multiple audio/video sources at specified start times into a single WAV. First source is the base (starts at 0s); subsequent sources can have an optional start time in seconds before them. | Local audio files, local video files (audio extracted), URLs from any supported platform | Non-number tokens between sources | `voder_quest_mix_<joined-names>_<timestamp>.wav` in `results/` |
+
+> The full list of side-quests (17 in Media Manipulation plus standalone `download`) lives in [COMMAND_CATALOG.md](COMMAND_CATALOG.md) §9. The table above highlights the three most commonly used in a typical VODER workflow.
 
 **`download` behavior:**
 
@@ -2147,6 +2151,177 @@ python src/voder.py chains "skip1" / "skip2" / "real" tts script "hi" voice "mal
 - Chain names are matched exactly (case-sensitive) against command arguments. If a chain name happens to look like a file path or URL, it still wins — voder checks chain names first.
 - For multi-output commands (e.g., `svs both`, `ss`, TTM with stems), only the **latest** file produced by the chain is exposed as the chain's output. If you need multiple outputs, run separate chains.
 - The `result "<path>"` keyword works as usual on the whole `chains` command — it copies the **final** chain's output to the given path.
+
+---
+
+### VADAR (`vadar`) — the natural-language AI agent
+
+> **Note:** `vadar` is the natural-language layer that sits on top of the 8 modes and 3 task-layer features. You describe a task in plain English and VADAR thinks, decides, replies, and acts — running the right VODER commands in the right order, reading their outputs, and reporting the result. Powered by Gemma 4 12B (abliterated uncensored variant), loaded locally from `src/models/checkpoints/vadar/`.
+
+VADAR is the closest thing VODER has to a "copilot." Instead of memorizing oneline syntax for every mode and side-quest, you talk to VADAR the way you would talk to a person who knows VODER inside and out: "generate a 30-second upbeat pop song about rain, then isolate its vocals," "make a slowed+reverb version of song.wav with extra bass," "download this YouTube video's audio and transcribe it with timestamps." VADAR picks the modes, composes the chains, runs the side-quests, and checks each step's output before reporting back.
+
+#### Two ways to talk to VADAR
+
+**Oneline — single request, single response:**
+
+```bash
+python src/voder.py vadar "<natural-language request>" [result "<path>"]
+```
+
+The first argument after `vadar` is the entire prompt (quote it so the shell passes it as one argument). VADAR runs its agent loop, executes any acts it decides on, prints its replies, and exits when it emits `<EOS_DONE>`. The optional `result "<path>"` copies the final output to a custom location.
+
+**Interactive CLI — multi-turn chat:**
+
+```bash
+python src/voder.py cli
+# pick option 10: VADAR (AI agent — talk naturally, it decides what to run)
+```
+
+Interactive mode opens a chat session. Type `exit` or `quit` to end it. Type `clear` to start a fresh context within the same session (system prompt is rebuilt, context window is emptied, prior act outputs are forgotten). The session keeps going until you exit; VADAR maintains context across turns via the sliding context window described below.
+
+#### What VADAR can do
+
+VADAR can run **any** VODER oneline command as an **act** — including all 8 modes (TTS, STS, TTM, STT, SE, SFX, SVS, SS), all 17 side-quests (`quest download`, `quest cut`, `quest mix`, `quest bassboost`, …), and `chains` pipelines. Each act has a unique title in the session, and VADAR can read the act's output using the `read` tool with that title. VADAR composes multi-step workflows by chaining acts together — generate a song, isolate its vocals, train a voice from them, then speak with that voice — all in one natural-language request.
+
+#### Examples of natural-language requests
+
+```bash
+# Generate music, then post-process it
+python src/voder.py vadar "Generate a 30-second upbeat pop song about rain, then make a slowed+reverb version with extra bass"
+
+# Multi-step pipeline from a single prompt
+python src/voder.py vadar "Download this YouTube video's audio, transcribe it with timestamps, and save the transcript: https://youtube.com/watch?v=..."
+
+# Voice cloning workflow
+python src/voder.py vadar "Isolate the vocals from song.wav, then train a voice profile called 'singer' from them"
+
+# Mashup with the mix side-quest
+python src/voder.py vadar "Mix song.wav as the base, overlay vocals.wav at 20 seconds, and beat.wav at 32 seconds"
+
+# Audio cleanup + transcription
+python src/voder.py vadar "Strip silence from podcast.wav, normalize its loudness, then transcribe it"
+
+# Just ask a question about VODER
+python src/voder.py vadar "What can you do? Read the README and summarize VODER's features"
+```
+
+#### The agent loop
+
+For each user request, VADAR follows this loop — it can iterate multiple times for complex tasks:
+
+1. **THINK** — reason about what the user wants and what VADAR should do.
+2. **DECIDE** — choose a plan of action (which modes/quests/chains to run, in what order).
+3. **REPLY** — communicate with the user (what VADAR will do, or ask for clarification).
+4. **ACT** — run VODER commands (zero or more) as acts.
+5. **EVAL** — evaluate whether each act succeeded (read its output, check the file exists, etc.).
+6. **REPLY** — report the result to the user.
+
+VADAR emits special EOS tokens to signal state transitions:
+
+| Token | Meaning |
+|-------|---------|
+| `<EOS_REPLY>` | End of a reply — the user can now respond. |
+| `<EOS_ACT>` | An act command should be executed now. |
+| `<EOS_DONE>` | VADAR is completely finished with the task. |
+
+#### VADAR's tools
+
+VADAR can call these tools directly (in addition to running VODER commands as acts):
+
+| Tool | Syntax | Description |
+|------|--------|-------------|
+| `look` | `look <path\|url>` | Analyze an image file (returns a description of what VADAR sees). |
+| `listen` | `listen <path\|url> [HH:MM:SS-HH:MM:SS]` | Analyze audio. Without a range: total length + summary. With a range: that segment only. |
+| `watch` | `watch <path\|url> [HH:MM:SS-HH:MM:SS]` | Analyze video. Same semantics as `listen`. |
+| `read` | `read <path\|act_title> [start-end]` | Read text or a previous act's output. Without a range: total line count + first 100 lines. With `start-end` line range: those lines. |
+| `list` | `list [type] [path]` | List files. `type` can be `videos`, `images`, `audios`, `texts`, `others`, `all`, or `.extension`. Without a type: counts by category. |
+| `search` | `search <query> path <path> [formats <ext1,ext2,...>]` | Search for files containing the query in their name. |
+| `memory_read` | `memory_read <vadar\|user> <id>` | Read a memory file (VADAR's own or the user's). |
+| `memory_write` | `memory_write <vadar\|user> <content>` | Create a new memory file. |
+| `memory_edit` | `memory_edit <vadar\|user> <id> <content>` | Edit an existing memory file. |
+| `memory_delete` | `memory_delete <vadar\|user> <id>` | Delete a memory file (must have read it first). |
+| `calculate` | `calculate <code>` | Run Python code with whitelisted libraries (default: `math` — extendable via `vadars/supported_libs.txt`). |
+
+The `look` / `listen` / `watch` tools can only see files **inside the VODER project directory** (or paths the user explicitly provides in their request). The `read` tool can additionally read prior act outputs by their title — useful for "what did the last command produce?" introspection.
+
+#### Sessions
+
+Every VADAR invocation creates a session directory at `vadars/sessions/<timestamp>_<type>/` where `<type>` is `oneline` or `interactive`. The session contains:
+
+| File | Contents |
+|------|----------|
+| `inputs.txt` | Every user input, timestamped. |
+| `outputs.txt` | Every VADAR reply, timestamped. |
+| `acts.txt` | Every act VADAR ran — title, command, success/failure, and the last 20 lines of output. |
+| `log.txt` | Chronological log of every message (system, user, assistant, tool) — the full transcript. |
+| `context.txt` | The current sliding-context-window snapshot (system prompt + retained messages). |
+
+Sessions are append-only — re-running VADAR always creates a new session directory, so old sessions are preserved as-is for later review.
+
+#### Memory
+
+VADAR has two persistent memory stores, both stored as plain numbered `.txt` files (`1.txt`, `2.txt`, …):
+
+- `vadars/memories/vadar/` — VADAR's own memories (things it wants to remember about the user, the project, past sessions, recurring requests). Use `memory_write vadar "<content>"` to create a new one.
+- `vadars/memories/user/` — Memories about the user (preferences, recurring requests, projects they're working on). Use `memory_write user "<content>"` to create a new one.
+
+VADAR can read, edit, and delete its memories with the `memory_read` / `memory_edit` / `memory_delete` tools. Memories persist across sessions — they are the only state VADAR keeps between invocations (along with the personality files).
+
+#### Personality
+
+VADAR's personality is defined in `vadars/about/`, all written in the first person ("I"):
+
+| File | Contents |
+|------|----------|
+| `personality.md` | VADAR's core personality — direct, honest, no corporate language, loves audio. |
+| `custom-vadar.md` | Optional custom traits the user can add on top. |
+| `user.md` | Optional notes about the user (so VADAR knows who it's talking to). |
+| `how-to-respond.md` | Optional response-style guide (e.g., "be terse," "use bullet points," "swear freely"). |
+
+These files are loaded into the system prompt at the start of every session. Edit them to customize VADAR's behavior — there is no separate config file or JSON to manage.
+
+#### Config
+
+| File | Default | Purpose |
+|------|---------|---------|
+| `vadars/ping-time.txt` | `15` (seconds) | How long VADAR waits before it can be "pinged" to check in on a silent user. |
+| `vadars/supported_libs.txt` | `math` | Whitelist of Python libraries the `calculate` tool can import. One library per line. Add more libraries (e.g., `numpy`, `statistics`) to expand what `calculate` can do. |
+
+#### Brotherhood
+
+VADAR is part of the VODER brotherhood:
+
+- **VADAR** (the main agent): thinks, decides, replies, and acts.
+- **Eval**: VADAR's brother who evaluates plans and results — checks whether the plan is correct before VADAR replies, and whether the act succeeded after VADAR acts.
+- **Summarizer**: VADAR's brother who condenses long outputs into summaries VADAR can work with (so a long `stt` transcript doesn't blow up the context window).
+
+They share the same context and work together.
+
+#### Dynamic system prompt
+
+VADAR's system prompt is rebuilt at the start of every session. It includes:
+
+- **Current timestamp** and last-seen time (how long since VADAR last talked to the user — pulled from the most recent session log).
+- **OS specs** (platform, Python version), **CPU** (cores / threads), **RAM** (total / available), **GPU** (name + VRAM + CUDA version if available) — read via `psutil` and `torch`.
+- **Top locale languages** (from `locale.getlocale()` and `$LANG`).
+- **The full VODER command catalog** — every mode, side-quest, and chain — so VADAR knows what it can call without having to guess.
+- **The personality files** from `vadars/about/`.
+- **Constraints:** no network access, no system shell, only VODER project paths + user-provided paths. Knowledge cutoff is approximately mid-2025.
+
+#### Sliding context window
+
+VADAR keeps a context window of approximately 8192 tokens. When the context fills up, it slides — the oldest 5% of non-system messages are dropped, and the most recent 95% is retained. The system prompt is always preserved (it's never dropped). This lets VADAR maintain a coherent conversation over a long interactive session without unbounded memory growth.
+
+#### Constraints — what VADAR cannot do
+
+- **No network access.** VADAR cannot fetch URLs itself — but it can run `quest download "..."` as an act, which uses VODER's URL handler to fetch URLs from supported platforms.
+- **No system shell access.** VADAR cannot run arbitrary shell commands. It can only run VODER oneline commands (acts) and call its own tools.
+- **No filesystem access outside the VODER project directory.** The `look`, `listen`, `watch`, `read`, `list`, and `search` tools refuse paths outside the project root. Paths the user explicitly provides in their request are passed through to acts (VODER's normal input handling applies).
+- **Knowledge cutoff is mid-2025.** VADAR may not know about events or technologies released after that.
+
+#### Model setup
+
+VADAR requires the Gemma 4 12B model (abliterated uncensored variant) from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored` on HuggingFace. Download the model files (`.safetensors` weights, `config.json`, tokenizer + processor configs) and place them in `src/models/checkpoints/vadar/`. Dependencies — `torch`, `transformers`, `psutil` — are already in `requirements.txt`. See [READ.md](READ.md) § VADAR Model Setup for the full step-by-step download instructions. Without the model files in place, `vadar` prints setup instructions and exits — no error traceback, just a clean message.
 
 ---
 

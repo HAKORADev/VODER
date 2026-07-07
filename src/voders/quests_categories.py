@@ -19,6 +19,7 @@ CATEGORIES = [
                 'quests': [
                     'cut',
                     'merge',
+                    'mix',
                     'remove',
                     'reverse',
                     'silence',

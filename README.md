@@ -21,7 +21,7 @@
 
 ---
 
-VODER brings together **8 processing modes** under one interface — speech-to-text, text-to-speech, voice conversion, music generation, speech enhancement, sound effects, vocal separation, and speaker diarization — plus language dubbing (`tts dub`), any-to-any translation via TranslateGemma 12B, transcribe-edit-resynthesize (built into TTS interactive), and three task-layer features that build on top of the modes: **`train`** (save reusable voice clones as `.tts` / `.ttse`), **side-quests** (`quest` — lightweight utility tasks like URL download and audio manipulation), and **chains** (user-defined pipelines that wire any number of voder oneline tasks together end-to-end). It runs entirely on your machine, needs no subscription, and works with or without a GPU.
+VODER brings together **8 processing modes** under one interface — speech-to-text, text-to-speech, voice conversion, music generation, speech enhancement, sound effects, vocal separation, and speaker diarization — plus language dubbing (`tts dub`), any-to-any translation via TranslateGemma 12B, transcribe-edit-resynthesize (built into TTS interactive), three task-layer features that build on top of the modes: **`train`** (save reusable voice clones as `.tts` / `.ttse`), **side-quests** (`quest` — lightweight utility tasks like URL download and audio manipulation), and **chains** (user-defined pipelines that wire any number of voder oneline tasks together end-to-end) — and a natural-language AI agent, **VADAR**, that takes plain-English requests and runs any combination of the above for you. It runs entirely on your machine, needs no subscription, and works with or without a GPU.
 
 ---
 
@@ -36,8 +36,9 @@ VODER brings together **8 processing modes** under one interface — speech-to-t
 - **Language Dubbing** — Translate speech from one language to another while preserving the original speaker's voice identity. Dub entire videos with per-segment timing alignment and background music preservation.
 - **Any-to-Any Translation** — Translate between any of 76 languages using TranslateGemma 12B via the `translate (source-target)` syntax, decoupled from the ASR engine.
 - **Voice Re-Synthesis** — Transcribe speech and re-read it in a different voice using `tts svc`, with an optional `sts:` prefix for high-fidelity voice conversion via Seed-VC v2.
-- **Side-Quests** — Lightweight utility tasks that live outside the main engine: URL download, audio format conversion, cutting / merging / removing ranges, silence stripping, speed / pitch / soundlevel / bassboost / reverb / loudnorm effects, and more. Run `python voder.py quest` to see all available quests, grouped by category.
+- **Side-Quests** — Lightweight utility tasks that live outside the main engine: URL download, audio format conversion, cutting / merging / mixing / removing ranges, silence stripping, speed / pitch / soundlevel / bassboost / reverb / loudnorm effects, and more. Run `python voder.py quest` to see all available quests, grouped by category.
 - **Chains** — User-defined pipelines that wire any number of voder tasks together: each chain is named, its output is captured to temp, and later chains can reference earlier chain names as input paths. Build a song, isolate its vocals, train a voice from them, then dub a video — all in one command.
+- **VADAR AI Agent** — A natural-language agent powered by Gemma 4 12B (abliterated uncensored). Describe a task in plain English and VADAR thinks, decides, replies, and acts — running the right VODER commands in the right order, reading their outputs, and reporting results. Has its own tools (`look`, `listen`, `watch`, `read`, `list`, `search`, `memory_*`, `calculate`), session logging, persistent memories, and a configurable personality. No network access, no system shell — only VODER commands and project files.
 - **Smart Input Pipeline** — Paste a YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, or X/Twitter URL directly as input. VODER verifies the link actually points to a video before downloading. Feed an image and VODER extracts text via OCR. Automatically extract voice clips from multi-speaker audio for one-click voice cloning.
 
 ---
@@ -94,7 +95,7 @@ Paste a URL from **YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, or 
 
 ### Side-Quests (`quest`)
 
-Lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow — URL download, audio format conversion, cutting, merging, range removal, silence stripping, soundlevel / speed / pitch / bassboost / reverb / loudnorm, and more. Side-quests are grouped by category in the listing — `download` stands alone, the rest live under **Media Manipulation**. Run `python voder.py quest` (no args) to list every available side-quest with its one-line description. See [COMMAND_CATALOG.md](docs/COMMAND_CATALOG.md) for the full list.
+Lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow — URL download, audio format conversion, cutting, merging, **mixing** (overlay multiple sources at specified start times), range removal, silence stripping, soundlevel / speed / pitch / bassboost / reverb / loudnorm, and more. Side-quests are grouped by category in the listing — `download` stands alone, the rest live under **Media Manipulation**. Run `python voder.py quest` (no args) to list every available side-quest with its one-line description. See [COMMAND_CATALOG.md](docs/COMMAND_CATALOG.md) for the full list.
 
 ### Chains (`chains`)
 
@@ -106,6 +107,20 @@ python src/voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "voic
 ```
 
 Use ` / ` (space slash space) to separate chains. Intermediate chain outputs live in `temp_chains/`; only the **last** non-empty chain's output reaches `results/`. Empty chains are skipped (their names remain available for reuse); duplicate names cause an error and stop the pipeline. This lets you compose pipelines that VODER's built-in modes never anticipated — generate music, isolate vocals, train a voice from them, then dub a video, all in a single command.
+
+### VADAR AI Agent (`vadar`)
+
+VADAR is the natural-language layer on top of everything else. Instead of remembering oneline syntax, you describe the task in plain English and VADAR figures out which VODER commands to run, in what order, and reads their outputs to verify the result. It runs locally with no network access — only VODER project files and paths you provide are reachable.
+
+```
+# Oneline — describe the task, VADAR runs the right commands
+python src/voder.py vadar "Generate a 30-second upbeat pop song about rain, then isolate its vocals"
+
+# Interactive CLI — choose option 10
+python src/voder.py cli
+```
+
+VADAR is powered by Gemma 4 12B (abliterated uncensored variant from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored`). Model files must be downloaded from HuggingFace and placed in `src/models/checkpoints/vadar/`. See [READ.md](docs/READ.md) for setup. Without the model in place, `vadar` prints setup instructions and exits. It has its own tools (`look`, `listen`, `watch`, `read`, `list`, `search`, `memory_read`/`write`/`edit`/`delete`, `calculate`), persistent memories in `vadars/memories/`, session logs in `vadars/sessions/`, and a configurable personality in `vadars/about/`. See [Guide.md](docs/Guide.md) for the full VADAR user guide.
 
 ---
 
@@ -147,6 +162,9 @@ python src/voder.py train extreme voice:narrator "ref1.wav"
 
 # Chains (wire multiple voder oneline tasks together)
 python src/voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "voice" svs voice "song" / "cover" sts base "voice" target "ref.wav"
+
+# VADAR AI agent (describe a task in natural language, it decides what to run)
+python src/voder.py vadar "Generate a 30-second upbeat pop song about rain, then isolate its vocals"
 ```
 
 > **Run in Colab** — no installation needed: [Open in Google Colab](https://colab.research.google.com/drive/1hditIfW9JzusNcFhlHFoclCIIsNiRFNk?usp=sharing)
@@ -157,7 +175,7 @@ python src/voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "voic
 
 ## Modes at a Glance
 
-VODER has **8 main processing modes** — the engine's primary audio transformation pipelines. On top of these, three additional **tasks & features** layer utility workflows: voice training, side-quests, and chains.
+VODER has **8 main processing modes** — the engine's primary audio transformation pipelines. On top of these, three additional **tasks & features** layer utility workflows: voice training, side-quests, and chains. Sitting above all of them is **VADAR**, a natural-language AI agent that can call any of the modes or features on your behalf.
 
 ### Main Processing Modes (8)
 
@@ -177,8 +195,9 @@ VODER has **8 main processing modes** — the engine's primary audio transformat
 | Feature | What It Does | Input | Output |
 |---------|-------------|-------|--------|
 | **train** | Train voice clones from reference audio, save as `.tts` / `.ttse` for reuse in TTS | Audio / Video / URL | `.tts` / `.ttse` voice file |
-| **quest** | Side-quests — lightweight utility tasks outside the voder engine (`download`, `noframes`, …) | URL / local video | Audio / Video file |
+| **quest** | Side-quests — lightweight utility tasks outside the voder engine (`download`, `noframes`, `mix`, …) | URL / local video | Audio / Video file |
 | **chains** | Compose user-defined pipelines of voder oneline tasks; later chains reference earlier chain names | A sequence of voder oneline commands | Final chain's output |
+| **vadar** | Natural-language AI agent — describe a task in plain English, VADAR thinks, decides, and runs VODER commands on your behalf | Natural-language request | Whatever the task produces |
 
 ---
 

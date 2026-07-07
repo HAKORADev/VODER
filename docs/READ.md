@@ -37,6 +37,37 @@ VODER downloads and caches models automatically on first use. Models are stored 
 - **VibeVoice ASR** (advanced transcription) — downloaded on first SS/overdose STT use
 - Ensure sufficient disk space is available for model files
 
+### VADAR Model Setup
+
+VADAR is the natural-language AI agent (`python voder.py vadar "<request>"` or interactive CLI option 10). Unlike the other models, VADAR's model is **not downloaded automatically** — you must download it manually from HuggingFace and place the files in the right directory.
+
+**Model:** `OpenYourMind/gemma-4-12B-it-abliterated-uncensored` — Gemma 4 12B, abliterated uncensored variant. A multimodal model (text + image + audio + video) with the architecture class `Gemma4UnifiedForConditionalGeneration`.
+
+**Where to put it:** `src/models/checkpoints/vadar/`
+
+**How to download:**
+
+1. Go to the model page: https://huggingface.co/OpenYourMind/gemma-4-12B-it-abliterated-uncensored
+2. Download **all** files in the repo — the `.safetensors` weights (or `.bin`), the `config.json`, the `tokenizer.json` / `tokenizer_config.json`, the `processor_config.json` / `preprocessor_config.json` (if present), and any `special_tokens_map.json` / `generation_config.json` files. VADAR's loader requires at least one `.safetensors` or `.bin` weights file to start.
+3. Place every file directly inside `src/models/checkpoints/vadar/` — do not nest them in a sub-folder.
+
+You can use `huggingface-cli` to download everything in one shot:
+
+```bash
+# Make sure huggingface_hub is installed (it's in requirements.txt)
+pip install -U "huggingface_hub[cli]"
+
+# Download the entire model repo into src/models/checkpoints/vadar/
+huggingface-cli download OpenYourMind/gemma-4-12B-it-abliterated-uncensored \
+  --local-dir src/models/checkpoints/vadar
+```
+
+**Dependencies:** VADAR loads the model via `AutoModelForMultimodalLM` and `AutoProcessor` from `transformers`, with `torch` as the backend. The system prompt builder also uses `psutil` to read CPU/RAM specs. All three packages — `torch`, `transformers`, `psutil` — are already in `requirements.txt`, so a normal `pip install -r requirements.txt` covers them.
+
+**Hardware:** the model is 12B parameters. With `bfloat16` on a CUDA GPU you need roughly 24 GB VRAM for comfortable inference; on CPU it runs in `float32` (slow but functional) and needs roughly 48 GB system RAM. VADAR auto-detects: if `torch.cuda.is_available()` is true, it uses `bfloat16` + `device_map="auto"`; otherwise it falls back to CPU `float32`.
+
+**What happens if the model is missing:** `vadar` checks the directory at startup. If the directory doesn't exist or contains no `.safetensors` / `.bin` files, VADAR prints setup instructions (the model URL and the target path) and exits without running. No error traceback — just a clean message telling you what to do.
+
 ### Mode History
 
 > `tts+vc` and `ttm+vc` are no longer standalone modes. Voice cloning in TTS is handled via the `target` parameter, and voice conversion in TTM is handled via the `vc` flag. Use `tts` and `ttm` respectively.
@@ -75,6 +106,7 @@ VODER downloads and caches models automatically on first use. Models are stored 
     - [download](#download)
     - [noframes](#noframes)
   - [Chains (`chains`)](#chains-chains)
+- [VADAR (`vadar`) — the natural-language agent](#vadar-vadar--the-natural-language-agent)
 - [Intelligent Source Analysis](#intelligent-source-analysis)
 - [AI Model Integration](#ai-model-integration)
 - [Usage Guide](#usage-guide)
@@ -709,7 +741,7 @@ python src/voder.py ss overdose se blend video "vlog.mp4"
 
 ## Tasks & Features (beyond the 8 modes)
 
-The eight modes above (TTS, STS, TTM, STT, SE, SFX, SVS, SS) are VODER's main processing engine. On top of them, three task-layer features are available as oneline commands: `train` (save reusable voice clones), `quest` (side-quests — lightweight utility tasks), and `chains` (user-defined pipelines of voder oneline tasks).
+The eight modes above (TTS, STS, TTM, STT, SE, SFX, SVS, SS) are VODER's main processing engine. On top of them, three task-layer features are available as oneline commands: `train` (save reusable voice clones), `quest` (side-quests — lightweight utility tasks), and `chains` (user-defined pipelines of voder oneline tasks). Sitting above all of them is **VADAR**, a natural-language AI agent that can call any of the modes or features on your behalf — see [VADAR (`vadar`) — the natural-language agent](#vadar-vadar--the-natural-language-agent) below.
 
 ### Voice Training (`train`)
 
@@ -841,6 +873,61 @@ python src/voder.py chains "skip1" / "skip2" / "real" tts script "hi" voice "mal
 
 ---
 
+## VADAR (`vadar`) — the natural-language agent
+
+VADAR is the natural-language layer that sits on top of the 8 modes and 3 task-layer features. Instead of typing `tts script "..." voice "..."` or composing a `chains` command, you describe the task in plain English and VADAR figures out which VODER commands to run, in what order, and reads their outputs to verify the result.
+
+**Two ways to invoke:**
+
+```bash
+# Oneline — single natural-language request
+python src/voder.py vadar "Generate a 30-second upbeat pop song about rain, then isolate its vocals"
+python src/voder.py vadar "Make a slowed+reverb version of song.wav with extra bass" result "./slowed.wav"
+
+# Interactive CLI — multi-turn chat
+python src/voder.py cli
+# pick option 10: VADAR (AI agent — talk naturally, it decides what to run)
+```
+
+**How VADAR works:**
+
+- VADAR is powered by Gemma 4 12B (abliterated uncensored variant from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored`). The model is loaded locally via `AutoModelForMultimodalLM` + `AutoProcessor` from `transformers`. Model files go in `src/models/checkpoints/vadar/` — see [VADAR Model Setup](#vadar-model-setup) above.
+- Each request triggers VADAR's **agent loop**: think → decide → reply → act → eval → reply. VADAR can iterate the loop multiple times for complex tasks.
+- An **act** is a VODER oneline command VADAR runs (e.g., `ttm lyrics "..." styling "pop" 30`, `quest download "..."`, `svs voice "..."`). Each act has a unique title in the session, and VADAR can read its output using the `read` tool.
+- VADAR emits special EOS tokens to signal state transitions: `<EOS_REPLY>` ends a reply (user can respond), `<EOS_ACT>` triggers act execution, `<EOS_DONE>` signals task completion.
+- **No network access, no system shell.** VADAR can only run VODER oneline commands and read files inside the VODER project directory (plus paths the user explicitly provides).
+- Knowledge cutoff is approximately mid-2025.
+
+**VADAR's tools:**
+
+| Tool | Description |
+|------|-------------|
+| `look <path\|url>` | Analyze an image file (returns a description of what VADAR sees). |
+| `listen <path\|url> [HH:MM:SS-HH:MM:SS]` | Analyze audio. Without a range: total length + summary. With a range: that segment. |
+| `watch <path\|url> [HH:MM:SS-HH:MM:SS]` | Analyze video. Same semantics as `listen`. |
+| `read <path\|act_title> [start-end]` | Read text or a previous act's output. Without a range: total line count + first 100 lines. With `start-end` line range: those lines. |
+| `list [type] [path]` | List files. Type: `videos`, `images`, `audios`, `texts`, `others`, `all`, or `.ext`. |
+| `search <query> path <path> [formats <ext1,ext2,...>]` | Search for files containing the query in their name. |
+| `memory_read <vadar\|user> <id>` | Read a memory file (VADAR's or the user's). |
+| `memory_write <vadar\|user> <content>` | Create a new memory file. |
+| `memory_edit <vadar\|user> <id> <content>` | Edit an existing memory file. |
+| `memory_delete <vadar\|user> <id>` | Delete a memory file (must have read it first). |
+| `calculate <code>` | Run Python code using whitelisted libraries (default: `math` — extendable via `vadars/supported_libs.txt`). |
+
+**Session, memory, and personality:**
+
+- Every VADAR invocation creates a session directory at `vadars/sessions/<timestamp>_<type>/` (`<type>` is `oneline` or `interactive`). The session holds `inputs.txt`, `outputs.txt`, `acts.txt`, `log.txt`, and `context.txt`.
+- VADAR has a sliding context window (~8192 tokens, 95% retention on overflow — the oldest 5% of non-system messages are dropped when the window fills; the system prompt is always preserved).
+- Persistent memories live in `vadars/memories/vadar/` (VADAR's own) and `vadars/memories/user/` (about the user) as numbered `.txt` files.
+- VADAR's personality is defined in `vadars/about/` — `personality.md`, `custom-vadar.md`, `user.md`, `how-to-respond.md` — all written in the first person ("I"). These are loaded into the system prompt at the start of every session.
+- Config: `vadars/ping-time.txt` (default 15s — how long VADAR waits before checking in on a silent user) and `vadars/supported_libs.txt` (default `math` — the whitelist for the `calculate` tool).
+
+**Brotherhood:** VADAR is part of the VODER brotherhood alongside Eval (evaluates plans before reply and results after acts) and Summarizer (condenses long outputs into summaries VADAR can work with).
+
+See [Guide.md](Guide.md) for the full VADAR user guide, and [COMMAND_CATALOG.md](COMMAND_CATALOG.md) §11 for the complete syntax reference.
+
+---
+
 ## Intelligent Source Analysis
 
 VODER supports **cross-platform source input** — a unified input pipeline that accepts audio, video, images, and URLs across multiple processing modes. This enables powerful new workflows:
@@ -870,6 +957,7 @@ VODER leverages state-of-the-art open-source models for professional-grade audio
 - **Any-to-Any Translation:** [Google TranslateGemma 12B](https://huggingface.co/google/translategemma-12b-it) — TranslateGemma for translation between 76 languages, decoupled from ASR engine
 - **Speaker Diarization:** [pyannote/speaker-diarization-community-1](https://github.com/pyannote/pyannote-audio) — pyannote for identifying and labeling individual speakers in multi-speaker audio
 - **Image Text Extraction:** [EasyOCR](https://github.com/JaidedAI/EasyOCR) — EasyOCR for extracting text from images, enabling image-to-speech workflows
+- **VADAR AI Agent:** [OpenYourMind/gemma-4-12B-it-abliterated-uncensored](https://huggingface.co/OpenYourMind/gemma-4-12B-it-abliterated-uncensored) — Gemma 4 12B (abliterated uncensored variant) for the VADAR natural-language agent. Multimodal (text + image + audio + video), loaded locally via `AutoModelForMultimodalLM` + `AutoProcessor` from `transformers`. Model files must be downloaded manually and placed in `src/models/checkpoints/vadar/` — see [VADAR Model Setup](#vadar-model-setup) above.
 
 ---
 
@@ -1112,7 +1200,8 @@ python src/voder.py chains "audio" quest download "https://youtube.com/watch?v=.
 - **Video/Audio Dubbing (TTS Dub):** Translate and replace speech in videos while preserving the original speaker's voice and background music — per-segment TTS generation, speed adjustment, and timeline-based assembly for near-perfect timing alignment
 - **Any-to-Any Translation (TranslateGemma):** Translate between any of 76 languages using the `translate (source-target)` syntax, decoupled from the ASR engine — works with Whisper, VibeVoice ASR, SLC, dub, and subtitle modes
 - **Modify Speech (STT+TTS):** Integrated into TTS interactive mode — transcribe, edit, and re-synthesize speech with source or custom voice selection
-- **Side-Quests (`quest`):** Lightweight utility tasks, grouped by category in the `quest` listing (run `quest` with no args to see the live tree). `download` (URL → audio/video file in `results/`) stands alone at the top; the other 16 quests live under the **Media Manipulation** category, split into three sub-categories — **Sound Effects** (bassboost, fade, loudnorm, pitch, reverb, soundlevel, speed), **Audio Editing** (cut, merge, remove, reverse, silence), and **Format & File** (compress, convert, glue, noframes). Categorization is defined externally in `src/voders/quests_categories.py`. New quests can be added to the registry without touching the dispatcher.
+- **Side-Quests (`quest`):** Lightweight utility tasks, grouped by category in the `quest` listing (run `quest` with no args to see the live tree). `download` (URL → audio/video file in `results/`) stands alone at the top; the other 17 quests live under the **Media Manipulation** category, split into three sub-categories — **Sound Effects** (bassboost, fade, loudnorm, pitch, reverb, soundlevel, speed), **Audio Editing** (cut, merge, mix, remove, reverse, silence), and **Format & File** (compress, convert, glue, noframes). Categorization is defined externally in `src/voders/quests_categories.py`. New quests can be added to the registry without touching the dispatcher.
+- **VADAR AI Agent (`vadar`):** A natural-language agent powered by Gemma 4 12B (abliterated uncensored variant). Describe a task in plain English — VADAR thinks, decides, replies, and acts, running any VODER oneline command (or chain of commands) on your behalf. Has its own tools (`look` / `listen` / `watch` for image / audio / video analysis, `read` / `list` / `search` for files and prior act outputs, `memory_read` / `memory_write` / `memory_edit` / `memory_delete` for persistent memory, `calculate` for Python with whitelisted libraries), a sliding context window (~8192 tokens, 95% retention on overflow), and a configurable personality in `vadars/about/`. Each session is logged under `vadars/sessions/<timestamp>_<type>/` with separate `inputs.txt`, `outputs.txt`, `acts.txt`, `log.txt`, and `context.txt` files. Memories live in `vadars/memories/vadar/` and `vadars/memories/user/`. Part of the VODER brotherhood alongside Eval (plan/result evaluator) and Summarizer (long-output condenser). No network access, no system shell — only VODER project paths + user-provided paths. Model files must be downloaded manually; see [VADAR Model Setup](#vadar-model-setup) above.
 - **Chains (`chains`):** User-defined pipelines that wire any number of voder tasks together — each chain is named, its output is captured to `temp_chains/`, and later chains can reference earlier chain names as input paths. The last non-empty chain's output reaches `results/`. Empty chains are skipped (names remain reusable); duplicate names are an error.
 - **Cross-Modal Transformation:** Speech-to-speech, text-to-speech, speech-to-text, text-to-text, and speech language conversion
 - **Cross-Platform Source Input:** Unified input pipeline accepts audio files, video files, images, and URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter) across multiple modes — no manual format conversion required

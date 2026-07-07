@@ -24,6 +24,7 @@ VIBEVOICE_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "vibevoice_asr")
 TRANSLATE_GEMMA_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "translate_gemma")
 AUDIOSR_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "audiosr")
 ALIGNER_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "aligner")
+VADAR_MODEL_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "vadar")
 
 os.environ["HF_HOME"] = MODELS_DIR
 os.environ["HF_HUB_CACHE"] = MODELS_TMP_DIR
@@ -4715,6 +4716,25 @@ def parse_oneline_args(args):
     current_keyword = None
     result_path = None
 
+    if mode == 'vadar':
+        prompt_parts = []
+        while i < len(args):
+            arg = args[i]
+            arg_lower = arg.lower()
+            if arg_lower == 'result':
+                if i + 1 < len(args):
+                    result_path = args[i + 1]
+                    i += 2
+                else:
+                    result['error'] = 'result keyword requires a path argument'
+                    return result
+            else:
+                prompt_parts.append(arg)
+                i += 1
+        result['params']['prompt'] = ' '.join(prompt_parts)
+        result['params']['result_path'] = result_path
+        return result
+
     if mode == 'stt':
         file_paths = []
         while i < len(args):
@@ -5779,7 +5799,7 @@ def _check_voice_extreme_mismatch(voice_path, use_extreme):
     return False
 
 def validate_oneline_mode(mode_name):
-    valid_modes = ['tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'ss', 'train', 'quest', 'chains']
+    valid_modes = ['tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'ss', 'train', 'quest', 'chains', 'vadar']
     if mode_name.lower() in valid_modes:
         return mode_name.lower()
     return None
@@ -5800,6 +5820,7 @@ def show_oneline_usage():
     print("  train    - Train and save voice clones")
     print("  quest    - Side-quests (utility tasks): download + Media Manipulation (Sound Effects / Audio Editing / Format & File). Run `quest` with no args to list them all as a tree.")
     print("  chains   - Chain multiple voder tasks: each chain's output feeds later chains")
+    print("  vadar    - VADAR agent: give it a natural-language request and it decides what to run")
     print()
     print("Train examples:")
     print('  python voder.py train voice:james "ref1.wav" "ref2.wav"')
@@ -6112,6 +6133,9 @@ def execute_oneline_command(parsed):
         success = oneline_quest(params)
     elif mode == 'chains':
         success = oneline_chains(params)
+    elif mode == 'vadar':
+        from voders.vadars.vadar import run_vadar_oneline
+        success = run_vadar_oneline(params.get('prompt', ''), result_path=params.get('result_path'))
     else:
         print(f"Error: Unknown mode '{mode}'")
         show_oneline_usage()
