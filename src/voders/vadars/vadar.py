@@ -315,6 +315,27 @@ def run_vadar_oneline(user_input, result_path=None):
         print(f"VADAR is not available — {err}")
         return False
 
+    tasks = re.split(r'\s*&&\s*', user_input)
+    if len(tasks) > 1:
+        print(f"[VADAR]: {len(tasks)} tasks detected (split by &&).")
+        all_ok = True
+        for i, task in enumerate(tasks, 1):
+            task = task.strip()
+            if not task:
+                continue
+            print(f"\n{'='*40}")
+            print(f"Task {i}/{len(tasks)}: {task[:100]}")
+            print(f"{'='*40}")
+            ok = _run_oneline_single(task, result_path if i == len(tasks) else None,
+                                     model, processor)
+            if not ok:
+                all_ok = False
+        return all_ok
+
+    return _run_oneline_single(user_input, result_path, model, processor)
+
+
+def _run_oneline_single(user_input, result_path, model, processor):
     session_dir, session_name = create_session('oneline')
     log_input(session_dir, user_input)
 

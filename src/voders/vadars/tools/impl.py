@@ -335,11 +335,64 @@ def tool_calculate(args):
         sys.stdout = old_stdout
 
 
+def _cut_media_segment(input_path, start, end, output_path, is_video=False):
+    cmd = ['ffmpeg', '-y', '-i', input_path, '-ss', str(start), '-to', str(end),
+           '-c:a', 'pcm_s16le', '-ar', '16000', '-ac', '1']
+    if is_video:
+        cmd = ['ffmpeg', '-y', '-i', input_path, '-ss', str(start), '-to', str(end),
+               '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+               '-c:a', 'aac', '-ar', '16000', '-ac', '1']
+    cmd.append(output_path)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    return r.returncode == 0 and os.path.exists(output_path)
+
+
+def _run_multimodal_inference(processor, model, text_prompt, images=None, audios=None, videos=None):
+    import torch
+    try:
+        content = [{'type': 'text', 'text': text_prompt}]
+        if images:
+            for img_path in images:
+                from PIL import Image
+                content.append({'type': 'image'})
+        if audios:
+            for _ in audios:
+                content.append({'type': 'audio'})
+        if videos:
+            for _ in videos:
+                content.append({'type': 'video'})
+
+        messages = [{'role': 'user', 'content': content}]
+        if hasattr(processor, 'apply_chat_template'):
+            text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        else:
+            text = text_prompt
+
+        kwargs = {'text': text, 'return_tensors': 'pt'}
+        if images:
+            from PIL import Image
+            kwargs['images'] = [Image.open(p).convert('RGB') for p in images]
+        if audios:
+            import librosa
+            kwargs['audios'] = [librosa.load(p, sr=16000)[0] for p in audios]
+        if videos:
+            kwargs['videos'] = videos
+
+        inputs = processor(**kwargs).to(model.device if hasattr(model, 'device') else 'cpu')
+        with torch.no_grad():
+            output = model.generate(**inputs, max_new_tokens=512, do_sample=False)
+        input_len = inputs['input_ids'].shape[1] if 'input_ids' in inputs else 0
+        new_tokens = output[0][input_len:]
+        return processor.decode(new_tokens, skip_special_tokens=True)
+    except Exception as e:
+        return f"[multimodal analysis error: {e}]"
+
+
 @register_tool('look')
 def tool_look(args, model=None, processor=None):
     path = args.strip().strip('"\'')
     if not path:
-        return "Usage: look <image_path|url>"
+        return "Usage: look <image_path>"
     if not os.path.exists(path):
         return f"Image not found: {path}"
     if not _is_within_project(path):
@@ -348,8 +401,9 @@ def tool_look(args, model=None, processor=None):
     if ext not in _IMAGE_EXTENSIONS:
         return f"'{path}' does not appear to be an image file."
     if model is None or processor is None:
-        return f"Image found at {path} (model not loaded — cannot analyze visually). File size: {os.path.getsize(path)} bytes."
-    return f"Image at {path} loaded. Model analysis would be performed here."
+        return f"Image at {path} ({os.path.getsize(path)} bytes). Model not loaded — cannot analyze."
+    result = _run_multimodal_inference(processor, model, "Describe this image in detail. What do you see?", images=[path])
+    return f"Image: {path}\nAnalysis: {result}"
 
 
 @register_tool('listen')
@@ -358,7 +412,7 @@ def tool_listen(args, model=None, processor=None):
     path = parts[0].strip('"\'') if parts else ''
     range_spec = parts[1].strip() if len(parts) > 1 else None
     if not path:
-        return "Usage: listen <audio_path|url> [HH:MM:SS-HH:MM:SS]"
+        return "Usage: listen <audio_path> [HH:MM:SS-HH:MM:SS]"
     if not os.path.exists(path):
         return f"Audio not found: {path}"
     if not _is_within_project(path):
@@ -366,16 +420,39 @@ def tool_listen(args, model=None, processor=None):
     dur = _ffprobe_duration(path)
     if dur is None:
         return f"Could not determine duration of {path}"
-    if range_spec:
-        start, end = _parse_time_range(range_spec)
-        if start is None or end is None:
-            return f"Invalid time range '{range_spec}'. Use HH:MM:SS-HH:MM:SS format."
-        if start >= end:
-            return f"Start time ({_format_timestamp(start)}) must be before end time ({_format_timestamp(end)})."
-        if end > dur:
-            end = dur
-        return f"Audio segment {_format_timestamp(start)}-{_format_timestamp(end)} of {_format_timestamp(dur)} from {path}. Model analysis would be performed here."
-    return f"Audio: {path}\nDuration: {_format_timestamp(dur)}\nModel analysis would be performed here."
+
+    if not range_spec:
+        if dur > 30:
+            return f"Audio: {path}\nDuration: {_format_timestamp(dur)}\nAudio is longer than 30s. Use listen <path> HH:MM:SS-HH:MM:SS to listen to a segment."
+        if model is None or processor is None:
+            return f"Audio: {path}\nDuration: {_format_timestamp(dur)}\nModel not loaded — cannot analyze."
+        result = _run_multimodal_inference(processor, model, "Listen to this audio and describe what you hear.", audios=[path])
+        return f"Audio: {path}\nDuration: {_format_timestamp(dur)}\nAnalysis: {result}"
+
+    start, end = _parse_time_range(range_spec)
+    if start is None or end is None:
+        return f"Invalid time range '{range_spec}'. Use HH:MM:SS-HH:MM:SS format."
+    if start >= end:
+        return f"Start time ({_format_timestamp(start)}) must be before end time ({_format_timestamp(end)})."
+    if end > dur:
+        end = dur
+
+    seg_dur = end - start
+    if seg_dur > 60:
+        return f"Segment {_format_timestamp(start)}-{_format_timestamp(end)} is {seg_dur:.0f}s. Max is 60s. Use a smaller range."
+
+    tmp_dir = tempfile.mkdtemp(prefix='vadar_listen_')
+    seg_path = os.path.join(tmp_dir, f'segment.wav')
+    try:
+        if not _cut_media_segment(path, start, end, seg_path, is_video=False):
+            return f"Error: failed to cut audio segment {start}-{end} from {path}"
+        if model is None or processor is None:
+            return f"Audio segment {_format_timestamp(start)}-{_format_timestamp(end)} of {_format_timestamp(dur)}. Model not loaded."
+        prompt = f"This is an audio segment from {_format_timestamp(start)} to {_format_timestamp(end)}. Describe what you hear."
+        result = _run_multimodal_inference(processor, model, prompt, audios=[seg_path])
+        return f"Audio segment {_format_timestamp(start)}-{_format_timestamp(end)} of {_format_timestamp(dur)}.\nAnalysis: {result}"
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @register_tool('watch')
@@ -384,7 +461,7 @@ def tool_watch(args, model=None, processor=None):
     path = parts[0].strip('"\'') if parts else ''
     range_spec = parts[1].strip() if len(parts) > 1 else None
     if not path:
-        return "Usage: watch <video_path|url> [HH:MM:SS-HH:MM:SS]"
+        return "Usage: watch <video_path> [HH:MM:SS-HH:MM:SS]"
     if not os.path.exists(path):
         return f"Video not found: {path}"
     if not _is_within_project(path):
@@ -395,16 +472,39 @@ def tool_watch(args, model=None, processor=None):
     dur = _ffprobe_duration(path)
     if dur is None:
         return f"Could not determine duration of {path}"
-    if range_spec:
-        start, end = _parse_time_range(range_spec)
-        if start is None or end is None:
-            return f"Invalid time range '{range_spec}'. Use HH:MM:SS-HH:MM:SS format."
-        if start >= end:
-            return f"Start time ({_format_timestamp(start)}) must be before end time ({_format_timestamp(end)})."
-        if end > dur:
-            end = dur
-        return f"Video segment {_format_timestamp(start)}-{_format_timestamp(end)} of {_format_timestamp(dur)} from {path}. Model analysis would be performed here."
-    return f"Video: {path}\nDuration: {_format_timestamp(dur)}\nModel analysis would be performed here."
+
+    if not range_spec:
+        if dur > 30:
+            return f"Video: {path}\nDuration: {_format_timestamp(dur)}\nVideo is longer than 30s. Use watch <path> HH:MM:SS-HH:MM:SS to watch a segment."
+        if model is None or processor is None:
+            return f"Video: {path}\nDuration: {_format_timestamp(dur)}\nModel not loaded — cannot analyze."
+        result = _run_multimodal_inference(processor, model, "Watch this video and describe what you see and hear.", videos=[path])
+        return f"Video: {path}\nDuration: {_format_timestamp(dur)}\nAnalysis: {result}"
+
+    start, end = _parse_time_range(range_spec)
+    if start is None or end is None:
+        return f"Invalid time range '{range_spec}'. Use HH:MM:SS-HH:MM:SS format."
+    if start >= end:
+        return f"Start time ({_format_timestamp(start)}) must be before end time ({_format_timestamp(end)})."
+    if end > dur:
+        end = dur
+
+    seg_dur = end - start
+    if seg_dur > 60:
+        return f"Segment {_format_timestamp(start)}-{_format_timestamp(end)} is {seg_dur:.0f}s. Max is 60s. Use a smaller range."
+
+    tmp_dir = tempfile.mkdtemp(prefix='vadar_watch_')
+    seg_path = os.path.join(tmp_dir, f'segment.mp4')
+    try:
+        if not _cut_media_segment(path, start, end, seg_path, is_video=True):
+            return f"Error: failed to cut video segment {start}-{end} from {path}"
+        if model is None or processor is None:
+            return f"Video segment {_format_timestamp(start)}-{_format_timestamp(end)} of {_format_timestamp(dur)}. Model not loaded."
+        prompt = f"This is a video segment from {_format_timestamp(start)} to {_format_timestamp(end)}. Describe what you see and hear."
+        result = _run_multimodal_inference(processor, model, prompt, videos=[seg_path])
+        return f"Video segment {_format_timestamp(start)}-{_format_timestamp(end)} of {_format_timestamp(dur)}.\nAnalysis: {result}"
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @register_tool('read_role')
