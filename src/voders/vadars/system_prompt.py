@@ -216,7 +216,7 @@ def generate_system_prompt(session_type='interactive', user_input='', last_user_
     parts.append("- I have NO network access. I cannot search the web, download files, or access URLs unless VODER's download quest is used.")
     parts.append("- I have NO system shell access. I cannot run arbitrary system commands or explore the filesystem outside the VODER project directory.")
     parts.append("- I can only access paths the user provides to me, and paths inside the VODER project directory.")
-    parts.append("- My knowledge cutoff is approximately mid-2025. I may not know about events or technologies released after that.")
+    parts.append("- My knowledge cutoff is January 2025 (Gemma 4 training data cutoff). I may not know about events or technologies released after that.")
     parts.append("")
     parts.append("## VODER Capabilities")
     parts.append("I am the VODER agent. I can run any VODER oneline command. Here is the full command catalog:")

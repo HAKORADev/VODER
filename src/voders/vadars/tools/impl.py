@@ -343,6 +343,60 @@ def tool_calculate(args):
         sys.stdout = old_stdout
 
 
+def _generate_tts_narration(text, output_path):
+    try:
+        from voder import parse_and_execute_oneline
+        old_cwd = os.getcwd()
+        os.chdir(os.path.dirname(output_path))
+        tokens = ['tts', 'script', text, 'voice', 'calm narrator, clear pronunciation, male']
+        old_stdout = sys.stdout
+        sys.stdout = open(os.devnull, 'w')
+        try:
+            parse_and_execute_oneline(tokens)
+        finally:
+            sys.stdout.close()
+            sys.stdout = old_stdout
+            os.chdir(old_cwd)
+        results_dir = os.path.join(os.path.dirname(output_path), 'results')
+        if os.path.isdir(results_dir):
+            files = sorted(
+                [os.path.join(results_dir, f) for f in os.listdir(results_dir) if f.endswith('.wav')],
+                key=os.path.getmtime, reverse=True,
+            )
+            if files:
+                shutil.copy2(files[0], output_path)
+                shutil.rmtree(results_dir, ignore_errors=True)
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def _concat_audio(first_path, second_path, output_path):
+    cmd = ['ffmpeg', '-y', '-i', first_path, '-i', second_path,
+           '-filter_complex', '[0:a][1:a]concat=n=2:v=0:a=1[out]',
+           '-map', '[out]', '-c:a', 'pcm_s16le', '-ar', '16000', '-ac', '1',
+           output_path]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    return r.returncode == 0 and os.path.exists(output_path)
+
+
+def _format_narration_text(start, end):
+    def to_words(ts):
+        h = int(ts // 3600)
+        m = int((ts % 3600) // 60)
+        s = int(ts % 60)
+        parts = []
+        if h > 0:
+            parts.append(f"hour {h}")
+        if m > 0:
+            parts.append(f"minute {m}")
+        if s > 0 or not parts:
+            parts.append(f"second {s}")
+        return " ".join(parts)
+    return f"From {to_words(start)} to {to_words(end)}."
+
+
 def _cut_media_segment(input_path, start, end, output_path, is_video=False):
     cmd = ['ffmpeg', '-y', '-i', input_path, '-ss', str(start), '-to', str(end),
            '-c:a', 'pcm_s16le', '-ar', '16000', '-ac', '1']
@@ -456,8 +510,18 @@ def tool_listen(args, model=None, processor=None):
             return f"Error: failed to cut audio segment {start}-{end} from {path}"
         if model is None or processor is None:
             return f"Audio segment {_format_timestamp(start)}-{_format_timestamp(end)} of {_format_timestamp(dur)}. Model not loaded."
-        prompt = f"This is an audio segment from {_format_timestamp(start)} to {_format_timestamp(end)}. Describe what you hear."
-        result = _run_multimodal_inference(processor, model, prompt, audios=[seg_path])
+
+        narration_text = _format_narration_text(start, end)
+        narration_path = os.path.join(tmp_dir, 'narration.wav')
+        combined_path = os.path.join(tmp_dir, 'combined.wav')
+        has_narration = False
+        if _generate_tts_narration(narration_text, narration_path):
+            if _concat_audio(narration_path, seg_path, combined_path):
+                has_narration = True
+
+        feed_path = combined_path if has_narration else seg_path
+        prompt = f"This is an audio segment from {_format_timestamp(start)} to {_format_timestamp(end)} (duration: {seg_dur:.0f}s). The audio may start with a voice narration stating the time range. Describe what you hear."
+        result = _run_multimodal_inference(processor, model, prompt, audios=[feed_path])
         return f"Audio segment {_format_timestamp(start)}-{_format_timestamp(end)} of {_format_timestamp(dur)}.\nAnalysis: {result}"
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -667,17 +731,19 @@ def tool_search_media(args):
             'yt-dlp', search_url,
             '--flat-playlist',
             '--playlist-end', str(count),
-            '--match-filter', 'url LIKE %/watch% OR url LIKE %/video% OR url LIKE %/status% OR url LIKE %/spotlight% OR url LIKE %/explore%',
             '--print', 'Title: %(title)s | URL: %(url)s | Platform: %(extractor)s',
         ]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if r.returncode != 0:
             err = r.stderr.strip()[-500:] if r.stderr else 'unknown error'
             return f"Search failed: {err}"
-        results = r.stdout.strip()
-        if not results:
-            return f"No results found for '{query}' on {platform}."
-        return f"Search results for '{query}' on {platform} ({count} max):\n\n{results}"
+        all_lines = r.stdout.strip().split('\n') if r.stdout.strip() else []
+        video_indicators = ('/watch', '/video/', '/status/', '/spotlight/', '/explore/', '/reel/', 'youtu.be/', 'tiktok.com/@')
+        filtered = [line for line in all_lines if any(ind in line.lower() for ind in video_indicators)]
+        results = '\n'.join(filtered) if filtered else '\n'.join(all_lines)
+        if not results.strip():
+            return f"No video results found for '{query}' on {platform}."
+        return f"Search results for '{query}' on {platform} ({len(filtered) if filtered else len(all_lines)} videos, {count} max):\n\n{results}"
     except FileNotFoundError:
         return "yt-dlp is not installed. Install with: pip install yt-dlp"
     except subprocess.TimeoutExpired:
