@@ -2322,7 +2322,7 @@ python src/voder.py cli
 - Each VADAR invocation creates a session directory at `src/voders/vadars/sessions/<timestamp>_<type>/` containing `inputs.txt`, `outputs.txt`, `acts.txt`, `log.txt`, and `context.txt`.
 - VADAR is part of the VODER brotherhood alongside Eval (evaluates plans and results) and Summarizer (condenses long outputs).
 - VADAR's personality is configurable via `src/voders/vadars/about/` — `personality.md` (shipped with content), `custom-vadar.md` (empty by default — you write your own VADAR traits like "I am supportive and funny"), `user.md` (empty by default — you write things about yourself like "my name is John"), and `how-to-respond.md` (shipped with content) — all in the first person ("I").
-- Config: `src/voders/vadars/ping-time.txt` (default 15s) and `src/voders/vadars/supported_libs.txt` (default `math`).
+- Config: `src/voders/vadars/config.json (ping_time field)` (default 15s) and `src/voders/vadars/supported_libs.txt` (default `math`).
 - VADAR is a generative model — it may pick different acts across runs for the same prompt. For deterministic pipelines, use `chains` directly.
 
 ---

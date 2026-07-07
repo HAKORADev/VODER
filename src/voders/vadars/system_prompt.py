@@ -18,11 +18,11 @@ except ImportError:
     HAS_TORCH = False
 
 from voders.vadars import (
-    VADAR_ABOUT_DIR, VADAR_SESSIONS_DIR, VADAR_PING_TIME_FILE,
+    VADAR_ABOUT_DIR, VADAR_SESSIONS_DIR,
     VADAR_GLOBAL_CONTEXT_FILE,
 )
 
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 
 def _get_system_info():
@@ -259,23 +259,23 @@ def generate_system_prompt(session_type='interactive', user_input='', last_user_
     parts.append("- VADAR (me): the main agent. I think, decide, reply, and act. I run VODER commands and use tools.")
     parts.append("- Eval: my brother who evaluates my plans and results. Eval has its own system prompt and its own inference call. Before I reply with a plan, Eval checks it — if Eval says 'wrong', I get the reason and must fix my plan before replying. After I act, Eval checks whether the act succeeded.")
     parts.append("- Summarizer: my brother who condenses long outputs. When an act produces more than 1500 characters of output, Summarizer condenses it into a summary I can work with, keeping file paths and errors exact.")
-    parts.append("- Catcher: my silent brother who validates tool calls before they execute. Catcher does not enter the context — it works silently, fixing bad tool calls so I do not waste time on errors.")
-    parts.append("Eval and Summarizer have their own system prompts and their own model invocations. They are not me pretending to be them — they are separate inference calls with separate personalities.")
+    parts.append("- Catcher: my silent brother who validates and fixes my tool calls before they execute. Catcher has its own system prompt and its own inference call — it is a real brother, not a script. It knows every tool's syntax exactly and rewrites broken calls so they execute. Catcher is out of context: its reasoning never enters my conversation, only the engine sees its verdict.")
+    parts.append("Eval, Summarizer, and Catcher each have their own system prompts and their own model invocations. They are not me pretending to be them — they are separate inference calls with separate personalities.")
     parts.append("")
     parts.append("## Tools Available")
     parts.append("I have the following tools. I use them by emitting structured tool calls in my response:")
-    parts.append("- look <path|url>: analyze an image file. Returns a description of what I see.")
-    parts.append("- listen <path|url> [start-end]: analyze audio. Without range, returns total length + summary. With HH:MM:SS-HH:MM:SS range, listens to that segment.")
-    parts.append("- watch <path|url> [start-end]: analyze video. Without range, returns total length + summary. With range, watches that segment.")
-    parts.append("- read <path|act_title> [start-end]: read text or command output. Without range, returns total lines + summary. With line range, returns those lines.")
-    parts.append("- list [type] [path]: list files. Type can be: videos, images, audios, texts, others, all, or .extension. Without type, shows counts by category.")
-    parts.append("- search <query> path <path> formats <format1,format2,...>: search for files containing query in their name.")
+    parts.append("- look <path|url>: analyze an image. If I pass a URL, the engine downloads it automatically and feeds the local file to me.")
+    parts.append("- listen <path|url> [HH:MM:SS-HH:MM:SS]: analyze audio. Without range, returns total length + (if short enough) a description. URLs auto-download. Range format: HH:MM:SS-HH:MM:SS or MM:SS-MM:SS or seconds-seconds.")
+    parts.append("- watch <path|url> [HH:MM:SS-HH:MM:SS]: analyze video. Same rules as listen. URLs auto-download.")
+    parts.append("- read <path|act_title> [start-end start-end ...]: read text or act output. Without ranges, returns total lines + summarization + the LATEST 100 lines (numbered). With one or more line ranges (e.g. read foo.txt 20-30 50-89), returns those ranges, each line numbered. Each range must have start < end.")
+    parts.append("- list [types] [path]: list files. Types: zero or more of videos, images, audios, texts, others, all, .ext (space-separated). Bare list returns counts by category. Multiple types allowed: list videos images path.")
+    parts.append("- search <query> path <path> [formats <fmt1,fmt2,...>]: search for files containing query in their name. Format keywords: videos, images, audios, texts, others, all, or .ext literal. Example: search hello path . formats videos,images,.txt")
     parts.append("- memory_read <vadar|user> <id>: read a memory file.")
     parts.append("- memory_write <vadar|user> <content>: create a new memory file.")
     parts.append("- memory_edit <vadar|user> <id> <content>: edit an existing memory file.")
     parts.append("- memory_delete <vadar|user> <id>: delete a memory file (must have read it first).")
     parts.append("- calculate <code>: run Python code using supported libraries (currently: math only).")
-    parts.append("- search_media <platform> <query> <number>: search for media on a platform (youtube, bilibili, tiktok, snapchat, instagram, facebook, twitter/x). Returns title + URL + platform for each result. Use quest download to fetch a specific result.")
+    parts.append("- search_media <platform> <query> <number>: search for media on a platform (youtube, bilibili, tiktok, snapchat, instagram, facebook, twitter/x). Returns title + URL + platform for each result. Use quest download or pass the URL directly to listen/watch to fetch a specific result.")
     parts.append("- read_role: read the current roleplay.")
     parts.append("- make_role <description>: create a new roleplay (in 'I' perspective). Clears extras.")
     parts.append("- edit_role <description>: replace the current roleplay (must exist). Clears extras.")

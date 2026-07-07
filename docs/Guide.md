@@ -2284,7 +2284,7 @@ VADAR's personality is defined in `src/voders/vadars/about/`, all written in the
 
 | File | Default | Purpose |
 |------|---------|---------|
-| `src/voders/vadars/ping-time.txt` | `15` (seconds) | How long VADAR waits before it can be "pinged" to check in on a silent user. |
+| `src/voders/vadars/config.json (ping_time field)` | `15` (seconds) | How long VADAR waits before it can be "pinged" to check in on a silent user. |
 | `src/voders/vadars/supported_libs.txt` | `math` | Whitelist of Python libraries the `calculate` tool can import. One library per line. Add more libraries (e.g., `numpy`, `statistics`) to expand what `calculate` can do. |
 
 #### Brotherhood

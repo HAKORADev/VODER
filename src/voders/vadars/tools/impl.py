@@ -6,6 +6,7 @@ import tempfile
 import shutil
 import json
 import math as _math
+import urllib.request
 
 from voders.vadars.tools import register_tool
 from voders.vadars import (
@@ -13,11 +14,19 @@ from voders.vadars import (
     VADAR_ROLEPLAY_FILE, VADAR_ROLEPLAY_EXTRAS_FILE,
 )
 
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+_RESULTS_DIR = os.path.join(_PROJECT_ROOT, 'results')
 _VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm', '.m4v', '.3gp', '.wmv', '.ts', '.mts'}
 _IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
 _AUDIO_EXTENSIONS = {'.wav', '.mp3', '.flac', '.ogg', '.aac', '.m4a', '.wma', '.opus'}
 _TEXT_EXTENSIONS = {'.txt', '.md', '.py', '.js', '.json', '.yaml', '.yml', '.xml', '.csv', '.tsv', '.html', '.css', '.log', '.chain'}
+
+_EXT_CATEGORY_MAP = {
+    'videos': _VIDEO_EXTENSIONS,
+    'images': _IMAGE_EXTENSIONS,
+    'audios': _AUDIO_EXTENSIONS,
+    'texts': _TEXT_EXTENSIONS,
+}
 
 
 def _is_within_project(path):
@@ -26,6 +35,51 @@ def _is_within_project(path):
         return abs_path.startswith(_PROJECT_ROOT)
     except Exception:
         return False
+
+
+def _is_url(s):
+    return isinstance(s, str) and (s.startswith('http://') or s.startswith('https://'))
+
+
+def _download_url_to_local(url, kind):
+    os.makedirs(_RESULTS_DIR, exist_ok=True)
+    try:
+        from voder import download_url_audio, download_url_video
+    except Exception as e:
+        return None, f"VODER download functions unavailable: {e}"
+    if kind == 'audio':
+        ok, err, path = download_url_audio(url, temp_dir=_RESULTS_DIR)
+    elif kind == 'video':
+        ok, err, path = download_url_video(url, temp_dir=_RESULTS_DIR)
+    else:
+        try:
+            ext = os.path.splitext(url.split('?')[0])[1].lower() or '.jpg'
+            if ext not in _IMAGE_EXTENSIONS:
+                ext = '.jpg'
+            local = os.path.join(_RESULTS_DIR, f"vadar_img_{int(__import__('time').time())}{ext}")
+            urllib.request.urlretrieve(url, local)
+            return local, None
+        except Exception as e:
+            return None, f"Image download failed: {e}"
+    if not ok or not path:
+        return None, err or "Download failed."
+    return path, None
+
+
+def _resolve_media_target(target, kind):
+    target = (target or '').strip().strip('"\'')
+    if not target:
+        return None, "Missing path or URL."
+    if _is_url(target):
+        local, err = _download_url_to_local(target, kind)
+        if err:
+            return None, f"Download failed for {target}: {err}"
+        return local, None
+    if not os.path.exists(target):
+        return None, f"File not found: {target}"
+    if not _is_within_project(target):
+        return None, f"Path '{target}' is outside the VODER project directory."
+    return target, None
 
 
 def _ffprobe_duration(path):
@@ -69,11 +123,38 @@ def _format_timestamp(seconds):
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
+def _parse_format_list(formats_str):
+    if not formats_str:
+        return None
+    combined = set()
+    include_others = False
+    for raw in formats_str.split(','):
+        fmt = raw.strip().lower()
+        if not fmt:
+            continue
+        if fmt in _EXT_CATEGORY_MAP:
+            combined |= _EXT_CATEGORY_MAP[fmt]
+        elif fmt == 'others':
+            include_others = True
+        elif fmt == 'all':
+            combined |= _VIDEO_EXTENSIONS | _IMAGE_EXTENSIONS | _AUDIO_EXTENSIONS | _TEXT_EXTENSIONS
+        else:
+            if not fmt.startswith('.'):
+                fmt = '.' + fmt
+            combined.add(fmt)
+    return combined, include_others
+
+
 @register_tool('list')
 def tool_list(args):
-    parts = args.strip().split(None, 1)
-    types_str = parts[0].lower() if parts else 'all'
-    path = parts[1].strip() if len(parts) > 1 else _PROJECT_ROOT
+    tokens = args.strip().split()
+    types_tokens = []
+    path = _PROJECT_ROOT
+    for tok in tokens:
+        if os.path.sep in tok or os.path.exists(tok) or tok in ('.', '..'):
+            path = tok.strip('"\'')
+        else:
+            types_tokens.append(tok.lower())
     if not _is_within_project(path):
         return f"Error: path '{path}' is outside the VODER project directory. I can only list files inside the project."
     if not os.path.isdir(path):
@@ -83,8 +164,7 @@ def tool_list(args):
         dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('__pycache__', 'node_modules', '.git')]
         for fname in fnames:
             files.append(os.path.join(root, fname))
-    list_types = types_str.split()
-    if len(list_types) == 0 or (len(list_types) == 1 and list_types[0] in ('all', '')):
+    if not types_tokens or (len(types_tokens) == 1 and types_tokens[0] in ('all', '')):
         counts = {'videos': 0, 'images': 0, 'audios': 0, 'texts': 0, 'others': 0}
         for f in files:
             ext = os.path.splitext(f)[1].lower()
@@ -94,38 +174,36 @@ def tool_list(args):
             elif ext in _TEXT_EXTENSIONS: counts['texts'] += 1
             else: counts['others'] += 1
         return f"{counts['videos']} videos, {counts['images']} images, {counts['audios']} audios, {counts['texts']} text files, {counts['others']} others (total: {len(files)})"
-    ext_map = {
-        'videos': _VIDEO_EXTENSIONS, 'images': _IMAGE_EXTENSIONS,
-        'audios': _AUDIO_EXTENSIONS, 'texts': _TEXT_EXTENSIONS,
-    }
-    combined_exts = set()
-    for lt in list_types:
-        if lt in ext_map:
-            combined_exts |= ext_map[lt]
+    combined = set()
+    include_others = False
+    for lt in types_tokens:
+        if lt in _EXT_CATEGORY_MAP:
+            combined |= _EXT_CATEGORY_MAP[lt]
         elif lt == 'others':
-            combined_exts |= set(['__others__'])
+            include_others = True
+        elif lt == 'all':
+            combined |= _VIDEO_EXTENSIONS | _IMAGE_EXTENSIONS | _AUDIO_EXTENSIONS | _TEXT_EXTENSIONS
         elif lt.startswith('.'):
-            combined_exts.add(lt.lower())
+            combined.add(lt.lower())
     filtered = []
     for f in files:
         ext = os.path.splitext(f)[1].lower()
-        if '__others__' in combined_exts:
-            if ext not in (_VIDEO_EXTENSIONS | _IMAGE_EXTENSIONS | _AUDIO_EXTENSIONS | _TEXT_EXTENSIONS):
-                filtered.append(f)
-        elif ext in combined_exts:
+        if include_others and ext not in (_VIDEO_EXTENSIONS | _IMAGE_EXTENSIONS | _AUDIO_EXTENSIONS | _TEXT_EXTENSIONS):
+            filtered.append(f)
+        elif ext in combined:
             filtered.append(f)
     if not filtered:
-        return f"No files matching types '{types_str}' found in {path}"
+        return f"No files matching types '{' '.join(types_tokens)}' found in {path}"
     return '\n'.join(sorted(filtered)[:200])
 
 
 @register_tool('search')
 def tool_search(args):
-    m = re.match(r'^(.+?)\s+path\s+(\S+)(?:\s+formats\s+(.+))?$', args.strip())
+    m = re.match(r'^(.+?)\s+path\s+(\S+)(?:\s+formats\s+(.+))?$', args.strip(), re.IGNORECASE)
     if not m:
         m2 = re.match(r'^(.+?)\s+(\S+)(?:\s+(.+))?$', args.strip())
         if not m2:
-            return "Usage: search <query> path <path> [formats <format1,format2,...>]"
+            return "Usage: search <query> path <path> [formats <videos,images,.ext,...>]"
         query = m2.group(1).strip('"\'')
         path = m2.group(2).strip('"\'')
         formats = m2.group(3)
@@ -137,35 +215,62 @@ def tool_search(args):
         return f"Error: path '{path}' is outside the VODER project directory."
     if not os.path.isdir(path):
         return f"Error: '{path}' is not a directory."
-    results = []
     ext_filter = None
+    include_others = False
     if formats:
-        ext_filter = set()
-        for fmt in formats.split(','):
-            fmt = fmt.strip().lower()
-            if not fmt.startswith('.'):
-                fmt = '.' + fmt
-            ext_filter.add(fmt)
+        ext_filter, include_others = _parse_format_list(formats)
+    results = []
+    all_known = _VIDEO_EXTENSIONS | _IMAGE_EXTENSIONS | _AUDIO_EXTENSIONS | _TEXT_EXTENSIONS
     for root, dirs, fnames in os.walk(path):
         dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('__pycache__', '.git')]
         for fname in fnames:
-            if query.lower() in fname.lower():
-                if ext_filter and os.path.splitext(fname)[1].lower() not in ext_filter:
+            if query.lower() not in fname.lower():
+                continue
+            if ext_filter is not None:
+                ext = os.path.splitext(fname)[1].lower()
+                if ext in ext_filter:
+                    pass
+                elif include_others and ext not in all_known:
+                    pass
+                else:
                     continue
-                results.append(os.path.join(root, fname))
+            results.append(os.path.join(root, fname))
     if not results:
         return f"No files matching '{query}' found in {path}"
     results.sort()
     return '\n'.join(results[:200])
 
 
+def _parse_line_ranges(ranges_str):
+    ranges = []
+    for token in ranges_str.split():
+        if '-' not in token:
+            return None, f"Invalid range '{token}'. Use start-end (e.g., 20-30)."
+        parts = token.split('-')
+        if len(parts) != 2:
+            return None, f"Invalid range '{token}'. Use start-end (e.g., 20-30)."
+        try:
+            start = int(parts[0].strip())
+            end = int(parts[1].strip())
+        except ValueError:
+            return None, f"Invalid range '{token}'. Start and end must be integers."
+        if start >= end:
+            return None, f"Start line ({start}) must be smaller than end line ({end}) in range '{token}'."
+        if start < 1:
+            return None, f"Start line ({start}) must be at least 1 in range '{token}'."
+        ranges.append((start, end))
+    if not ranges:
+        return None, "No valid ranges provided."
+    return ranges, None
+
+
 @register_tool('read')
 def tool_read(args, session_dir=None, act_outputs=None):
     parts = args.strip().split(None, 1)
     if not parts:
-        return "Usage: read <path|act_title> [start-end]"
+        return "Usage: read <path|act_title> [start-end start-end ...]"
     target = parts[0].strip('"\'')
-    range_spec = parts[1].strip() if len(parts) > 1 else None
+    ranges_str = parts[1].strip() if len(parts) > 1 else None
     content = None
     if act_outputs and target in act_outputs:
         content = act_outputs[target]
@@ -187,22 +292,22 @@ def tool_read(args, session_dir=None, act_outputs=None):
     lines = content.split('\n')
     total = len(lines)
 
-    if range_spec and '-' in range_spec:
-        start_str, end_str = range_spec.split('-', 1)
-        try:
-            start = int(start_str.strip())
-            end = int(end_str.strip())
-        except ValueError:
-            return f"Invalid line range '{range_spec}'. Use start-end (e.g., 20-30)."
-        if start < 1: start = 1
-        if end > total: end = total
-        if start > end:
-            return f"Start line ({start}) must be smaller than end line ({end})."
-        selected = lines[start-1:end]
-        result = f"Lines {start}-{end} of {total}:\n"
-        for i, line in enumerate(selected, start=start):
-            result += f"{i:6d}: {line}\n"
-        return result
+    if ranges_str:
+        ranges, err = _parse_line_ranges(ranges_str)
+        if err:
+            return err
+        out_parts = [f"Total lines: {total}", f"Target: {target}", ""]
+        for (start, end) in ranges:
+            s = max(1, start)
+            e = min(total, end)
+            if s > e:
+                out_parts.append(f"Range {start}-{end}: out of bounds (file has {total} lines).")
+                continue
+            out_parts.append(f"--- Lines {s}-{e} of {total} ---")
+            for i, line in enumerate(lines[s-1:e], start=s):
+                out_parts.append(f"{i:6d}: {line}")
+            out_parts.append("")
+        return '\n'.join(out_parts).rstrip()
 
     try:
         from voder import vadar_load_config
@@ -210,23 +315,31 @@ def tool_read(args, session_dir=None, act_outputs=None):
         preview_count = config.get('read_preview_lines', 100)
     except Exception:
         preview_count = 100
+    if preview_count < 1:
+        preview_count = 100
 
-    preview_lines = lines[:preview_count]
-    result = f"Total lines: {total}\n--- First {preview_count} lines (numbered) ---\n"
-    for i, line in enumerate(preview_lines, start=1):
-        result += f"{i:6d}: {line}\n"
-    if total > preview_count:
-        result += f"... ({total - preview_count} more lines. Use read <target> {preview_count+1}-{total} to see them.)"
-
+    summary_block = ""
     if len(content) > 1500:
         try:
             from voders.vadars.summarizer import summarize_output
             summary = summarize_output(content, context_label=target)
-            result = f"Total lines: {total}\n--- Summary ---\n{summary}\n" + result
+            summary_block = f"--- Summary ---\n{summary}\n\n"
         except Exception:
             pass
 
-    return result
+    if total > preview_count:
+        preview_lines = lines[-preview_count:]
+        start_idx = total - preview_count + 1
+    else:
+        preview_lines = lines[:]
+        start_idx = 1
+    header = f"Total lines: {total}\nTarget: {target}\n"
+    if total > preview_count:
+        header += f"Showing latest {preview_count} lines (numbered). Use 'read {target} start-end' to read specific ranges.\n"
+    body = []
+    for i, line in enumerate(preview_lines, start=start_idx):
+        body.append(f"{i:6d}: {line}")
+    return summary_block + header + '\n'.join(body)
 
 
 @register_tool('memory_read')
@@ -467,44 +580,48 @@ def _run_multimodal_inference(processor, model, text_prompt, images=None, audios
 
 @register_tool('look')
 def tool_look(args, model=None, processor=None):
-    path = args.strip().strip('"\'')
-    if not path:
-        return "Usage: look <image_path>"
-    if not os.path.exists(path):
-        return f"Image not found: {path}"
-    if not _is_within_project(path):
-        return f"Error: '{path}' is outside the VODER project directory."
-    ext = os.path.splitext(path)[1].lower()
+    raw = args.strip().strip('"\'')
+    if not raw:
+        return "Usage: look <image_path_or_url>"
+    local, err = _resolve_media_target(raw, 'image')
+    if err:
+        return err
+    ext = os.path.splitext(local)[1].lower()
     if ext not in _IMAGE_EXTENSIONS:
-        return f"'{path}' does not appear to be an image file."
+        return f"'{local}' does not appear to be an image file."
     if model is None or processor is None:
-        return f"Image at {path} ({os.path.getsize(path)} bytes). Model not loaded — cannot analyze."
-    result = _run_multimodal_inference(processor, model, "Describe this image in detail. What do you see?", images=[path])
-    return f"Image: {path}\nAnalysis: {result}"
+        return f"Image at {local} ({os.path.getsize(local)} bytes). Model not loaded — cannot analyze."
+    result = _run_multimodal_inference(processor, model, "Describe this image in detail. What do you see?", images=[local])
+    return f"Image: {local}\nAnalysis: {result}"
 
 
 @register_tool('listen')
 def tool_listen(args, model=None, processor=None):
     parts = args.strip().split(None, 1)
-    path = parts[0].strip('"\'') if parts else ''
+    target = parts[0].strip('"\'') if parts else ''
     range_spec = parts[1].strip() if len(parts) > 1 else None
-    if not path:
-        return "Usage: listen <audio_path> [HH:MM:SS-HH:MM:SS]"
-    if not os.path.exists(path):
-        return f"Audio not found: {path}"
-    if not _is_within_project(path):
-        return f"Error: '{path}' is outside the VODER project directory."
-    dur = _ffprobe_duration(path)
+    if not target:
+        return "Usage: listen <audio_path_or_url> [HH:MM:SS-HH:MM:SS]"
+    local, err = _resolve_media_target(target, 'audio')
+    if err:
+        return err
+    dur = _ffprobe_duration(local)
     if dur is None:
-        return f"Could not determine duration of {path}"
+        return f"Could not determine duration of {local}"
 
     if not range_spec:
-        if dur > 30:
-            return f"Audio: {path}\nDuration: {_format_timestamp(dur)}\nAudio is longer than 30s. Use listen <path> HH:MM:SS-HH:MM:SS to listen to a segment."
+        try:
+            from voder import vadar_load_config
+            config = vadar_load_config()
+            auto_threshold = config.get('listen_auto_threshold', 30)
+        except Exception:
+            auto_threshold = 30
+        if dur > auto_threshold:
+            return f"Audio: {local}\nDuration: {_format_timestamp(dur)}\nAudio is longer than {auto_threshold}s. Use listen <target> HH:MM:SS-HH:MM:SS to listen to a segment."
         if model is None or processor is None:
-            return f"Audio: {path}\nDuration: {_format_timestamp(dur)}\nModel not loaded — cannot analyze."
-        result = _run_multimodal_inference(processor, model, "Listen to this audio and describe what you hear.", audios=[path])
-        return f"Audio: {path}\nDuration: {_format_timestamp(dur)}\nAnalysis: {result}"
+            return f"Audio: {local}\nDuration: {_format_timestamp(dur)}\nModel not loaded — cannot analyze."
+        result = _run_multimodal_inference(processor, model, "Listen to this audio and describe what you hear.", audios=[local])
+        return f"Audio: {local}\nDuration: {_format_timestamp(dur)}\nAnalysis: {result}"
 
     start, end = _parse_time_range(range_spec)
     if start is None or end is None:
@@ -514,15 +631,22 @@ def tool_listen(args, model=None, processor=None):
     if end > dur:
         end = dur
 
+    try:
+        from voder import vadar_load_config
+        config = vadar_load_config()
+        max_seg = config.get('listen_max_segment', 60)
+    except Exception:
+        max_seg = 60
+
     seg_dur = end - start
-    if seg_dur > 60:
-        return f"Segment {_format_timestamp(start)}-{_format_timestamp(end)} is {seg_dur:.0f}s. Max is 60s. Use a smaller range."
+    if seg_dur > max_seg:
+        return f"Segment {_format_timestamp(start)}-{_format_timestamp(end)} is {seg_dur:.0f}s. Max is {max_seg}s. Use a smaller range."
 
     tmp_dir = tempfile.mkdtemp(prefix='vadar_listen_')
     seg_path = os.path.join(tmp_dir, f'segment.wav')
     try:
-        if not _cut_media_segment(path, start, end, seg_path, is_video=False):
-            return f"Error: failed to cut audio segment {start}-{end} from {path}"
+        if not _cut_media_segment(local, start, end, seg_path, is_video=False):
+            return f"Error: failed to cut audio segment {start}-{end} from {local}"
         if model is None or processor is None:
             return f"Audio segment {_format_timestamp(start)}-{_format_timestamp(end)} of {_format_timestamp(dur)}. Model not loaded."
 
@@ -545,28 +669,33 @@ def tool_listen(args, model=None, processor=None):
 @register_tool('watch')
 def tool_watch(args, model=None, processor=None):
     parts = args.strip().split(None, 1)
-    path = parts[0].strip('"\'') if parts else ''
+    target = parts[0].strip('"\'') if parts else ''
     range_spec = parts[1].strip() if len(parts) > 1 else None
-    if not path:
-        return "Usage: watch <video_path> [HH:MM:SS-HH:MM:SS]"
-    if not os.path.exists(path):
-        return f"Video not found: {path}"
-    if not _is_within_project(path):
-        return f"Error: '{path}' is outside the VODER project directory."
-    ext = os.path.splitext(path)[1].lower()
+    if not target:
+        return "Usage: watch <video_path_or_url> [HH:MM:SS-HH:MM:SS]"
+    local, err = _resolve_media_target(target, 'video')
+    if err:
+        return err
+    ext = os.path.splitext(local)[1].lower()
     if ext not in _VIDEO_EXTENSIONS:
-        return f"'{path}' does not appear to be a video file."
-    dur = _ffprobe_duration(path)
+        return f"'{local}' does not appear to be a video file."
+    dur = _ffprobe_duration(local)
     if dur is None:
-        return f"Could not determine duration of {path}"
+        return f"Could not determine duration of {local}"
 
     if not range_spec:
-        if dur > 30:
-            return f"Video: {path}\nDuration: {_format_timestamp(dur)}\nVideo is longer than 30s. Use watch <path> HH:MM:SS-HH:MM:SS to watch a segment."
+        try:
+            from voder import vadar_load_config
+            config = vadar_load_config()
+            auto_threshold = config.get('listen_auto_threshold', 30)
+        except Exception:
+            auto_threshold = 30
+        if dur > auto_threshold:
+            return f"Video: {local}\nDuration: {_format_timestamp(dur)}\nVideo is longer than {auto_threshold}s. Use watch <target> HH:MM:SS-HH:MM:SS to watch a segment."
         if model is None or processor is None:
-            return f"Video: {path}\nDuration: {_format_timestamp(dur)}\nModel not loaded — cannot analyze."
-        result = _run_multimodal_inference(processor, model, "Watch this video and describe what you see and hear.", videos=[path])
-        return f"Video: {path}\nDuration: {_format_timestamp(dur)}\nAnalysis: {result}"
+            return f"Video: {local}\nDuration: {_format_timestamp(dur)}\nModel not loaded — cannot analyze."
+        result = _run_multimodal_inference(processor, model, "Watch this video and describe what you see and hear.", videos=[local])
+        return f"Video: {local}\nDuration: {_format_timestamp(dur)}\nAnalysis: {result}"
 
     start, end = _parse_time_range(range_spec)
     if start is None or end is None:
@@ -577,14 +706,20 @@ def tool_watch(args, model=None, processor=None):
         end = dur
 
     seg_dur = end - start
-    if seg_dur > 60:
-        return f"Segment {_format_timestamp(start)}-{_format_timestamp(end)} is {seg_dur:.0f}s. Max is 60s. Use a smaller range."
+    try:
+        from voder import vadar_load_config
+        config = vadar_load_config()
+        max_seg = config.get('listen_max_segment', 60)
+    except Exception:
+        max_seg = 60
+    if seg_dur > max_seg:
+        return f"Segment {_format_timestamp(start)}-{_format_timestamp(end)} is {seg_dur:.0f}s. Max is {max_seg}s. Use a smaller range."
 
     tmp_dir = tempfile.mkdtemp(prefix='vadar_watch_')
     seg_path = os.path.join(tmp_dir, f'segment.mp4')
     try:
-        if not _cut_media_segment(path, start, end, seg_path, is_video=True):
-            return f"Error: failed to cut video segment {start}-{end} from {path}"
+        if not _cut_media_segment(local, start, end, seg_path, is_video=True):
+            return f"Error: failed to cut video segment {start}-{end} from {local}"
         if model is None or processor is None:
             return f"Video segment {_format_timestamp(start)}-{_format_timestamp(end)} of {_format_timestamp(dur)}. Model not loaded."
         prompt = f"This is a video segment from {_format_timestamp(start)} to {_format_timestamp(end)}. Describe what you see and hear."

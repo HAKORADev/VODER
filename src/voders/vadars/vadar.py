@@ -12,7 +12,7 @@ from voders.vadars import VADAR_SESSIONS_DIR
 from voders.vadars.system_prompt import generate_system_prompt
 from voders.vadars.context import ContextManager, create_session, log_input, log_output, log_act
 from voders.vadars.tools import TOOL_REGISTRY
-from voders.vadars.tools.validator import catch_and_fix
+from voders.vadars.catcher import catch_and_fix
 
 
 TOOL_CALL_RE = re.compile(r'<tool_call>\s*(\w+)\s*(.*?)\s*</tool_call>', re.DOTALL)
@@ -225,48 +225,32 @@ def _detect_inputs(text):
 
 
 def _auto_hear_inputs(inputs, session_dir, act_outputs, model, processor):
+    from voders.vadars.tools.impl import _VIDEO_EXTENSIONS, _IMAGE_EXTENSIONS, _AUDIO_EXTENSIONS
     for inp in inputs:
-        if inp.startswith('http://') or inp.startswith('https://'):
-            print(f"[AUTO-HEAR]: downloading {inp} via quest download...")
-            from voder import parse_and_execute_oneline
-            old_stdout = sys.stdout
-            sys.stdout = open(os.devnull, 'w')
-            try:
-                parse_and_execute_oneline(['quest', 'download', inp])
-            except Exception:
-                pass
-            finally:
-                sys.stdout.close()
-                sys.stdout = old_stdout
-            results_dir = os.path.join(os.getcwd(), 'results')
-            if os.path.isdir(results_dir):
-                dl_files = sorted(
-                    [os.path.join(results_dir, f) for f in os.listdir(results_dir) if os.path.isfile(os.path.join(results_dir, f))],
-                    key=os.path.getmtime, reverse=True,
-                )
-                if dl_files:
-                    inp = dl_files[0]
-                    print(f"[AUTO-HEAR]: downloaded to {inp}")
-                else:
-                    print(f"[AUTO-HEAR]: download failed for {inp}")
-                    continue
-            else:
-                print(f"[AUTO-HEAR]: download failed for {inp}")
-                continue
-
+        is_url = inp.startswith('http://') or inp.startswith('https://')
         ext = os.path.splitext(inp)[1].lower()
-        if ext in {'.wav', '.mp3', '.flac', '.ogg', '.aac', '.m4a'}:
-            print(f"[AUTO-HEAR]: listening to {inp}")
-            result = _execute_tool_call('listen', inp, session_dir, act_outputs, model, processor)
-            print(f"[AUTO-HEAR RESULT]: {str(result[1])[:300]}")
-        elif ext in {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm'}:
-            print(f"[AUTO-HEAR]: watching {inp}")
-            result = _execute_tool_call('watch', inp, session_dir, act_outputs, model, processor)
-            print(f"[AUTO-HEAR RESULT]: {str(result[1])[:300]}")
-        elif ext in {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff'}:
-            print(f"[AUTO-HEAR]: looking at {inp}")
-            result = _execute_tool_call('look', inp, session_dir, act_outputs, model, processor)
-            print(f"[AUTO-HEAR RESULT]: {str(result[1])[:300]}")
+        kind = None
+        if ext in _AUDIO_EXTENSIONS:
+            kind = 'audio'
+        elif ext in _VIDEO_EXTENSIONS:
+            kind = 'video'
+        elif ext in _IMAGE_EXTENSIONS or is_url:
+            kind = 'image'
+        if kind is None:
+            continue
+        if is_url:
+            print(f"[AUTO-HEAR]: downloading {inp}...")
+            from voders.vadars.tools.impl import _download_url_to_local
+            local, err = _download_url_to_local(inp, kind if kind != 'image' else 'image')
+            if err:
+                print(f"[AUTO-HEAR]: download failed for {inp}: {err}")
+                continue
+            inp = local
+            print(f"[AUTO-HEAR]: downloaded to {inp}")
+        tool_name = {'audio': 'listen', 'video': 'watch', 'image': 'look'}[kind]
+        print(f"[AUTO-HEAR]: {tool_name} on {inp}")
+        result = _execute_tool_call(tool_name, inp, session_dir, act_outputs, model, processor)
+        print(f"[AUTO-HEAR RESULT]: {str(result[1])[:300]}")
 
 
 def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, processor):
@@ -274,39 +258,48 @@ def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, proces
     total_passed = 0
     total_failed = 0
     total_time = 0.0
+    try:
+        from voder import vadar_load_config
+        max_retries = vadar_load_config().get('catcher_max_retries', 3)
+    except Exception:
+        max_retries = 3
     for tc in tool_calls:
         tool_name = tc['tool']
         tool_args = tc['args']
         total_calls += 1
         print(f"\n[TOOL_CALL {total_calls}]: {tool_name} {tool_args}")
 
-        max_retries = 3
+        ok = False
+        err = None
+        fixed_args = tool_args
         for attempt in range(max_retries):
+            t0 = time.time()
             ok, err, fixed_args, _ = catch_and_fix(tool_name, tool_args if attempt == 0 else fixed_args)
-            if not ok:
-                print(f"[CATCHER]: {err}")
-                if attempt < max_retries - 1:
-                    print(f"[CATCHER]: retry {attempt+1}/{max_retries}")
-                    ctx.add('system', f"Your tool call '{tool_name} {tool_args}' was invalid: {err}. Fix it and retry.")
-                    response, inf_err = _run_inference_streamed(ctx.get_for_inference(), max_new_tokens=512)
-                    if inf_err or not response or not response.strip():
-                        break
-                    ctx.add('assistant', response)
-                    parsed_retry = _parse_model_output(response)
-                    if parsed_retry['tool_calls']:
-                        for rtc in parsed_retry['tool_calls']:
-                            if rtc['tool'] == tool_name:
-                                tool_args = rtc['args']
-                                break
+            catcher_t = time.time() - t0
+            verdict_str = 'OK' if ok else 'CANNOT_FIX'
+            print(f"[CATCHER]: {verdict_str} ({catcher_t:.2f}s){'' if ok else f' — {err}'}")
+            if ok:
+                break
+            if attempt < max_retries - 1:
+                print(f"[CATCHER]: asking VADAR to retry ({attempt+1}/{max_retries})")
+                ctx.add('system', f"My tool call '{tool_name} {tool_args}' was invalid: {err}. Fix it and retry.")
+                response, inf_err = _run_inference_streamed(ctx.get_for_inference(), max_new_tokens=512)
+                if inf_err or not response or not response.strip():
+                    break
+                ctx.add('assistant', response)
+                parsed_retry = _parse_model_output(response)
+                if parsed_retry['tool_calls']:
+                    for rtc in parsed_retry['tool_calls']:
+                        if rtc['tool'] == tool_name:
+                            fixed_args = rtc['args']
+                            break
                     else:
                         break
-                    continue
                 else:
-                    print(f"[CATCHER]: max retries reached — skipping")
-                    ctx.add('tool', f"Tool '{tool_name}' was invalid after {max_retries} retries: {err}")
                     break
             else:
-                break
+                print(f"[CATCHER]: max retries reached — skipping")
+                ctx.add('tool', f"Tool '{tool_name}' was invalid after {max_retries} retries: {err}")
 
         if not ok:
             total_failed += 1

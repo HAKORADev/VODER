@@ -2873,7 +2873,7 @@ These files are loaded into the system prompt at the start of every session.
 
 | File | Default | Purpose |
 |------|---------|---------|
-| `src/voders/vadars/ping-time.txt` | `15` (seconds) | How long VADAR waits before it can be "pinged" to check in on a silent user. |
+| `src/voders/vadars/config.json (ping_time field)` | `15` (seconds) | How long VADAR waits before it can be "pinged" to check in on a silent user. |
 | `src/voders/vadars/supported_libs.txt` | `math` | Whitelist of Python libraries the `calculate` tool can import. One library per line. |
 
 ### Brotherhood

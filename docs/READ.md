@@ -926,7 +926,7 @@ python src/voder.py cli
 - VADAR has a sliding context window (~8192 tokens, 95% retention on overflow — the oldest 5% of non-system messages are dropped when the window fills; the system prompt is always preserved).
 - Persistent memories live in `src/voders/vadars/memories/vadar/` (VADAR's own) and `src/voders/vadars/memories/user/` (about the user) as numbered `.txt` files.
 - VADAR's personality is defined in `src/voders/vadars/about/` — `personality.md` (shipped with content), `custom-vadar.md` (empty by default — you write your own VADAR traits like "I am supportive and funny"), `user.md` (empty by default — you write things about yourself like "my name is John"), and `how-to-respond.md` (shipped with content) — all written in the first person ("I"). These are loaded into the system prompt at the start of every session.
-- Config: `src/voders/vadars/ping-time.txt` (default 15s — how long VADAR waits before checking in on a silent user) and `src/voders/vadars/supported_libs.txt` (default `math` — the whitelist for the `calculate` tool).
+- Config: `src/voders/vadars/config.json (ping_time field)` (default 15s — how long VADAR waits before checking in on a silent user) and `src/voders/vadars/supported_libs.txt` (default `math` — the whitelist for the `calculate` tool).
 
 **Brotherhood:** VADAR is part of the VODER brotherhood alongside Eval (evaluates plans before reply and results after acts) and Summarizer (condenses long outputs into summaries VADAR can work with).
 

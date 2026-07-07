@@ -21,7 +21,7 @@ VADAR is part of a brotherhood — a set of cooperating agents that share contex
 - **VADAR**: the main agent. It thinks, decides, replies, and acts. It runs VODER commands, uses tools to inspect inputs and outputs, and communicates with the user in natural language.
 - **Eval**: VADAR's brother who evaluates plans and results. Eval has its own system prompt and its own inference call. Eval checks whether VADAR's plan is correct before execution, and checks whether the act succeeded after execution.
 - **Summarizer**: VADAR's brother who condenses long outputs into summaries VADAR can work with, keeping the context window manageable. Summarizer has its own system prompt and its own inference call.
-- **Catcher**: VADAR's silent brother who validates tool calls before they execute. Catcher does not enter the context — it works silently, fixing bad tool calls so VADAR doesn't waste time on errors. When a tool call is invalid, Catcher retries with a fix (up to 3 times).
+- **Catcher**: VADAR's silent brother who validates and fixes tool calls before they execute. Catcher has its own system prompt and its own inference call — it is a real brother, not a script. It knows every tool's syntax exactly and rewrites broken calls so they execute. Catcher is out of context: its reasoning never enters VADAR's conversation, only the engine sees its verdict. When a tool call is invalid, the engine asks VADAR to retry (up to `catcher_max_retries` times, default 3).
 
 All four share the same session context (except Catcher, who is silent and does not enter the context).
 
@@ -44,18 +44,18 @@ All four share the same session context (except Catcher, who is silent and does 
 - **`python voder.py cli`** then choose **10. VADAR** — opens a chat session with VADAR. The user talks naturally; VADAR thinks, plans, asks for approval, executes multi-step tasks using tools, and reports results.
 - **Chat mode**: the user can ask questions, make requests, or just talk. VADAR responds conversationally. For tasks that require VODER commands, VADAR plans the approach, shares the plan with the user, gets approval, then executes.
 - **Multi-step tasks**: VADAR can break complex tasks into multiple acts. Example: "isolate only the second speaker from this clip, enhance it, then put it back" → VADAR uses SS to extract speakers, SE to enhance, then mix/glue to reassemble.
-- **Time-specified pinging**: if the user is silent for longer than the ping interval (default 15 seconds, configurable in `src/voders/vadars/ping-time.txt`), VADAR can be pinged to check in. VADAR decides whether to reply or stay silent.
+- **Time-specified pinging**: if the user is silent for longer than the ping interval (default 15 seconds, configurable in `src/voders/vadars/config.json (ping_time field)`), VADAR can be pinged to check in. VADAR decides whether to reply or stay silent.
 
 ### Added — VADAR tools
 
 VADAR has the following tools, emitted as structured tool calls in its response:
 
-- **look** `<path>`: analyze an image file. Returns a description of what VADAR sees.
-- **listen** `<path> [HH:MM:SS-HH:MM:SS]`: analyze audio. Without range, returns total length + summary. With range, listens to that segment.
-- **watch** `<path> [HH:MM:SS-HH:MM:SS]`: analyze video. Without range, returns total length + summary. With range, watches that segment.
-- **read** `<path|act_title> [start-end]`: read text or command output. Without range, returns total lines + first 100 lines. With line range (e.g., `20-30`), returns those specific lines.
-- **list** `[type] [path]`: list files. Type can be: `videos`, `images`, `audios`, `texts`, `others`, `all`, or `.extension`. Without type, shows counts by category. Restricted to the VODER project directory.
-- **search** `<query> path <path> [formats <fmt1,fmt2,...>]`: search for files containing the query in their name, within the VODER project directory.
+- **look** `<path|url>`: analyze an image. If a URL is provided, the engine downloads it automatically and feeds the local file to VADAR. Returns a description of what VADAR sees.
+- **listen** `<path|url> [HH:MM:SS-HH:MM:SS]`: analyze audio. URLs auto-download. Without range, returns total length + (if short enough) a description. With range, listens to that segment (TTS narration prepended stating the time range).
+- **watch** `<path|url> [HH:MM:SS-HH:MM:SS]`: analyze video. URLs auto-download. Same rules as listen.
+- **read** `<path|act_title> [start-end start-end ...]`: read text or command output. Without ranges, returns total lines + summarization + the LATEST 100 lines (numbered). With one or more line ranges (e.g., `20-30 50-89`), returns those ranges, each line numbered. Each range must have start < end.
+- **list** `[types] [path]`: list files. Types: zero or more of `videos`, `images`, `audios`, `texts`, `others`, `all`, `.ext` (space-separated). Bare list returns counts by category. Multiple types allowed: `list videos images path`. Restricted to the VODER project directory.
+- **search** `<query> path <path> [formats <fmt1,fmt2,...>]`: search for files containing the query in their name. Format keywords: `videos`, `images`, `audios`, `texts`, `others`, `all`, or `.ext` literal. Restricted to the VODER project directory.
 - **memory_read** `<vadar|user> <id>`: read a memory file.
 - **memory_write** `<vadar|user> <content>`: create a new memory file.
 - **memory_edit** `<vadar|user> <id> <content>`: edit an existing memory file (must exist).
@@ -109,7 +109,7 @@ The system prompt is regenerated for every message and includes:
 - **Act format** (`act <title> <voder command>`).
 - **Agent loop** description (think → decide → reply → act → eval → reply).
 - **EOS tokens** (`<EOS_REPLY>`, `<EOS_ACT>`, `<EOS_DONE>`).
-- **Ping time** (from `src/voders/vadars/ping-time.txt`).
+- **Ping time** (from `src/voders/vadars/config.json (ping_time field)`).
 
 ### Added — VADAR context management (sliding window)
 
@@ -127,7 +127,7 @@ The system prompt is regenerated for every message and includes:
 
 ### Added — VADAR configuration files
 
-- **`src/voders/vadars/ping-time.txt`**: the ping interval in seconds (default: `15`). The user can edit this to change how often VADAR checks in during silence.
+- **`src/voders/vadars/config.json (ping_time field)`**: the ping interval in seconds (default: `15`). The user can edit this to change how often VADAR checks in during silence.
 - **`src/voders/vadars/supported_libs.txt`**: Python libraries available to the `calculate` tool (default: `math`). The user can add more libraries (one per line). VADAR sees and uses only these libraries.
 
 ### Added — VADAR directory structure
@@ -155,7 +155,7 @@ src/voders/vadars/
 │       ├── acts.txt
 │       ├── log.txt
 │       └── context.txt
-├── ping-time.txt               # Ping interval (default: 15)
+├── config.json                   # All VADAR config (model, ping_time, context_length, ...)
 └── supported_libs.txt          # Python libs for calculate tool (default: math)
 ```
 
@@ -175,6 +175,9 @@ src/voders/vadars/
 ├── vadar.py                    # Agent loop (oneline + interactive)
 ├── system_prompt.py            # Dynamic system prompt generation (time, OS, specs, catalog)
 ├── context.py                  # Sliding-window context manager + session management
+├── eval.py                     # Eval brother — plan + act-result evaluator (own inference)
+├── summarizer.py               # Summarizer brother — output condenser (own inference)
+├── catcher.py                  # Catcher brother — silent tool-call validator/fixer (own inference)
 └── tools/
     ├── __init__.py             # Tool registry
     └── impl.py                 # Tool implementations (list, search, read, memory, calculate, look, listen, watch)
@@ -188,8 +191,8 @@ src/voders/vadars/
 - The model is 24GB (single `model.safetensors` file). The model downloads automatically on first run via `vadar_load_model()` in `voder.py`.
 - `psutil` is already in `requirements.txt` — used for system info in the dynamic system prompt.
 - The `calculate` tool uses a restricted Python sandbox: only the libraries listed in `src/voders/vadars/supported_libs.txt` are available, plus a minimal set of builtins (`print`, `range`, `len`, `int`, `float`, `str`, `bool`, `list`, `dict`, `tuple`, `set`, `abs`, `min`, `max`, `sum`, `round`, `sorted`, `enumerate`, `zip`, `map`, `filter`).
-- All file-access tools (`list`, `search`, `read`, `look`, `listen`, `watch`) are restricted to the VODER project directory. Paths outside the project are rejected with a clear error message.
-- The `read` tool can read both files and act outputs (by act title). Act titles must be unique within a session.
+- All file-access tools (`list`, `search`, `read`, `look`, `listen`, `watch`) are restricted to the VODER project directory. Paths outside the project are rejected with a clear error message. URLs are allowed for `look`, `listen`, `watch` — the engine downloads them via VODER's own `download_url_audio` / `download_url_video` functions and feeds the local file to the model.
+- The `read` tool can read both files and act outputs (by act title). Act titles must be unique within a session. `read` supports multiple line ranges in one call (e.g., `read foo.txt 20-30 50-89`); each range must have start < end. Without ranges, `read` returns total lines + summarization + the latest 100 lines (numbered).
 - The `listen` and `watch` tools support `HH:MM:SS-HH:MM:SS` time ranges. The `read` tool supports `start-end` line ranges.
 
 ## 06/27/2026
