@@ -207,11 +207,35 @@ def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, proces
         tool_args = tc['args']
         print(f"\n[TOOL_CALL]: {tool_name} {tool_args}")
 
-        ok, err, fixed_args, _ = catch_and_fix(tool_name, tool_args)
+        max_retries = 3
+        for attempt in range(max_retries):
+            ok, err, fixed_args, _ = catch_and_fix(tool_name, tool_args if attempt == 0 else fixed_args)
+            if not ok:
+                print(f"[CATCHER]: {err}")
+                if attempt < max_retries - 1:
+                    print(f"[CATCHER]: retry {attempt+1}/{max_retries}")
+                    ctx.add('system', f"Your tool call '{tool_name} {tool_args}' was invalid: {err}. Fix it and retry.")
+                    response, inf_err = _run_inference(ctx.get_for_inference(), max_new_tokens=512)
+                    if inf_err or not response or not response.strip():
+                        break
+                    ctx.add('assistant', response)
+                    parsed_retry = _parse_model_output(response)
+                    if parsed_retry['tool_calls']:
+                        for rtc in parsed_retry['tool_calls']:
+                            if rtc['tool'] == tool_name:
+                                tool_args = rtc['args']
+                                break
+                    else:
+                        break
+                    continue
+                else:
+                    print(f"[CATCHER]: max retries reached — skipping")
+                    ctx.add('tool', f"Tool '{tool_name}' was invalid after {max_retries} retries: {err}")
+                    break
+            else:
+                break
+
         if not ok:
-            print(f"[CATCHER]: {err}")
-            print(f"[TOOL_RESULT]: SKIPPED — retry in next iteration")
-            ctx.add('tool', f"Tool '{tool_name}' was invalid: {err}. Fix the call and retry.")
             continue
 
         success, result, elapsed = _execute_tool_call(
@@ -379,9 +403,48 @@ def run_vadar_interactive():
     used_titles = set()
     approval_event = threading.Event()
 
+    from voders.vadars.system_prompt import _read_ping_time
+    ping_interval = _read_ping_time()
+    ping_stop = threading.Event()
+    last_user_activity = [time.time()]
+    ping_count = [0]
+
+    ping_ctx = {'ctx': ctx, 'session_dir': session_dir, 'model': model, 'processor': processor,
+                'act_outputs': act_outputs, 'used_titles': used_titles, 'user_input': ''}
+
+    def ping_thread():
+        if ping_interval == 0:
+            return
+        while not ping_stop.is_set():
+            ping_stop.wait(timeout=1)
+            if ping_stop.is_set():
+                break
+            elapsed = time.time() - last_user_activity[0]
+            if elapsed >= ping_interval:
+                ping_count[0] += 1
+                last_user_activity[0] = time.time()
+                ts = time.strftime("%Y/%m/%d:%I%p:%M:%S")
+                ping_msg = f"PING #{ping_count[0]} — {ts} — {int(elapsed)}s of silence."
+                print(f"\n[{ping_msg}]")
+                ping_ctx['ctx'].add('system', ping_msg + " You may reply or stay silent. If you reply, keep it brief.")
+                response, inf_err = _run_inference(ping_ctx['ctx'].get_for_inference(), max_new_tokens=256)
+                if not inf_err and response and response.strip():
+                    parsed = _parse_model_output(response)
+                    for reply in parsed['replies']:
+                        print(f"\n[VADAR]: {reply}")
+                        log_output(ping_ctx['session_dir'], reply)
+
+    if ping_interval > 0:
+        t = threading.Thread(target=ping_thread, daemon=True)
+        t.start()
+
     print(f"\n{'='*60}")
     print(f"VADAR Interactive Mode")
     print(f"Session: {session_name}")
+    if ping_interval > 0:
+        print(f"Ping: every {ping_interval}s of silence")
+    else:
+        print(f"Ping: disabled")
     print(f"{'='*60}")
     print("Type 'exit' or 'quit' to end. Type 'clear' to reset context.\n")
 
@@ -394,6 +457,9 @@ def run_vadar_interactive():
             print("\n[VADAR]: Goodbye!")
             break
 
+        last_user_activity[0] = time.time()
+        ping_count[0] = 0
+
         if not user_input:
             continue
         if user_input.lower() in ('exit', 'quit'):
@@ -405,31 +471,27 @@ def run_vadar_interactive():
             ctx.add('system', system_prompt)
             act_outputs = {}
             used_titles = set()
+            ping_ctx['ctx'] = ctx
+            ping_ctx['act_outputs'] = act_outputs
+            ping_ctx['used_titles'] = used_titles
             print("\n[VADAR]: Context cleared.\n")
             continue
 
-        if approval_event.is_set() is False and not approval_event._user_response if hasattr(approval_event, '_user_response') else False:
+        if approval_event.is_set():
             approval_event._user_response = user_input
             approval_event.set()
             continue
 
         log_input(session_dir, user_input)
         ctx.add('user', user_input)
-
-        def approval_waiter():
-            try:
-                resp = input("[You]: ").strip()
-                approval_event._user_response = resp
-                approval_event.set()
-            except (EOFError, KeyboardInterrupt):
-                approval_event._user_response = 'go'
-                approval_event.set()
+        ping_ctx['user_input'] = user_input
 
         _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
                         used_titles, interactive=True, approval_event=approval_event)
 
         print()
 
+    ping_stop.set()
     _finalize_session(session_dir, ctx)
     print(f"\nSession log: {session_dir}")
     return True

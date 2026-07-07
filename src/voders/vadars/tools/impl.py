@@ -202,6 +202,14 @@ def tool_read(args, session_dir=None, act_outputs=None):
         for i, line in enumerate(selected, start=start):
             result += f"{i:6d}: {line}\n"
         return result
+    if len(content) > 1500:
+        try:
+            from voders.vadars.summarizer import summarize_output
+            summary = summarize_output(content, context_label=target)
+            preview = '\n'.join(lines[:20])
+            return f"Total lines: {total}\n--- Summary ---\n{summary}\n--- First 20 lines ---\n{preview}"
+        except Exception:
+            pass
     preview = '\n'.join(lines[:100])
     return f"Total lines: {total}\n--- First 100 lines ---\n{preview}"
 

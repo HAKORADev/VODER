@@ -19,10 +19,11 @@ VADAR has no network access and no system shell access. It can only access paths
 VADAR is part of a brotherhood — a set of cooperating agents that share context and work together:
 
 - **VADAR**: the main agent. It thinks, decides, replies, and acts. It runs VODER commands, uses tools to inspect inputs and outputs, and communicates with the user in natural language.
-- **Eval**: VADAR's brother who evaluates plans and results. Eval checks whether VADAR's plan is correct before execution, and checks whether the act succeeded after execution.
-- **Summarizer**: VADAR's brother who condenses long command outputs into summaries VADAR can work with, keeping the context window manageable.
+- **Eval**: VADAR's brother who evaluates plans and results. Eval has its own system prompt and its own inference call. Eval checks whether VADAR's plan is correct before execution, and checks whether the act succeeded after execution.
+- **Summarizer**: VADAR's brother who condenses long outputs into summaries VADAR can work with, keeping the context window manageable. Summarizer has its own system prompt and its own inference call.
+- **Catcher**: VADAR's silent brother who validates tool calls before they execute. Catcher does not enter the context — it works silently, fixing bad tool calls so VADAR doesn't waste time on errors. When a tool call is invalid, Catcher retries with a fix (up to 3 times).
 
-All three share the same session context and the same sliding-window context manager.
+All four share the same session context (except Catcher, who is silent and does not enter the context).
 
 ### Added — `quest mix` side-quest (audio overlay at specified times)
 
@@ -103,7 +104,7 @@ The system prompt is regenerated for every message and includes:
 - **About the user** (from `user.md`).
 - **How to respond** (from `how-to-respond.md`).
 - **Global context** (from `src/voders/vadars/sessions/context.txt` — summarization of latest sessions).
-- **Brotherhood description** (VADAR + Eval + Summarizer).
+- **Brotherhood description** (VADAR + Eval + Summarizer + Catcher).
 - **Tools list** with usage syntax.
 - **Act format** (`act <title> <voder command>`).
 - **Agent loop** description (think → decide → reply → act → eval → reply).

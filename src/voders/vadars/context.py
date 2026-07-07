@@ -6,23 +6,46 @@ from voders.vadars import VADAR_SESSIONS_DIR
 
 
 class ContextManager:
-    def __init__(self, session_dir, max_context_tokens=8192, slide_ratio=0.95):
+    def __init__(self, session_dir, max_context_tokens=8192, slide_ratio=0.95, memory_cap_ratio=0.20):
         self.session_dir = session_dir
         self.max_tokens = max_context_tokens
         self.slide_ratio = slide_ratio
+        self.memory_cap_ratio = memory_cap_ratio
         self.messages = []
         self.dropped_count = 0
+        self.memory_tokens = 0
         self.context_file = os.path.join(session_dir, 'context.txt')
         self.log_file = os.path.join(session_dir, 'log.txt')
         os.makedirs(session_dir, exist_ok=True)
 
-    def add(self, role, content, tool_call=None):
-        msg = {'role': role, 'content': content}
+    def add(self, role, content, tool_call=None, is_memory=False):
+        msg = {'role': role, 'content': content, 'is_memory': is_memory}
         if tool_call:
             msg['tool_call'] = tool_call
+
+        if is_memory:
+            mem_tokens = self._estimate_tokens(content)
+            max_mem_tokens = int(self.max_tokens * self.memory_cap_ratio)
+            if self.memory_tokens + mem_tokens > max_mem_tokens:
+                self._evict_oldest_memory(mem_tokens)
+            self.memory_tokens += self._estimate_tokens(content)
+
         self.messages.append(msg)
         self._save_log(msg)
         self._slide_if_needed()
+
+    def _evict_oldest_memory(self, needed_tokens):
+        max_mem_tokens = int(self.max_tokens * self.memory_cap_ratio)
+        while self.memory_tokens + needed_tokens > max_mem_tokens:
+            evicted = False
+            for i, m in enumerate(self.messages):
+                if m.get('is_memory'):
+                    self.memory_tokens -= self._estimate_tokens(m['content'])
+                    self.messages.pop(i)
+                    evicted = True
+                    break
+            if not evicted:
+                break
 
     def get_messages(self):
         return list(self.messages)
@@ -50,6 +73,8 @@ class ContextManager:
         for _ in range(drop_count):
             for i in range(len(kept)):
                 if kept[i]['role'] != 'system':
+                    if kept[i].get('is_memory'):
+                        self.memory_tokens -= self._estimate_tokens(kept[i]['content'])
                     dropped.append(kept.pop(i))
                     break
             else:
