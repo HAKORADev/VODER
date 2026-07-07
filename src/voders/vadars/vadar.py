@@ -27,6 +27,7 @@ EOS_ACT = '<EOS_ACT>'
 EOS_DONE = '<EOS_DONE>'
 
 _RESULTS_DIR = os.path.join(os.getcwd(), 'results')
+_inference_lock = threading.Lock()
 
 
 def _parse_model_output(text):
@@ -163,12 +164,14 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
 
 def _run_inference_streamed(messages, max_new_tokens=1024):
     from voder import vadar_run_inference_streamed
-    return vadar_run_inference_streamed(messages, max_new_tokens=max_new_tokens)
+    with _inference_lock:
+        return vadar_run_inference_streamed(messages, max_new_tokens=max_new_tokens)
 
 
 def _run_inference(messages, max_new_tokens=1024):
     from voder import vadar_run_inference
-    return vadar_run_inference(messages, max_new_tokens=max_new_tokens)
+    with _inference_lock:
+        return vadar_run_inference(messages, max_new_tokens=max_new_tokens)
 
 
 def _detect_inputs(text):
@@ -284,7 +287,8 @@ def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, proces
         display = result[:800] if len(result) > 800 else result
         print(f"[TOOL_RESULT]: {display}")
         print(f"[TOOL_STATS]: {tool_name} | {'OK' if success else 'FAILED'} | {elapsed:.2f}s | calls={total_calls} passed={total_passed} failed={total_failed} total_time={total_time:.2f}s")
-        ctx.add('tool', f"Tool '{tool_name}' result:\n{result}")
+        is_mem = tool_name == 'memory_read'
+        ctx.add('tool', f"Tool '{tool_name}' result:\n{result}", is_memory=is_mem)
 
 
 def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
@@ -317,7 +321,7 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
         if parsed['thoughts'] and parsed['decisions']:
             thoughts_text = ' '.join(parsed['thoughts'])
             decisions_text = ' '.join(parsed['decisions'])
-            verdict, reason = evaluate_plan(user_input, thoughts_text, decisions_text)
+            verdict, reason = evaluate_plan(user_input, thoughts_text, decisions_text, acts=parsed['acts'])
             print(f"[EVAL]: {verdict.upper()} — {reason}")
             if verdict == 'wrong':
                 ctx.add('system', f"Eval says your plan is WRONG: {reason}. Fix it and try again.")
@@ -351,9 +355,25 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
         if parsed['acts'] and not parsed['eos_act']:
             ctx.add('system', "You emitted acts but did not emit <EOS_ACT>. Acts will not execute until you emit <EOS_ACT>. Emit it now if you want the acts to run.")
         elif parsed['acts'] and parsed['eos_act']:
+            from voder import parse_oneline_args, validate_oneline_mode
+            acts_blocked = False
             for act in parsed['acts']:
                 title = act['title']
                 command = act['command']
+                cmd_tokens = command.split()
+                if cmd_tokens:
+                    mode = cmd_tokens[0].lower()
+                    if validate_oneline_mode(mode) is None:
+                        print(f"\n[ACT VALIDATOR]: '{title}' — invalid mode '{mode}'. Blocked.")
+                        ctx.add('system', f"Your act '{title}' uses invalid mode '{mode}'. Valid modes: tts, sts, ttm, stt, se, sfx, svs, ss, train, quest, chains. Fix and re-emit.")
+                        acts_blocked = True
+                        continue
+                    test_parse = parse_oneline_args(cmd_tokens)
+                    if test_parse.get('error'):
+                        print(f"\n[ACT VALIDATOR]: '{title}' — syntax error: {test_parse['error']}. Blocked.")
+                        ctx.add('system', f"Your act '{title}' has a syntax error: {test_parse['error']}. Fix and re-emit.")
+                        acts_blocked = True
+                        continue
                 print(f"\n[ACT]: {title} -> {command}")
                 print(f"{'─'*40}")
                 success, output = _execute_act(
@@ -372,13 +392,15 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
             return True
 
         if not parsed['replies'] and not parsed['acts'] and not parsed['tool_calls']:
+            if parsed['thoughts']:
+                continue
             if parsed['raw'].strip():
                 print(f"\n[VADAR]: {parsed['raw'].strip()[:500]}")
                 log_output(session_dir, parsed['raw'].strip()[:500])
                 last_vadar_reply_time = time.time()
             break
 
-        if parsed['eos_reply'] and not parsed['acts']:
+        if parsed['eos_reply']:
             break
 
     return True
@@ -513,7 +535,6 @@ def run_vadar_interactive():
             elapsed = time.time() - last_user_activity[0]
             if elapsed >= ping_interval:
                 ping_count[0] += 1
-                last_user_activity[0] = time.time()
                 ts = time.strftime("%Y/%m/%d:%I%p:%M:%S")
                 ping_msg = f"PING #{ping_count[0]} — {ts} — {int(elapsed)}s of silence."
                 print(f"\n[{ping_msg}]")
@@ -602,20 +623,25 @@ def run_vadar_interactive():
 def _finalize_session(session_dir, ctx):
     try:
         from voders.vadars import VADAR_GLOBAL_CONTEXT_FILE
-        log_path = os.path.join(session_dir, 'log.txt')
-        if os.path.exists(log_path):
-            with open(log_path, 'r', encoding='utf-8') as f:
-                log_content = f.read()
-            if len(log_content) > 500:
-                summary = summarize_output(log_content, context_label=f"session {os.path.basename(session_dir)}")
-                existing = ""
-                if os.path.exists(VADAR_GLOBAL_CONTEXT_FILE):
-                    with open(VADAR_GLOBAL_CONTEXT_FILE, 'r', encoding='utf-8') as f:
-                        existing = f.read()
-                parts = existing.split('\n---\n') if existing.strip() else []
-                parts.append(f"Session {os.path.basename(session_dir)}:\n{summary}")
-                parts = parts[-5:]
-                with open(VADAR_GLOBAL_CONTEXT_FILE, 'w', encoding='utf-8') as f:
-                    f.write('\n---\n'.join(parts))
+        messages = ctx.get_messages()
+        conv_text = '\n'.join(f"[{m['role'].upper()}] {m['content'][:300]}" for m in messages)
+        if len(conv_text) > 500:
+            summary = summarize_output(conv_text, context_label=f"session {os.path.basename(session_dir)}")
+            existing = ""
+            if os.path.exists(VADAR_GLOBAL_CONTEXT_FILE):
+                with open(VADAR_GLOBAL_CONTEXT_FILE, 'r', encoding='utf-8') as f:
+                    existing = f.read()
+            parts = existing.split('\n---\n') if existing.strip() else []
+            parts.append(f"Session {os.path.basename(session_dir)}:\n{summary}")
+            parts = parts[-5:]
+            combined = '\n---\n'.join(parts)
+            max_global_tokens = int(ctx.max_tokens * 0.15)
+            combined_tokens = len(combined) // 4 + 1
+            if combined_tokens > max_global_tokens:
+                while parts and len('\n---\n'.join(parts)) // 4 + 1 > max_global_tokens:
+                    parts.pop(0)
+                combined = '\n---\n'.join(parts)
+            with open(VADAR_GLOBAL_CONTEXT_FILE, 'w', encoding='utf-8') as f:
+                f.write(combined)
     except Exception:
         pass

@@ -23,6 +23,49 @@ def _is_within_project(path):
         return False
 
 
+def _try_fix(tool_name, tool_args):
+    fixed = tool_args.strip()
+    changed = False
+
+    if not fixed:
+        return fixed, False
+
+    if fixed.startswith('"') and fixed.endswith('"') and fixed.count('"') == 2:
+        inner = fixed[1:-1]
+        if ' ' in inner and tool_name in ('look', 'listen', 'watch'):
+            parts = inner.split(None, 1)
+            fixed = parts[0] + (' ' + parts[1] if len(parts) > 1 else '')
+            changed = True
+
+    if tool_name in ('look', 'listen', 'watch', 'read'):
+        first_token = fixed.split()[0] if fixed.split() else ''
+        if first_token.startswith('"') and first_token.endswith('"'):
+            first_token = first_token[1:-1]
+            rest = fixed[len(fixed.split()[0]):]
+            fixed = first_token + rest
+            changed = True
+        elif first_token.startswith("'") and first_token.endswith("'"):
+            first_token = first_token[1:-1]
+            rest = fixed[len(fixed.split()[0]):]
+            fixed = first_token + rest
+            changed = True
+
+    if '\\' in fixed and tool_name in ('look', 'listen', 'watch', 'read', 'list', 'search'):
+        fixed = fixed.replace('\\\\', '/').replace('\\', '/')
+        changed = True
+
+    if tool_name == 'search' and 'path' not in fixed.lower():
+        parts = fixed.split(None, 1)
+        if len(parts) >= 2:
+            query = parts[0].strip('"\'')
+            rest = parts[1].strip()
+            if not rest.lower().startswith('path'):
+                fixed = f'{query} path {rest}'
+                changed = True
+
+    return fixed, changed
+
+
 def validate_tool_call(tool_name, tool_args):
     if tool_name not in TOOL_REGISTRY:
         return False, f"Unknown tool '{tool_name}'. Available: {', '.join(sorted(TOOL_REGISTRY.keys()))}", tool_args
@@ -110,4 +153,13 @@ def catch_and_fix(tool_name, tool_args):
     ok, err, fixed_args = validate_tool_call(tool_name, tool_args)
     if ok:
         return True, None, fixed_args, 0
+
+    tried_fix, fix_changed = _try_fix(tool_name, tool_args)
+    if fix_changed:
+        ok2, err2, fixed_args2 = validate_tool_call(tool_name, tried_fix)
+        if ok2:
+            return True, None, fixed_args2, 0
+        fixed_args = tried_fix
+        err = err2
+
     return False, err, fixed_args, 1

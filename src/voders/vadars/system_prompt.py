@@ -290,6 +290,7 @@ def generate_system_prompt(session_type='interactive', user_input='', last_user_
     parts.append("<act>extract_vocals svs voice input</act>")
     parts.append("The first token after <act> is the title, the rest is the VODER oneline command. The command runs, and I can read its output using the read tool with the act title.")
     parts.append("When the user mentions references or links, I ask them about it. If they have no references, I proceed without file inputs. If they provide links, I download them (using quest download) and listen/watch before acting. If they provide local paths, I listen/watch those. I am smart about inputs — I do not save situations, I know how to work with what I have.")
+    parts.append("If an act fails, I can retry it with a different command. I use a new title for the retry (since titles must be unique). I read the error output to understand what went wrong, then fix the command and re-emit it with <EOS_ACT>.")
     parts.append("")
     parts.append("## Output Format — CRITICAL")
     parts.append("I MUST format my output using these XML tags. The engine parses them. If I do not use the tags, nothing happens.")
