@@ -248,7 +248,8 @@ def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, proces
 
 
 def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
-                    used_titles, interactive=False, approval_event=None):
+                    used_titles, interactive=False, approval_event=None,
+                    waiting_for_approval=None, act_log=None):
     max_iterations = 30 if interactive else 20
     last_vadar_reply_time = time.time()
 
@@ -259,7 +260,11 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
 
     for iteration in range(max_iterations):
         messages = ctx.get_for_inference()
-        response, err = _run_inference(messages)
+        ts_msg = f"Current time: {time.strftime('%Y/%m/%d:%I%p:%M:%S')}"
+        ctx.add('system', ts_msg)
+        response, err = _run_inference_streamed(messages)
+        if err:
+            response, err = _run_inference(messages)
         if err:
             print(f"\n[VADAR inference error]: {err}")
             return False
@@ -284,11 +289,13 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
                 log_output(session_dir, reply)
                 last_vadar_reply_time = time.time()
 
-            if interactive and parsed['decisions'] and approval_event is not None:
+            if interactive and parsed['decisions'] and approval_event is not None and waiting_for_approval is not None:
                 print("\n[VADAR]: This is my plan. Type 'go' to approve, or tell me what to change.")
+                waiting_for_approval[0] = True
                 approval_event.clear()
                 while not approval_event.is_set():
                     approval_event.wait(timeout=0.5)
+                waiting_for_approval[0] = False
                 approval_str = getattr(approval_event, '_user_response', 'go')
                 if approval_str.lower().strip() in ('go', 'ok', 'yes', 'proceed', 'do it', 'continue', ''):
                     ctx.add('user', f"go")
@@ -314,6 +321,8 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
             status = 'SUCCESS' if success else 'FAILED'
             print(f"[ACT RESULT]: {title} -> {status}")
             ctx.add('tool', f"Act '{title}' result ({status}):\n{output[-2000:]}")
+            if act_log is not None:
+                act_log.append({'title': title, 'command': command, 'success': success, 'output': output})
 
         if parsed['eos_done']:
             print("\n[VADAR]: Task complete.")
@@ -370,18 +379,52 @@ def _run_oneline_single(user_input, result_path, model, processor):
 
     act_outputs = {}
     used_titles = set()
+    act_log = []
 
     print(f"\n{'='*60}")
     print(f"VADAR session: {session_name}")
     print(f"{'='*60}\n")
 
     _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor, used_titles,
-                    interactive=False)
+                    interactive=False, act_log=act_log)
 
     _finalize_session(session_dir, ctx)
 
-    print(f"\n{'='*60}")
-    print(f"VADAR session ended: {session_name}")
+    if act_log:
+        print(f"\n{'='*60}")
+        print("VADAR Session Report")
+        print(f"{'='*60}")
+        print(f"Acts run: {len(act_log)}")
+        succeeded = sum(1 for a in act_log if a['success'])
+        failed = len(act_log) - succeeded
+        print(f"Succeeded: {succeeded} | Failed: {failed}")
+        print(f"{'─'*60}")
+        for i, a in enumerate(act_log, 1):
+            status = '✓ SUCCESS' if a['success'] else '✗ FAILED'
+            print(f"  {i}. [{status}] {a['title']}")
+            print(f"     Command: {a['command'][:100]}")
+            result_files = [line for line in a['output'].split('\n') if '[RESULT FILES]' in line or '[WARNING]' in line]
+            for rf in result_files:
+                print(f"     {rf.strip()}")
+        print(f"{'='*60}")
+
+    if result_path:
+        results_dir = os.path.join(os.getcwd(), 'results')
+        if os.path.isdir(results_dir):
+            files = sorted(
+                [os.path.join(results_dir, f) for f in os.listdir(results_dir) if os.path.isfile(os.path.join(results_dir, f))],
+                key=os.path.getmtime,
+                reverse=True,
+            )
+            if files:
+                import shutil
+                try:
+                    shutil.copy2(files[0], result_path)
+                    print(f"Result copied to: {result_path}")
+                except Exception as e:
+                    print(f"Note: could not copy to result path: {e}")
+
+    print(f"\nVADAR session ended: {session_name}")
     print(f"Session log: {session_dir}")
     print(f"{'='*60}")
     return True
@@ -395,13 +438,18 @@ def run_vadar_interactive():
         return False
 
     session_dir, session_name = create_session('interactive')
+    last_user_msg_time = [None]
+    last_vadar_reply_time = [time.time()]
     ctx = ContextManager(session_dir)
-    system_prompt = generate_system_prompt(session_type='interactive')
+    system_prompt = generate_system_prompt(session_type='interactive',
+                                           last_user_msg_time=last_user_msg_time[0],
+                                           last_vadar_reply_time=last_vadar_reply_time[0])
     ctx.add('system', system_prompt)
 
     act_outputs = {}
     used_titles = set()
     approval_event = threading.Event()
+    waiting_for_approval = [False]
 
     from voders.vadars.system_prompt import _read_ping_time
     ping_interval = _read_ping_time()
@@ -433,6 +481,7 @@ def run_vadar_interactive():
                     for reply in parsed['replies']:
                         print(f"\n[VADAR]: {reply}")
                         log_output(ping_ctx['session_dir'], reply)
+                        last_vadar_reply_time[0] = time.time()
 
     if ping_interval > 0:
         t = threading.Thread(target=ping_thread, daemon=True)
@@ -449,6 +498,7 @@ def run_vadar_interactive():
     print("Type 'exit' or 'quit' to end. Type 'clear' to reset context.\n")
 
     print("[VADAR]: Hey! I'm VADAR. What can I do for you?\n")
+    last_vadar_reply_time[0] = time.time()
 
     while True:
         try:
@@ -467,7 +517,11 @@ def run_vadar_interactive():
             break
         if user_input.lower() == 'clear':
             ctx = ContextManager(session_dir)
-            system_prompt = generate_system_prompt(session_type='interactive')
+            last_user_msg_time[0] = None
+            last_vadar_reply_time[0] = time.time()
+            system_prompt = generate_system_prompt(session_type='interactive',
+                                                   last_user_msg_time=last_user_msg_time[0],
+                                                   last_vadar_reply_time=last_vadar_reply_time[0])
             ctx.add('system', system_prompt)
             act_outputs = {}
             used_titles = set()
@@ -477,18 +531,21 @@ def run_vadar_interactive():
             print("\n[VADAR]: Context cleared.\n")
             continue
 
-        if approval_event.is_set():
+        if waiting_for_approval[0]:
             approval_event._user_response = user_input
             approval_event.set()
             continue
 
+        last_user_msg_time[0] = time.time()
         log_input(session_dir, user_input)
         ctx.add('user', user_input)
         ping_ctx['user_input'] = user_input
 
         _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
-                        used_titles, interactive=True, approval_event=approval_event)
+                        used_titles, interactive=True, approval_event=approval_event,
+                        waiting_for_approval=waiting_for_approval)
 
+        last_vadar_reply_time[0] = time.time()
         print()
 
     ping_stop.set()

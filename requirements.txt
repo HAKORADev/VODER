@@ -104,3 +104,5 @@ langdetect>=1.0.9
 # - Linux: Install PyTorch with CUDA support separately if needed
 # - macOS: PyTorch with MPS support available for Apple Silicon
 # - Windows: PyTorch with CUDA support available
+librosa>=0.10.0
+Pillow>=10.0.0

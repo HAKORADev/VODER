@@ -204,6 +204,13 @@ def generate_system_prompt(session_type='interactive', user_input='', last_user_
         parts.append(f"- GPU VRAM: {sys_info['gpu_vram_gb']} GB")
     parts.append(f"- CUDA: {sys_info.get('cuda_version', 'n/a')}")
     parts.append(f"- Top languages: {', '.join(langs)}")
+    try:
+        import datetime
+        tz = datetime.datetime.now().astimezone().tzinfo
+        tz_name = str(tz) if tz else 'unknown'
+    except Exception:
+        tz_name = 'unknown'
+    parts.append(f"- Timezone: {tz_name}")
     parts.append("")
     parts.append("## Constraints")
     parts.append("- I have NO network access. I cannot search the web, download files, or access URLs unless VODER's download quest is used.")
