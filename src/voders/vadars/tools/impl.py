@@ -72,7 +72,7 @@ def _format_timestamp(seconds):
 @register_tool('list')
 def tool_list(args):
     parts = args.strip().split(None, 1)
-    list_type = parts[0].lower() if parts else 'all'
+    types_str = parts[0].lower() if parts else 'all'
     path = parts[1].strip() if len(parts) > 1 else _PROJECT_ROOT
     if not _is_within_project(path):
         return f"Error: path '{path}' is outside the VODER project directory. I can only list files inside the project."
@@ -83,7 +83,8 @@ def tool_list(args):
         dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('__pycache__', 'node_modules', '.git')]
         for fname in fnames:
             files.append(os.path.join(root, fname))
-    if list_type == 'all' or list_type == '':
+    list_types = types_str.split()
+    if len(list_types) == 0 or (len(list_types) == 1 and list_types[0] in ('all', '')):
         counts = {'videos': 0, 'images': 0, 'audios': 0, 'texts': 0, 'others': 0}
         for f in files:
             ext = os.path.splitext(f)[1].lower()
@@ -97,24 +98,25 @@ def tool_list(args):
         'videos': _VIDEO_EXTENSIONS, 'images': _IMAGE_EXTENSIONS,
         'audios': _AUDIO_EXTENSIONS, 'texts': _TEXT_EXTENSIONS,
     }
-    if list_type in ext_map:
-        filtered = [f for f in files if os.path.splitext(f)[1].lower() in ext_map[list_type]]
-        if not filtered:
-            return f"No {list_type} found in {path}"
-        return '\n'.join(sorted(filtered)[:200])
-    if list_type == 'others':
-        filtered = [f for f in files if os.path.splitext(f)[1].lower() not in
-                    (_VIDEO_EXTENSIONS | _IMAGE_EXTENSIONS | _AUDIO_EXTENSIONS | _TEXT_EXTENSIONS)]
-        if not filtered:
-            return f"No other files found in {path}"
-        return '\n'.join(sorted(filtered)[:200])
-    if list_type.startswith('.'):
-        ext = list_type.lower()
-        filtered = [f for f in files if os.path.splitext(f)[1].lower() == ext]
-        if not filtered:
-            return f"No *{ext} files found in {path}"
-        return '\n'.join(sorted(filtered)[:200])
-    return f"Unknown list type '{list_type}'. Use: videos, images, audios, texts, others, all, or .extension"
+    combined_exts = set()
+    for lt in list_types:
+        if lt in ext_map:
+            combined_exts |= ext_map[lt]
+        elif lt == 'others':
+            combined_exts |= set(['__others__'])
+        elif lt.startswith('.'):
+            combined_exts.add(lt.lower())
+    filtered = []
+    for f in files:
+        ext = os.path.splitext(f)[1].lower()
+        if '__others__' in combined_exts:
+            if ext not in (_VIDEO_EXTENSIONS | _IMAGE_EXTENSIONS | _AUDIO_EXTENSIONS | _TEXT_EXTENSIONS):
+                filtered.append(f)
+        elif ext in combined_exts:
+            filtered.append(f)
+    if not filtered:
+        return f"No files matching types '{types_str}' found in {path}"
+    return '\n'.join(sorted(filtered)[:200])
 
 
 @register_tool('search')
@@ -557,6 +559,7 @@ def tool_search_media(args):
             'yt-dlp', search_url,
             '--flat-playlist',
             '--playlist-end', str(count),
+            '--match-filter', 'url LIKE %/watch% OR url LIKE %/video% OR url LIKE %/status% OR url LIKE %/spotlight% OR url LIKE %/explore%',
             '--print', 'Title: %(title)s | URL: %(url)s | Platform: %(extractor)s',
         ]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)

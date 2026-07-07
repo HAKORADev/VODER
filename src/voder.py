@@ -58,6 +58,7 @@ import tempfile
 import shutil
 import gc
 import traceback
+import threading
 import numpy as np
 import torch
 import torchaudio
@@ -16052,6 +16053,62 @@ def vadar_run_inference(messages, max_new_tokens=1024, temperature=0.8, top_p=0.
         new_tokens = output[0][input_len:]
         response = processor.decode(new_tokens, skip_special_tokens=True)
         return response, None
+    except Exception as e:
+        return None, str(e)
+
+
+def vadar_run_inference_streamed(messages, max_new_tokens=1024, temperature=0.8, top_p=0.95, top_k=64):
+    model, processor, err = vadar_load_model()
+    if err:
+        return None, err
+    try:
+        import torch
+    except ImportError:
+        return None, "torch not available"
+
+    try:
+        from transformers import TextIteratorStreamer
+    except ImportError:
+        return vadar_run_inference(messages, max_new_tokens, temperature, top_p, top_k)
+
+    try:
+        if hasattr(processor, 'apply_chat_template'):
+            text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        else:
+            text = '\n'.join(f"{m['role']}: {m['content']}" for m in messages) + '\nassistant: '
+
+        inputs = processor(text=text, return_tensors='pt').to(
+            model.device if hasattr(model, 'device') else 'cpu'
+        )
+
+        streamer = TextIteratorStreamer(
+            processor.tokenizer if hasattr(processor, 'tokenizer') else processor,
+            skip_prompt=True,
+            skip_special_tokens=True,
+        )
+
+        generation_kwargs = dict(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            do_sample=True,
+            streamer=streamer,
+        )
+
+        thread = threading.Thread(target=lambda: model.generate(**generation_kwargs))
+        thread.start()
+
+        collected = []
+        print("[VADAR]: ", end='', flush=True)
+        for chunk in streamer:
+            collected.append(chunk)
+            print(chunk, end='', flush=True)
+        print()
+        thread.join(timeout=5)
+
+        return ''.join(collected), None
     except Exception as e:
         return None, str(e)
 
