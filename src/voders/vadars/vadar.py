@@ -4,7 +4,10 @@ import re
 import time
 import traceback
 
-from voders.vadars import VADAR_MODEL_DIR, VADAR_SESSIONS_DIR
+from voders.vadars import (
+    VADAR_SESSIONS_DIR, VADAR_ABOUT_DIR, VADAR_PING_TIME_FILE,
+    VADAR_GLOBAL_CONTEXT_FILE,
+)
 from voders.vadars.system_prompt import generate_system_prompt
 from voders.vadars.context import ContextManager, create_session, log_input, log_output, log_act
 from voders.vadars.tools import TOOL_REGISTRY
@@ -13,124 +16,6 @@ from voders.vadars.tools.impl import (
     tool_list, tool_search, tool_calculate,
     tool_memory_read, tool_memory_write, tool_memory_edit, tool_memory_delete,
 )
-
-_model = None
-_processor = None
-_model_loading_attempted = False
-
-
-def _try_import_torch():
-    try:
-        import torch
-        return torch
-    except ImportError:
-        return None
-
-
-def _try_import_transformers():
-    try:
-        from transformers import AutoModelForMultimodalLM, AutoProcessor
-        return AutoModelForMultimodalLM, AutoProcessor
-    except ImportError:
-        try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
-            return AutoModelForCausalLM, AutoTokenizer
-        except ImportError:
-            return None, None
-
-
-def load_model(force_reload=False):
-    global _model, _processor, _model_loading_attempted
-    if _model is not None and not force_reload:
-        return _model, _processor
-    if _model_loading_attempted and not force_reload:
-        return None, None
-    _model_loading_attempted = True
-
-    torch = _try_import_torch()
-    if torch is None:
-        print("VADAR: torch is not installed. Install with: pip install torch")
-        return None, None
-
-    AutoModel, AutoProc = _try_import_transformers()
-    if AutoModel is None:
-        print("VADAR: transformers is not installed. Install with: pip install transformers")
-        return None, None
-
-    model_path = VADAR_MODEL_DIR
-    if not os.path.isdir(model_path):
-        print(f"VADAR: model directory not found at {model_path}")
-        print("VADAR: download the model from https://huggingface.co/OpenYourMind/gemma-4-12B-it-abliterated-uncensored")
-        print(f"VADAR: place the files in {model_path}/")
-        return None, None
-
-    has_weights = any(
-        f.endswith('.safetensors') or f.endswith('.bin')
-        for f in os.listdir(model_path)
-    )
-    if not has_weights:
-        print(f"VADAR: no model weights found in {model_path}")
-        print("VADAR: download the model .safetensors file from HuggingFace and place it there.")
-        return None, None
-
-    print(f"VADAR: loading model from {model_path}...")
-    try:
-        dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-        device_map = "auto" if torch.cuda.is_available() else None
-        _model = AutoModel.from_pretrained(
-            model_path,
-            torch_dtype=dtype,
-            device_map=device_map,
-            trust_remote_code=True,
-        )
-        _processor = AutoProc.from_pretrained(model_path, trust_remote_code=True)
-        _model.eval()
-        print("VADAR: model loaded successfully.")
-        return _model, _processor
-    except Exception as e:
-        print(f"VADAR: failed to load model: {e}")
-        traceback.print_exc()
-        _model = None
-        _processor = None
-        return None, None
-
-
-def _run_inference(messages, max_new_tokens=1024, temperature=0.8, top_p=0.95, top_k=64):
-    global _model, _processor
-    if _model is None or _processor is None:
-        return None, "Model not loaded. Call load_model() first or install the required dependencies."
-
-    torch = _try_import_torch()
-    if torch is None:
-        return None, "torch not available"
-
-    try:
-        if hasattr(_processor, 'apply_chat_template'):
-            text = _processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        else:
-            text = '\n'.join(f"{m['role']}: {m['content']}" for m in messages) + '\nassistant: '
-
-        inputs = _processor(
-            text=text,
-            return_tensors='pt',
-        ).to(_model.device if hasattr(_model, 'device') else 'cpu')
-
-        with torch.no_grad():
-            output = _model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                do_sample=True,
-            )
-
-        input_len = inputs['input_ids'].shape[1] if 'input_ids' in inputs else 0
-        new_tokens = output[0][input_len:]
-        response = _processor.decode(new_tokens, skip_special_tokens=True)
-        return response, None
-    except Exception as e:
-        return None, str(e)
 
 
 TOOL_CALL_RE = re.compile(r'<tool_call>\s*(\w+)\s*(.*?)\s*</tool_call>', re.DOTALL)
@@ -222,14 +107,19 @@ def _execute_act(title, command, session_dir, act_outputs):
         return False, str(e)
 
 
+def _run_inference(messages, max_new_tokens=1024):
+    from voder import vadar_run_inference
+    return vadar_run_inference(messages, max_new_tokens=max_new_tokens)
+
+
 def run_vadar_oneline(user_input, result_path=None):
-    model, processor = load_model()
-    if model is None:
-        print("VADAR is not available — model not loaded.")
-        print("To enable VADAR:")
-        print(f"  1. Download the model from https://huggingface.co/OpenYourMind/gemma-4-12B-it-abliterated-uncensored")
-        print(f"  2. Place the files in {VADAR_MODEL_DIR}/")
-        print(f"  3. Install dependencies: pip install torch transformers psutil")
+    from voder import vadar_load_model
+    model, processor, err = vadar_load_model()
+    if err:
+        print(f"VADAR is not available — {err}")
+        if "not found" in err.lower() or "not downloaded" in err.lower():
+            print(f"\nTo download the model, run:")
+            print(f"  python voder.py vadar-download")
         return False
 
     session_dir, session_name = create_session('oneline')
@@ -304,13 +194,13 @@ def run_vadar_oneline(user_input, result_path=None):
 
 
 def run_vadar_interactive():
-    model, processor = load_model()
-    if model is None:
-        print("VADAR is not available — model not loaded.")
-        print("To enable VADAR:")
-        print(f"  1. Download the model from https://huggingface.co/OpenYourMind/gemma-4-12B-it-abliterated-uncensored")
-        print(f"  2. Place the files in {VADAR_MODEL_DIR}/")
-        print(f"  3. Install dependencies: pip install torch transformers psutil")
+    from voder import vadar_load_model
+    model, processor, err = vadar_load_model()
+    if err:
+        print(f"VADAR is not available — {err}")
+        if "not found" in err.lower() or "not downloaded" in err.lower():
+            print(f"\nTo download the model, run:")
+            print(f"  python voder.py vadar-download")
         return False
 
     session_dir, session_name = create_session('interactive')

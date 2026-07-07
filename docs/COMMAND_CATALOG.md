@@ -2775,7 +2775,7 @@ Then choose `10. VADAR (AI agent — talk naturally, it decides what to run)`.
 
 - Interactive mode opens a multi-turn chat session. Type `exit` or `quit` to end it. Type `clear` to start a fresh context within the same session.
 - The session runs until you exit; VADAR maintains context across turns (with a sliding context window — see below).
-- Each session is logged under `vadars/sessions/<timestamp>_interactive/` (see Session management below).
+- Each session is logged under `src/voders/vadars/sessions/<timestamp>_interactive/` (see Session management below).
 
 ### Examples
 
@@ -2810,7 +2810,7 @@ VADAR has the following tools. It emits structured tool calls in its response, a
 | `memory_write` | `memory_write <vadar\|user> <content>` | Create a new memory file. |
 | `memory_edit` | `memory_edit <vadar\|user> <id> <content>` | Edit an existing memory file. |
 | `memory_delete` | `memory_delete <vadar\|user> <id>` | Delete a memory file (must have read it first). |
-| `calculate` | `calculate <code>` | Run Python code using supported libraries (default: `math` only — extendable via `vadars/supported_libs.txt`). |
+| `calculate` | `calculate <code>` | Run Python code using supported libraries (default: `math` only — extendable via `src/voders/vadars/supported_libs.txt`). |
 
 ### Acts
 
@@ -2837,7 +2837,7 @@ VADAR emits special EOS tokens to signal state transitions: `<EOS_REPLY>` ends a
 
 ### Session management
 
-Each VADAR invocation creates a session directory under `vadars/sessions/<timestamp>_<type>/` (where `<type>` is `oneline` or `interactive`). The session contains:
+Each VADAR invocation creates a session directory under `src/voders/vadars/sessions/<timestamp>_<type>/` (where `<type>` is `oneline` or `interactive`). The session contains:
 
 | File | Contents |
 |------|----------|
@@ -2851,21 +2851,21 @@ Each VADAR invocation creates a session directory under `vadars/sessions/<timest
 
 VADAR has two memory stores, both stored as plain `.txt` files:
 
-- `vadars/memories/vadar/` — VADAR's own memories (things it wants to remember about the user, the project, past sessions). Use `memory_write vadar "<...>"` to create a new one.
-- `vadars/memories/user/` — Memories about the user (preferences, recurring requests). Use `memory_write user "<...>"` to create a new one.
+- `src/voders/vadars/memories/vadar/` — VADAR's own memories (things it wants to remember about the user, the project, past sessions). Use `memory_write vadar "<...>"` to create a new one.
+- `src/voders/vadars/memories/user/` — Memories about the user (preferences, recurring requests). Use `memory_write user "<...>"` to create a new one.
 
 Each memory file is numbered (`1.txt`, `2.txt`, …). VADAR can read, edit, and delete them with the `memory_read` / `memory_edit` / `memory_delete` tools.
 
 ### Personality
 
-VADAR's personality is defined in `vadars/about/`, all written in the first person ("I"):
+VADAR's personality is defined in `src/voders/vadars/about/`, all written in the first person ("I"):
 
-| File | Contents |
-|------|----------|
-| `personality.md` | VADAR's core personality — direct, honest, no corporate language, loves audio. |
-| `custom-vadar.md` | Optional custom traits the user can add on top. |
-| `user.md` | Optional notes about the user (so VADAR knows who it's talking to). |
-| `how-to-respond.md` | Optional response-style guide. |
+| File | Default | Contents |
+|------|---------|----------|
+| `personality.md` | shipped with content | VADAR's core personality — direct, honest, no corporate language, loves audio. |
+| `custom-vadar.md` | **empty (0 bytes)** | User-customizable VADAR traits. You write your own content here (e.g., "I am supportive and funny"). |
+| `user.md` | **empty (0 bytes)** | About the user. You write your own content here (e.g., "my name is John") so VADAR knows who it's talking to. |
+| `how-to-respond.md` | shipped with content | Response-style guide (length, language, tone, thinking, acting, admitting limits, multi-reply, silence, refusing, personality stability). |
 
 These files are loaded into the system prompt at the start of every session.
 
@@ -2873,8 +2873,8 @@ These files are loaded into the system prompt at the start of every session.
 
 | File | Default | Purpose |
 |------|---------|---------|
-| `vadars/ping-time.txt` | `15` (seconds) | How long VADAR waits before it can be "pinged" to check in on a silent user. |
-| `vadars/supported_libs.txt` | `math` | Whitelist of Python libraries the `calculate` tool can import. One library per line. |
+| `src/voders/vadars/ping-time.txt` | `15` (seconds) | How long VADAR waits before it can be "pinged" to check in on a silent user. |
+| `src/voders/vadars/supported_libs.txt` | `math` | Whitelist of Python libraries the `calculate` tool can import. One library per line. |
 
 ### Brotherhood
 
@@ -2894,7 +2894,7 @@ VADAR's system prompt is rebuilt at the start of every session. It includes:
 - OS specs, Python version, CPU cores/threads, RAM, GPU + VRAM (via `psutil` and `torch`).
 - Top locale languages.
 - The full VODER command catalog (every mode, side-quest, and chain) so VADAR knows what it can call.
-- The personality files from `vadars/about/`.
+- The personality files from `src/voders/vadars/about/`.
 - The constraints: no network access, no system shell, only VODER project paths + user-provided paths. Knowledge cutoff is approximately mid-2025.
 
 ### Sliding context window
@@ -2903,7 +2903,15 @@ VADAR keeps a context window of ~8192 tokens. When the context fills up, it slid
 
 ### Model setup
 
-VADAR requires the Gemma 4 12B model (abliterated uncensored variant) from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored` on HuggingFace. Download the model files (`.safetensors` weights, config, tokenizer, processor) and place them in `src/models/checkpoints/vadar/`. Dependencies — `torch`, `transformers`, `psutil` — are already in `requirements.txt`. Without the model files in place, `vadar` prints setup instructions and exits. See [READ.md](READ.md) for full setup details.
+VADAR requires the Gemma 4 12B model (abliterated uncensored variant) from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored` on HuggingFace. The model files (`.safetensors` weights, config, tokenizer, processor) go in `src/models/checkpoints/vadar/`. Dependencies — `torch`, `transformers`, `psutil`, `huggingface_hub` — are already in `requirements.txt`, so no extra pip install is needed.
+
+**Download the model with one command** (downloads ~24GB via `huggingface_hub.snapshot_download`):
+
+```bash
+python voder.py vadar-download
+```
+
+The model loading / downloading / caching logic lives in `src/voder.py` (not in the VADAR package). Without the model files in place, `vadar` prints setup instructions (mentioning the `vadar-download` command) and exits. See [READ.md](READ.md) for full setup details.
 
 ---
 

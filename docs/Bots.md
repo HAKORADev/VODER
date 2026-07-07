@@ -2841,7 +2841,7 @@ For you as an AI agent, VADAR is particularly useful for:
 - **Translating vague user requests into concrete VODER pipelines.** If your user says "make me a slowed+reverb version of this song with extra bass," you can hand that prompt to VADAR and it will run `quest speed`, `quest pitch`, `quest reverb`, `quest bassboost`, and `quest loudnorm` in the right order.
 - **Exploring the project.** VADAR has `list`, `search`, and `read` tools scoped to the VODER project directory — it can find files for you without you having to know the paths in advance.
 - **Reading prior outputs.** Every act VADAR runs is logged with its title; VADAR can `read <act_title>` to inspect what a prior act produced, then decide what to do next.
-- **Remembering things across sessions.** VADAR has persistent memories in `vadars/memories/vadar/` and `vadars/memories/user/` — you can ask it to `memory_write` something for next time.
+- **Remembering things across sessions.** VADAR has persistent memories in `src/voders/vadars/memories/vadar/` and `src/voders/vadars/memories/user/` — you can ask it to `memory_write` something for next time.
 
 ### How VADAR's tools work
 
@@ -2859,7 +2859,7 @@ VADAR has its own set of tools (separate from VODER modes), all callable as stru
 | `memory_write` | `memory_write <vadar\|user> <content>` | Create a new memory file. |
 | `memory_edit` | `memory_edit <vadar\|user> <id> <content>` | Edit an existing memory file. |
 | `memory_delete` | `memory_delete <vadar\|user> <id>` | Delete a memory file (must have read it first). |
-| `calculate` | `calculate <code>` | Run Python code with whitelisted libraries (default: `math` — extendable via `vadars/supported_libs.txt`). |
+| `calculate` | `calculate <code>` | Run Python code with whitelisted libraries (default: `math` — extendable via `src/voders/vadars/supported_libs.txt`). |
 
 All tools can only see files **inside the VODER project directory** (or paths the user explicitly provides in their request). VADAR has no network access and no system shell — it can only run VODER commands (acts) and call its own tools. This makes it safe to hand user prompts to: the worst it can do is run a VODER command you could have run yourself.
 
@@ -2878,7 +2878,7 @@ python src/voder.py vadar "Download this YouTube video's audio, strip silence, a
 python src/voder.py vadar "List all the .wav files in results/ and tell me which ones are longer than 30 seconds"
 ```
 
-VADAR's stdout contains its replies (`[VADAR]: ...`) and the acts it ran (`[ACT]: <title> -> <command>` / `[ACT RESULT]: <title> -> SUCCESS/FAILED`). Parse those if you need to know what VADAR did. Session logs (inputs, outputs, acts, full transcript) are written to `vadars/sessions/<timestamp>_oneline/` for later inspection.
+VADAR's stdout contains its replies (`[VADAR]: ...`) and the acts it ran (`[ACT]: <title> -> <command>` / `[ACT RESULT]: <title> -> SUCCESS/FAILED`). Parse those if you need to know what VADAR did. Session logs (inputs, outputs, acts, full transcript) are written to `src/voders/vadars/sessions/<timestamp>_oneline/` for later inspection.
 
 ### When to use VADAR vs. running VODER commands directly
 
@@ -2893,5 +2893,5 @@ VADAR is best treated as a **fall-back** for cases where composing the right VOD
 
 ### Prerequisites
 
-VADAR requires the Gemma 4 12B model (abliterated uncensored variant) from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored` on HuggingFace, downloaded and placed in `src/models/checkpoints/vadar/`. Dependencies — `torch`, `transformers`, `psutil` — are already in `requirements.txt`. If the model is missing, `vadar` prints setup instructions and exits cleanly (no traceback). See [READ.md](READ.md) § VADAR Model Setup for the step-by-step download. VADAR runs on CPU (slow) but is much faster on a CUDA GPU with at least ~24 GB VRAM (12B parameters in `bfloat16`).
+VADAR requires the Gemma 4 12B model (abliterated uncensored variant) from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored` on HuggingFace. Download it with `python voder.py vadar-download` (downloads ~24GB into `src/models/checkpoints/vadar/` via `huggingface_hub.snapshot_download` — no manual pip install needed beyond `requirements.txt`). Dependencies — `torch`, `transformers`, `psutil`, `huggingface_hub` — are already in `requirements.txt`. If the model is missing, `vadar` prints setup instructions (mentioning the `vadar-download` command) and exits cleanly (no traceback). See [READ.md](READ.md) § VADAR Model Setup for the step-by-step download. VADAR runs on CPU (slow) but is much faster on a CUDA GPU with at least ~24 GB VRAM (12B parameters in `bfloat16`).
 

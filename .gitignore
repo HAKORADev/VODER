@@ -1,5 +1,8 @@
 __pycache__/
 *.pyc
-vadars/sessions/
-vadars/memories/
-vadars/context.txt
+src/voders/vadars/sessions/*
+!src/voders/vadars/sessions/.gitkeep
+src/voders/vadars/memories/vadar/*
+!src/voders/vadars/memories/vadar/.gitkeep
+src/voders/vadars/memories/user/*
+!src/voders/vadars/memories/user/.gitkeep

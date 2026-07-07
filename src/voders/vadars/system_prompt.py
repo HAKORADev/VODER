@@ -18,8 +18,8 @@ except ImportError:
     HAS_TORCH = False
 
 from voders.vadars import (
-    VADAR_DIR, VADAR_ABOUT_DIR, VADAR_SESSIONS_DIR,
-    VADAR_PING_TIME_FILE, VADAR_GLOBAL_CONTEXT_FILE,
+    VADAR_ABOUT_DIR, VADAR_SESSIONS_DIR, VADAR_PING_TIME_FILE,
+    VADAR_GLOBAL_CONTEXT_FILE,
 )
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

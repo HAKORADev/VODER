@@ -2240,7 +2240,7 @@ VADAR is VODER's "copilot" — a natural-language AI agent that can call any of 
 
 ### How It Works
 
-- VADAR is powered by Gemma 4 12B (abliterated uncensored variant from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored`). The model is loaded locally via `AutoModelForMultimodalLM` + `AutoProcessor` from `transformers`. Model files must be downloaded manually and placed in `src/models/checkpoints/vadar/` (see [READ.md](READ.md) § VADAR Model Setup).
+- VADAR is powered by Gemma 4 12B (abliterated uncensored variant from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored`). The model is loaded locally via `AutoModelForMultimodalLM` + `AutoProcessor` from `transformers`. Download the model with `python voder.py vadar-download` (downloads ~24GB into `src/models/checkpoints/vadar/` via `huggingface_hub.snapshot_download`) — see [READ.md](READ.md) § VADAR Model Setup. The model loading / downloading / caching logic lives in `src/voder.py`, not in the VADAR package.
 - Each request triggers VADAR's **agent loop**: think → decide → reply → act → eval → reply. VADAR can iterate the loop multiple times for complex tasks.
 - An **act** is a VODER oneline command VADAR runs (`ttm lyrics "..." styling "pop" 30`, `quest download "..."`, `svs voice "..."`, `chains "..." / "..."`, …). Each act has a unique title in the session, and VADAR can read its output using the `read` tool with that title.
 - VADAR emits special EOS tokens to signal state transitions: `<EOS_REPLY>` ends a reply (user can respond), `<EOS_ACT>` triggers act execution, `<EOS_DONE>` signals task completion.
@@ -2282,7 +2282,7 @@ VADAR has its own tools (separate from VODER modes), callable as structured tool
 | `memory_write` | `memory_write <vadar\|user> <content>` | Create a new memory file. |
 | `memory_edit` | `memory_edit <vadar\|user> <id> <content>` | Edit an existing memory file. |
 | `memory_delete` | `memory_delete <vadar\|user> <id>` | Delete a memory file (must have read it first). |
-| `calculate` | `calculate <code>` | Run Python code with whitelisted libraries (default: `math` — extendable via `vadars/supported_libs.txt`). |
+| `calculate` | `calculate <code>` | Run Python code with whitelisted libraries (default: `math` — extendable via `src/voders/vadars/supported_libs.txt`). |
 
 All tools can only see files **inside the VODER project directory** (or paths the user explicitly provides).
 
@@ -2305,7 +2305,7 @@ python src/voder.py cli
 - **Vague or multi-step requests** where composing the right VODER command (or `chains` pipeline) yourself would take more effort than describing the task.
 - **Exploring the project** — VADAR can `list`, `search`, and `read` files in the project without you having to know the paths in advance.
 - **Reading prior outputs** — every act VADAR runs is logged with its title; VADAR can `read <act_title>` to inspect what a prior act produced, then decide what to do next.
-- **Cross-session memory** — VADAR has persistent memories in `vadars/memories/vadar/` and `vadars/memories/user/` for things you want it to remember between invocations.
+- **Cross-session memory** — VADAR has persistent memories in `src/voders/vadars/memories/vadar/` and `src/voders/vadars/memories/user/` for things you want it to remember between invocations.
 - **As a sub-agent** — calling AI agents can hand user prompts to VADAR and parse its stdout (`[VADAR]: ...` for replies, `[ACT]: <title> -> <command>` / `[ACT RESULT]: <title> -> SUCCESS/FAILED` for acts).
 
 ### Parameter Reference
@@ -2317,12 +2317,12 @@ python src/voder.py cli
 
 ### Notes
 
-- VADAR requires the Gemma 4 12B model (abliterated uncensored variant) from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored` on HuggingFace, placed in `src/models/checkpoints/vadar/`. Without the model files in place, `vadar` prints setup instructions and exits — no error traceback.
-- Dependencies — `torch`, `transformers`, `psutil` — are already in `requirements.txt`.
-- Each VADAR invocation creates a session directory at `vadars/sessions/<timestamp>_<type>/` containing `inputs.txt`, `outputs.txt`, `acts.txt`, `log.txt`, and `context.txt`.
+- VADAR requires the Gemma 4 12B model (abliterated uncensored variant) from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored` on HuggingFace. Download it with `python voder.py vadar-download` (downloads ~24GB into `src/models/checkpoints/vadar/` via `huggingface_hub.snapshot_download`). Without the model files in place, `vadar` prints setup instructions (mentioning the `vadar-download` command) and exits — no error traceback.
+- Dependencies — `torch`, `transformers`, `psutil`, `huggingface_hub` — are already in `requirements.txt`. The model loading / downloading / caching logic lives in `src/voder.py` (not in the VADAR package).
+- Each VADAR invocation creates a session directory at `src/voders/vadars/sessions/<timestamp>_<type>/` containing `inputs.txt`, `outputs.txt`, `acts.txt`, `log.txt`, and `context.txt`.
 - VADAR is part of the VODER brotherhood alongside Eval (evaluates plans and results) and Summarizer (condenses long outputs).
-- VADAR's personality is configurable via `vadars/about/` (`personality.md`, `custom-vadar.md`, `user.md`, `how-to-respond.md` — all in the first person).
-- Config: `vadars/ping-time.txt` (default 15s) and `vadars/supported_libs.txt` (default `math`).
+- VADAR's personality is configurable via `src/voders/vadars/about/` — `personality.md` (shipped with content), `custom-vadar.md` (empty by default — you write your own VADAR traits like "I am supportive and funny"), `user.md` (empty by default — you write things about yourself like "my name is John"), and `how-to-respond.md` (shipped with content) — all in the first person ("I").
+- Config: `src/voders/vadars/ping-time.txt` (default 15s) and `src/voders/vadars/supported_libs.txt` (default `math`).
 - VADAR is a generative model — it may pick different acts across runs for the same prompt. For deterministic pipelines, use `chains` directly.
 
 ---

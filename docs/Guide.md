@@ -2240,13 +2240,13 @@ VADAR can call these tools directly (in addition to running VODER commands as ac
 | `memory_write` | `memory_write <vadar\|user> <content>` | Create a new memory file. |
 | `memory_edit` | `memory_edit <vadar\|user> <id> <content>` | Edit an existing memory file. |
 | `memory_delete` | `memory_delete <vadar\|user> <id>` | Delete a memory file (must have read it first). |
-| `calculate` | `calculate <code>` | Run Python code with whitelisted libraries (default: `math` — extendable via `vadars/supported_libs.txt`). |
+| `calculate` | `calculate <code>` | Run Python code with whitelisted libraries (default: `math` — extendable via `src/voders/vadars/supported_libs.txt`). |
 
 The `look` / `listen` / `watch` tools can only see files **inside the VODER project directory** (or paths the user explicitly provides in their request). The `read` tool can additionally read prior act outputs by their title — useful for "what did the last command produce?" introspection.
 
 #### Sessions
 
-Every VADAR invocation creates a session directory at `vadars/sessions/<timestamp>_<type>/` where `<type>` is `oneline` or `interactive`. The session contains:
+Every VADAR invocation creates a session directory at `src/voders/vadars/sessions/<timestamp>_<type>/` where `<type>` is `oneline` or `interactive`. The session contains:
 
 | File | Contents |
 |------|----------|
@@ -2262,30 +2262,30 @@ Sessions are append-only — re-running VADAR always creates a new session direc
 
 VADAR has two persistent memory stores, both stored as plain numbered `.txt` files (`1.txt`, `2.txt`, …):
 
-- `vadars/memories/vadar/` — VADAR's own memories (things it wants to remember about the user, the project, past sessions, recurring requests). Use `memory_write vadar "<content>"` to create a new one.
-- `vadars/memories/user/` — Memories about the user (preferences, recurring requests, projects they're working on). Use `memory_write user "<content>"` to create a new one.
+- `src/voders/vadars/memories/vadar/` — VADAR's own memories (things it wants to remember about the user, the project, past sessions, recurring requests). Use `memory_write vadar "<content>"` to create a new one.
+- `src/voders/vadars/memories/user/` — Memories about the user (preferences, recurring requests, projects they're working on). Use `memory_write user "<content>"` to create a new one.
 
 VADAR can read, edit, and delete its memories with the `memory_read` / `memory_edit` / `memory_delete` tools. Memories persist across sessions — they are the only state VADAR keeps between invocations (along with the personality files).
 
 #### Personality
 
-VADAR's personality is defined in `vadars/about/`, all written in the first person ("I"):
+VADAR's personality is defined in `src/voders/vadars/about/`, all written in the first person ("I"):
 
-| File | Contents |
-|------|----------|
-| `personality.md` | VADAR's core personality — direct, honest, no corporate language, loves audio. |
-| `custom-vadar.md` | Optional custom traits the user can add on top. |
-| `user.md` | Optional notes about the user (so VADAR knows who it's talking to). |
-| `how-to-respond.md` | Optional response-style guide (e.g., "be terse," "use bullet points," "swear freely"). |
+| File | Default | Contents |
+|------|---------|----------|
+| `personality.md` | shipped with content | VADAR's core personality — direct, honest, no corporate language, loves audio. |
+| `custom-vadar.md` | **empty (0 bytes)** | User-customizable VADAR traits. You write your own content here — things like "I am supportive and funny" — and VADAR internalizes them as identity, not commands. |
+| `user.md` | **empty (0 bytes)** | About the user. You write your own content here — things like "my name is John" or "I love banana" — so VADAR knows who it's talking to. |
+| `how-to-respond.md` | shipped with content | Response-style guide (length, language, tone, thinking, acting, admitting limits, multi-reply, silence, refusing, personality stability). |
 
-These files are loaded into the system prompt at the start of every session. Edit them to customize VADAR's behavior — there is no separate config file or JSON to manage.
+`personality.md` and `how-to-respond.md` ship with content; `user.md` and `custom-vadar.md` are intentionally empty — you write your own content into them. All four files are loaded into the system prompt at the start of every session. Edit them to customize VADAR's behavior — there is no separate config file or JSON to manage.
 
 #### Config
 
 | File | Default | Purpose |
 |------|---------|---------|
-| `vadars/ping-time.txt` | `15` (seconds) | How long VADAR waits before it can be "pinged" to check in on a silent user. |
-| `vadars/supported_libs.txt` | `math` | Whitelist of Python libraries the `calculate` tool can import. One library per line. Add more libraries (e.g., `numpy`, `statistics`) to expand what `calculate` can do. |
+| `src/voders/vadars/ping-time.txt` | `15` (seconds) | How long VADAR waits before it can be "pinged" to check in on a silent user. |
+| `src/voders/vadars/supported_libs.txt` | `math` | Whitelist of Python libraries the `calculate` tool can import. One library per line. Add more libraries (e.g., `numpy`, `statistics`) to expand what `calculate` can do. |
 
 #### Brotherhood
 
@@ -2305,7 +2305,7 @@ VADAR's system prompt is rebuilt at the start of every session. It includes:
 - **OS specs** (platform, Python version), **CPU** (cores / threads), **RAM** (total / available), **GPU** (name + VRAM + CUDA version if available) — read via `psutil` and `torch`.
 - **Top locale languages** (from `locale.getlocale()` and `$LANG`).
 - **The full VODER command catalog** — every mode, side-quest, and chain — so VADAR knows what it can call without having to guess.
-- **The personality files** from `vadars/about/`.
+- **The personality files** from `src/voders/vadars/about/`.
 - **Constraints:** no network access, no system shell, only VODER project paths + user-provided paths. Knowledge cutoff is approximately mid-2025.
 
 #### Sliding context window
@@ -2321,7 +2321,15 @@ VADAR keeps a context window of approximately 8192 tokens. When the context fill
 
 #### Model setup
 
-VADAR requires the Gemma 4 12B model (abliterated uncensored variant) from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored` on HuggingFace. Download the model files (`.safetensors` weights, `config.json`, tokenizer + processor configs) and place them in `src/models/checkpoints/vadar/`. Dependencies — `torch`, `transformers`, `psutil` — are already in `requirements.txt`. See [READ.md](READ.md) § VADAR Model Setup for the full step-by-step download instructions. Without the model files in place, `vadar` prints setup instructions and exits — no error traceback, just a clean message.
+VADAR requires the Gemma 4 12B model (abliterated uncensored variant) from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored` on HuggingFace. The model files (`.safetensors` weights, `config.json`, tokenizer + processor configs) go in `src/models/checkpoints/vadar/` (the `VADAR_MODEL_DIR` constant in `voder.py`). Dependencies — `torch`, `transformers`, `psutil`, `huggingface_hub` — are already in `requirements.txt`, so you do **not** need to manually pip install anything beyond the project's `requirements.txt`.
+
+**Download the model with one command** (downloads ~24GB via `huggingface_hub.snapshot_download`):
+
+```bash
+python voder.py vadar-download
+```
+
+The model loading / downloading / caching logic lives in `voder.py` (functions `vadar_check_model_downloaded()`, `vadar_download_model()`, `vadar_load_model()`, `vadar_run_inference()`) — not in the VADAR package itself. See [READ.md](READ.md) § VADAR Model Setup for the full step-by-step. Without the model files in place, `vadar` prints setup instructions (mentioning the `vadar-download` command) and exits — no error traceback, just a clean message.
 
 ---
 

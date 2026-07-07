@@ -120,7 +120,7 @@ python src/voder.py vadar "Generate a 30-second upbeat pop song about rain, then
 python src/voder.py cli
 ```
 
-VADAR is powered by Gemma 4 12B (abliterated uncensored variant from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored`). Model files must be downloaded from HuggingFace and placed in `src/models/checkpoints/vadar/`. See [READ.md](docs/READ.md) for setup. Without the model in place, `vadar` prints setup instructions and exits. It has its own tools (`look`, `listen`, `watch`, `read`, `list`, `search`, `memory_read`/`write`/`edit`/`delete`, `calculate`), persistent memories in `vadars/memories/`, session logs in `vadars/sessions/`, and a configurable personality in `vadars/about/`. See [Guide.md](docs/Guide.md) for the full VADAR user guide.
+VADAR is powered by Gemma 4 12B (abliterated uncensored variant from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored`). Download the model with `python voder.py vadar-download` (downloads ~24GB into `src/models/checkpoints/vadar/` via `huggingface_hub.snapshot_download`). See [READ.md](docs/READ.md) for setup. Without the model in place, `vadar` prints setup instructions and exits. It has its own tools (`look`, `listen`, `watch`, `read`, `list`, `search`, `memory_read`/`write`/`edit`/`delete`, `calculate`), persistent memories in `src/voders/vadars/memories/`, session logs in `src/voders/vadars/sessions/`, and a configurable personality in `src/voders/vadars/about/`. See [Guide.md](docs/Guide.md) for the full VADAR user guide.
 
 ---
 

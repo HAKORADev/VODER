@@ -25,6 +25,7 @@ TRANSLATE_GEMMA_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "translate_gemma")
 AUDIOSR_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "audiosr")
 ALIGNER_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "aligner")
 VADAR_MODEL_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "vadar")
+VADAR_MODEL_REPO = "OpenYourMind/gemma-4-12B-it-abliterated-uncensored"
 
 os.environ["HF_HOME"] = MODELS_DIR
 os.environ["HF_HUB_CACHE"] = MODELS_TMP_DIR
@@ -15940,6 +15941,129 @@ def _split_oneline_segments(command_line):
     return segments
 
 
+_vadar_model = None
+_vadar_processor = None
+_vadar_model_loading_attempted = False
+
+
+def vadar_check_model_downloaded():
+    if not os.path.isdir(VADAR_MODEL_DIR):
+        return False
+    has_weights = any(
+        f.endswith('.safetensors') or f.endswith('.bin')
+        for f in os.listdir(VADAR_MODEL_DIR)
+    )
+    has_config = os.path.exists(os.path.join(VADAR_MODEL_DIR, 'config.json'))
+    return has_weights and has_config
+
+
+def vadar_download_model(force=False):
+    if vadar_check_model_downloaded() and not force:
+        return True, "Model already downloaded."
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        return False, "huggingface-hub is not installed. Run: pip install huggingface-hub"
+    os.makedirs(VADAR_MODEL_DIR, exist_ok=True)
+    print(f"VADAR: downloading model from {VADAR_MODEL_REPO} to {VADAR_MODEL_DIR}...")
+    print("VADAR: this is a ~24GB download. It may take a while depending on your connection.")
+    try:
+        snapshot_download(
+            repo_id=VADAR_MODEL_REPO,
+            local_dir=VADAR_MODEL_DIR,
+            local_dir_use_symlinks=False,
+        )
+        if vadar_check_model_downloaded():
+            print(f"VADAR: model downloaded successfully to {VADAR_MODEL_DIR}")
+            return True, "Download complete."
+        return False, "Download completed but model files are missing."
+    except Exception as e:
+        return False, f"Download failed: {e}"
+
+
+def vadar_load_model(force_reload=False):
+    global _vadar_model, _vadar_processor, _vadar_model_loading_attempted
+    if _vadar_model is not None and not force_reload:
+        return _vadar_model, _vadar_processor, None
+    if _vadar_model_loading_attempted and not force_reload:
+        return None, None, "Model loading was already attempted and failed."
+    _vadar_model_loading_attempted = True
+
+    try:
+        import torch
+    except ImportError:
+        return None, None, "torch is not installed. Run: pip install torch"
+
+    try:
+        from transformers import AutoModelForMultimodalLM, AutoProcessor
+    except ImportError:
+        try:
+            from transformers import AutoModelForCausalLM as AutoModelForMultimodalLM
+            from transformers import AutoTokenizer as AutoProcessor
+        except ImportError:
+            return None, None, "transformers is not installed. Run: pip install transformers"
+
+    if not vadar_check_model_downloaded():
+        return None, None, (f"Model not found at {VADAR_MODEL_DIR}. "
+                            f"Run: python voder.py vadar-download")
+
+    print(f"VADAR: loading model from {VADAR_MODEL_DIR}...")
+    try:
+        dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+        device_map = "auto" if torch.cuda.is_available() else None
+        _vadar_model = AutoModelForMultimodalLM.from_pretrained(
+            VADAR_MODEL_DIR,
+            torch_dtype=dtype,
+            device_map=device_map,
+            trust_remote_code=True,
+        )
+        _vadar_processor = AutoProcessor.from_pretrained(VADAR_MODEL_DIR, trust_remote_code=True)
+        _vadar_model.eval()
+        print("VADAR: model loaded successfully.")
+        return _vadar_model, _vadar_processor, None
+    except Exception as e:
+        _vadar_model = None
+        _vadar_processor = None
+        return None, None, f"Failed to load model: {e}"
+
+
+def vadar_run_inference(messages, max_new_tokens=1024, temperature=0.8, top_p=0.95, top_k=64):
+    model, processor, err = vadar_load_model()
+    if err:
+        return None, err
+    try:
+        import torch
+    except ImportError:
+        return None, "torch not available"
+
+    try:
+        if hasattr(processor, 'apply_chat_template'):
+            text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        else:
+            text = '\n'.join(f"{m['role']}: {m['content']}" for m in messages) + '\nassistant: '
+
+        inputs = processor(text=text, return_tensors='pt').to(
+            model.device if hasattr(model, 'device') else 'cpu'
+        )
+
+        with torch.no_grad():
+            output = model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                do_sample=True,
+            )
+
+        input_len = inputs['input_ids'].shape[1] if 'input_ids' in inputs else 0
+        new_tokens = output[0][input_len:]
+        response = processor.decode(new_tokens, skip_special_tokens=True)
+        return response, None
+    except Exception as e:
+        return None, str(e)
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         if sys.argv[1] == "gui" and len(sys.argv) == 2:
@@ -15950,6 +16074,10 @@ if __name__ == "__main__":
             from voders.interactiveCLI import interactive_cli_mode
             interactive_cli_mode()
             sys.exit(0)
+        if sys.argv[1] == "vadar-download" and len(sys.argv) == 2:
+            ok, msg = vadar_download_model()
+            print(msg)
+            sys.exit(0 if ok else 1)
         arg_offset = 1
         if sys.argv[1] == "cli":
             arg_offset = 2
