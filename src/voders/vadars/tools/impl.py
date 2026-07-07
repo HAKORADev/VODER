@@ -186,6 +186,7 @@ def tool_read(args, session_dir=None, act_outputs=None):
         return f"Could not read '{target}'."
     lines = content.split('\n')
     total = len(lines)
+
     if range_spec and '-' in range_spec:
         start_str, end_str = range_spec.split('-', 1)
         try:
@@ -202,16 +203,30 @@ def tool_read(args, session_dir=None, act_outputs=None):
         for i, line in enumerate(selected, start=start):
             result += f"{i:6d}: {line}\n"
         return result
+
+    try:
+        from voder import vadar_load_config
+        config = vadar_load_config()
+        preview_count = config.get('read_preview_lines', 100)
+    except Exception:
+        preview_count = 100
+
+    preview_lines = lines[:preview_count]
+    result = f"Total lines: {total}\n--- First {preview_count} lines (numbered) ---\n"
+    for i, line in enumerate(preview_lines, start=1):
+        result += f"{i:6d}: {line}\n"
+    if total > preview_count:
+        result += f"... ({total - preview_count} more lines. Use read <target> {preview_count+1}-{total} to see them.)"
+
     if len(content) > 1500:
         try:
             from voders.vadars.summarizer import summarize_output
             summary = summarize_output(content, context_label=target)
-            preview = '\n'.join(lines[:20])
-            return f"Total lines: {total}\n--- Summary ---\n{summary}\n--- First 20 lines ---\n{preview}"
+            result = f"Total lines: {total}\n--- Summary ---\n{summary}\n" + result
         except Exception:
             pass
-    preview = '\n'.join(lines[:100])
-    return f"Total lines: {total}\n--- First 100 lines ---\n{preview}"
+
+    return result
 
 
 @register_tool('memory_read')

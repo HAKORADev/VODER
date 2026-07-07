@@ -143,9 +143,9 @@ def _read_global_context():
 
 def _read_ping_time():
     try:
-        with open(VADAR_PING_TIME_FILE, 'r') as f:
-            raw = f.read().strip()
-        val = int(raw) if raw else 15
+        from voder import vadar_load_config
+        config = vadar_load_config()
+        val = config.get('ping_time', 15)
     except Exception:
         val = 15
     if val == 0:

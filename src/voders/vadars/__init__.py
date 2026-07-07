@@ -9,7 +9,6 @@ VADAR_MEMORIES_DIR = os.path.join(VADAR_DIR, 'memories')
 VADAR_MEMORIES_VADAR_DIR = os.path.join(VADAR_MEMORIES_DIR, 'vadar')
 VADAR_MEMORIES_USER_DIR = os.path.join(VADAR_MEMORIES_DIR, 'user')
 VADAR_ABOUT_DIR = os.path.join(VADAR_DIR, 'about')
-VADAR_PING_TIME_FILE = os.path.join(VADAR_DIR, 'ping-time.txt')
 VADAR_SUPPORTED_LIBS_FILE = os.path.join(VADAR_DIR, 'supported_libs.txt')
 VADAR_GLOBAL_CONTEXT_FILE = os.path.join(VADAR_SESSIONS_DIR, 'context.txt')
 VADAR_ROLEPLAY_FILE = os.path.join(VADAR_ABOUT_DIR, 'roleplay.md')
@@ -21,7 +20,6 @@ for _d in [VADAR_SESSIONS_DIR, VADAR_MEMORIES_DIR,
     os.makedirs(_d, exist_ok=True)
 
 for _f, _default in [
-    (VADAR_PING_TIME_FILE, '15\n'),
     (VADAR_SUPPORTED_LIBS_FILE, 'math\n'),
 ]:
     if not os.path.exists(_f):
