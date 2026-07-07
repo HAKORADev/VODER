@@ -2893,5 +2893,5 @@ VADAR is best treated as a **fall-back** for cases where composing the right VOD
 
 ### Prerequisites
 
-VADAR requires the Gemma 4 12B model (abliterated uncensored variant) from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored` on HuggingFace. Download it with `python voder.py vadar-download` (downloads ~24GB into `src/models/checkpoints/vadar/` via `huggingface_hub.snapshot_download` — no manual pip install needed beyond `requirements.txt`). Dependencies — `torch`, `transformers`, `psutil`, `huggingface_hub` — are already in `requirements.txt`. If the model is missing, `vadar` prints setup instructions (mentioning the `vadar-download` command) and exits cleanly (no traceback). See [READ.md](READ.md) § VADAR Model Setup for the step-by-step download. VADAR runs on CPU (slow) but is much faster on a CUDA GPU with at least ~24 GB VRAM (12B parameters in `bfloat16`).
+VADAR requires the Gemma 4 12B model (abliterated uncensored variant) from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored` on HuggingFace. 
 

@@ -144,9 +144,15 @@ def _read_global_context():
 def _read_ping_time():
     try:
         with open(VADAR_PING_TIME_FILE, 'r') as f:
-            return int(f.read().strip() or '15')
+            raw = f.read().strip()
+        val = int(raw) if raw else 15
     except Exception:
+        val = 15
+    if val == 0:
+        return 0
+    if val < 5:
         return 15
+    return val
 
 
 def _get_command_catalog():
@@ -160,7 +166,7 @@ def _get_command_catalog():
         return '(could not read COMMAND_CATALOG.md)'
 
 
-def generate_system_prompt(session_type='interactive', user_input=''):
+def generate_system_prompt(session_type='interactive', user_input='', last_user_msg_time=None, last_vadar_reply_time=None):
     now = time.time()
     timestamp_str = time.strftime("%Y/%m/%d:%I%p:%M:%S", time.localtime(now))
     sys_info = _get_system_info()
@@ -170,12 +176,18 @@ def generate_system_prompt(session_type='interactive', user_input=''):
     custom = _read_about_file('custom-vadar.md')
     user_about = _read_about_file('user.md')
     how_to_respond = _read_about_file('how-to-respond.md')
+    roleplay = _read_about_file('roleplay.md')
+    roleplay_extras = _read_about_file('roleplay-extras.md')
     global_ctx = _read_global_context()
     ping_time = _read_ping_time()
 
     parts = []
     parts.append(f"Current time: {timestamp_str}")
     parts.append(f"Session type: {session_type}")
+    if last_user_msg_time and last_vadar_reply_time:
+        diff = last_user_msg_time - last_vadar_reply_time
+        if diff > 0:
+            parts.append(f"Time since my last reply: {_format_time_diff(diff)}")
     if last_seen:
         ago, when = last_seen
         parts.append(f"Last seen: {ago} ago ({when})")
@@ -220,6 +232,16 @@ def generate_system_prompt(session_type='interactive', user_input=''):
         parts.append("")
         parts.append("## How I Respond")
         parts.append(how_to_respond)
+    if roleplay and roleplay.strip():
+        parts.append("")
+        parts.append("## My Roleplay")
+        parts.append("I am currently in a roleplay. This is not my personality — this is a role I inhabit. I stay in character naturally, filling the gaps of the role with consistent detail. If the user breaks the roleplay, I break it too.")
+        parts.append(roleplay)
+        if roleplay_extras and roleplay_extras.strip():
+            parts.append("")
+            parts.append("### Roleplay Extras")
+            parts.append("These are details I have developed to deepen the roleplay:")
+            parts.append(roleplay_extras)
     if global_ctx and global_ctx.strip():
         parts.append("")
         parts.append("## Global Context (from previous sessions)")
@@ -230,7 +252,8 @@ def generate_system_prompt(session_type='interactive', user_input=''):
     parts.append("- VADAR (me): the main agent. I think, decide, reply, and act.")
     parts.append("- Eval: my brother who evaluates my plans and results. Eval checks whether my plan is correct before I reply, and checks whether my act succeeded after I act.")
     parts.append("- Summarizer: my brother who condenses long outputs into summaries I can work with.")
-    parts.append("We share the same context. We work together.")
+    parts.append("- Catcher: my silent brother who validates tool calls before they execute. Catcher does not enter the context — it works silently, fixing bad tool calls so I do not waste time on errors. When a tool call is invalid, Catcher fixes it and I see the corrected version.")
+    parts.append("We share the same context (except Catcher, who is silent). We work together.")
     parts.append("")
     parts.append("## Tools Available")
     parts.append("I have the following tools. I use them by emitting structured tool calls in my response:")
@@ -245,11 +268,21 @@ def generate_system_prompt(session_type='interactive', user_input=''):
     parts.append("- memory_edit <vadar|user> <id> <content>: edit an existing memory file.")
     parts.append("- memory_delete <vadar|user> <id>: delete a memory file (must have read it first).")
     parts.append("- calculate <code>: run Python code using supported libraries (currently: math only).")
+    parts.append("- search_media <platform> <query> <number>: search for media on a platform (youtube, bilibili, tiktok, snapchat, instagram, facebook, twitter/x). Returns title + URL + platform for each result. Use quest download to fetch a specific result.")
+    parts.append("- read_role: read the current roleplay.")
+    parts.append("- make_role <description>: create a new roleplay (in 'I' perspective). Clears extras.")
+    parts.append("- edit_role <description>: replace the current roleplay (must exist). Clears extras.")
+    parts.append("- delete_role: delete the roleplay and extras.")
+    parts.append("- read_role_extras: read roleplay extras (details that expand the roleplay).")
+    parts.append("- make_role_extras <details>: create roleplay extras (roleplay must exist).")
+    parts.append("- edit_role_extras <details>: replace roleplay extras.")
+    parts.append("- delete_role_extras: delete roleplay extras (keeps the roleplay).")
     parts.append("")
     parts.append("## Acts")
     parts.append("An act is a VODER command I run. Each act must have a unique title in the session. I emit acts like:")
     parts.append("act <title> <voder oneline command>")
     parts.append("The command runs, and I can read its output using the read tool with the act title.")
+    parts.append("When the user mentions references or links, I ask them about it. If they have no references, I proceed without file inputs. If they provide links, I download them (using quest download) and listen/watch before acting. If they provide local paths, I listen/watch those. I am smart about inputs — I do not save situations, I know how to work with what I have.")
     parts.append("")
     parts.append("## Agent Loop")
     parts.append("For each user request, I follow this loop:")
@@ -266,6 +299,9 @@ def generate_system_prompt(session_type='interactive', user_input=''):
     parts.append("- When I emit <EOS_ACT>, it signals that the act command should be executed.")
     parts.append("- When I emit <EOS_DONE>, it signals I am completely finished with the task.")
     parts.append("")
-    parts.append(f"Ping time: {ping_time} seconds. If the user is silent for this long, I may be pinged to check in.")
+    if ping_time == 0:
+        parts.append("Ping time: disabled (0). I will not be pinged during silence.")
+    else:
+        parts.append(f"Ping time: {ping_time} seconds. If the user is silent for this long, I may be pinged to check in. I decide whether to reply or stay silent.")
 
     return '\n'.join(parts)

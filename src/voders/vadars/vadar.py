@@ -4,10 +4,7 @@ import re
 import time
 import traceback
 
-from voders.vadars import (
-    VADAR_SESSIONS_DIR, VADAR_ABOUT_DIR, VADAR_PING_TIME_FILE,
-    VADAR_GLOBAL_CONTEXT_FILE,
-)
+from voders.vadars import VADAR_SESSIONS_DIR
 from voders.vadars.system_prompt import generate_system_prompt
 from voders.vadars.context import ContextManager, create_session, log_input, log_output, log_act
 from voders.vadars.tools import TOOL_REGISTRY
@@ -15,7 +12,11 @@ from voders.vadars.tools.impl import (
     tool_read, tool_look, tool_listen, tool_watch,
     tool_list, tool_search, tool_calculate,
     tool_memory_read, tool_memory_write, tool_memory_edit, tool_memory_delete,
+    tool_read_role, tool_make_role, tool_edit_role, tool_delete_role,
+    tool_read_role_extras, tool_make_role_extras, tool_edit_role_extras, tool_delete_role_extras,
+    tool_search_media,
 )
+from voders.vadars.tools.validator import catch_and_fix
 
 
 TOOL_CALL_RE = re.compile(r'<tool_call>\s*(\w+)\s*(.*?)\s*</tool_call>', re.DOTALL)
@@ -25,7 +26,7 @@ THINK_RE = re.compile(r'<think>(.*?)</think>', re.DOTALL)
 DECIDE_RE = re.compile(r'<decide>(.*?)</decide>', re.DOTALL)
 EVAL_RE = re.compile(r'<eval>(.*?)</eval>', re.DOTALL)
 
-EOS_REPLY = '<EOS_REPLY>'
+EOS_REPLY = ['<EOS_REPLY>']
 EOS_ACT = '<EOS_ACT>'
 EOS_DONE = '<EOS_DONE>'
 
@@ -67,16 +68,20 @@ def _parse_model_output(text):
 def _execute_tool_call(tool_name, tool_args, session_dir=None, act_outputs=None, model=None, processor=None):
     tool = TOOL_REGISTRY.get(tool_name)
     if tool is None:
-        return f"Unknown tool: {tool_name}"
+        return False, f"Unknown tool: {tool_name}", 0
+    t0 = time.time()
     try:
         if tool_name in ('look', 'listen', 'watch'):
-            return tool(tool_args, model=model, processor=processor)
+            result = tool(tool_args, model=model, processor=processor)
         elif tool_name == 'read':
-            return tool(tool_args, session_dir=session_dir, act_outputs=act_outputs)
+            result = tool(tool_args, session_dir=session_dir, act_outputs=act_outputs)
         else:
-            return tool(tool_args)
+            result = tool(tool_args)
+        elapsed = time.time() - t0
+        return True, result, elapsed
     except Exception as e:
-        return f"Tool '{tool_name}' error: {e}"
+        elapsed = time.time() - t0
+        return False, f"Tool '{tool_name}' error: {e}", elapsed
 
 
 def _execute_act(title, command, session_dir, act_outputs):
@@ -112,14 +117,38 @@ def _run_inference(messages, max_new_tokens=1024):
     return vadar_run_inference(messages, max_new_tokens=max_new_tokens)
 
 
+def _process_tool_calls(tool_calls, session_dir, act_outputs, model, processor):
+    total_calls = 0
+    total_failed = 0
+    for tc in tool_calls:
+        tool_name = tc['tool']
+        tool_args = tc['args']
+        total_calls += 1
+        print(f"\n[TOOL_CALL]: {tool_name} {tool_args}")
+        ok, err, fixed_args, catch_failures = catch_and_fix(tool_name, tool_args)
+        if not ok:
+            total_failed += catch_failures
+            print(f"[CATCHER]: fixed/invalid — {err}")
+            print(f"[TOOL_RESULT]: SKIPPED (invalid call, catcher flagged it)")
+            continue
+        success, result, elapsed = _execute_tool_call(tool_name, fixed_args, session_dir, act_outputs, model, processor)
+        if not success:
+            total_failed += 1
+        display = result[:800] if len(result) > 800 else result
+        print(f"[TOOL_RESULT]: {display}")
+        print(f"[TOOL_STATS]: {tool_name} | {'OK' if success else 'FAILED'} | {elapsed:.2f}s | calls={total_calls} failed={total_failed}")
+        from voders.vadars.context import ContextManager
+        if session_dir:
+            pass
+        return result, total_calls, total_failed
+    return "", total_calls, total_failed
+
+
 def run_vadar_oneline(user_input, result_path=None):
     from voder import vadar_load_model
     model, processor, err = vadar_load_model()
     if err:
         print(f"VADAR is not available — {err}")
-        if "not found" in err.lower() or "not downloaded" in err.lower():
-            print(f"\nTo download the model, run:")
-            print(f"  python voder.py vadar-download")
         return False
 
     session_dir, session_name = create_session('oneline')
@@ -132,6 +161,7 @@ def run_vadar_oneline(user_input, result_path=None):
 
     act_outputs = {}
     max_iterations = 20
+    last_vadar_reply_time = time.time()
 
     print(f"\n{'='*60}")
     print(f"VADAR session: {session_name}")
@@ -153,14 +183,24 @@ def run_vadar_oneline(user_input, result_path=None):
         for reply in parsed['replies']:
             print(f"\n[VADAR]: {reply}")
             log_output(session_dir, reply)
+            last_vadar_reply_time = time.time()
 
-        for tc in parsed['tool_calls']:
-            tool_name = tc['tool']
-            tool_args = tc['args']
-            print(f"\n[TOOL_CALL]: {tool_name} {tool_args}")
-            result = _execute_tool_call(tool_name, tool_args, session_dir, act_outputs, model, processor)
-            print(f"[TOOL_RESULT]: {result[:500]}")
-            ctx.add('tool', f"Tool '{tool_name}' result:\n{result}")
+        if parsed['tool_calls']:
+            for tc in parsed['tool_calls']:
+                tool_name = tc['tool']
+                tool_args = tc['args']
+                print(f"\n[TOOL_CALL]: {tool_name} {tool_args}")
+                ok, err, fixed_args, catch_failures = catch_and_fix(tool_name, tool_args)
+                if not ok:
+                    print(f"[CATCHER]: {err}")
+                    print(f"[TOOL_RESULT]: SKIPPED (invalid call)")
+                    ctx.add('tool', f"Tool '{tool_name}' was invalid: {err}")
+                    continue
+                success, result, elapsed = _execute_tool_call(tool_name, fixed_args, session_dir, act_outputs, model, processor)
+                display = result[:800] if len(result) > 800 else result
+                print(f"[TOOL_RESULT]: {display}")
+                print(f"[TOOL_STATS]: {tool_name} | {'OK' if success else 'FAILED'} | {elapsed:.2f}s")
+                ctx.add('tool', f"Tool '{tool_name}' result:\n{result}")
 
         for act in parsed['acts']:
             title = act['title']
@@ -198,9 +238,6 @@ def run_vadar_interactive():
     model, processor, err = vadar_load_model()
     if err:
         print(f"VADAR is not available — {err}")
-        if "not found" in err.lower() or "not downloaded" in err.lower():
-            print(f"\nTo download the model, run:")
-            print(f"  python voder.py vadar-download")
         return False
 
     session_dir, session_name = create_session('interactive')
@@ -209,6 +246,8 @@ def run_vadar_interactive():
     ctx.add('system', system_prompt)
 
     act_outputs = {}
+    last_user_msg_time = None
+    last_vadar_reply_time = None
 
     print(f"\n{'='*60}")
     print(f"VADAR Interactive Mode")
@@ -218,6 +257,7 @@ def run_vadar_interactive():
     print("Type 'clear' to start a fresh context.\n")
 
     print("[VADAR]: Hey! I'm VADAR, your VODER agent. What can I do for you?\n")
+    last_vadar_reply_time = time.time()
 
     while True:
         try:
@@ -236,9 +276,12 @@ def run_vadar_interactive():
             system_prompt = generate_system_prompt(session_type='interactive')
             ctx.add('system', system_prompt)
             act_outputs = {}
+            last_user_msg_time = None
+            last_vadar_reply_time = time.time()
             print("\n[VADAR]: Context cleared. Fresh start!\n")
             continue
 
+        last_user_msg_time = time.time()
         log_input(session_dir, user_input)
         ctx.add('user', user_input)
 
@@ -258,15 +301,24 @@ def run_vadar_interactive():
             for reply in parsed['replies']:
                 print(f"\n[VADAR]: {reply}")
                 log_output(session_dir, reply)
+                last_vadar_reply_time = time.time()
 
-            for tc in parsed['tool_calls']:
-                tool_name = tc['tool']
-                tool_args = tc['args']
-                print(f"\n[TOOL_CALL]: {tool_name} {tool_args}")
-                result = _execute_tool_call(tool_name, tool_args, session_dir, act_outputs, model, processor)
-                display = result[:800] if len(result) > 800 else result
-                print(f"[TOOL_RESULT]: {display}")
-                ctx.add('tool', f"Tool '{tool_name}' result:\n{result}")
+            if parsed['tool_calls']:
+                for tc in parsed['tool_calls']:
+                    tool_name = tc['tool']
+                    tool_args = tc['args']
+                    print(f"\n[TOOL_CALL]: {tool_name} {tool_args}")
+                    ok, err, fixed_args, catch_failures = catch_and_fix(tool_name, tool_args)
+                    if not ok:
+                        print(f"[CATCHER]: {err}")
+                        print(f"[TOOL_RESULT]: SKIPPED (invalid call)")
+                        ctx.add('tool', f"Tool '{tool_name}' was invalid: {err}")
+                        continue
+                    success, result, elapsed = _execute_tool_call(tool_name, fixed_args, session_dir, act_outputs, model, processor)
+                    display = result[:800] if len(result) > 800 else result
+                    print(f"[TOOL_RESULT]: {display}")
+                    print(f"[TOOL_STATS]: {tool_name} | {'OK' if success else 'FAILED'} | {elapsed:.2f}s")
+                    ctx.add('tool', f"Tool '{tool_name}' result:\n{result}")
 
             for act in parsed['acts']:
                 title = act['title']

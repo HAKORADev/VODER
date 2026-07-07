@@ -119,9 +119,9 @@ The system prompt is regenerated for every message and includes:
 ### Added — VADAR model loading
 
 - The model loading / downloading / caching logic lives in **`src/voder.py`** (not in the VADAR package itself), via the functions `vadar_check_model_downloaded()`, `vadar_download_model()`, `vadar_load_model()`, and `vadar_run_inference()`. The model directory is `src/models/checkpoints/vadar/` (the `VADAR_MODEL_DIR` constant in `voder.py`).
-- **`python voder.py vadar-download`** downloads the model from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored` to `src/models/checkpoints/vadar/` using `huggingface_hub.snapshot_download` (download is ~24GB). The user does not need to manually pip install anything beyond `requirements.txt`.
+- **`python voder.py vadar "hello"`** automatically downloads the model on first run via `vadar_load_model()` in `voder.py`.
 - The loader attempts to import `torch` and `transformers`, then loads the model via `AutoModelForMultimodalLM.from_pretrained()` with `bfloat16` dtype on GPU (or `float32` on CPU) and `device_map="auto"`. The processor is loaded via `AutoProcessor.from_pretrained()`.
-- If the model is not found (directory doesn't exist or no `.safetensors`/`.bin` files), VADAR prints clear setup instructions (mentioning the `vadar-download` command) and returns gracefully.
+- If the model is not found (directory doesn't exist or no `.safetensors`/`.bin` files), VADAR prints clear setup instructions (mentioning the automatic download command) and returns gracefully.
 - The model is loaded lazily — only when VADAR is first invoked. Subsequent invocations reuse the loaded model.
 
 ### Added — VADAR configuration files
@@ -184,7 +184,7 @@ src/voders/vadars/
 - No in-code comments, per project convention.
 - VADAR uses the `Gemma4UnifiedForConditionalGeneration` architecture (Gemma 4 12B). The model supports text + image + audio + video inputs via special tokens `<boi>`/`<eoi>` (image), `<boa>`/`<eoa>` (audio). The processor is `Gemma4UnifiedProcessor`.
 - The abliterated uncensored variant (`OpenYourMind/gemma-4-12B-it-abliterated-uncensored`) is recommended because it accepts all content naturally — VADAR is a local tool and the responsibility layer is on the user.
-- The model is 24GB (single `model.safetensors` file). The user downloads it with `python voder.py vadar-download` (which uses `huggingface_hub.snapshot_download` to pull the repo into `src/models/checkpoints/vadar/`).
+- The model is 24GB (single `model.safetensors` file). The model downloads automatically on first run via `vadar_load_model()` in `voder.py`.
 - `psutil` is already in `requirements.txt` — used for system info in the dynamic system prompt.
 - The `calculate` tool uses a restricted Python sandbox: only the libraries listed in `src/voders/vadars/supported_libs.txt` are available, plus a minimal set of builtins (`print`, `range`, `len`, `int`, `float`, `str`, `bool`, `list`, `dict`, `tuple`, `set`, `abs`, `min`, `max`, `sum`, `round`, `sorted`, `enumerate`, `zip`, `map`, `filter`).
 - All file-access tools (`list`, `search`, `read`, `look`, `listen`, `watch`) are restricted to the VODER project directory. Paths outside the project are rejected with a clear error message.

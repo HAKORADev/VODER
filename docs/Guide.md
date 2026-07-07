@@ -2326,10 +2326,10 @@ VADAR requires the Gemma 4 12B model (abliterated uncensored variant) from `Open
 **Download the model with one command** (downloads ~24GB via `huggingface_hub.snapshot_download`):
 
 ```bash
-python voder.py vadar-download
+python voder.py vadar "hello"
 ```
 
-The model loading / downloading / caching logic lives in `voder.py` (functions `vadar_check_model_downloaded()`, `vadar_download_model()`, `vadar_load_model()`, `vadar_run_inference()`) — not in the VADAR package itself. See [READ.md](READ.md) § VADAR Model Setup for the full step-by-step. Without the model files in place, `vadar` prints setup instructions (mentioning the `vadar-download` command) and exits — no error traceback, just a clean message.
+The model loading / downloading / caching logic lives in `voder.py` (functions `vadar_check_model_downloaded()`, `vadar_download_model()`, `vadar_load_model()`, `vadar_run_inference()`) — not in the VADAR package itself. See [READ.md](READ.md) § VADAR Model Setup for the full step-by-step. Without the model files in place, `vadar` prints setup instructions (mentioning the automatic download command) and exits — no error traceback, just a clean message.
 
 ---
 

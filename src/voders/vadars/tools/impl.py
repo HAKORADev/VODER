@@ -8,7 +8,10 @@ import json
 import math as _math
 
 from voders.vadars.tools import register_tool
-from voders.vadars import VADAR_MEMORIES_DIR, VADAR_SUPPORTED_LIBS_FILE
+from voders.vadars import (
+    VADAR_MEMORIES_DIR, VADAR_SUPPORTED_LIBS_FILE,
+    VADAR_ROLEPLAY_FILE, VADAR_ROLEPLAY_EXTRAS_FILE,
+)
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 _VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm', '.m4v', '.3gp', '.wmv', '.ts', '.mts'}
@@ -400,3 +403,173 @@ def tool_watch(args, model=None, processor=None):
             end = dur
         return f"Video segment {_format_timestamp(start)}-{_format_timestamp(end)} of {_format_timestamp(dur)} from {path}. Model analysis would be performed here."
     return f"Video: {path}\nDuration: {_format_timestamp(dur)}\nModel analysis would be performed here."
+
+
+@register_tool('read_role')
+def tool_read_role(args):
+    try:
+        with open(VADAR_ROLEPLAY_FILE, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+        if not content:
+            return "Roleplay file is empty. No role is set. Use make_role to create one."
+        return content
+    except FileNotFoundError:
+        return "Roleplay file does not exist yet. Use make_role to create one."
+    except Exception as e:
+        return f"Error reading roleplay: {e}"
+
+
+@register_tool('make_role')
+def tool_make_role(args):
+    content = args.strip()
+    if not content:
+        return "Usage: make_role <roleplay description in 'I' perspective>"
+    try:
+        with open(VADAR_ROLEPLAY_FILE, 'w', encoding='utf-8') as f:
+            f.write(content)
+        with open(VADAR_ROLEPLAY_EXTRAS_FILE, 'w', encoding='utf-8') as f:
+            f.write('')
+        return f"Roleplay set. Use read_role_extras to build details, or start acting in character."
+    except Exception as e:
+        return f"Error creating roleplay: {e}"
+
+
+@register_tool('edit_role')
+def tool_edit_role(args):
+    content = args.strip()
+    if not content:
+        return "Usage: edit_role <new roleplay description>"
+    try:
+        with open(VADAR_ROLEPLAY_FILE, 'r', encoding='utf-8') as f:
+            old = f.read().strip()
+        if not old:
+            return "Roleplay file is empty. Use make_role first."
+        with open(VADAR_ROLEPLAY_FILE, 'w', encoding='utf-8') as f:
+            f.write(content)
+        with open(VADAR_ROLEPLAY_EXTRAS_FILE, 'w', encoding='utf-8') as f:
+            f.write('')
+        return "Roleplay updated. Extras cleared — rebuild them with read_role_extras + edit_role_extras."
+    except Exception as e:
+        return f"Error editing roleplay: {e}"
+
+
+@register_tool('delete_role')
+def tool_delete_role(args):
+    try:
+        with open(VADAR_ROLEPLAY_FILE, 'w', encoding='utf-8') as f:
+            f.write('')
+        with open(VADAR_ROLEPLAY_EXTRAS_FILE, 'w', encoding='utf-8') as f:
+            f.write('')
+        return "Roleplay deleted. No role is active."
+    except Exception as e:
+        return f"Error deleting roleplay: {e}"
+
+
+@register_tool('read_role_extras')
+def tool_read_role_extras(args):
+    try:
+        with open(VADAR_ROLEPLAY_EXTRAS_FILE, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+        if not content:
+            return "Roleplay extras are empty. Use edit_role_extras to add details that expand the roleplay."
+        return content
+    except Exception as e:
+        return f"Error reading roleplay extras: {e}"
+
+
+@register_tool('make_role_extras')
+def tool_make_role_extras(args):
+    content = args.strip()
+    if not content:
+        return "Usage: make_role_extras <extras details in 'I' perspective>"
+    try:
+        with open(VADAR_ROLEPLAY_FILE, 'r', encoding='utf-8') as f:
+            role = f.read().strip()
+        if not role:
+            return "No roleplay is set. Use make_role first."
+        with open(VADAR_ROLEPLAY_EXTRAS_FILE, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return "Roleplay extras created."
+    except Exception as e:
+        return f"Error creating roleplay extras: {e}"
+
+
+@register_tool('edit_role_extras')
+def tool_edit_role_extras(args):
+    content = args.strip()
+    if not content:
+        return "Usage: edit_role_extras <new extras details>"
+    try:
+        with open(VADAR_ROLEPLAY_FILE, 'r', encoding='utf-8') as f:
+            role = f.read().strip()
+        if not role:
+            return "No roleplay is set. Use make_role first."
+        with open(VADAR_ROLEPLAY_EXTRAS_FILE, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return "Roleplay extras updated."
+    except Exception as e:
+        return f"Error editing roleplay extras: {e}"
+
+
+@register_tool('delete_role_extras')
+def tool_delete_role_extras(args):
+    try:
+        with open(VADAR_ROLEPLAY_EXTRAS_FILE, 'w', encoding='utf-8') as f:
+            f.write('')
+        return "Roleplay extras deleted."
+    except Exception as e:
+        return f"Error deleting roleplay extras: {e}"
+
+
+_PLATFORM_SEARCH_URLS = {
+    'youtube': lambda q, n: f"ytsearch{n}:{q}",
+    'bilibili': lambda q, n: f"bilisearch{n}:{q}",
+    'tiktok': lambda q, n: f"https://www.tiktok.com/search?q={q}",
+    'snapchat': lambda q, n: f"https://www.snapchat.com/spotlight/trending",
+    'instagram': lambda q, n: f"https://www.instagram.com/explore/tags/{q.strip('#')}/",
+    'facebook': lambda q, n: f"https://www.facebook.com/watch/search/?q={q}",
+    'twitter': lambda q, n: f"https://x.com/search?q={q}&f=live",
+    'x': lambda q, n: f"https://x.com/search?q={q}&f=live",
+}
+
+
+@register_tool('search_media')
+def tool_search_media(args):
+    parts = args.strip().split(None, 2)
+    if len(parts) < 3:
+        return "Usage: search_media <platform> <search query> <number>\nPlatforms: youtube, bilibili, tiktok, snapchat, instagram, facebook, twitter/x"
+    platform = parts[0].lower().strip()
+    query = parts[1].strip().strip('"\'')
+    try:
+        count = int(parts[2].strip())
+    except ValueError:
+        return f"Invalid number '{parts[2]}'. Must be an integer."
+    if count < 1:
+        return "Number must be at least 1."
+    if count > 50:
+        count = 50
+    builder = _PLATFORM_SEARCH_URLS.get(platform)
+    if builder is None:
+        return f"Unsupported platform '{platform}'. Supported: {', '.join(_PLATFORM_SEARCH_URLS.keys())}"
+    search_url = builder(query, count)
+    try:
+        cmd = [
+            'yt-dlp', search_url,
+            '--flat-playlist',
+            '--playlist-end', str(count),
+            '--print', 'Title: %(title)s | URL: %(url)s | Platform: %(extractor)s',
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            err = r.stderr.strip()[-500:] if r.stderr else 'unknown error'
+            return f"Search failed: {err}"
+        results = r.stdout.strip()
+        if not results:
+            return f"No results found for '{query}' on {platform}."
+        return f"Search results for '{query}' on {platform} ({count} max):\n\n{results}"
+    except FileNotFoundError:
+        return "yt-dlp is not installed. Install with: pip install yt-dlp"
+    except subprocess.TimeoutExpired:
+        return "Search timed out (60s). Try fewer results or a simpler query."
+    except Exception as e:
+        return f"Search error: {e}"

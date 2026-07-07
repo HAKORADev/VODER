@@ -2908,10 +2908,10 @@ VADAR requires the Gemma 4 12B model (abliterated uncensored variant) from `Open
 **Download the model with one command** (downloads ~24GB via `huggingface_hub.snapshot_download`):
 
 ```bash
-python voder.py vadar-download
+python voder.py vadar "hello"
 ```
 
-The model loading / downloading / caching logic lives in `src/voder.py` (not in the VADAR package). Without the model files in place, `vadar` prints setup instructions (mentioning the `vadar-download` command) and exits. See [READ.md](READ.md) for full setup details.
+The model loading / downloading / caching logic lives in `src/voder.py` (not in the VADAR package). Without the model files in place, `vadar` prints setup instructions (mentioning the automatic download command) and exits. See [READ.md](READ.md) for full setup details.
 
 ---
 

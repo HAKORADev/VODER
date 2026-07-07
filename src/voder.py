@@ -15957,30 +15957,6 @@ def vadar_check_model_downloaded():
     return has_weights and has_config
 
 
-def vadar_download_model(force=False):
-    if vadar_check_model_downloaded() and not force:
-        return True, "Model already downloaded."
-    try:
-        from huggingface_hub import snapshot_download
-    except ImportError:
-        return False, "huggingface-hub is not installed. Run: pip install huggingface-hub"
-    os.makedirs(VADAR_MODEL_DIR, exist_ok=True)
-    print(f"VADAR: downloading model from {VADAR_MODEL_REPO} to {VADAR_MODEL_DIR}...")
-    print("VADAR: this is a ~24GB download. It may take a while depending on your connection.")
-    try:
-        snapshot_download(
-            repo_id=VADAR_MODEL_REPO,
-            local_dir=VADAR_MODEL_DIR,
-            local_dir_use_symlinks=False,
-        )
-        if vadar_check_model_downloaded():
-            print(f"VADAR: model downloaded successfully to {VADAR_MODEL_DIR}")
-            return True, "Download complete."
-        return False, "Download completed but model files are missing."
-    except Exception as e:
-        return False, f"Download failed: {e}"
-
-
 def vadar_load_model(force_reload=False):
     global _vadar_model, _vadar_processor, _vadar_model_loading_attempted
     if _vadar_model is not None and not force_reload:
@@ -16004,8 +15980,24 @@ def vadar_load_model(force_reload=False):
             return None, None, "transformers is not installed. Run: pip install transformers"
 
     if not vadar_check_model_downloaded():
-        return None, None, (f"Model not found at {VADAR_MODEL_DIR}. "
-                            f"Run: python voder.py vadar-download")
+        print(f"VADAR: model not found at {VADAR_MODEL_DIR}. Downloading from {VADAR_MODEL_REPO}...")
+        print("VADAR: this is a ~24GB download. It may take a while depending on your connection.")
+        try:
+            from huggingface_hub import snapshot_download
+        except ImportError:
+            return None, None, "huggingface-hub is not installed. Run: pip install huggingface-hub"
+        os.makedirs(VADAR_MODEL_DIR, exist_ok=True)
+        try:
+            snapshot_download(
+                repo_id=VADAR_MODEL_REPO,
+                local_dir=VADAR_MODEL_DIR,
+                local_dir_use_symlinks=False,
+            )
+        except Exception as e:
+            return None, None, f"Model download failed: {e}"
+        if not vadar_check_model_downloaded():
+            return None, None, "Download completed but model files are missing."
+        print(f"VADAR: model downloaded to {VADAR_MODEL_DIR}")
 
     print(f"VADAR: loading model from {VADAR_MODEL_DIR}...")
     try:
@@ -16074,10 +16066,6 @@ if __name__ == "__main__":
             from voders.interactiveCLI import interactive_cli_mode
             interactive_cli_mode()
             sys.exit(0)
-        if sys.argv[1] == "vadar-download" and len(sys.argv) == 2:
-            ok, msg = vadar_download_model()
-            print(msg)
-            sys.exit(0 if ok else 1)
         arg_offset = 1
         if sys.argv[1] == "cli":
             arg_offset = 2
