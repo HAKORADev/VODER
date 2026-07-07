@@ -4,6 +4,9 @@ import re
 import time
 import traceback
 
+from voders.vadars.eval import evaluate_plan, evaluate_act_result
+from voders.vadars.summarizer import summarize_output
+
 from voders.vadars import VADAR_SESSIONS_DIR
 from voders.vadars.system_prompt import generate_system_prompt
 from voders.vadars.context import ContextManager, create_session, log_input, log_output, log_act
@@ -84,7 +87,7 @@ def _execute_tool_call(tool_name, tool_args, session_dir=None, act_outputs=None,
         return False, f"Tool '{tool_name}' error: {e}", elapsed
 
 
-def _execute_act(title, command, session_dir, act_outputs):
+def _execute_act(title, command, session_dir, act_outputs, user_request="", summarize_threshold=1500):
     from voder import parse_and_execute_oneline
     cmd_tokens = command.split()
     if not cmd_tokens:
@@ -104,6 +107,17 @@ def _execute_act(title, command, session_dir, act_outputs):
         output = ''.join(captured)
         act_outputs[title] = output
         log_act(session_dir, title, command, output, success)
+
+        if user_request:
+            verdict, reason = evaluate_act_result(user_request, title, command, output, success)
+            print(f"[EVAL]: {verdict.upper()} — {reason}")
+            log_act(session_dir, f"{title}_eval", f"eval verdict: {verdict}", reason, verdict == 'correct')
+
+        if len(output) > summarize_threshold:
+            summary = summarize_output(output, context_label=title)
+            print(f"[SUMMARIZER]: condensed {len(output)} chars -> {len(summary)} chars")
+            return success, summary
+
         return success, output
     except Exception as e:
         sys.stdout = old_stdout
@@ -207,7 +221,7 @@ def run_vadar_oneline(user_input, result_path=None):
             command = act['command']
             print(f"\n[ACT]: {title} -> {command}")
             print(f"{'─'*40}")
-            success, output = _execute_act(title, command, session_dir, act_outputs)
+            success, output = _execute_act(title, command, session_dir, act_outputs, user_request=user_input)
             print(f"{'─'*40}")
             status = 'SUCCESS' if success else 'FAILED'
             print(f"[ACT RESULT]: {title} -> {status}")
@@ -298,6 +312,15 @@ def run_vadar_interactive():
             ctx.add('assistant', response)
             parsed = _parse_model_output(response)
 
+            if parsed['thoughts'] and parsed['decisions'] and not parsed['acts'] and not parsed['tool_calls']:
+                thoughts_text = ' '.join(parsed['thoughts'])
+                decisions_text = ' '.join(parsed['decisions'])
+                verdict, reason = evaluate_plan(user_input, thoughts_text, decisions_text)
+                print(f"[EVAL]: {verdict.upper()} — {reason}")
+                if verdict == 'wrong':
+                    ctx.add('system', f"Eval says your plan is WRONG: {reason}. Fix it and try again.")
+                    continue
+
             for reply in parsed['replies']:
                 print(f"\n[VADAR]: {reply}")
                 log_output(session_dir, reply)
@@ -325,7 +348,7 @@ def run_vadar_interactive():
                 command = act['command']
                 print(f"\n[ACT]: {title} -> {command}")
                 print(f"{'─'*40}")
-                success, output = _execute_act(title, command, session_dir, act_outputs)
+                success, output = _execute_act(title, command, session_dir, act_outputs, user_request=user_input)
                 print(f"{'─'*40}")
                 status = 'SUCCESS' if success else 'FAILED'
                 print(f"[ACT RESULT]: {title} -> {status}")
