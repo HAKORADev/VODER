@@ -67,7 +67,6 @@ class ContextManager:
         drop_count = max(1, int(len(self.messages) * drop_ratio))
         if drop_count >= len(self.messages):
             drop_count = len(self.messages) - 1
-        system_msgs = [i for i, m in enumerate(self.messages) if m['role'] == 'system']
         dropped = []
         kept = list(self.messages)
         for _ in range(drop_count):

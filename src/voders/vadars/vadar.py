@@ -186,6 +186,34 @@ def _detect_inputs(text):
 
 def _auto_hear_inputs(inputs, session_dir, act_outputs, model, processor):
     for inp in inputs:
+        if inp.startswith('http://') or inp.startswith('https://'):
+            print(f"[AUTO-HEAR]: downloading {inp} via quest download...")
+            from voder import parse_and_execute_oneline
+            old_stdout = sys.stdout
+            sys.stdout = open(os.devnull, 'w')
+            try:
+                parse_and_execute_oneline(['quest', 'download', inp])
+            except Exception:
+                pass
+            finally:
+                sys.stdout.close()
+                sys.stdout = old_stdout
+            results_dir = os.path.join(os.getcwd(), 'results')
+            if os.path.isdir(results_dir):
+                dl_files = sorted(
+                    [os.path.join(results_dir, f) for f in os.listdir(results_dir) if os.path.isfile(os.path.join(results_dir, f))],
+                    key=os.path.getmtime, reverse=True,
+                )
+                if dl_files:
+                    inp = dl_files[0]
+                    print(f"[AUTO-HEAR]: downloaded to {inp}")
+                else:
+                    print(f"[AUTO-HEAR]: download failed for {inp}")
+                    continue
+            else:
+                print(f"[AUTO-HEAR]: download failed for {inp}")
+                continue
+
         ext = os.path.splitext(inp)[1].lower()
         if ext in {'.wav', '.mp3', '.flac', '.ogg', '.aac', '.m4a'}:
             print(f"[AUTO-HEAR]: listening to {inp}")
@@ -202,10 +230,15 @@ def _auto_hear_inputs(inputs, session_dir, act_outputs, model, processor):
 
 
 def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, processor):
+    total_calls = 0
+    total_passed = 0
+    total_failed = 0
+    total_time = 0.0
     for tc in tool_calls:
         tool_name = tc['tool']
         tool_args = tc['args']
-        print(f"\n[TOOL_CALL]: {tool_name} {tool_args}")
+        total_calls += 1
+        print(f"\n[TOOL_CALL {total_calls}]: {tool_name} {tool_args}")
 
         max_retries = 3
         for attempt in range(max_retries):
@@ -215,7 +248,7 @@ def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, proces
                 if attempt < max_retries - 1:
                     print(f"[CATCHER]: retry {attempt+1}/{max_retries}")
                     ctx.add('system', f"Your tool call '{tool_name} {tool_args}' was invalid: {err}. Fix it and retry.")
-                    response, inf_err = _run_inference(ctx.get_for_inference(), max_new_tokens=512)
+                    response, inf_err = _run_inference_streamed(ctx.get_for_inference(), max_new_tokens=512)
                     if inf_err or not response or not response.strip():
                         break
                     ctx.add('assistant', response)
@@ -236,14 +269,21 @@ def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, proces
                 break
 
         if not ok:
+            total_failed += 1
+            print(f"[TOOL_STATS]: {tool_name} | FAILED | calls={total_calls} passed={total_passed} failed={total_failed} total_time={total_time:.2f}s")
             continue
 
         success, result, elapsed = _execute_tool_call(
             tool_name, fixed_args, session_dir, act_outputs, model, processor
         )
+        total_time += elapsed
+        if success:
+            total_passed += 1
+        else:
+            total_failed += 1
         display = result[:800] if len(result) > 800 else result
         print(f"[TOOL_RESULT]: {display}")
-        print(f"[TOOL_STATS]: {tool_name} | {'OK' if success else 'FAILED'} | {elapsed:.2f}s")
+        print(f"[TOOL_STATS]: {tool_name} | {'OK' if success else 'FAILED'} | {elapsed:.2f}s | calls={total_calls} passed={total_passed} failed={total_failed} total_time={total_time:.2f}s")
         ctx.add('tool', f"Tool '{tool_name}' result:\n{result}")
 
 
@@ -260,8 +300,8 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
 
     for iteration in range(max_iterations):
         messages = ctx.get_for_inference()
-        ts_msg = f"Current time: {time.strftime('%Y/%m/%d:%I%p:%M:%S')}"
-        ctx.add('system', ts_msg)
+        ts_msg = {'role': 'system', 'content': f"Current time: {time.strftime('%Y/%m/%d:%I%p:%M:%S')}"}
+        messages.append(ts_msg)
         response, err = _run_inference_streamed(messages)
         if err:
             response, err = _run_inference(messages)
@@ -274,7 +314,7 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
         ctx.add('assistant', response)
         parsed = _parse_model_output(response)
 
-        if parsed['thoughts'] and parsed['decisions'] and not parsed['acts']:
+        if parsed['thoughts'] and parsed['decisions']:
             thoughts_text = ' '.join(parsed['thoughts'])
             decisions_text = ' '.join(parsed['decisions'])
             verdict, reason = evaluate_plan(user_input, thoughts_text, decisions_text)
@@ -283,7 +323,7 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
                 ctx.add('system', f"Eval says your plan is WRONG: {reason}. Fix it and try again.")
                 continue
 
-        if parsed['replies'] and not parsed['acts'] and not parsed['tool_calls']:
+        if parsed['replies']:
             for reply in parsed['replies']:
                 print(f"\n[VADAR]: {reply}")
                 log_output(session_dir, reply)
@@ -308,21 +348,24 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
                 parsed['tool_calls'], ctx, session_dir, act_outputs, model, processor
             )
 
-        for act in parsed['acts']:
-            title = act['title']
-            command = act['command']
-            print(f"\n[ACT]: {title} -> {command}")
-            print(f"{'─'*40}")
-            success, output = _execute_act(
-                title, command, session_dir, act_outputs,
-                user_request=user_input, used_titles=used_titles
-            )
-            print(f"{'─'*40}")
-            status = 'SUCCESS' if success else 'FAILED'
-            print(f"[ACT RESULT]: {title} -> {status}")
-            ctx.add('tool', f"Act '{title}' result ({status}):\n{output[-2000:]}")
-            if act_log is not None:
-                act_log.append({'title': title, 'command': command, 'success': success, 'output': output})
+        if parsed['acts'] and not parsed['eos_act']:
+            ctx.add('system', "You emitted acts but did not emit <EOS_ACT>. Acts will not execute until you emit <EOS_ACT>. Emit it now if you want the acts to run.")
+        elif parsed['acts'] and parsed['eos_act']:
+            for act in parsed['acts']:
+                title = act['title']
+                command = act['command']
+                print(f"\n[ACT]: {title} -> {command}")
+                print(f"{'─'*40}")
+                success, output = _execute_act(
+                    title, command, session_dir, act_outputs,
+                    user_request=user_input, used_titles=used_titles
+                )
+                print(f"{'─'*40}")
+                status = 'SUCCESS' if success else 'FAILED'
+                print(f"[ACT RESULT]: {title} -> {status}")
+                ctx.add('tool', f"Act '{title}' result ({status}):\n{output[-2000:]}")
+                if act_log is not None:
+                    act_log.append({'title': title, 'command': command, 'success': success, 'output': output})
 
         if parsed['eos_done']:
             print("\n[VADAR]: Task complete.")
@@ -335,7 +378,7 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
                 last_vadar_reply_time = time.time()
             break
 
-        if parsed['eos_reply'] and not parsed['acts'] and not parsed['tool_calls']:
+        if parsed['eos_reply'] and not parsed['acts']:
             break
 
     return True
@@ -475,7 +518,9 @@ def run_vadar_interactive():
                 ping_msg = f"PING #{ping_count[0]} — {ts} — {int(elapsed)}s of silence."
                 print(f"\n[{ping_msg}]")
                 ping_ctx['ctx'].add('system', ping_msg + " You may reply or stay silent. If you reply, keep it brief.")
-                response, inf_err = _run_inference(ping_ctx['ctx'].get_for_inference(), max_new_tokens=256)
+                response, inf_err = _run_inference_streamed(ping_ctx['ctx'].get_for_inference(), max_new_tokens=256)
+                if inf_err:
+                    response, inf_err = _run_inference(ping_ctx['ctx'].get_for_inference(), max_new_tokens=256)
                 if not inf_err and response and response.strip():
                     parsed = _parse_model_output(response)
                     for reply in parsed['replies']:
