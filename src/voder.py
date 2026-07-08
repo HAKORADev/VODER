@@ -16438,7 +16438,7 @@ def vadar_run_inference_streamed(messages, max_new_tokens=1024, temperature=0.8,
             collected.append(chunk)
             print(chunk, end='', flush=True)
         print()
-        thread.join(timeout=5)
+        thread.join()
 
         return ''.join(collected), None
     except Exception as e:
