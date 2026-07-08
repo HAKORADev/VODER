@@ -5,6 +5,10 @@ _src_dir = os.path.dirname(os.path.abspath(__file__))
 if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
+_libs_dir = os.path.join(_src_dir, "libs")
+if _libs_dir not in sys.path:
+    sys.path.insert(0, _libs_dir)
+
 MODELS_DIR = os.path.join(_src_dir, "models")
 
 MODELS_TMP_DIR = os.path.join(MODELS_DIR, "tmp")

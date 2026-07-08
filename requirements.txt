@@ -22,9 +22,9 @@ vector_quantize_pytorch
 
 # ML/AI Models
 openai-whisper>=20231117
-transformers==4.57.3
+transformers>=5.0.0
 accelerate>=0.20.0
-huggingface-hub==0.34.0
+huggingface-hub>=1.0.0
 einops>=0.6.0
 
 # BS-RoFormer (SVS - Song Voice Separate)
@@ -70,8 +70,7 @@ funasr>=1.0.0
 modelscope>=1.9.0
 librosa>=0.10.0
 loguru
-dac
-descript-audio-codec==1.0.0
+descript-audiotools>=0.7.2
 
 # Speech Enhancement (UniSE)
 einx
