@@ -8,11 +8,12 @@ import traceback
 from voders.vadars.eval import evaluate_plan, evaluate_act_result
 from voders.vadars.summarizer import summarize_output
 
-from voders.vadars import VADAR_SESSIONS_DIR
+from voders.vadars import VADAR_SESSIONS_DIR, VADAR_GLOBAL_CONTEXT_FILE
 from voders.vadars.system_prompt import generate_system_prompt
 from voders.vadars.context import ContextManager, create_session, log_input, log_output, log_act
 from voders.vadars.tools import TOOL_REGISTRY
 from voders.vadars.catcher import catch_and_fix
+from voders.vadars.tools.validator import validate_tool_basic
 
 
 TOOL_CALL_RE = re.compile(r'<tool_call>\s*(\w+)\s*(.*?)\s*</tool_call>', re.DOTALL)
@@ -28,6 +29,16 @@ EOS_DONE = '<EOS_DONE>'
 
 _RESULTS_DIR = os.path.join(os.getcwd(), 'results')
 _inference_lock = threading.Lock()
+
+
+def _read_global_context_file():
+    try:
+        if os.path.exists(VADAR_GLOBAL_CONTEXT_FILE):
+            with open(VADAR_GLOBAL_CONTEXT_FILE, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+    except Exception:
+        pass
+    return ''
 
 
 def _parse_model_output(text):
@@ -109,7 +120,7 @@ def _execute_tool_call(tool_name, tool_args, session_dir=None, act_outputs=None,
 
 
 def _execute_act(title, command, session_dir, act_outputs, user_request="",
-                 summarize_threshold=1500, used_titles=None, interactive=False):
+                 summarize_threshold=1500, used_titles=None, interactive=False, ctx=None):
     if used_titles is not None and title in used_titles:
         return False, f"Act title '{title}' already exists in this session. Use a unique title."
     if used_titles is not None:
@@ -175,12 +186,15 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
             print(f"[ACT RESULT]: {title} -> {status} ({act_elapsed:.1f}s)")
 
         if user_request:
-            verdict, reason = evaluate_act_result(user_request, title, command, output, success)
+            recent_msgs = ctx.get_messages()[-10:] if ctx else []
+            global_ctx = _read_global_context_file()
+            verdict, reason = evaluate_act_result(user_request, title, command, output, success,
+                                                  recent_messages=recent_msgs, global_context=global_ctx)
             print(f"[EVAL]: {verdict.upper()} — {reason}")
             log_act(session_dir, f"{title}_eval", f"eval verdict: {verdict}", reason, verdict == 'correct')
 
         if len(output) > summarize_threshold:
-            summary = summarize_output(output, context_label=title)
+            summary = summarize_output(output, context_label=title, act_title=title, act_command=command)
             if not interactive:
                 print(f"[SUMMARIZER]: condensed {len(output)} chars -> {len(summary)} chars")
             return success, summary
@@ -225,7 +239,10 @@ def _detect_inputs(text):
 
 
 def _auto_hear_inputs(inputs, session_dir, act_outputs, model, processor):
-    from voders.vadars.tools.impl import _VIDEO_EXTENSIONS, _IMAGE_EXTENSIONS, _AUDIO_EXTENSIONS
+    from voders.vadars.tools.impl import (
+        _VIDEO_EXTENSIONS, _IMAGE_EXTENSIONS, _AUDIO_EXTENSIONS,
+        _resolve_media_target,
+    )
     for inp in inputs:
         is_url = inp.startswith('http://') or inp.startswith('https://')
         ext = os.path.splitext(inp)[1].lower()
@@ -238,18 +255,13 @@ def _auto_hear_inputs(inputs, session_dir, act_outputs, model, processor):
             kind = 'image'
         if kind is None:
             continue
-        if is_url:
-            print(f"[AUTO-HEAR]: downloading {inp}...")
-            from voders.vadars.tools.impl import _download_url_to_local
-            local, err = _download_url_to_local(inp, kind if kind != 'image' else 'image')
-            if err:
-                print(f"[AUTO-HEAR]: download failed for {inp}: {err}")
-                continue
-            inp = local
-            print(f"[AUTO-HEAR]: downloaded to {inp}")
+        local, err = _resolve_media_target(inp, kind)
+        if err:
+            print(f"[AUTO-HEAR]: {err}")
+            continue
         tool_name = {'audio': 'listen', 'video': 'watch', 'image': 'look'}[kind]
-        print(f"[AUTO-HEAR]: {tool_name} on {inp}")
-        result = _execute_tool_call(tool_name, inp, session_dir, act_outputs, model, processor)
+        print(f"[AUTO-HEAR]: {tool_name} on {local}")
+        result = _execute_tool_call(tool_name, local, session_dir, act_outputs, model, processor)
         print(f"[AUTO-HEAR RESULT]: {str(result[1])[:300]}")
 
 
@@ -272,34 +284,44 @@ def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, proces
         ok = False
         err = None
         fixed_args = tool_args
-        for attempt in range(max_retries):
-            t0 = time.time()
-            ok, err, fixed_args, _ = catch_and_fix(tool_name, tool_args if attempt == 0 else fixed_args)
-            catcher_t = time.time() - t0
-            verdict_str = 'OK' if ok else 'CANNOT_FIX'
-            print(f"[CATCHER]: {verdict_str} ({catcher_t:.2f}s){'' if ok else f' — {err}'}")
-            if ok:
-                break
-            if attempt < max_retries - 1:
-                print(f"[CATCHER]: asking VADAR to retry ({attempt+1}/{max_retries})")
-                ctx.add('system', f"My tool call '{tool_name} {tool_args}' was invalid: {err}. Fix it and retry.")
-                response, inf_err = _run_inference_streamed(ctx.get_for_inference(), max_new_tokens=512)
-                if inf_err or not response or not response.strip():
+
+        t0 = time.time()
+        basic_ok, basic_err = validate_tool_basic(tool_name, tool_args)
+        basic_t = time.time() - t0
+        if not basic_ok:
+            print(f"[VALIDATOR]: ✗ FAIL ({basic_t:.2f}s) — {basic_err}")
+            ok = False
+            err = basic_err
+        else:
+            print(f"[VALIDATOR]: ✓ PASS ({basic_t:.2f}s) — sending to Catcher for deep check...")
+            for attempt in range(max_retries):
+                t0 = time.time()
+                ok, err, fixed_args, _ = catch_and_fix(tool_name, fixed_args if attempt > 0 else tool_args)
+                catcher_t = time.time() - t0
+                verdict_str = '✓ OK' if ok else '✗ CANNOT_FIX'
+                print(f"[CATCHER]: {verdict_str} ({catcher_t:.2f}s){'' if ok else f' — {err}'}")
+                if ok:
                     break
-                ctx.add('assistant', response)
-                parsed_retry = _parse_model_output(response)
-                if parsed_retry['tool_calls']:
-                    for rtc in parsed_retry['tool_calls']:
-                        if rtc['tool'] == tool_name:
-                            fixed_args = rtc['args']
+                if attempt < max_retries - 1:
+                    print(f"[CATCHER]: asking VADAR to retry ({attempt+1}/{max_retries})")
+                    ctx.add('system', f"My tool call '{tool_name} {tool_args}' was invalid: {err}. Fix it and retry.")
+                    response, inf_err = _run_inference_streamed(ctx.get_for_inference(), max_new_tokens=512)
+                    if inf_err or not response or not response.strip():
+                        break
+                    ctx.add('assistant', response)
+                    parsed_retry = _parse_model_output(response)
+                    if parsed_retry['tool_calls']:
+                        for rtc in parsed_retry['tool_calls']:
+                            if rtc['tool'] == tool_name:
+                                fixed_args = rtc['args']
+                                break
+                        else:
                             break
                     else:
                         break
                 else:
-                    break
-            else:
-                print(f"[CATCHER]: max retries reached — skipping")
-                ctx.add('tool', f"Tool '{tool_name}' was invalid after {max_retries} retries: {err}")
+                    print(f"[CATCHER]: max retries reached — skipping")
+                    ctx.add('tool', f"Tool '{tool_name}' was invalid after {max_retries} retries: {err}")
 
         if not ok:
             total_failed += 1
@@ -351,7 +373,11 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
         if parsed['thoughts'] and parsed['decisions']:
             thoughts_text = ' '.join(parsed['thoughts'])
             decisions_text = ' '.join(parsed['decisions'])
-            verdict, reason = evaluate_plan(user_input, thoughts_text, decisions_text, acts=parsed['acts'])
+            recent_msgs = ctx.get_messages()[-10:]
+            global_ctx = _read_global_context_file()
+            verdict, reason = evaluate_plan(user_input, thoughts_text, decisions_text,
+                                            acts=parsed['acts'], recent_messages=recent_msgs,
+                                            global_context=global_ctx)
             print(f"[EVAL]: {verdict.upper()} — {reason}")
             if verdict == 'wrong':
                 ctx.add('system', f"Eval says your plan is WRONG: {reason}. Fix it and try again.")
@@ -363,19 +389,21 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
                 log_output(session_dir, reply)
                 last_vadar_reply_time = time.time()
 
-            if interactive and parsed['decisions'] and approval_event is not None and waiting_for_approval is not None:
-                print("\n[VADAR]: This is my plan. Type 'go' to approve, or tell me what to change.")
-                waiting_for_approval[0] = True
-                approval_event.clear()
-                while not approval_event.is_set():
-                    approval_event.wait(timeout=0.5)
-                waiting_for_approval[0] = False
-                approval_str = getattr(approval_event, '_user_response', 'go')
-                if approval_str.lower().strip() in ('go', 'ok', 'yes', 'proceed', 'do it', 'continue', ''):
-                    ctx.add('user', f"go")
-                else:
-                    ctx.add('user', approval_str)
-                    continue
+            if interactive and approval_event is not None and waiting_for_approval is not None:
+                has_plan_signals = bool(parsed['decisions']) or (not parsed['acts'] and not parsed['eos_act'] and not parsed['eos_done'])
+                if has_plan_signals and not parsed['eos_act']:
+                    print("\n[VADAR]: This is my plan. Type 'go' to approve, or tell me what to change.")
+                    waiting_for_approval[0] = True
+                    approval_event.clear()
+                    while not approval_event.is_set():
+                        approval_event.wait(timeout=0.5)
+                    waiting_for_approval[0] = False
+                    approval_str = getattr(approval_event, '_user_response', 'go')
+                    if approval_str.lower().strip() in ('go', 'ok', 'yes', 'proceed', 'do it', 'continue', ''):
+                        ctx.add('user', f"go")
+                    else:
+                        ctx.add('user', approval_str)
+                        continue
 
         if parsed['tool_calls']:
             _process_tool_calls(
@@ -409,7 +437,7 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
                 success, output = _execute_act(
                     title, command, session_dir, act_outputs,
                     user_request=user_input, used_titles=used_titles,
-                    interactive=interactive
+                    interactive=interactive, ctx=ctx
                 )
                 print(f"{'─'*40}")
                 status = 'SUCCESS' if success else 'FAILED'
@@ -444,34 +472,21 @@ def run_vadar_oneline(user_input, result_path=None):
         print(f"VADAR is not available — {err}")
         return False
 
-    tasks = re.split(r'\s*&&\s*', user_input)
-    if len(tasks) > 1:
-        print(f"[VADAR]: {len(tasks)} tasks detected (split by &&).")
-        all_ok = True
-        for i, task in enumerate(tasks, 1):
-            task = task.strip()
-            if not task:
-                continue
-            print(f"\n{'='*40}")
-            print(f"Task {i}/{len(tasks)}: {task[:100]}")
-            print(f"{'='*40}")
-            ok = _run_oneline_single(task, result_path if i == len(tasks) else None,
-                                     model, processor)
-            if not ok:
-                all_ok = False
-        return all_ok
+    tasks = [t.strip() for t in re.split(r'\s*&&\s*', user_input) if t.strip()]
+    if not tasks:
+        return False
 
-    return _run_oneline_single(user_input, result_path, model, processor)
-
-
-def _run_oneline_single(user_input, result_path, model, processor):
     session_dir, session_name = create_session('oneline')
     log_input(session_dir, user_input)
 
-    system_prompt = generate_system_prompt(session_type='oneline', user_input=user_input)
+    system_prompt = generate_system_prompt(session_type='oneline', user_input=user_input, exclude_session=session_name)
     ctx = ContextManager(session_dir)
+    try:
+        if processor is not None and hasattr(processor, 'tokenizer'):
+            ctx.set_tokenizer(processor.tokenizer)
+    except Exception:
+        pass
     ctx.add('system', system_prompt)
-    ctx.add('user', user_input)
 
     act_outputs = {}
     used_titles = set()
@@ -479,10 +494,22 @@ def _run_oneline_single(user_input, result_path, model, processor):
 
     print(f"\n{'='*60}")
     print(f"VADAR session: {session_name}")
+    if len(tasks) > 1:
+        print(f"Multi-task: {len(tasks)} tasks (split by &&) — sharing one session.")
     print(f"{'='*60}\n")
 
-    _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor, used_titles,
-                    interactive=False, act_log=act_log)
+    all_ok = True
+    for i, task in enumerate(tasks, 1):
+        if len(tasks) > 1:
+            print(f"\n{'─'*40}")
+            print(f"Task {i}/{len(tasks)}: {task[:100]}")
+            print(f"{'─'*40}")
+        log_input(session_dir, f"[Task {i}] {task}")
+        ctx.add('user', task)
+        ok = _run_agent_loop(ctx, task, session_dir, act_outputs, model, processor, used_titles,
+                             interactive=False, act_log=act_log)
+        if not ok:
+            all_ok = False
 
     _finalize_session(session_dir, ctx)
 
@@ -523,7 +550,7 @@ def _run_oneline_single(user_input, result_path, model, processor):
     print(f"\nVADAR session ended: {session_name}")
     print(f"Session log: {session_dir}")
     print(f"{'='*60}")
-    return True
+    return all_ok
 
 
 def run_vadar_interactive():
@@ -537,9 +564,15 @@ def run_vadar_interactive():
     last_user_msg_time = [None]
     last_vadar_reply_time = [time.time()]
     ctx = ContextManager(session_dir)
+    try:
+        if processor is not None and hasattr(processor, 'tokenizer'):
+            ctx.set_tokenizer(processor.tokenizer)
+    except Exception:
+        pass
     system_prompt = generate_system_prompt(session_type='interactive',
                                            last_user_msg_time=last_user_msg_time[0],
-                                           last_vadar_reply_time=last_vadar_reply_time[0])
+                                           last_vadar_reply_time=last_vadar_reply_time[0],
+                                           exclude_session=session_name)
     ctx.add('system', system_prompt)
 
     act_outputs = {}
@@ -552,6 +585,7 @@ def run_vadar_interactive():
     ping_stop = threading.Event()
     last_user_activity = [time.time()]
     ping_count = [0]
+    vadar_busy = [False]
 
     ping_ctx = {'ctx': ctx, 'session_dir': session_dir, 'model': model, 'processor': processor,
                 'act_outputs': act_outputs, 'used_titles': used_titles, 'user_input': ''}
@@ -563,12 +597,20 @@ def run_vadar_interactive():
             ping_stop.wait(timeout=1)
             if ping_stop.is_set():
                 break
-            elapsed = time.time() - last_user_activity[0]
-            if elapsed >= ping_interval:
-                ping_count[0] += 1
-                ts = time.strftime("%Y/%m/%d:%I%p:%M:%S")
-                ping_msg = f"PING #{ping_count[0]} — {ts} — {int(elapsed)}s of silence."
-                print(f"\n[{ping_msg}]")
+            if vadar_busy[0] or waiting_for_approval[0]:
+                last_user_activity[0] = time.time()
+                continue
+            if last_vadar_reply_time[0] is None:
+                continue
+            elapsed = time.time() - max(last_user_activity[0], last_vadar_reply_time[0])
+            if elapsed < ping_interval:
+                continue
+            ping_count[0] += 1
+            ts = time.strftime("%Y/%m/%d:%I%p:%M:%S")
+            ping_msg = f"PING #{ping_count[0]} — {ts} — {int(elapsed)}s of silence."
+            print(f"\n[{ping_msg}]")
+            vadar_busy[0] = True
+            try:
                 ping_ctx['ctx'].add('system', ping_msg + " You may reply or stay silent. If you reply, keep it brief.")
                 response, inf_err = _run_inference_streamed(ping_ctx['ctx'].get_for_inference(), max_new_tokens=256)
                 if inf_err:
@@ -579,6 +621,9 @@ def run_vadar_interactive():
                         print(f"\n[VADAR]: {reply}")
                         log_output(ping_ctx['session_dir'], reply)
                         last_vadar_reply_time[0] = time.time()
+            finally:
+                vadar_busy[0] = False
+                last_user_activity[0] = time.time()
 
     if ping_interval > 0:
         t = threading.Thread(target=ping_thread, daemon=True)
@@ -588,7 +633,7 @@ def run_vadar_interactive():
     print(f"VADAR Interactive Mode")
     print(f"Session: {session_name}")
     if ping_interval > 0:
-        print(f"Ping: every {ping_interval}s of silence")
+        print(f"Ping: every {ping_interval}s of silence (only when idle)")
     else:
         print(f"Ping: disabled")
     print(f"{'='*60}")
@@ -614,11 +659,20 @@ def run_vadar_interactive():
             break
         if user_input.lower() == 'clear':
             ctx = ContextManager(session_dir)
+            try:
+                if processor is not None and hasattr(processor, 'tokenizer'):
+                    ctx.set_tokenizer(processor.tokenizer)
+            except Exception:
+                pass
             last_user_msg_time[0] = None
             last_vadar_reply_time[0] = time.time()
+            last_user_activity[0] = time.time()
+            ping_count[0] = 0
+            vadar_busy[0] = False
             system_prompt = generate_system_prompt(session_type='interactive',
                                                    last_user_msg_time=last_user_msg_time[0],
-                                                   last_vadar_reply_time=last_vadar_reply_time[0])
+                                                   last_vadar_reply_time=last_vadar_reply_time[0],
+                                                   exclude_session=session_name)
             ctx.add('system', system_prompt)
             act_outputs = {}
             used_titles = set()
@@ -638,11 +692,16 @@ def run_vadar_interactive():
         ctx.add('user', user_input)
         ping_ctx['user_input'] = user_input
 
-        _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
-                        used_titles, interactive=True, approval_event=approval_event,
-                        waiting_for_approval=waiting_for_approval)
+        vadar_busy[0] = True
+        try:
+            _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
+                            used_titles, interactive=True, approval_event=approval_event,
+                            waiting_for_approval=waiting_for_approval)
+        finally:
+            vadar_busy[0] = False
 
         last_vadar_reply_time[0] = time.time()
+        last_user_activity[0] = time.time()
         print()
 
     ping_stop.set()
@@ -653,28 +712,35 @@ def run_vadar_interactive():
 
 def _finalize_session(session_dir, ctx):
     try:
-        from voders.vadars import VADAR_GLOBAL_CONTEXT_FILE
         from voder import vadar_load_config
         config = vadar_load_config()
         gc_cap_pct = config.get('global_context_cap_percent', 15) / 100.0
         messages = ctx.get_messages()
-        conv_text = '\n'.join(f"[{m['role'].upper()}] {m['content'][:300]}" for m in messages)
+        conv_text = '\n'.join(f"[{m['role'].upper()}] {m['content']}" for m in messages)
         if len(conv_text) > 500:
             summary = summarize_output(conv_text, context_label=f"session {os.path.basename(session_dir)}")
+            session_block = f"=== SESSION: {os.path.basename(session_dir)} ===\n{summary}\n=== END SESSION ==="
             existing = ""
             if os.path.exists(VADAR_GLOBAL_CONTEXT_FILE):
                 with open(VADAR_GLOBAL_CONTEXT_FILE, 'r', encoding='utf-8') as f:
                     existing = f.read()
-            parts = existing.split('\n---\n') if existing.strip() else []
-            parts.append(f"Session {os.path.basename(session_dir)}:\n{summary}")
-            parts = parts[-5:]
-            combined = '\n---\n'.join(parts)
+            blocks = []
+            if existing.strip():
+                import re as _re
+                block_re = _re.compile(r'=== SESSION: .*? ===\n.*?\n=== END SESSION ===', _re.DOTALL)
+                blocks = block_re.findall(existing)
+            blocks.append(session_block)
             max_global_tokens = int(ctx.max_tokens * gc_cap_pct)
-            combined_tokens = len(combined) // 4 + 1
-            if combined_tokens > max_global_tokens:
-                while parts and len('\n---\n'.join(parts)) // 4 + 1 > max_global_tokens:
-                    parts.pop(0)
-                combined = '\n---\n'.join(parts)
+            def _est_tokens(text):
+                if ctx._tokenizer is not None:
+                    try:
+                        return len(ctx._tokenizer.encode(text))
+                    except Exception:
+                        pass
+                return len(text) // 4 + 1
+            while blocks and _est_tokens('\n---\n'.join(blocks)) > max_global_tokens:
+                blocks.pop(0)
+            combined = '\n---\n'.join(blocks)
             with open(VADAR_GLOBAL_CONTEXT_FILE, 'w', encoding='utf-8') as f:
                 f.write(combined)
     except Exception:

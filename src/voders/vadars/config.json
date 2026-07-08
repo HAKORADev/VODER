@@ -5,10 +5,10 @@
     "_comment_context_length": "How many tokens the model can see at once. Gemma 4 12B supports up to 262144 (256K). Lower = less VRAM/RAM. Min: 4096, Max: 262144",
     "context_length": 262144,
 
-    "_comment_sliding_window_threshold": "When total message tokens reach this % of context_length, the oldest non-system messages are trimmed. Min: 50, Max: 99",
+    "_comment_sliding_window_threshold": "Sliding window target. When total tokens reach 100% of context_length, oldest non-system messages are dropped until total drops to this % of context_length. Min: 50, Max: 99",
     "sliding_window_threshold_percent": 95,
 
-    "_comment_sliding_window_delete": "What % of messages to delete when sliding triggers. Min: 1, Max: 50",
+    "_comment_sliding_window_delete": "Deprecated — derived from sliding_window_threshold_percent (drop_ratio = 100 - threshold). Kept for backwards compat. Min: 1, Max: 50",
     "sliding_window_delete_percent": 5,
 
     "_comment_memory_cap": "Maximum % of context that memory content can occupy. Min: 1, Max: 50",

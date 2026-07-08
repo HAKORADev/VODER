@@ -6,7 +6,7 @@ import tempfile
 import shutil
 import json
 import math as _math
-import urllib.request
+import time as _time
 
 from voders.vadars.tools import register_tool
 from voders.vadars import (
@@ -16,6 +16,7 @@ from voders.vadars import (
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 _RESULTS_DIR = os.path.join(_PROJECT_ROOT, 'results')
+_DOWNLOADS_DIR = os.path.join(_RESULTS_DIR, 'downloads')
 _VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm', '.m4v', '.3gp', '.wmv', '.ts', '.mts'}
 _IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
 _AUDIO_EXTENSIONS = {'.wav', '.mp3', '.flac', '.ogg', '.aac', '.m4a', '.wma', '.opus'}
@@ -42,28 +43,40 @@ def _is_url(s):
 
 
 def _download_url_to_local(url, kind):
-    os.makedirs(_RESULTS_DIR, exist_ok=True)
-    try:
-        from voder import download_url_audio, download_url_video
-    except Exception as e:
-        return None, f"VODER download functions unavailable: {e}"
-    if kind == 'audio':
-        ok, err, path = download_url_audio(url, temp_dir=_RESULTS_DIR)
-    elif kind == 'video':
-        ok, err, path = download_url_video(url, temp_dir=_RESULTS_DIR)
-    else:
+    if kind == 'image':
+        target_dir = os.path.join(_DOWNLOADS_DIR, 'images')
+        os.makedirs(target_dir, exist_ok=True)
         try:
-            ext = os.path.splitext(url.split('?')[0])[1].lower() or '.jpg'
-            if ext not in _IMAGE_EXTENSIONS:
-                ext = '.jpg'
-            local = os.path.join(_RESULTS_DIR, f"vadar_img_{int(__import__('time').time())}{ext}")
-            urllib.request.urlretrieve(url, local)
-            return local, None
+            from voder import download_url_image
+            path, err = download_url_image(url, temp_dir=target_dir)
+            if err:
+                return None, err
+            return path, None
         except Exception as e:
             return None, f"Image download failed: {e}"
-    if not ok or not path:
-        return None, err or "Download failed."
-    return path, None
+    if kind == 'audio':
+        target_dir = os.path.join(_DOWNLOADS_DIR, 'audios')
+        os.makedirs(target_dir, exist_ok=True)
+        try:
+            from voder import download_url_audio
+            ok, err, path = download_url_audio(url, temp_dir=target_dir)
+            if not ok or not path:
+                return None, err or "Audio download failed."
+            return path, None
+        except Exception as e:
+            return None, f"Audio download failed: {e}"
+    if kind == 'video':
+        target_dir = os.path.join(_DOWNLOADS_DIR, 'videos')
+        os.makedirs(target_dir, exist_ok=True)
+        try:
+            from voder import download_url_video
+            path, err = download_url_video(url, temp_dir=target_dir)
+            if path is None:
+                return None, err or "Video download failed."
+            return path, None
+        except Exception as e:
+            return None, f"Video download failed: {e}"
+    return None, f"Unknown download kind: {kind}"
 
 
 def _resolve_media_target(target, kind):
@@ -145,16 +158,34 @@ def _parse_format_list(formats_str):
     return combined, include_others
 
 
+_VALID_TYPE_TOKENS = {'videos', 'images', 'audios', 'texts', 'others', 'all'}
+
+
+def _is_path_token(tok):
+    if os.path.sep in tok or '\\' in tok:
+        return True
+    if tok in ('.', '..'):
+        return True
+    if os.path.exists(tok):
+        return True
+    if tok.startswith('./') or tok.startswith('../'):
+        return True
+    return False
+
+
 @register_tool('list')
 def tool_list(args):
     tokens = args.strip().split()
     types_tokens = []
     path = _PROJECT_ROOT
     for tok in tokens:
-        if os.path.sep in tok or os.path.exists(tok) or tok in ('.', '..'):
-            path = tok.strip('"\'')
+        clean = tok.strip('"\'')
+        if _is_path_token(clean) and clean.lower() not in _VALID_TYPE_TOKENS:
+            path = clean
+        elif clean.lower() in _VALID_TYPE_TOKENS or clean.startswith('.'):
+            types_tokens.append(clean.lower())
         else:
-            types_tokens.append(tok.lower())
+            types_tokens.append(clean.lower())
     if not _is_within_project(path):
         return f"Error: path '{path}' is outside the VODER project directory. I can only list files inside the project."
     if not os.path.isdir(path):
@@ -433,7 +464,7 @@ def tool_calculate(args):
             supported = [line.strip() for line in f if line.strip()]
     except Exception:
         supported = ['math']
-    safe_globals = {'__builtins__': {}}
+    safe_globals = {}
     for lib in supported:
         try:
             safe_globals[lib] = __import__(lib)
@@ -845,23 +876,34 @@ def tool_delete_role_extras(args):
         return f"Error deleting roleplay extras: {e}"
 
 
-_PLATFORM_SEARCH_URLS = {
-    'youtube': lambda q, n: f"ytsearch{n}:{q}",
-    'bilibili': lambda q, n: f"bilisearch{n}:{q}",
-    'tiktok': lambda q, n: f"https://www.tiktok.com/search?q={q}",
-    'snapchat': lambda q, n: f"https://www.snapchat.com/spotlight/trending",
-    'instagram': lambda q, n: f"https://www.instagram.com/explore/tags/{q.strip('#')}/",
-    'facebook': lambda q, n: f"https://www.facebook.com/watch/search/?q={q}",
-    'twitter': lambda q, n: f"https://x.com/search?q={q}&f=live",
-    'x': lambda q, n: f"https://x.com/search?q={q}&f=live",
-}
+_SEARCH_PLATFORMS = {'youtube', 'reddit', 'bilibili', 'tiktok', 'snapchat', 'instagram', 'facebook', 'twitter', 'x'}
+
+
+def _build_search_url(platform, query, count):
+    if platform == 'youtube':
+        return f"ytsearch{count}:{query}"
+    if platform == 'reddit':
+        return f"redditsearch{count}:{query}"
+    if platform == 'bilibili':
+        return f"bilisearch{count}:{query}"
+    if platform == 'tiktok':
+        return f"https://www.tiktok.com/search?q={query}"
+    if platform == 'snapchat':
+        return f"https://www.snapchat.com/spotlight/trending"
+    if platform == 'instagram':
+        return f"https://www.instagram.com/explore/tags/{query.strip('#')}/"
+    if platform == 'facebook':
+        return f"https://www.facebook.com/watch/search/?q={query}"
+    if platform in ('twitter', 'x'):
+        return f"https://x.com/search?q={query}&f=live"
+    return None
 
 
 @register_tool('search_media')
 def tool_search_media(args):
     parts = args.strip().split(None, 2)
     if len(parts) < 3:
-        return "Usage: search_media <platform> <search query> <number>\nPlatforms: youtube, bilibili, tiktok, snapchat, instagram, facebook, twitter/x"
+        return f"Usage: search_media <platform> <search query> <number>\nPlatforms: {', '.join(sorted(_SEARCH_PLATFORMS))}"
     platform = parts[0].lower().strip()
     query = parts[1].strip().strip('"\'')
     try:
@@ -872,31 +914,93 @@ def tool_search_media(args):
         return "Number must be at least 1."
     if count > 50:
         count = 50
-    builder = _PLATFORM_SEARCH_URLS.get(platform)
-    if builder is None:
-        return f"Unsupported platform '{platform}'. Supported: {', '.join(_PLATFORM_SEARCH_URLS.keys())}"
-    search_url = builder(query, count)
+    if platform not in _SEARCH_PLATFORMS:
+        return f"Unsupported platform '{platform}'. Supported: {', '.join(sorted(_SEARCH_PLATFORMS))}"
+    search_url = _build_search_url(platform, query, count)
+    if search_url is None:
+        return f"Platform '{platform}' search not implemented."
     try:
         cmd = [
             'yt-dlp', search_url,
             '--flat-playlist',
             '--playlist-end', str(count),
-            '--print', 'Title: %(title)s | URL: %(url)s | Platform: %(extractor)s',
+            '--print', '%(title)s\t%(url)s\t%(extractor)s\t%(duration)s',
         ]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if r.returncode != 0:
             err = r.stderr.strip()[-500:] if r.stderr else 'unknown error'
             return f"Search failed: {err}"
-        all_lines = r.stdout.strip().split('\n') if r.stdout.strip() else []
-        video_indicators = ('/watch', '/video/', '/status/', '/spotlight/', '/explore/', '/reel/', 'youtu.be/', 'tiktok.com/@')
-        filtered = [line for line in all_lines if any(ind in line.lower() for ind in video_indicators)]
-        results = '\n'.join(filtered) if filtered else '\n'.join(all_lines)
-        if not results.strip():
-            return f"No video results found for '{query}' on {platform}."
-        return f"Search results for '{query}' on {platform} ({len(filtered) if filtered else len(all_lines)} videos, {count} max):\n\n{results}"
+        raw_lines = r.stdout.strip().split('\n') if r.stdout.strip() else []
+        if not raw_lines:
+            return f"No results found for '{query}' on {platform}."
+        results = []
+        for line in raw_lines:
+            fields = line.split('\t')
+            while len(fields) < 4:
+                fields.append('')
+            title, url, extractor, duration = fields[0], fields[1], fields[2], fields[3]
+            dur_str = "N/A"
+            try:
+                if duration and duration != 'NA' and float(duration) > 0:
+                    dur_str = _format_duration(float(duration))
+            except Exception:
+                dur_str = str(duration) if duration else "N/A"
+            results.append(f"Title: {title or '(no title)'} | URL: {url} | Platform: {extractor or platform} | Duration: {dur_str}")
+        if not results:
+            return f"No results found for '{query}' on {platform}."
+        header = f"Search results for '{query}' on {platform} ({len(results)} results, {count} max):\n\n"
+        return header + '\n'.join(results)
     except FileNotFoundError:
         return "yt-dlp is not installed. Install with: pip install yt-dlp"
     except subprocess.TimeoutExpired:
         return "Search timed out (60s). Try fewer results or a simpler query."
     except Exception as e:
         return f"Search error: {e}"
+
+
+@register_tool('get_info')
+def tool_get_info(args):
+    url = args.strip().strip('"\'')
+    if not url:
+        return "Usage: get_info <url>"
+    if not _is_url(url):
+        return f"'{url}' is not a valid URL. get_info needs an http(s) URL."
+    try:
+        from voder import get_url_media_info
+    except Exception as e:
+        return f"VODER media info function unavailable: {e}"
+    supported, media_type, info, err = get_url_media_info(url)
+    if err and not supported:
+        return f"URL not supported: {err}"
+    if not supported:
+        return f"URL not supported: {err or 'unknown reason'}"
+    lines = [f"URL: {url}", f"Supported: yes", f"Media type: {media_type}"]
+    if info:
+        if info.get('title'):
+            lines.append(f"Title: {info['title']}")
+        if info.get('duration') is not None:
+            lines.append(f"Duration: {_format_duration(info['duration'])}")
+        if info.get('platform'):
+            lines.append(f"Platform: {info['platform']}")
+        if info.get('extractor'):
+            lines.append(f"Extractor: {info['extractor']}")
+        if info.get('uploader'):
+            lines.append(f"Uploader: {info['uploader']}")
+    return '\n'.join(lines)
+
+
+def _format_duration(seconds):
+    if seconds is None:
+        return "N/A"
+    try:
+        seconds = float(seconds)
+        if seconds <= 0:
+            return "N/A"
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = int(seconds % 60)
+        if h > 0:
+            return f"{h:02d}:{m:02d}:{s:02d}"
+        return f"{m:02d}:{s:02d}"
+    except Exception:
+        return str(seconds)

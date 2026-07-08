@@ -1,6 +1,5 @@
 import os
 import time
-import copy
 
 from voders.vadars import VADAR_SESSIONS_DIR
 
@@ -31,7 +30,11 @@ class ContextManager:
         self.memory_tokens = 0
         self.context_file = os.path.join(session_dir, 'context.txt')
         self.log_file = os.path.join(session_dir, 'log.txt')
+        self._tokenizer = None
         os.makedirs(session_dir, exist_ok=True)
+
+    def set_tokenizer(self, tokenizer):
+        self._tokenizer = tokenizer
 
     def add(self, role, content, tool_call=None, is_memory=False):
         msg = {'role': role, 'content': content, 'is_memory': is_memory}
@@ -42,25 +45,40 @@ class ContextManager:
             mem_tokens = self._estimate_tokens(content)
             max_mem_tokens = int(self.max_tokens * self.memory_cap_ratio)
             if self.memory_tokens + mem_tokens > max_mem_tokens:
-                self._evict_oldest_memory(mem_tokens)
+                self._save_log(msg)
+                self._save_context()
+                return False
             self.memory_tokens += self._estimate_tokens(content)
 
         self.messages.append(msg)
         self._save_log(msg)
+        self._save_context()
         self._slide_if_needed()
+        return True
 
-    def _evict_oldest_memory(self, needed_tokens):
+    def memory_capacity_info(self):
         max_mem_tokens = int(self.max_tokens * self.memory_cap_ratio)
-        while self.memory_tokens + needed_tokens > max_mem_tokens:
-            evicted = False
-            for i, m in enumerate(self.messages):
-                if m.get('is_memory'):
-                    self.memory_tokens -= self._estimate_tokens(m['content'])
-                    self.messages.pop(i)
-                    evicted = True
-                    break
-            if not evicted:
-                break
+        memories = []
+        for i, m in enumerate(self.messages):
+            if m.get('is_memory'):
+                memories.append({'index': i, 'tokens': self._estimate_tokens(m['content']), 'preview': m['content'][:100]})
+        return {
+            'used': self.memory_tokens,
+            'max': max_mem_tokens,
+            'memories': memories,
+            'full': self.memory_tokens >= max_mem_tokens,
+        }
+
+    def remove_memory_by_index(self, index):
+        if index < 0 or index >= len(self.messages):
+            return False
+        m = self.messages[index]
+        if not m.get('is_memory'):
+            return False
+        self.memory_tokens -= self._estimate_tokens(m['content'])
+        self.messages.pop(index)
+        self._save_context()
+        return True
 
     def get_messages(self):
         return list(self.messages)
@@ -69,6 +87,11 @@ class ContextManager:
         return [{'role': m['role'], 'content': m['content']} for m in self.messages]
 
     def _estimate_tokens(self, text):
+        if self._tokenizer is not None:
+            try:
+                return len(self._tokenizer.encode(text))
+            except Exception:
+                pass
         return len(text) // 4 + 1
 
     def _total_tokens(self):
@@ -78,30 +101,38 @@ class ContextManager:
         total = self._total_tokens()
         if total <= self.max_tokens:
             return
-        drop_ratio = 1.0 - self.slide_ratio
-        drop_count = max(1, int(len(self.messages) * drop_ratio))
-        if drop_count >= len(self.messages):
-            drop_count = len(self.messages) - 1
+        target = int(self.max_tokens * self.slide_ratio)
         dropped = []
         kept = list(self.messages)
-        for _ in range(drop_count):
+        while self._total_tokens_of(kept) > target and len(kept) > 1:
+            evicted = False
             for i in range(len(kept)):
                 if kept[i]['role'] != 'system':
                     if kept[i].get('is_memory'):
                         self.memory_tokens -= self._estimate_tokens(kept[i]['content'])
                     dropped.append(kept.pop(i))
+                    evicted = True
                     break
-            else:
+            if not evicted:
                 break
         self.messages = kept
         self.dropped_count += len(dropped)
         self._save_context()
 
+    @staticmethod
+    def _total_tokens_of(messages, tokenizer=None):
+        if tokenizer is not None:
+            try:
+                return sum(len(tokenizer.encode(m['content'])) for m in messages)
+            except Exception:
+                pass
+        return sum(len(m['content']) // 4 + 1 for m in messages)
+
     def _save_log(self, msg):
         try:
             with open(self.log_file, 'a', encoding='utf-8') as f:
                 ts = time.strftime('%Y/%m/%d %H:%M:%S')
-                f.write(f"[{ts}] {msg['role'].upper()}: {msg['content'][:500]}")
+                f.write(f"[{ts}] {msg['role'].upper()}: {msg['content']}")
                 if msg.get('tool_call'):
                     f.write(f" [TOOL_CALL: {msg['tool_call']}]")
                 f.write('\n')
@@ -121,8 +152,13 @@ class ContextManager:
 
 def create_session(session_type='interactive'):
     ts = time.strftime('%Y%m%d_%H%M%S')
+    import random
+    suffix = f"_{random.randint(1000, 9999)}"
     session_name = f"{ts}_{session_type}"
     session_dir = os.path.join(VADAR_SESSIONS_DIR, session_name)
+    while os.path.exists(session_dir):
+        session_name = f"{ts}{suffix}_{session_type}"
+        session_dir = os.path.join(VADAR_SESSIONS_DIR, session_name)
     os.makedirs(session_dir, exist_ok=True)
     for fname in ['inputs.txt', 'outputs.txt', 'acts.txt', 'log.txt', 'context.txt']:
         fpath = os.path.join(session_dir, fname)
@@ -161,7 +197,8 @@ def log_act(session_dir, title, command, result, success):
             f.write(f"[{ts}] ACT '{title}': {command}\n")
             f.write(f"  RESULT: {status}\n")
             if result:
-                for line in str(result).split('\n')[-20:]:
+                f.write(f"  OUTPUT:\n")
+                for line in str(result).split('\n'):
                     f.write(f"    {line}\n")
             f.write('\n')
     except Exception:

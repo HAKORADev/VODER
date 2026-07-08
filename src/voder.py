@@ -256,6 +256,21 @@ PLATFORMS = {
             r"^/[^/]+$", r"^/$",
         ],
     },
+    "reddit": {
+        "name": "Reddit",
+        "domains": [
+            "reddit.com", "www.reddit.com", "old.reddit.com",
+            "m.reddit.com", "new.reddit.com",
+        ],
+        "short_domains": ["redd.it"],
+        "video_patterns": [
+            r"^/r/[^/]+/comments/", r"^/comments/", r"^/user/[^/]+/comments/",
+        ],
+        "non_video_patterns": [
+            r"^/r/[^/]+/?$", r"^/r/[^/]+/about", r"^/user/[^/]+/?$",
+            r"^/search", r"^/$",
+        ],
+    },
 }
 
 
@@ -309,7 +324,16 @@ def platform_name(platform_id):
 
 
 def is_supported_url(url):
-    return detect_platform(url) is not None
+    if detect_platform(url) is not None:
+        return True
+    normalized = _normalize_url(url)
+    if normalized and (normalized.startswith('http://') or normalized.startswith('https://')):
+        return True
+    return False
+
+
+def is_public_net_url(url):
+    return detect_platform(url) is None and is_supported_url(url)
 
 
 def _matches_any(path, patterns):
@@ -319,6 +343,9 @@ def _matches_any(path, patterns):
 def classify_url(url):
     platform_id = detect_platform(url)
     if not platform_id:
+        normalized = _normalize_url(url)
+        if normalized and (normalized.startswith('http://') or normalized.startswith('https://')):
+            return "public_net", None
         return "unsupported", None
     normalized = _normalize_url(url)
     try:
@@ -510,11 +537,15 @@ def download_url_audio(url, temp_dir=None, skip_verify=False):
         temp_dir = tempfile.gettempdir()
 
     platform_id = detect_platform(url)
-    pname = platform_name(platform_id)
+    pname = platform_name(platform_id) if platform_id else "public_net"
 
     category, _ = classify_url(url)
     if category == "non_video":
         return False, f"This {pname} link does not point to a video", None
+    if category == "public_net":
+        print(f"WARNING: This platform is not officially supported. Results may vary — they are untested and we do not know what you may face.")
+    if category == "unsupported":
+        return False, f"URL is not supported", None
 
     try:
         import yt_dlp
@@ -586,12 +617,29 @@ def download_url_audio(url, temp_dir=None, skip_verify=False):
             ydl.download([normalized])
         except yt_dlp.utils.DownloadError as e:
             error_msg = str(e)
-            if "HTTP Error" in error_msg:
-                return False, f"Network error during download: {error_msg}", None
-            elif "Connection" in error_msg:
-                return False, "Connection lost during download", None
+            need_cookies = any(k in error_msg for k in ('Sign in', 'login', 'Login', 'restricted', 'age', 'private', 'cookies', 'HTTP Error', '403', '401'))
+            if need_cookies:
+                print("Download failed without cookies. Retrying with browser cookies...")
+                cookies_ok, cookies_err = _ydl_download_with_cookies_retry(
+                    ydl_opts, normalized,
+                    lambda y: y.download([normalized])
+                )
+                if cookies_ok is not None:
+                    pass
+                else:
+                    if "HTTP Error" in error_msg:
+                        return False, f"Network error during download: {error_msg}", None
+                    elif "Connection" in error_msg:
+                        return False, "Connection lost during download", None
+                    else:
+                        return False, f"Download failed (with and without cookies): {cookies_err or error_msg}", None
             else:
-                return False, f"Download failed: {error_msg}", None
+                if "HTTP Error" in error_msg:
+                    return False, f"Network error during download: {error_msg}", None
+                elif "Connection" in error_msg:
+                    return False, "Connection lost during download", None
+                else:
+                    return False, f"Download failed: {error_msg}", None
         except Exception as e:
             return False, f"Download error: {str(e)}", None
 
@@ -622,11 +670,15 @@ def download_url_video(url, temp_dir=None):
         temp_dir = tempfile.gettempdir()
 
     platform_id = detect_platform(url)
-    pname = platform_name(platform_id)
+    pname = platform_name(platform_id) if platform_id else "public_net"
 
     category, _ = classify_url(url)
     if category == "non_video":
         return None, f"This {pname} link does not point to a video"
+    if category == "public_net":
+        print(f"WARNING: This platform is not officially supported. Results may vary — they are untested and we do not know what you may face.")
+    if category == "unsupported":
+        return None, f"URL is not supported"
 
     try:
         import yt_dlp
@@ -666,7 +718,21 @@ def download_url_video(url, temp_dir=None):
             title = info.get("title", "Unknown")
             duration = info.get("duration", 0)
             print(f"Video: {title} ({duration}s)")
-            ydl.download([normalized])
+            try:
+                ydl.download([normalized])
+            except yt_dlp.utils.DownloadError as e:
+                error_msg = str(e)
+                need_cookies = any(k in error_msg for k in ('Sign in', 'login', 'Login', 'restricted', 'age', 'private', 'cookies', 'HTTP Error', '403', '401'))
+                if need_cookies:
+                    print("Download failed without cookies. Retrying with browser cookies...")
+                    cookies_ok, cookies_err = _ydl_download_with_cookies_retry(
+                        ydl_opts, normalized,
+                        lambda y: y.download([normalized])
+                    )
+                    if cookies_ok is None:
+                        return None, f"Download failed (with and without cookies): {cookies_err or error_msg}"
+                else:
+                    raise
 
         if os.path.exists(output_path):
             print(f"Video downloaded: {output_path}")
@@ -700,6 +766,197 @@ def download_youtube_audio(url, temp_dir=None):
 
 def download_youtube_video(url, temp_dir=None):
     return download_url_video(url, temp_dir=temp_dir)
+
+
+_COOKERS_BROWSERS = ['chrome', 'brave', 'edge']
+
+
+def _ydl_download_with_cookies_retry(ydl_opts_base, url, download_fn):
+    last_err = None
+    for browser in [None] + _COOKERS_BROWSERS:
+        opts = dict(ydl_opts_base)
+        if browser is not None:
+            opts['cookiesfrombrowser'] = (browser,)
+            print(f"Retrying with cookies from {browser}...")
+        try:
+            import yt_dlp
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                result = download_fn(ydl)
+            return result, None
+        except yt_dlp.utils.DownloadError as e:
+            last_err = str(e)
+            if browser is None and any(k in last_err for k in ('Sign in', 'login', 'Login', 'restricted', 'age', 'private', 'cookies')):
+                continue
+            if browser is not None and browser != _COOKERS_BROWSERS[-1]:
+                continue
+            return None, last_err
+        except Exception as e:
+            last_err = str(e)
+            if browser is not None and browser != _COOKERS_BROWSERS[-1]:
+                continue
+            return None, last_err
+    return None, last_err or "All download attempts failed"
+
+
+def download_url_image(url, temp_dir=None):
+    if temp_dir is None:
+        temp_dir = tempfile.gettempdir()
+    os.makedirs(temp_dir, exist_ok=True)
+    platform_id = detect_platform(url)
+    pname = platform_name(platform_id) if platform_id else "public_net"
+    if platform_id is None:
+        print(f"WARNING: This platform is not officially supported. Results may vary — they are untested and we do not know what you may face.")
+    print(f"Downloading image from {pname}: {_normalize_url(url)}")
+    target_dir = os.path.join(temp_dir, f"voder_img_{int(time.time())}")
+    os.makedirs(target_dir, exist_ok=True)
+    cmd_base = ['gallery-dl', '--directory', target_dir]
+    browsers = [None] + _COOKERS_BROWSERS
+    last_err = None
+    for browser in browsers:
+        cmd = list(cmd_base)
+        if browser is not None:
+            cmd.extend(['--cookies-from-browser', browser])
+            print(f"Retrying with cookies from {browser}...")
+        cmd.append(_normalize_url(url))
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if r.returncode == 0:
+                found = []
+                for root, dirs, files in os.walk(target_dir):
+                    for f in files:
+                        ext = os.path.splitext(f)[1].lower()
+                        if ext in {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}:
+                            found.append(os.path.join(root, f))
+                if found:
+                    found.sort(key=os.path.getmtime)
+                    print(f"Image downloaded successfully: {found[0]}")
+                    return found[0], None
+                last_err = "gallery-dl succeeded but no image file was found"
+            else:
+                err = r.stderr.strip() if r.stderr else r.stdout.strip()
+                last_err = err[-500:] if err else "gallery-dl failed"
+                if 'No extractor found' in str(last_err):
+                    return None, f"URL is not supported by gallery-dl: {last_err}"
+                if browser is not None and browser != _COOKERS_BROWSERS[-1]:
+                    continue
+                return None, f"gallery-dl error: {last_err}"
+        except FileNotFoundError:
+            return None, "gallery-dl is not installed. Run: pip install gallery-dl"
+        except subprocess.TimeoutExpired:
+            last_err = "gallery-dl timed out (120s)"
+            if browser is not None and browser != _COOKERS_BROWSERS[-1]:
+                continue
+            return None, last_err
+        except Exception as e:
+            last_err = str(e)
+            if browser is not None and browser != _COOKERS_BROWSERS[-1]:
+                continue
+            return None, last_err
+    return None, last_err or "Image download failed"
+
+
+def get_url_media_info(url):
+    normalized = _normalize_url(url)
+    try:
+        import yt_dlp
+        ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(normalized, download=False)
+            if info:
+                clean = ydl.sanitize_info(info) if hasattr(ydl, 'sanitize_info') else info
+                itype = clean.get('_type')
+                if itype in ('playlist', 'multi_video'):
+                    return False, None, None, f"This {platform_name(detect_platform(url))} link points to a playlist, not a single video"
+                formats = clean.get('formats')
+                direct_url = clean.get('url')
+                if formats or direct_url:
+                    media_type = 'video'
+                    return True, media_type, {
+                        'title': clean.get('title', 'Unknown'),
+                        'duration': clean.get('duration'),
+                        'extractor': clean.get('extractor') or clean.get('extractor_key'),
+                        'platform': detect_platform(url) or 'public_net',
+                        'uploader': clean.get('uploader'),
+                    }, None
+        except yt_dlp.utils.UnsupportedError:
+            pass
+        except yt_dlp.utils.DownloadError as e:
+            err = str(e)
+            if 'Unsupported URL' not in err and 'No extractor' not in err:
+                return False, None, None, err
+    except ImportError:
+        pass
+
+    try:
+        cmd = ['gallery-dl', '-j', normalized]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if r.returncode == 0 and r.stdout.strip():
+            import json
+            metadata = json.loads(r.stdout)
+            for item in metadata:
+                if isinstance(item, list) and len(item) >= 3 and item[0] == 3:
+                    info_dict = item[2] if isinstance(item[2], dict) else {}
+                    return True, 'image', {
+                        'title': info_dict.get('title') or info_dict.get('filename') or 'Unknown',
+                        'duration': None,
+                        'extractor': info_dict.get('category') or 'gallery-dl',
+                        'platform': detect_platform(url) or 'public_net',
+                        'uploader': info_dict.get('user') or info_dict.get('account'),
+                    }, None
+            if metadata:
+                return True, 'image', {
+                    'title': 'Unknown',
+                    'duration': None,
+                    'extractor': 'gallery-dl',
+                    'platform': detect_platform(url) or 'public_net',
+                    'uploader': None,
+                }, None
+        err = (r.stderr or '').strip()
+        if 'No extractor found' in err:
+            return False, None, None, "URL is not supported by yt-dlp or gallery-dl"
+    except FileNotFoundError:
+        return False, None, None, "Neither yt-dlp nor gallery-dl could process this URL"
+    except Exception as e:
+        return False, None, None, f"Info check error: {e}"
+
+    return False, None, None, "URL is not supported by yt-dlp or gallery-dl"
+
+
+_MODE_PREFIXES = {
+    'tts': 'tts', 'sts': 'sts', 'ttm': 'ttm', 'stt': 'stt',
+    'se': 'se', 'sfx': 'sfx', 'svs': 'svs', 'ss': 'ss',
+    'quest': 'quest', 'chains': 'chains',
+}
+
+
+def organize_results(results_dir=None):
+    if results_dir is None:
+        results_dir = os.path.join(os.getcwd(), "results")
+    if not os.path.isdir(results_dir):
+        return
+    for fname in os.listdir(results_dir):
+        fpath = os.path.join(results_dir, fname)
+        if not os.path.isfile(fpath):
+            continue
+        if not fname.startswith("voder_"):
+            continue
+        after = fname[len("voder_"):]
+        mode = None
+        for prefix in sorted(_MODE_PREFIXES.keys(), key=len, reverse=True):
+            if after.startswith(prefix + "_") or after.startswith(prefix):
+                mode = prefix
+                break
+        if mode is None:
+            continue
+        mode_dir = os.path.join(results_dir, mode)
+        os.makedirs(mode_dir, exist_ok=True)
+        dest = os.path.join(mode_dir, fname)
+        if not os.path.exists(dest):
+            try:
+                shutil.copy2(fpath, dest)
+            except Exception:
+                pass
 
 
 def setup_hf_token():
@@ -6210,6 +6467,12 @@ def execute_oneline_command(parsed):
 
     if success and params.get('result_path'):
         copy_result_to_path(params['result_path'])
+
+    if mode != 'vadar':
+        try:
+            organize_results()
+        except Exception:
+            pass
 
     return success
 

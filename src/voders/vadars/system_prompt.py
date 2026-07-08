@@ -58,26 +58,39 @@ def _get_system_info():
 
 def _get_top_languages():
     langs = []
+    seen = set()
+    candidates = []
     try:
         loc = locale.getlocale()
         if loc and loc[0]:
-            langs.append(loc[0])
+            candidates.append(loc[0])
     except Exception:
         pass
+    for env_key in ('LC_ALL', 'LANGUAGE', 'LANG'):
+        val = os.environ.get(env_key, '')
+        if val:
+            for part in val.split(':'):
+                part = part.split('.')[0].strip()
+                if part:
+                    candidates.append(part)
     try:
-        env_lang = os.environ.get('LANG', '')
-        if env_lang:
-            l = env_lang.split('.')[0]
-            if l and l not in langs:
-                langs.append(l)
+        dl = locale.getdefaultlocale()
+        if dl and dl[0]:
+            candidates.append(dl[0])
     except Exception:
         pass
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            langs.append(c)
+        if len(langs) >= 3:
+            break
     if not langs:
         langs.append('en_US')
     return langs[:3]
 
 
-def _get_last_seen():
+def _get_last_seen(exclude_session=None):
     if not os.path.isdir(VADAR_SESSIONS_DIR):
         return None
     sessions = []
@@ -85,8 +98,10 @@ def _get_last_seen():
         full = os.path.join(VADAR_SESSIONS_DIR, entry)
         if not os.path.isdir(full):
             continue
+        if exclude_session and entry == exclude_session:
+            continue
         log_path = os.path.join(full, 'log.txt')
-        if os.path.exists(log_path):
+        if os.path.exists(log_path) and os.path.getsize(log_path) > 0:
             mtime = os.path.getmtime(log_path)
             sessions.append((mtime, entry))
     if not sessions:
@@ -144,15 +159,9 @@ def _read_global_context():
 def _read_ping_time():
     try:
         from voder import vadar_load_config
-        config = vadar_load_config()
-        val = config.get('ping_time', 15)
+        return vadar_load_config().get('ping_time', 15)
     except Exception:
-        val = 15
-    if val == 0:
-        return 0
-    if val < 5:
         return 15
-    return val
 
 
 def _get_command_catalog():
@@ -166,12 +175,12 @@ def _get_command_catalog():
         return '(could not read COMMAND_CATALOG.md)'
 
 
-def generate_system_prompt(session_type='interactive', user_input='', last_user_msg_time=None, last_vadar_reply_time=None):
+def generate_system_prompt(session_type='interactive', user_input='', last_user_msg_time=None, last_vadar_reply_time=None, exclude_session=None):
     now = time.time()
     timestamp_str = time.strftime("%Y/%m/%d:%I%p:%M:%S", time.localtime(now))
     sys_info = _get_system_info()
     langs = _get_top_languages()
-    last_seen = _get_last_seen()
+    last_seen = _get_last_seen(exclude_session=exclude_session)
     personality = _read_about_file('personality.md')
     custom = _read_about_file('custom-vadar.md')
     user_about = _read_about_file('user.md')
@@ -213,10 +222,19 @@ def generate_system_prompt(session_type='interactive', user_input='', last_user_
     parts.append(f"- Timezone: {tz_name}")
     parts.append("")
     parts.append("## Constraints")
-    parts.append("- I have NO network access. I cannot search the web, download files, or access URLs unless VODER's download quest is used.")
-    parts.append("- I have NO system shell access. I cannot run arbitrary system commands or explore the filesystem outside the VODER project directory.")
+    parts.append("- I have network access ONLY through my tools: search_media to find media, quest download (or the look/listen/watch tools with URLs) to fetch it. I do not have direct network or system shell access.")
+    parts.append("- I cannot run arbitrary system commands or explore the filesystem outside the VODER project directory.")
     parts.append("- I can only access paths the user provides to me, and paths inside the VODER project directory.")
     parts.append("- My knowledge cutoff is January 2025 (Gemma 4 training data cutoff). I may not know about events or technologies released after that.")
+    parts.append("")
+    parts.append("## Supported Media Platforms")
+    parts.append("I can search and download from these officially supported platforms:")
+    parts.append("- Videos/audio: YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter, Reddit")
+    parts.append("- Images: same platforms (via gallery-dl), especially Reddit, Instagram, X/Twitter")
+    parts.append("- Experimental `public_net`: other sites are attempted via yt-dlp/gallery-dl with a warning. Works if the tool supports the site, but untested.")
+    parts.append("- I CANNOT download from: Spotify (DRM), Netflix/streaming services, or non-media URLs (file hosts, yandex-disk, etc.).")
+    parts.append("- Downloads that fail without cookies are automatically retried with Chrome → Brave → Edge cookies.")
+    parts.append("- Use the get_info tool to check whether a URL is supported and what media type it is, before attempting a download.")
     parts.append("")
     parts.append("## VODER Capabilities")
     parts.append("I am the VODER agent. I can run any VODER oneline command. Here is the full command catalog:")
@@ -275,7 +293,8 @@ def generate_system_prompt(session_type='interactive', user_input='', last_user_
     parts.append("- memory_edit <vadar|user> <id> <content>: edit an existing memory file.")
     parts.append("- memory_delete <vadar|user> <id>: delete a memory file (must have read it first).")
     parts.append("- calculate <code>: run Python code using supported libraries (currently: math only).")
-    parts.append("- search_media <platform> <query> <number>: search for media on a platform (youtube, bilibili, tiktok, snapchat, instagram, facebook, twitter/x). Returns title + URL + platform for each result. Use quest download or pass the URL directly to listen/watch to fetch a specific result.")
+    parts.append("- search_media <platform> <query> <number>: search for media on a platform (youtube, reddit, bilibili, tiktok, snapchat, instagram, facebook, twitter/x). Returns title + URL + platform + duration for each result. Does NOT support public_net — only officially supported platforms. Use quest download or pass the URL directly to listen/watch/look to fetch a specific result.")
+    parts.append("- get_info <url>: check whether a URL is supported by yt-dlp or gallery-dl. Returns media type (video/audio/image), title, duration, platform. Use this BEFORE attempting to download an unfamiliar URL.")
     parts.append("- read_role: read the current roleplay.")
     parts.append("- make_role <description>: create a new roleplay (in 'I' perspective). Clears extras.")
     parts.append("- edit_role <description>: replace the current roleplay (must exist). Clears extras.")

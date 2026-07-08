@@ -7,23 +7,16 @@ except Exception:
     TOOL_REGISTRY = {}
 
 
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-_VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm', '.m4v', '.3gp', '.wmv', '.ts', '.mts'}
-_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
-_AUDIO_EXTENSIONS = {'.wav', '.mp3', '.flac', '.ogg', '.aac', '.m4a', '.wma', '.opus'}
-_TEXT_EXTENSIONS = {'.txt', '.md', '.py', '.js', '.json', '.yaml', '.yml', '.xml', '.csv', '.tsv', '.html', '.css', '.log', '.chain'}
-
-
 _CATCHER_SYSTEM_PROMPT = """You are Catcher, the silent tool-call brother of the VODER brotherhood. You are not VADAR. You never appear in the conversation context. You never share thoughts with VADAR or the user. You are out of context — you speak only to the engine, never to the chat.
 
 ## Who I Am
-I am Catcher. I am the silent one. I sit behind VADAR. When VADAR emits a tool call, the engine hands it to me before it ever runs. I look at it. I decide whether it is valid. If it is valid, I say OK. If it is broken, I fix it — without noise, without commentary, without bothering VADAR unless I have to.
+I am Catcher. I am the silent one. I sit behind VADAR. When VADAR emits a tool call, the engine hands it to me after a fast code-level validator has already checked the basics (tool exists, paths exist, syntax is well-formed). My job is the DEEPER check: does the call make sense? Are the arguments in the right order? Is the format keyword correct? Are the time ranges valid? Is the memory id plausible?
 
 I am not creative. I do not invent tool calls. I do not change what VADAR meant to do. I only repair the syntax so the call can execute. I keep VADAR's intent intact.
 
 I am precise. I know every tool's signature exactly. I know what each argument means, what formats are allowed, what paths are acceptable. I do not guess — I verify.
 
-I am silent. My fixes never enter the conversation. My reasoning never enters the conversation. The user sees only "CATCHER OK" or "CATCHER FAILED" with a one-line reason. VADAR never sees my reasoning unless the fix is impossible, in which case the engine tells VADAR the call was invalid and why.
+I am silent. My fixes never enter the conversation. My reasoning never enters the conversation. The user sees only the engine's "[CATCHER]: OK" or "[CATCHER]: CANNOT_FIX" line. VADAR never sees my reasoning — if I cannot fix a call, the engine tells VADAR the call was invalid and why, and VADAR retries.
 
 ## Tool Syntax (exact signatures)
 
@@ -50,7 +43,7 @@ I am silent. My fixes never enter the conversation. My reasoning never enters th
 - search <query> path <path> [formats <fmt1,fmt2,...>]
   - The literal word "path" must appear before the path argument.
   - query is the substring to search for in filenames.
-  - formats: optional. Each fmt can be a category keyword (videos, images, audios, texts, others) OR a .ext literal.
+  - formats: optional. Each fmt can be a category keyword (videos, images, audios, texts, others, all) OR a .ext literal.
 
 - memory_read <vadar|user> <id>
 - memory_write <vadar|user> <content>
@@ -63,8 +56,12 @@ I am silent. My fixes never enter the conversation. My reasoning never enters th
   - Code uses only libs listed in supported_libs.txt (currently math).
 
 - search_media <platform> <query> <number>
-  - platform: one of youtube, bilibili, tiktok, snapchat, instagram, facebook, twitter, x.
+  - platform: one of youtube, reddit, bilibili, tiktok, snapchat, instagram, facebook, twitter, x.
   - number: integer 1-50.
+  - search_media does NOT support public_net — only the platforms listed above.
+
+- get_info <url>
+  - URL must be http(s). Returns media type, title, duration, platform.
 
 - read_role (no args)
 - make_role <description>
@@ -76,19 +73,21 @@ I am silent. My fixes never enter the conversation. My reasoning never enters th
 - delete_role_extras (no args)
 
 ## How I Fix
-When VADAR's call is broken, I produce the FIXED arguments string. I keep the same tool name. I preserve VADAR's intent. I do any of these as needed:
+When VADAR's call is broken (but the code-level validator already passed the basics), I produce the FIXED arguments string. I keep the same tool name. I preserve VADAR's intent. I do any of these as needed:
 - Strip wrapping quotes from path arguments (but keep quotes that are part of content like memory_write text).
 - Convert backslashes to forward slashes in path arguments.
-- Find a missing file by partial basename match in the project directory tree.
 - Fix a misspelled enum (e.g., "you" -> "youtube", "vad" -> "vadar", "twit" -> "twitter").
 - Insert the missing "path" keyword in a search call.
 - Reorder arguments to match the tool's signature when the order is obvious.
+- Fix a malformed time range or line range (e.g., "30-20" -> "20-30").
 - Add missing optional arguments only when the call cannot work without them.
 
 I never invent arguments that VADAR did not imply. I never change the tool name. I never delete required arguments.
 
+If a file path doesn't exist, I return cannot_fix with reason "File not found: <path>". VADAR must fix the path itself — I do not guess files.
+
 ## My Response Format
-I respond in EXACTLY one of these two forms. Nothing else. No explanation. No tags other than these.
+I respond in EXACTLY one of these forms. Nothing else. No explanation. No tags other than these.
 
 When the call is already valid:
 <catcher_verdict>ok</catcher_verdict>
@@ -111,51 +110,6 @@ When I cannot fix it:
 """
 
 
-def _is_within_project(path):
-    try:
-        abs_path = os.path.abspath(path)
-        return abs_path.startswith(_PROJECT_ROOT)
-    except Exception:
-        return False
-
-
-def _is_url(s):
-    return isinstance(s, str) and (s.startswith('http://') or s.startswith('https://'))
-
-
-def _find_file_fuzzy(name, search_dirs=None):
-    if search_dirs is None:
-        search_dirs = [_PROJECT_ROOT, os.path.join(_PROJECT_ROOT, 'results')]
-    for d in search_dirs:
-        if not os.path.isdir(d):
-            continue
-        for root, dirs, files in os.walk(d):
-            dirs[:] = [x for x in dirs if not x.startswith('.') and x != '__pycache__']
-            for f in files:
-                if f.lower() == name.lower():
-                    return os.path.join(root, f)
-                base_f = os.path.splitext(f)[0].lower()
-                base_n = os.path.splitext(name)[0].lower()
-                if base_n and base_f == base_n:
-                    return os.path.join(root, f)
-                if name.lower() in f.lower() and len(name) >= 3:
-                    return os.path.join(root, f)
-    return None
-
-
-_VALID_PLATFORMS = {'youtube', 'bilibili', 'tiktok', 'snapchat', 'instagram', 'facebook', 'twitter', 'x'}
-_NO_ARG_TOOLS = {'read_role', 'delete_role', 'read_role_extras', 'delete_role_extras'}
-_PATH_TOOLS = {'look', 'listen', 'watch'}
-
-
-def _strip_quotes(s):
-    s = s.strip()
-    if len(s) >= 2:
-        if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
-            return s[1:-1]
-    return s
-
-
 def _parse_catcher_response(response):
     if not response:
         return None
@@ -173,19 +127,18 @@ def _parse_catcher_response(response):
     }
 
 
-def catch_and_fix(tool_name, tool_args, max_retries=None):
+def catch_and_fix(tool_name, tool_args):
     args = (tool_args or '').strip()
 
     if tool_name not in TOOL_REGISTRY:
-        return False, f"Unknown tool '{tool_name}'. Available: {', '.join(sorted(TOOL_REGISTRY.keys()))}", args, 1
+        return False, f"Unknown tool '{tool_name}'. Available: {', '.join(sorted(TOOL_REGISTRY.keys()))}", args
 
     try:
-        from voder import vadar_load_config, vadar_run_inference
-        config = vadar_load_config()
-        if max_retries is None:
-            max_retries = config.get('catcher_max_retries', 3)
+        from voders.vadars.vadar import _run_inference
     except Exception:
-        max_retries = max_retries or 3
+        from voder import vadar_run_inference as _raw_inference
+        def _run_inference(messages, max_new_tokens=1024):
+            return _raw_inference(messages, max_new_tokens=max_new_tokens)
 
     catcher_messages = [
         {'role': 'system', 'content': _CATCHER_SYSTEM_PROMPT},
@@ -200,32 +153,32 @@ def catch_and_fix(tool_name, tool_args, max_retries=None):
     ]
 
     try:
-        response, inf_err = vadar_run_inference(catcher_messages, max_new_tokens=320)
+        response, inf_err = _run_inference(catcher_messages, max_new_tokens=320)
     except Exception as e:
-        return False, f"Catcher inference failed: {e}", args, 1
+        return False, f"Catcher inference failed: {e}", args
 
     if inf_err:
-        return False, f"Catcher inference error: {inf_err}", args, 1
+        return False, f"Catcher inference error: {inf_err}", args
     if not response or not response.strip():
-        return False, "Catcher produced no output.", args, 1
+        return False, "Catcher produced no output.", args
 
     parsed = _parse_catcher_response(response)
     if not parsed:
-        return False, "Catcher response did not contain a verdict.", args, 1
+        return False, "Catcher response did not contain a verdict.", args
 
     verdict = parsed['verdict']
     fixed_args = parsed['args'].strip()
 
     if verdict == 'ok':
-        return True, None, args, 0
+        return True, None, args
 
     if verdict == 'fixed':
         if not fixed_args:
-            return False, "Catcher said 'fixed' but returned empty args.", args, 1
-        return True, None, fixed_args, 0
+            return False, "Catcher said 'fixed' but returned empty args.", args
+        return True, None, fixed_args
 
     if verdict == 'cannot_fix':
         reason = parsed['reason'] or "Catcher could not fix the call."
-        return False, reason, args, 1
+        return False, reason, args
 
-    return False, f"Catcher returned unknown verdict '{verdict}'.", args, 1
+    return False, f"Catcher returned unknown verdict '{verdict}'.", args

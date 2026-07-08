@@ -1725,9 +1725,11 @@ Side-quests are grouped by category in the `quest` listing (run `python voder.py
 
 **Behavior:**
 
-- URL input: downloads via yt-dlp. Audio path uses `download_url_audio` (MP3 @ 192 kbps); video path uses `download_url_video` (MP4, best quality). The URL is verified by the universal URL handler before downloading (shape check + yt-dlp video verification).
-- Local file input: copies the file to `results/` with the quest naming scheme (no re-encoding).
-- The `<original-name>` is derived from the platform video ID (for URLs — e.g. YouTube video ID, TikTok video ID, Bilibili BV id, Instagram reel id, Facebook video id, Twitter status id) or the file's stem (for local files), sanitized to safe filename characters and capped at 40–60 characters.
+- URL input: downloads via yt-dlp (audio/video) or gallery-dl (images). Audio path uses `download_url_audio` (MP3 @ 192 kbps); video path uses `download_url_video` (MP4, best quality); image path uses `download_url_image` (gallery-dl, original format). The URL is verified by the universal URL handler before downloading. Downloads that fail without cookies are automatically retried with Chrome → Brave → Edge cookies.
+- Local file input: copies the file to `results/downloads/<type>/` with the quest naming scheme (no re-encoding).
+- The `<original-name>` is derived from the platform video ID (for URLs — e.g. YouTube video ID, TikTok video ID, Bilibili BV id, Instagram reel id, Facebook video id, Twitter status id, Reddit post id) or the file's stem (for local files), sanitized to safe filename characters and capped at 40–60 characters.
+- Supported platforms: YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter, Reddit. Experimental `public_net` support for other sites (attempted via yt-dlp/gallery-dl with a warning — works if the tool supports the site, but untested).
+- Output locations: audio → `results/downloads/audios/`, video → `results/downloads/videos/`, image → `results/downloads/images/`.
 
 ```
 # Download a YouTube URL as audio (default, MP3)
@@ -1736,13 +1738,17 @@ python voder.py quest download "https://youtube.com/watch?v=..."
 # Download the same URL as video (MP4)
 python voder.py quest download video "https://youtube.com/watch?v=..."
 
-# Copy a local file to results/ with the quest naming scheme
+# Download an image (or image gallery) from Reddit/Instagram/X/etc.
+python voder.py quest download image "https://reddit.com/r/.../comments/..."
+
+# Copy a local file to results/downloads/ with the quest naming scheme
 python voder.py quest download "/path/to/local.wav"
 python voder.py quest download "/path/to/local.mp4"
 
 # Save result to a specific path
 python voder.py quest download "https://youtube.com/watch?v=..." result "./out.mp3"
 python voder.py quest download video "https://youtube.com/watch?v=..." result "./out.mp4"
+python voder.py quest download image "https://reddit.com/..." result "./out.jpg"
 ```
 
 ### 9.2 `noframes`
