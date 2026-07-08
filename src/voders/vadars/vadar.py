@@ -22,6 +22,7 @@ REPLY_RE = re.compile(r'<reply>(.*?)</reply>', re.DOTALL)
 THINK_RE = re.compile(r'<think>(.*?)</think>', re.DOTALL)
 DECIDE_RE = re.compile(r'<decide>(.*?)</decide>', re.DOTALL)
 EVAL_RE = re.compile(r'<eval>(.*?)</eval>', re.DOTALL)
+ORDERED_ACTION_RE = re.compile(r'<(act|tool_call)>(.*?)</\1>', re.DOTALL)
 
 EOS_REPLY = '<EOS_REPLY>'
 EOS_ACT = '<EOS_ACT>'
@@ -74,6 +75,26 @@ def _parse_model_output(text):
     if EOS_DONE in text:
         result['eos_done'] = True
     return result
+
+
+def _parse_ordered_actions(text):
+    actions = []
+    for m in ORDERED_ACTION_RE.finditer(text):
+        tag = m.group(1)
+        content = m.group(2).strip()
+        if tag == 'act':
+            parts = content.split(None, 1)
+            if len(parts) >= 2:
+                actions.append({'type': 'act', 'title': parts[0].strip(), 'command': parts[1].strip()})
+            elif len(parts) == 1 and parts[0]:
+                actions.append({'type': 'act', 'title': parts[0].strip(), 'command': ''})
+        elif tag == 'tool_call':
+            parts = content.split(None, 1)
+            if len(parts) >= 2:
+                actions.append({'type': 'tool_call', 'tool': parts[0].strip(), 'args': parts[1].strip()})
+            elif len(parts) == 1 and parts[0]:
+                actions.append({'type': 'tool_call', 'tool': parts[0].strip(), 'args': ''})
+    return actions
 
 
 def _snapshot_results():
@@ -419,43 +440,49 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
                         ctx.add('user', approval_str)
                         continue
 
-        if parsed['tool_calls']:
-            _process_tool_calls(
-                parsed['tool_calls'], ctx, session_dir, act_outputs, model, processor
-            )
-
-        if parsed['acts'] and not parsed['eos_act']:
-            ctx.add('system', "You emitted acts but did not emit <EOS_ACT>. Acts will not execute until you emit <EOS_ACT>. Emit it now if you want the acts to run.")
-        elif parsed['acts'] and parsed['eos_act']:
-            from voder import parse_oneline_args, validate_oneline_mode
-            for act in parsed['acts']:
-                title = act['title']
-                command = act['command']
-                cmd_tokens = command.split()
-                if cmd_tokens:
-                    mode = cmd_tokens[0].lower()
-                    if validate_oneline_mode(mode) is None:
-                        print(f"\n[ACT VALIDATOR]: '{title}' — invalid mode '{mode}'. Blocked.")
-                        ctx.add('system', f"Your act '{title}' uses invalid mode '{mode}'. Valid modes: tts, sts, ttm, stt, se, sfx, svs, ss, train, quest, chains. Fix and re-emit.")
+        if parsed['tool_calls'] or parsed['acts']:
+            ordered = _parse_ordered_actions(response)
+            has_eos_act = parsed['eos_act']
+            acts_without_eos = False
+            for item in ordered:
+                if item['type'] == 'tool_call':
+                    _process_tool_calls(
+                        [item], ctx, session_dir, act_outputs, model, processor
+                    )
+                elif item['type'] == 'act':
+                    if not has_eos_act:
+                        acts_without_eos = True
                         continue
-                    test_parse = parse_oneline_args(cmd_tokens)
-                    if test_parse.get('error'):
-                        print(f"\n[ACT VALIDATOR]: '{title}' — syntax error: {test_parse['error']}. Blocked.")
-                        ctx.add('system', f"Your act '{title}' has a syntax error: {test_parse['error']}. Fix and re-emit.")
-                        continue
-                print(f"\n[ACT]: {title} -> {command}")
-                print(f"{'─'*40}")
-                success, output = _execute_act(
-                    title, command, session_dir, act_outputs,
-                    user_request=user_input, used_titles=used_titles,
-                    interactive=interactive, ctx=ctx
-                )
-                print(f"{'─'*40}")
-                status = 'SUCCESS' if success else 'FAILED'
-                print(f"[ACT RESULT]: {title} -> {status}")
-                ctx.add('tool', f"Act '{title}' result ({status}):\n{output[-2000:]}")
-                if act_log is not None:
-                    act_log.append({'title': title, 'command': command, 'success': success, 'output': output})
+                    from voder import parse_oneline_args, validate_oneline_mode
+                    title = item['title']
+                    command = item['command']
+                    cmd_tokens = command.split()
+                    if cmd_tokens:
+                        mode = cmd_tokens[0].lower()
+                        if validate_oneline_mode(mode) is None:
+                            print(f"\n[ACT VALIDATOR]: '{title}' — invalid mode '{mode}'. Blocked.")
+                            ctx.add('system', f"Your act '{title}' uses invalid mode '{mode}'. Valid modes: tts, sts, ttm, stt, se, sfx, svs, ss, train, quest, chains. Fix and re-emit.")
+                            continue
+                        test_parse = parse_oneline_args(cmd_tokens)
+                        if test_parse.get('error'):
+                            print(f"\n[ACT VALIDATOR]: '{title}' — syntax error: {test_parse['error']}. Blocked.")
+                            ctx.add('system', f"Your act '{title}' has a syntax error: {test_parse['error']}. Fix and re-emit.")
+                            continue
+                    print(f"\n[ACT]: {title} -> {command}")
+                    print(f"{'─'*40}")
+                    success, output = _execute_act(
+                        title, command, session_dir, act_outputs,
+                        user_request=user_input, used_titles=used_titles,
+                        interactive=interactive, ctx=ctx
+                    )
+                    print(f"{'─'*40}")
+                    status = 'SUCCESS' if success else 'FAILED'
+                    print(f"[ACT RESULT]: {title} -> {status}")
+                    ctx.add('tool', f"Act '{title}' result ({status}):\n{output[-2000:]}")
+                    if act_log is not None:
+                        act_log.append({'title': title, 'command': command, 'success': success, 'output': output})
+            if acts_without_eos:
+                ctx.add('system', "You emitted acts but did not emit <EOS_ACT>. Acts will not execute until you emit <EOS_ACT>. Emit it now if you want the acts to run.")
 
         if parsed['eos_done']:
             print("\n[VADAR]: Task complete.")
