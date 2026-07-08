@@ -27,7 +27,8 @@ EOS_REPLY = '<EOS_REPLY>'
 EOS_ACT = '<EOS_ACT>'
 EOS_DONE = '<EOS_DONE>'
 
-_RESULTS_DIR = os.path.join(os.getcwd(), 'results')
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+_RESULTS_DIR = os.path.join(_PROJECT_ROOT, 'results')
 _inference_lock = threading.Lock()
 
 
@@ -171,11 +172,7 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
         elif success:
             output += "\n[WARNING]: Command reported success but no new result files were found in results/."
 
-        lines = output.split('\n')
-        if len(lines) > 100:
-            act_outputs[title] = '\n'.join(lines[-100:])
-        else:
-            act_outputs[title] = output
+        act_outputs[title] = output
 
         if interactive:
             status_str = '✓ SUCCESS' if success else '✗ FAILED'
@@ -431,7 +428,6 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
             ctx.add('system', "You emitted acts but did not emit <EOS_ACT>. Acts will not execute until you emit <EOS_ACT>. Emit it now if you want the acts to run.")
         elif parsed['acts'] and parsed['eos_act']:
             from voder import parse_oneline_args, validate_oneline_mode
-            acts_blocked = False
             for act in parsed['acts']:
                 title = act['title']
                 command = act['command']
@@ -441,13 +437,11 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
                     if validate_oneline_mode(mode) is None:
                         print(f"\n[ACT VALIDATOR]: '{title}' — invalid mode '{mode}'. Blocked.")
                         ctx.add('system', f"Your act '{title}' uses invalid mode '{mode}'. Valid modes: tts, sts, ttm, stt, se, sfx, svs, ss, train, quest, chains. Fix and re-emit.")
-                        acts_blocked = True
                         continue
                     test_parse = parse_oneline_args(cmd_tokens)
                     if test_parse.get('error'):
                         print(f"\n[ACT VALIDATOR]: '{title}' — syntax error: {test_parse['error']}. Blocked.")
                         ctx.add('system', f"Your act '{title}' has a syntax error: {test_parse['error']}. Fix and re-emit.")
-                        acts_blocked = True
                         continue
                 print(f"\n[ACT]: {title} -> {command}")
                 print(f"{'─'*40}")
@@ -549,7 +543,7 @@ def run_vadar_oneline(user_input, result_path=None):
         print(f"{'='*60}")
 
     if result_path:
-        results_dir = os.path.join(os.getcwd(), 'results')
+        results_dir = _RESULTS_DIR
         if os.path.isdir(results_dir):
             files = sorted(
                 [os.path.join(results_dir, f) for f in os.listdir(results_dir) if os.path.isfile(os.path.join(results_dir, f))],
@@ -760,5 +754,5 @@ def _finalize_session(session_dir, ctx):
             combined = '\n---\n'.join(blocks)
             with open(VADAR_GLOBAL_CONTEXT_FILE, 'w', encoding='utf-8') as f:
                 f.write(combined)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[FINALIZE SESSION]: error updating global context — {e}")

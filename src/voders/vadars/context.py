@@ -48,7 +48,7 @@ class ContextManager:
                 self._save_log(msg)
                 self._save_context()
                 return False
-            self.memory_tokens += self._estimate_tokens(content)
+            self.memory_tokens += mem_tokens
 
         self.messages.append(msg)
         self._save_log(msg)
@@ -107,9 +107,7 @@ class ContextManager:
         while self._total_tokens_of(kept) > target and len(kept) > 1:
             evicted = False
             for i in range(len(kept)):
-                if kept[i]['role'] != 'system':
-                    if kept[i].get('is_memory'):
-                        self.memory_tokens -= self._estimate_tokens(kept[i]['content'])
+                if kept[i]['role'] != 'system' and not kept[i].get('is_memory'):
                     dropped.append(kept.pop(i))
                     evicted = True
                     break
