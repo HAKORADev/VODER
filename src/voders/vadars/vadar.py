@@ -285,43 +285,46 @@ def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, proces
         err = None
         fixed_args = tool_args
 
-        t0 = time.time()
-        basic_ok, basic_err = validate_tool_basic(tool_name, tool_args)
-        basic_t = time.time() - t0
-        if not basic_ok:
-            print(f"[VALIDATOR]: ✗ FAIL ({basic_t:.2f}s) — {basic_err}")
-            ok = False
-            err = basic_err
-        else:
-            print(f"[VALIDATOR]: ✓ PASS ({basic_t:.2f}s) — sending to Catcher for deep check...")
-            for attempt in range(max_retries):
+        for attempt in range(max_retries):
+            t0 = time.time()
+            basic_ok, basic_err = validate_tool_basic(tool_name, fixed_args if attempt > 0 else tool_args)
+            basic_t = time.time() - t0
+            if not basic_ok:
+                print(f"[VALIDATOR]: ✗ FAIL ({basic_t:.2f}s) — {basic_err}")
+                ok = False
+                err = basic_err
+            else:
+                if attempt == 0:
+                    print(f"[VALIDATOR]: ✓ PASS ({basic_t:.2f}s) — sending to Catcher for deep check...")
                 t0 = time.time()
                 ok, err, fixed_args, _ = catch_and_fix(tool_name, fixed_args if attempt > 0 else tool_args)
                 catcher_t = time.time() - t0
                 verdict_str = '✓ OK' if ok else '✗ CANNOT_FIX'
                 print(f"[CATCHER]: {verdict_str} ({catcher_t:.2f}s){'' if ok else f' — {err}'}")
-                if ok:
+
+            if ok:
+                break
+            if attempt < max_retries - 1:
+                retry_src = 'VALIDATOR' if not basic_ok else 'CATCHER'
+                print(f"[{retry_src}]: asking VADAR to retry ({attempt+1}/{max_retries})")
+                ctx.add('system', f"My tool call '{tool_name} {tool_args}' was invalid: {err}. Fix it and retry.")
+                response, inf_err = _run_inference_streamed(ctx.get_for_inference(), max_new_tokens=512)
+                if inf_err or not response or not response.strip():
                     break
-                if attempt < max_retries - 1:
-                    print(f"[CATCHER]: asking VADAR to retry ({attempt+1}/{max_retries})")
-                    ctx.add('system', f"My tool call '{tool_name} {tool_args}' was invalid: {err}. Fix it and retry.")
-                    response, inf_err = _run_inference_streamed(ctx.get_for_inference(), max_new_tokens=512)
-                    if inf_err or not response or not response.strip():
-                        break
-                    ctx.add('assistant', response)
-                    parsed_retry = _parse_model_output(response)
-                    if parsed_retry['tool_calls']:
-                        for rtc in parsed_retry['tool_calls']:
-                            if rtc['tool'] == tool_name:
-                                fixed_args = rtc['args']
-                                break
-                        else:
+                ctx.add('assistant', response)
+                parsed_retry = _parse_model_output(response)
+                if parsed_retry['tool_calls']:
+                    for rtc in parsed_retry['tool_calls']:
+                        if rtc['tool'] == tool_name:
+                            fixed_args = rtc['args']
                             break
                     else:
                         break
                 else:
-                    print(f"[CATCHER]: max retries reached — skipping")
-                    ctx.add('tool', f"Tool '{tool_name}' was invalid after {max_retries} retries: {err}")
+                    break
+            else:
+                print(f"[VALIDATOR/CATCHER]: max retries reached — skipping")
+                ctx.add('tool', f"Tool '{tool_name}' was invalid after {max_retries} retries: {err}")
 
         if not ok:
             total_failed += 1
@@ -340,7 +343,21 @@ def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, proces
         print(f"[TOOL_RESULT]: {display}")
         print(f"[TOOL_STATS]: {tool_name} | {'OK' if success else 'FAILED'} | {elapsed:.2f}s | calls={total_calls} passed={total_passed} failed={total_failed} total_time={total_time:.2f}s")
         is_mem = tool_name == 'memory_read'
-        ctx.add('tool', f"Tool '{tool_name}' result:\n{result}", is_memory=is_mem)
+        added = ctx.add('tool', f"Tool '{tool_name}' result:\n{result}", is_memory=is_mem)
+        if is_mem and not added:
+            info = ctx.memory_capacity_info()
+            mem_list = '\n'.join(f"  [{m['index']}] ({m['tokens']} tokens) {m['preview']}" for m in info['memories'])
+            if not mem_list:
+                mem_list = "  (no memories currently in context)"
+            mem_err = (
+                f"Memory context is FULL ({info['used']}/{info['max']} tokens used). "
+                f"I could not add the memory_read result to my context. "
+                f"I must talk to the user and ask which memory to delete. "
+                f"Memories currently in context:\n{mem_list}\n"
+                f"Use memory_delete <vadar|user> <id> to free space, then re-read."
+            )
+            print(f"[MEMORY]: FULL — {info['used']}/{info['max']} tokens")
+            ctx.add('system', mem_err)
 
 
 def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,

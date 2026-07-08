@@ -2031,7 +2031,7 @@ Side-quests are lightweight utility tasks that live outside the voder engine but
 
 | Quest | Purpose | Inputs accepted | Inputs refused | Output |
 |-------|---------|-----------------|----------------|--------|
-| `download` | Fetch a URL as audio (default) or video (`video` keyword). Also copies local files. | URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter), local audio/video files | — | `voder_quest_download_<name>_<timestamp>.<ext>` in `results/` |
+| `download` | Fetch a URL as audio (default), video (`video` keyword), or image (`image` keyword). Also copies local files. | URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter, Reddit) + experimental `public_net` for other sites. Local audio/video/image files. | Non-media URLs (file hosts, yandex-disk, DRM content) | `voder_quest_download_<name>_<timestamp>.<ext>` in `results/downloads/{audios,videos,images}/` |
 | `noframes` | Extract audio from a local video file. | Local video files (`.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`, `.flv`, `.wmv`, `.m4v`) | URLs, audio-only files | `voder_quest_noframes_<name>_<timestamp>.wav` in `results/` (PCM 16-bit 44.1 kHz stereo) |
 | `mix` | Overlay multiple audio/video sources at specified start times into a single WAV. First source is the base (starts at 0s); subsequent sources can have an optional start time in seconds before them. | Local audio files, local video files (audio extracted), URLs from any supported platform | Non-number tokens between sources | `voder_quest_mix_<joined-names>_<timestamp>.wav` in `results/` |
 
@@ -2039,10 +2039,12 @@ Side-quests are lightweight utility tasks that live outside the voder engine but
 
 **`download` behavior:**
 
-- URL input is downloaded via yt-dlp. Audio path produces MP3 @ 192 kbps; video path produces MP4 at best quality.
-- Local file input is copied to `results/` with the quest naming scheme (no re-encoding).
-- The `<name>` token is derived from the YouTube video ID (for URLs) or the file's stem (for local files), sanitized to safe filename characters.
-- The optional `result "<path>"` keyword copies the output to a custom path in addition to leaving it in `results/`.
+- URL input is downloaded via yt-dlp (audio/video) or gallery-dl (images). Audio path produces MP3 @ 192 kbps; video path produces MP4 at best quality; image path uses gallery-dl (original format).
+- Supported platforms: YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter, Reddit. Experimental `public_net` support for other sites — attempted via yt-dlp/gallery-dl with a warning (`WARNING: not officially supported — results may vary`). Works if the tool supports the site, but untested.
+- Downloads that fail without cookies are automatically retried with Chrome → Brave → Edge cookies (`--cookies-from-browser`).
+- Local file input is copied to `results/downloads/<type>/` with the quest naming scheme (no re-encoding).
+- The `<name>` token is derived from the platform video ID (for URLs) or the file's stem (for local files), sanitized to safe filename characters.
+- The optional `result "<path>"` keyword copies the output to a custom path in addition to leaving it in `results/downloads/`.
 
 **`noframes` behavior:**
 
@@ -2058,7 +2060,10 @@ python src/voder.py quest download "https://youtube.com/watch?v=..."
 # Download the same URL as full video (MP4)
 python src/voder.py quest download video "https://youtube.com/watch?v=..."
 
-# Copy a local file to results/ with the quest naming scheme
+# Download an image (or image gallery) from Reddit/Instagram/X via gallery-dl
+python src/voder.py quest download image "https://reddit.com/r/.../comments/..."
+
+# Copy a local file to results/downloads/ with the quest naming scheme
 python src/voder.py quest download "/path/to/local.wav"
 
 # Extract audio from a local MP4
@@ -2066,6 +2071,7 @@ python src/voder.py quest noframes "video.mp4"
 
 # With result path
 python src/voder.py quest download "https://youtube.com/watch?v=..." result "./out.mp3"
+python src/voder.py quest download image "https://reddit.com/..." result "./out.jpg"
 python src/voder.py quest noframes "video.mp4" result "./out.wav"
 ```
 
@@ -2483,6 +2489,11 @@ VODER can download audio (and optionally video) directly from a wide range of pl
 | Instagram | `instagram.com/reel/*`, `instagram.com/reels/*`, `instagram.com/p/*`, `instagram.com/tv/*`, `instagr.am/p/*` |
 | Facebook | `facebook.com/watch?v=*`, `facebook.com/<user>/videos/*`, `facebook.com/reel/*`, `fb.watch/*` |
 | X / Twitter | `twitter.com/<user>/status/*`, `x.com/<user>/status/*`, `t.co/*` |
+| Reddit | `reddit.com/r/*/comments/*`, `redd.it/*` |
+| public_net (experimental) | Any other `http(s)://` URL — attempted via yt-dlp/gallery-dl with a warning. Works if the tool supports the site, but untested. |
+
+> **gallery-dl** is used for image downloads (Reddit, Instagram, X/Twitter image posts). Added to `requirements.txt` as `gallery-dl>=1.27.0`.
+> **Cookies retry**: downloads that fail without cookies are automatically retried with Chrome → Brave → Edge cookies (`--cookies-from-browser`), improving success rates on age-restricted or login-walled content.
 
 ### Two-Step URL Detection
 
@@ -2533,6 +2544,37 @@ URL support works across multiple VODER modes:
 - **Region-locked content**: Error message, cannot process
 - **Network errors**: Retry suggestion with connection check
 - **Format fallbacks**: If MP3 conversion fails, falls back to M4A, WAV, or WebM
+
+---
+
+## Results Directory Organization
+
+VODER's `results/` directory is organized for easy navigation:
+
+```
+results/
+├── downloads/                # All quest download outputs
+│   ├── audios/               # Downloaded audio files (MP3, WAV, etc.)
+│   ├── videos/               # Downloaded video files (MP4)
+│   ├── images/               # Downloaded images (via gallery-dl)
+│   └── others/               # Other downloads (search list files, unexpected formats)
+├── tts/                      # Copies of voder_tts_* outputs
+├── sts/                      # Copies of voder_sts_* outputs
+├── ttm/                      # Copies of voder_ttm_* outputs
+├── stt/                      # Copies of voder_stt_* outputs
+├── se/                       # Copies of voder_se_* outputs
+├── sfx/                      # Copies of voder_sfx_* outputs
+├── svs/                      # Copies of voder_svs_* outputs
+├── ss/                       # Copies of voder_ss_* outputs
+├── quest/                    # Copies of voder_quest_* outputs
+├── chains/                   # Copies of voder_chains_* outputs
+└── voder_<mode>_*.*          # Original outputs stay in results/ root for backwards compat
+```
+
+- **`results/downloads/`** — all `quest download` outputs go here, sorted by media type. No more cluttering the root `results/` folder with downloaded files.
+- **`results/<mode>/`** — mode outputs are also copied into per-mode subfolders at the end of each run. The original files stay in `results/` root for backwards compatibility — the subfolders are a navigation aid.
+- The 8 main modes (tts, sts, ttm, stt, se, sfx, svs, ss) plus `quest` and `chains` each get their own subfolder.
+- VADAR's `search_media` tool writes its list files to `results/downloads/others/`.
 
 ---
 

@@ -21,7 +21,8 @@ VODER requires several system and Python dependencies:
   # macOS: brew install sox
   # Linux: sudo apt install sox
   ```
-- **yt-dlp** — Required for URL support (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter) (`pip install yt-dlp`).
+- **yt-dlp** — Required for URL support (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter, Reddit) (`pip install yt-dlp`).
+- **gallery-dl** — Required for image downloads from Reddit, Instagram, X/Twitter, and other image platforms (`pip install gallery-dl`).
 - **protobuf** — After installing requirements, upgrade to avoid compatibility issues:
   ```bash
   pip install --upgrade protobuf==5.29.6
@@ -775,12 +776,14 @@ Once trained, the voice can be referenced in TTS via `voice "narrator"` (latest 
 Side-quests are lightweight utility tasks that live outside the voder engine but are still useful in a voice-processing workflow. They are designed to grow over time as more quests are added. Each quest is implemented as a small class registered in a side-quest registry, so future quests can be added without touching the rest of the codebase.
 
 **Supported Inputs:**
-- `download` — URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter) (audio or video)
+- `download` — URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter, Reddit) + experimental `public_net` for other sites. Audio (default), video (`video` keyword), or image (`image` keyword via gallery-dl).
 - `noframes` — local video files only (refuses URLs and audio-only files)
 
 #### download
 
-Downloads a URL (or copies a local file) into `results/`. Audio is the default; the optional `video` keyword switches to a full video download.
+Downloads a URL (or copies a local file) into `results/downloads/{audios,videos,images}/`. Audio is the default; the optional `video` keyword switches to a full video download; the optional `image` keyword downloads images via gallery-dl.
+
+Supported platforms: YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter, Reddit. Experimental `public_net` support for other sites — attempted via yt-dlp/gallery-dl with a warning. Downloads that fail without cookies are automatically retried with Chrome → Brave → Edge cookies.
 
 ```bash
 # Download a YouTube URL as audio (MP3, default)
@@ -789,18 +792,22 @@ python src/voder.py quest download "https://youtube.com/watch?v=..."
 # Download the same URL as a full video (MP4)
 python src/voder.py quest download video "https://youtube.com/watch?v=..."
 
-# Copy a local audio/video file to results/ with the quest naming scheme
+# Download an image (or image gallery) from Reddit/Instagram/X via gallery-dl
+python src/voder.py quest download image "https://reddit.com/r/.../comments/..."
+
+# Copy a local audio/video file to results/downloads/ with the quest naming scheme
 python src/voder.py quest download "/path/to/local.wav"
 python src/voder.py quest download "/path/to/local.mp4"
 
 # Save the result to a specific path
 python src/voder.py quest download "https://youtube.com/watch?v=..." result "./out.mp3"
 python src/voder.py quest download video "https://youtube.com/watch?v=..." result "./out.mp4"
+python src/voder.py quest download image "https://reddit.com/..." result "./out.jpg"
 ```
 
 **Output naming:** `voder_quest_download_<original-name>_<timestamp>.<ext>`
 
-- For platform URLs, `<original-name>` is derived from the platform video ID (YouTube video ID, TikTok video ID, Bilibili BV id, Instagram reel id, Facebook video id, Twitter status id, Snapchat spotlight id — sanitized to safe filename characters).
+- For platform URLs, `<original-name>` is derived from the platform video ID (YouTube video ID, TikTok video ID, Bilibili BV id, Instagram reel id, Facebook video id, Twitter status id, Snapchat spotlight id, Reddit post id — sanitized to safe filename characters).
 - For local files, `<original-name>` is the file's stem (without extension).
 - Extension matches the downloaded/copied file (`.mp3` for audio, `.mp4` for video, etc.).
 

@@ -119,11 +119,10 @@ class ContextManager:
         self.dropped_count += len(dropped)
         self._save_context()
 
-    @staticmethod
-    def _total_tokens_of(messages, tokenizer=None):
-        if tokenizer is not None:
+    def _total_tokens_of(self, messages):
+        if self._tokenizer is not None:
             try:
-                return sum(len(tokenizer.encode(m['content'])) for m in messages)
+                return sum(len(self._tokenizer.encode(m['content'])) for m in messages)
             except Exception:
                 pass
         return sum(len(m['content']) // 4 + 1 for m in messages)

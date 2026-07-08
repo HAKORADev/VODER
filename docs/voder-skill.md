@@ -2098,7 +2098,7 @@ Side-quests are lightweight utility tasks that live outside the voder engine. Th
 
 | Quest | Purpose | Inputs accepted | Inputs refused | Output naming |
 |-------|---------|-----------------|----------------|---------------|
-| `download` | Fetch a URL as audio (default) or video (`video` keyword). Also copies local files. | URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter), local audio/video files | — | `voder_quest_download_<name>_<timestamp>.<ext>` in `results/` |
+| `download` | Fetch a URL as audio (default), video (`video` keyword), or image (`image` keyword via gallery-dl). Also copies local files. | URLs from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter, Reddit) + experimental `public_net`. Local audio/video/image files. | Non-media URLs (file hosts, yandex-disk, DRM content) | `voder_quest_download_<name>_<timestamp>.<ext>` in `results/downloads/{audios,videos,images}/` |
 | `noframes` | Extract audio from a local video file. | Local video files (`.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`, `.flv`, `.wmv`, `.m4v`) | URLs, audio-only files | `voder_quest_noframes_<name>_<timestamp>.wav` in `results/` (PCM 16-bit 44.1 kHz stereo) |
 | `mix` | Overlay multiple audio/video sources at specified start times into a single WAV. First source is the base (starts at 0s); subsequent sources can have an optional start time in seconds before them. | Local audio files, local video files (audio extracted), URLs from any supported platform | Non-number tokens between sources | `voder_quest_mix_<joined-names>_<timestamp>.wav` in `results/` |
 
@@ -2118,7 +2118,10 @@ python src/voder.py quest download "https://youtube.com/watch?v=..."
 # Download the same URL as video (MP4)
 python src/voder.py quest download video "https://youtube.com/watch?v=..."
 
-# Copy a local file to results/ with the quest naming scheme
+# Download an image (or image gallery) from Reddit/Instagram/X via gallery-dl
+python src/voder.py quest download image "https://reddit.com/r/.../comments/..."
+
+# Copy a local file to results/downloads/ with the quest naming scheme
 python src/voder.py quest download "/path/to/local.wav"
 
 # Extract audio from a local MP4
@@ -2126,6 +2129,7 @@ python src/voder.py quest noframes "video.mp4"
 
 # With result path
 python src/voder.py quest download "https://youtube.com/watch?v=..." result "./out.mp3"
+python src/voder.py quest download image "https://reddit.com/..." result "./out.jpg"
 python src/voder.py quest noframes "video.mp4" result "./out.wav"
 ```
 

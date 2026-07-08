@@ -133,10 +133,8 @@ def catch_and_fix(tool_name, tool_args):
 
     try:
         from voders.vadars.vadar import _run_inference
-    except Exception:
-        from voder import vadar_run_inference as _raw_inference
-        def _run_inference(messages, max_new_tokens=1024):
-            return _raw_inference(messages, max_new_tokens=max_new_tokens)
+    except Exception as e:
+        return False, f"Catcher could not access inference engine: {e}", args
 
     catcher_messages = [
         {'role': 'system', 'content': _CATCHER_SYSTEM_PROMPT},
