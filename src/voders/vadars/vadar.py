@@ -383,6 +383,7 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
                     waiting_for_approval=None, act_log=None):
     max_iterations = 30 if interactive else 20
     last_vadar_reply_time = time.time()
+    acts_have_run = False
 
     detected = _detect_inputs(user_input)
     if detected:
@@ -426,7 +427,7 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
 
             if interactive and approval_event is not None and waiting_for_approval is not None:
                 has_plan_signals = bool(parsed['decisions']) or (not parsed['acts'] and not parsed['eos_act'] and not parsed['eos_done'])
-                if has_plan_signals and not parsed['eos_act']:
+                if has_plan_signals and not parsed['eos_act'] and not acts_have_run:
                     print("\n[VADAR]: This is my plan. Type 'go' to approve, or tell me what to change.")
                     waiting_for_approval[0] = True
                     approval_event.clear()
@@ -481,6 +482,7 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
                     ctx.add('tool', f"Act '{title}' result ({status}):\n{output[-2000:]}")
                     if act_log is not None:
                         act_log.append({'title': title, 'command': command, 'success': success, 'output': output})
+                    acts_have_run = True
             if acts_without_eos:
                 ctx.add('system', "You emitted acts but did not emit <EOS_ACT>. Acts will not execute until you emit <EOS_ACT>. Emit it now if you want the acts to run.")
 
@@ -624,6 +626,7 @@ def run_vadar_interactive():
     last_user_activity = [time.time()]
     ping_count = [0]
     vadar_busy = [False]
+    busy_lock = threading.Lock()
 
     ping_ctx = {'ctx': ctx, 'session_dir': session_dir, 'model': model, 'processor': processor,
                 'act_outputs': act_outputs, 'used_titles': used_titles, 'user_input': ''}
@@ -635,14 +638,16 @@ def run_vadar_interactive():
             ping_stop.wait(timeout=1)
             if ping_stop.is_set():
                 break
-            if vadar_busy[0] or waiting_for_approval[0]:
-                last_user_activity[0] = time.time()
-                continue
-            if last_vadar_reply_time[0] is None:
-                continue
-            elapsed = time.time() - max(last_user_activity[0], last_vadar_reply_time[0])
-            if elapsed < ping_interval:
-                continue
+            with busy_lock:
+                if vadar_busy[0] or waiting_for_approval[0]:
+                    last_user_activity[0] = time.time()
+                    continue
+                if last_vadar_reply_time[0] is None:
+                    continue
+                elapsed = time.time() - max(last_user_activity[0], last_vadar_reply_time[0])
+                if elapsed < ping_interval:
+                    continue
+                vadar_busy[0] = True
             ping_count[0] += 1
             ts = time.strftime("%Y/%m/%d:%I%p:%M:%S")
             ping_msg = f"PING #{ping_count[0]} — {ts} — {int(elapsed)}s of silence."
@@ -654,18 +659,25 @@ def run_vadar_interactive():
                 if inf_err:
                     response, inf_err = _run_inference(ping_ctx['ctx'].get_for_inference(), max_new_tokens=256)
                 if not inf_err and response and response.strip():
+                    ping_ctx['ctx'].add('assistant', response)
                     parsed = _parse_model_output(response)
                     for reply in parsed['replies']:
                         print(f"\n[VADAR]: {reply}")
                         log_output(ping_ctx['session_dir'], reply)
                         last_vadar_reply_time[0] = time.time()
+                    if parsed['eos_done']:
+                        print("\n[VADAR]: I'm done. Ending session.")
+                        ping_stop.set()
+                        break
             finally:
                 vadar_busy[0] = False
                 last_user_activity[0] = time.time()
 
     if ping_interval > 0:
-        t = threading.Thread(target=ping_thread, daemon=True)
-        t.start()
+        ping_thread_obj = threading.Thread(target=ping_thread, daemon=True)
+        ping_thread_obj.start()
+    else:
+        ping_thread_obj = None
 
     print(f"\n{'='*60}")
     print(f"VADAR Interactive Mode")
@@ -675,7 +687,7 @@ def run_vadar_interactive():
     else:
         print(f"Ping: disabled")
     print(f"{'='*60}")
-    print("Type 'exit' or 'quit' to end. Type 'clear' to reset context.\n")
+    print("Type 'exit' or 'quit' to end.\n")
 
     print("[VADAR]: Hey! I'm VADAR. What can I do for you?\n")
     last_vadar_reply_time[0] = time.time()
@@ -691,34 +703,11 @@ def run_vadar_interactive():
         ping_count[0] = 0
 
         if not user_input:
+            print("[VADAR]: Cannot send an empty message. Please type something.")
             continue
         if user_input.lower() in ('exit', 'quit'):
             print("\n[VADAR]: Goodbye!")
             break
-        if user_input.lower() == 'clear':
-            ctx = ContextManager(session_dir)
-            try:
-                if processor is not None and hasattr(processor, 'tokenizer'):
-                    ctx.set_tokenizer(processor.tokenizer)
-            except Exception:
-                pass
-            last_user_msg_time[0] = None
-            last_vadar_reply_time[0] = time.time()
-            last_user_activity[0] = time.time()
-            ping_count[0] = 0
-            vadar_busy[0] = False
-            system_prompt = generate_system_prompt(session_type='interactive',
-                                                   last_user_msg_time=last_user_msg_time[0],
-                                                   last_vadar_reply_time=last_vadar_reply_time[0],
-                                                   exclude_session=session_name)
-            ctx.add('system', system_prompt)
-            act_outputs = {}
-            used_titles = set()
-            ping_ctx['ctx'] = ctx
-            ping_ctx['act_outputs'] = act_outputs
-            ping_ctx['used_titles'] = used_titles
-            print("\n[VADAR]: Context cleared.\n")
-            continue
 
         if waiting_for_approval[0]:
             approval_event._user_response = user_input
@@ -730,19 +719,23 @@ def run_vadar_interactive():
         ctx.add('user', user_input)
         ping_ctx['user_input'] = user_input
 
-        vadar_busy[0] = True
+        with busy_lock:
+            vadar_busy[0] = True
         try:
             _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
                             used_titles, interactive=True, approval_event=approval_event,
                             waiting_for_approval=waiting_for_approval)
         finally:
-            vadar_busy[0] = False
+            with busy_lock:
+                vadar_busy[0] = False
 
         last_vadar_reply_time[0] = time.time()
         last_user_activity[0] = time.time()
         print()
 
     ping_stop.set()
+    if ping_thread_obj is not None:
+        ping_thread_obj.join(timeout=5)
     _finalize_session(session_dir, ctx)
     print(f"\nSession log: {session_dir}")
     return True

@@ -2267,7 +2267,7 @@ python src/voder.py cli
 # pick option 10: VADAR (AI agent — talk naturally, it decides what to run)
 ```
 
-- Multi-turn chat session. Type `exit` or `quit` to end. Type `clear` to start a fresh context within the same session.
+- Multi-turn chat session. Type `exit` or `quit` to end.
 - VADAR maintains context across turns via a sliding context window (~8192 tokens, 95% retention on overflow).
 
 ### VADAR's Tools

@@ -2830,7 +2830,7 @@ python src/voder.py cli
 # pick option 10: VADAR (AI agent — talk naturally, it decides what to run)
 ```
 
-Interactive mode opens a chat session that keeps going until you type `exit` or `quit`. Type `clear` to start a fresh context within the same session. This is the right choice when you're exploring and don't know in advance how many turns you'll need.
+Interactive mode opens a chat session that keeps going until you type `exit` or `quit`. This is the right choice when you're exploring and don't know in advance how many turns you'll need.
 
 ### What VADAR can do for you
 

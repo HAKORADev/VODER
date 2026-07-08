@@ -2779,7 +2779,7 @@ python voder.py cli
 
 Then choose `10. VADAR (AI agent — talk naturally, it decides what to run)`.
 
-- Interactive mode opens a multi-turn chat session. Type `exit` or `quit` to end it. Type `clear` to start a fresh context within the same session.
+- Interactive mode opens a multi-turn chat session. Type `exit` or `quit` to end it.
 - The session runs until you exit; VADAR maintains context across turns (with a sliding context window — see below).
 - Each session is logged under `src/voders/vadars/sessions/<timestamp>_interactive/` (see Session management below).
 
