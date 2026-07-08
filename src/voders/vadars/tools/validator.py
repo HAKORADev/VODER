@@ -104,11 +104,4 @@ def validate_tool_basic(tool_name, tool_args):
         if 'path' not in args.lower():
             return False, "search needs 'path' keyword in the arguments."
 
-    if tool_name == 'get_info':
-        first = _strip_quotes(args.split()[0]) if args.split() else ''
-        if not first:
-            return False, "get_info needs a URL."
-        if not _is_url(first):
-            return False, f"get_info needs a valid URL, got '{first}'."
-
     return True, None

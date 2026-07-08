@@ -899,6 +899,23 @@ def _build_search_url(platform, query, count):
     return None
 
 
+def _format_duration(seconds):
+    if seconds is None:
+        return "N/A"
+    try:
+        seconds = float(seconds)
+        if seconds <= 0:
+            return "N/A"
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = int(seconds % 60)
+        if h > 0:
+            return f"{h:02d}:{m:02d}:{s:02d}"
+        return f"{m:02d}:{s:02d}"
+    except Exception:
+        return str(seconds)
+
+
 @register_tool('search_media')
 def tool_search_media(args):
     parts = args.strip().split(None, 2)
@@ -915,7 +932,7 @@ def tool_search_media(args):
     if count > 50:
         count = 50
     if platform not in _SEARCH_PLATFORMS:
-        return f"Unsupported platform '{platform}'. Supported: {', '.join(sorted(_SEARCH_PLATFORMS))}"
+        return f"Unsupported platform '{platform}'. Supported: {', '.join(sorted(_SEARCH_PLATFORMS))}. search_media does NOT support public_net — only officially supported platforms."
     search_url = _build_search_url(platform, query, count)
     if search_url is None:
         return f"Platform '{platform}' search not implemented."
@@ -939,68 +956,74 @@ def tool_search_media(args):
             while len(fields) < 4:
                 fields.append('')
             title, url, extractor, duration = fields[0], fields[1], fields[2], fields[3]
-            dur_str = "N/A"
-            try:
-                if duration and duration != 'NA' and float(duration) > 0:
-                    dur_str = _format_duration(float(duration))
-            except Exception:
-                dur_str = str(duration) if duration else "N/A"
-            results.append(f"Title: {title or '(no title)'} | URL: {url} | Platform: {extractor or platform} | Duration: {dur_str}")
+            results.append({
+                'title': title or '(no title)',
+                'url': url,
+                'extractor': extractor or platform,
+                'duration_raw': duration,
+            })
         if not results:
             return f"No results found for '{query}' on {platform}."
-        header = f"Search results for '{query}' on {platform} ({len(results)} results, {count} max):\n\n"
-        return header + '\n'.join(results)
+
+        try:
+            from voder import get_url_media_info
+            have_info_fn = True
+        except Exception:
+            have_info_fn = False
+
+        others_dir = os.path.join(_DOWNLOADS_DIR, 'others')
+        os.makedirs(others_dir, exist_ok=True)
+        ts = _time.strftime('%Y%m%d_%H%M%S')
+        list_path = os.path.join(others_dir, f"vadar_search_{platform}_{ts}.txt")
+
+        lines = []
+        lines.append(f"=== VADAR SEARCH RESULTS ===")
+        lines.append(f"Platform: {platform}")
+        lines.append(f"Query: {query}")
+        lines.append(f"Requested: {count} | Found: {len(results)}")
+        lines.append(f"Generated: {_time.strftime('%Y/%m/%d %H:%M:%S')}")
+        lines.append(f"")
+        lines.append(f"Use the 'read' tool to inspect specific entries by line range.")
+        lines.append(f"Use 'quest download' (audio/video/image) or 'listen'/'watch'/'look' with any URL below.")
+        lines.append(f"")
+        for i, res in enumerate(results, 1):
+            lines.append(f"--- Entry {i} of {len(results)} ---")
+            lines.append(f"Title: {res['title']}")
+            lines.append(f"URL: {res['url']}")
+            lines.append(f"Platform: {res['extractor']}")
+            dur_str = "N/A"
+            try:
+                if res['duration_raw'] and res['duration_raw'] != 'NA' and float(res['duration_raw']) > 0:
+                    dur_str = _format_duration(float(res['duration_raw']))
+            except Exception:
+                dur_str = str(res['duration_raw']) if res['duration_raw'] else "N/A"
+            lines.append(f"Duration: {dur_str}")
+            if have_info_fn and res['url']:
+                try:
+                    supported, media_type, info, info_err = get_url_media_info(res['url'])
+                    if supported and media_type:
+                        lines.append(f"Media type: {media_type}")
+                        if info:
+                            if info.get('title') and info['title'] != res['title']:
+                                lines.append(f"Full title: {info['title']}")
+                            if info.get('uploader'):
+                                lines.append(f"Uploader: {info['uploader']}")
+                            if info.get('platform'):
+                                lines.append(f"Detected platform: {info['platform']}")
+                except Exception:
+                    pass
+            lines.append("")
+
+        with open(list_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines))
+
+        preview = '\n'.join(lines[:20])
+        if len(lines) > 20:
+            preview += f"\n... ({len(lines) - 20} more lines in the file)"
+        return f"Search complete: {len(results)} results for '{query}' on {platform}.\nList file saved to: {list_path}\n\n{preview}"
     except FileNotFoundError:
         return "yt-dlp is not installed. Install with: pip install yt-dlp"
     except subprocess.TimeoutExpired:
         return "Search timed out (60s). Try fewer results or a simpler query."
     except Exception as e:
         return f"Search error: {e}"
-
-
-@register_tool('get_info')
-def tool_get_info(args):
-    url = args.strip().strip('"\'')
-    if not url:
-        return "Usage: get_info <url>"
-    if not _is_url(url):
-        return f"'{url}' is not a valid URL. get_info needs an http(s) URL."
-    try:
-        from voder import get_url_media_info
-    except Exception as e:
-        return f"VODER media info function unavailable: {e}"
-    supported, media_type, info, err = get_url_media_info(url)
-    if err and not supported:
-        return f"URL not supported: {err}"
-    if not supported:
-        return f"URL not supported: {err or 'unknown reason'}"
-    lines = [f"URL: {url}", f"Supported: yes", f"Media type: {media_type}"]
-    if info:
-        if info.get('title'):
-            lines.append(f"Title: {info['title']}")
-        if info.get('duration') is not None:
-            lines.append(f"Duration: {_format_duration(info['duration'])}")
-        if info.get('platform'):
-            lines.append(f"Platform: {info['platform']}")
-        if info.get('extractor'):
-            lines.append(f"Extractor: {info['extractor']}")
-        if info.get('uploader'):
-            lines.append(f"Uploader: {info['uploader']}")
-    return '\n'.join(lines)
-
-
-def _format_duration(seconds):
-    if seconds is None:
-        return "N/A"
-    try:
-        seconds = float(seconds)
-        if seconds <= 0:
-            return "N/A"
-        h = int(seconds // 3600)
-        m = int((seconds % 3600) // 60)
-        s = int(seconds % 60)
-        if h > 0:
-            return f"{h:02d}:{m:02d}:{s:02d}"
-        return f"{m:02d}:{s:02d}"
-    except Exception:
-        return str(seconds)

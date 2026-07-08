@@ -5,7 +5,8 @@
 - If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
 ## 07/08/2026
-- Status: Bug Hunt Activities and Wider Media Support
+- Status: Stable, all features work, still developing
+- **Bug Hunt Activities and Wider Media Support**
 
 ### Added — wider media download support
 
@@ -23,16 +24,17 @@ VODER's `results/` directory is now organized instead of a flat dump:
 - **`results/<mode>/`** — mode outputs (`voder_tts_*`, `voder_sfx_*`, `voder_ss_*`, etc.) are now also copied into per-mode subfolders (`results/tts/`, `results/sfx/`, `results/ss/`, …) at the end of each run. The original files stay in `results/` root for backwards compatibility — the subfolders are a navigation aid, not a replacement.
 - The 8 main modes (tts, sts, ttm, stt, se, sfx, svs, ss) plus `quest` and `chains` each get their own subfolder.
 
-### Added — `get_info` tool for VADAR
-
-- New VADAR tool **`get_info <url>`** — checks whether a URL is supported by yt-dlp or gallery-dl, returns the media type (video / audio / image), title, duration, and platform. VADAR uses this to verify a URL before attempting a download, instead of trial-and-error.
-
 ### Enhanced — `search_media` tool overhaul
 
-- `search_media` no longer post-filters results by URL keywords (the old heuristic was unreliable). Instead, it uses yt-dlp's `--flat-playlist --print` with tab-separated metadata fields (title, URL, extractor, duration). Results now include duration where available and are accurate per-platform.
+- `search_media` no longer post-filters results by URL keywords (the old heuristic was unreliable). Instead, it uses yt-dlp's `--flat-playlist --print` with tab-separated metadata fields (title, URL, extractor, duration), then enriches each result with full media info (media type, title, duration, platform, uploader) fetched via `get_url_media_info()`.
 - **Reddit** added to `search_media` platforms (uses `redditsearch{N}:query` syntax).
-- Output format: `Title: ... | URL: ... | Platform: ... | Duration: HH:MM:SS (or N/A)`.
+- Results are written to a **list file** at `results/downloads/others/vadar_search_<platform>_<timestamp>.txt` — a structured, readable file VADAR can inspect with the `read` tool (multi-range, line numbers). The file contains one entry per result with all metadata. VADAR no longer needs a separate `get_info` tool — the list file has everything.
 - Note: `search_media` does NOT support `public_net` — it only searches the officially supported platforms. For unsupported platforms, the user must provide the direct URL.
+
+### Updated — `download_url_image()` and `get_url_media_info()` in voder.py
+
+- New core function `download_url_image(url, temp_dir=None)` — uses gallery-dl to download images. Includes the cookies retry mechanism. Used by `quest download image` and by VADAR's `look` tool when given an image URL.
+- New core function `get_url_media_info(url)` — uses yt-dlp `extract_info(download=False)` and gallery-dl `-j` to fetch metadata without downloading. Used internally by `search_media` to enrich results.
 
 ### Updated — VADAR brotherhood internal work
 
@@ -47,18 +49,13 @@ VODER's `results/` directory is now organized instead of a flat dump:
 - **`list` / `search` tools** — smarter path-vs-type token detection, consistent format keywords across both tools.
 - **System prompt** — now lists supported media platforms explicitly so VADAR doesn't waste time on unsupported sites (e.g., Spotify). Top-languages detection improved to surface system + keyboard languages.
 
-### Updated — `download_url_image()` in voder.py
-
-- New core function `download_url_image(url, temp_dir=None)` — uses gallery-dl to download images. Includes the cookies retry mechanism. Used by `quest download image` and by VADAR's `look` tool when given an image URL.
-- New core function `get_url_media_info(url)` — uses yt-dlp `extract_info(download=False)` and gallery-dl `-j` to fetch metadata without downloading. Used by VADAR's `get_info` tool and to validate URLs before download.
-
 ### Updated — documentation
 
-- `docs/COMMAND_CATALOG.md`, `docs/Guide.md`, `docs/READ.md`, `docs/voder-skill.md` updated with: new `quest download image` command, new `results/` directory layout, Reddit + `public_net` platform notes, gallery-dl dependency, cookies retry behavior, new `get_info` tool.
+- `docs/COMMAND_CATALOG.md`, `docs/Guide.md`, `docs/READ.md`, `docs/voder-skill.md` updated with: new `quest download image` command, new `results/` directory layout, Reddit + `public_net` platform notes, gallery-dl dependency, cookies retry behavior, `search_media` list-file output.
 
 ## 07/07/2026
-- Status: A new warrior in the world of hearable electromagnetic waves
-- **VADAR — the VODER agent + the VODER brotherhood**
+- Status: Stable, all features work, still developing
+- **A new warrior in the world of hearable electromagnetic waves — VADAR + the VODER brotherhood**
 
 ### VADAR — a new warrior in the world of hearable electromagnetic waves
 

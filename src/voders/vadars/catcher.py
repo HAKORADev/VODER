@@ -59,9 +59,7 @@ I am silent. My fixes never enter the conversation. My reasoning never enters th
   - platform: one of youtube, reddit, bilibili, tiktok, snapchat, instagram, facebook, twitter, x.
   - number: integer 1-50.
   - search_media does NOT support public_net — only the platforms listed above.
-
-- get_info <url>
-  - URL must be http(s). Returns media type, title, duration, platform.
+  - search_media returns a list file path. It does not take a URL.
 
 - read_role (no args)
 - make_role <description>
