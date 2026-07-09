@@ -716,7 +716,7 @@ def run_vadar_interactive():
     else:
         print(f"Ping: disabled")
     print(f"{'='*60}")
-    print("Type 'exit' to end.\n")
+    print("Type 'exit' or 'quit' to end.\n")
 
     print("[VADAR]: Hey! I'm VADAR. What can I do for you?\n")
     last_vadar_reply_time[0] = time.time()
@@ -734,7 +734,7 @@ def run_vadar_interactive():
         if not user_input:
             print("[VADAR]: Cannot send an empty message. Please type something.")
             continue
-        if user_input.lower() == 'exit':
+        if user_input.lower() in ('exit', 'quit'):
             print("\n[VADAR]: Goodbye!")
             break
 

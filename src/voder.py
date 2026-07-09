@@ -995,7 +995,8 @@ else:
                     hf_token = lines[0]
                     os.environ["HF_TOKEN"] = hf_token
                     break
-    if not hf_token:
+    if not hf_token and not os.environ.get("VODER_HF_WARNING_SHOWN"):
+        os.environ["VODER_HF_WARNING_SHOWN"] = "1"
         print("\n" + "="*60)
         print("WARNING: HuggingFace token not found!")
         print("="*60)
