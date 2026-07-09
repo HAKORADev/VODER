@@ -356,14 +356,12 @@ def tool_read(args, session_dir=None, act_outputs=None):
             is_act = act_outputs is not None and target in act_outputs
             act_title_for_sum = target if is_act else None
             input_chars = len(content)
-            input_tokens_approx = input_chars // 4
-            print(f"[SUMMARIZER]: running on {input_chars} chars ({total} lines) ~{input_tokens_approx}K tokens...")
+            print(f"[SUMMARIZER]: running on {input_chars} chars ({total} lines)...")
             sum_t0 = _time.time()
             summary = summarize_output(content, context_label=target, act_title=act_title_for_sum)
             sum_elapsed = _time.time() - sum_t0
             output_chars = len(summary)
-            output_tokens_approx = output_chars // 4
-            print(f"[SUMMARIZER]: done ({sum_elapsed:.2f}s, ~{input_tokens_approx}K → ~{output_tokens_approx}K tokens)")
+            print(f"[SUMMARIZER]: done ({sum_elapsed:.1f}s, {input_chars} → {output_chars} chars)")
             summary_block = f"--- Summary ---\n{summary}\n\n"
         except Exception as e:
             print(f"[SUMMARIZER]: error — {e}")

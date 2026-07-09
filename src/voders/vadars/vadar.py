@@ -10,7 +10,7 @@ from voders.vadars.summarizer import summarize_output
 
 from voders.vadars import VADAR_SESSIONS_DIR, VADAR_GLOBAL_CONTEXT_FILE
 from voders.vadars.system_prompt import generate_system_prompt
-from voders.vadars.context import ContextManager, create_session, log_input, log_output, log_act
+from voders.vadars.context import ContextManager, create_session, log_input, log_output, log_act, log_output_file
 from voders.vadars.tools import TOOL_REGISTRY
 from voders.vadars.catcher import catch_and_fix
 from voders.vadars.tools.validator import validate_tool_basic
@@ -19,10 +19,11 @@ from voders.vadars.tools.validator import validate_tool_basic
 TOOL_CALL_RE = re.compile(r'<tool_call>\s*(\w+)\s*(.*?)\s*</tool_call>', re.DOTALL)
 ACT_RE = re.compile(r'<act>\s*(\S+)\s+(.*?)\s*</act>', re.DOTALL)
 REPLY_RE = re.compile(r'<reply>(.*?)</reply>', re.DOTALL)
-THINK_RE = re.compile(r'<think>(.*?)</think>', re.DOTALL)
+THINK_RE = re.compile(r'<thinking>(.*?)</thinking>', re.DOTALL)
 DECIDE_RE = re.compile(r'<decide>(.*?)</decide>', re.DOTALL)
 EVAL_RE = re.compile(r'<eval>(.*?)</eval>', re.DOTALL)
 ORDERED_ACTION_RE = re.compile(r'<(act|tool_call)>(.*?)</\1>', re.DOTALL)
+_VALID_TAGS = {'thinking', 'decide', 'reply', 'act', 'tool_call', 'eval', 'EOS_REPLY', 'EOS_ACT', 'EOS_DONE'}
 
 EOS_REPLY = '<EOS_REPLY>'
 EOS_ACT = '<EOS_ACT>'
@@ -203,6 +204,8 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
         new_files = _new_result_files(results_before)
         if new_files:
             output += f"\n[RESULT FILES]: {', '.join(new_files)}"
+            for nf in new_files:
+                log_output_file(session_dir, nf, source=f'act:{title}')
         elif success:
             output += "\n[WARNING]: Command reported success but no new result files were found in results/."
 
@@ -227,13 +230,12 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
 
         if len(output) > summarize_threshold:
             input_chars = len(output)
-            input_tokens_approx = input_chars // 4
-            print(f"[SUMMARIZER]: running on {input_chars} chars (~{input_tokens_approx}K tokens)...")
+            print(f"[SUMMARIZER]: running on {input_chars} chars...")
             sum_t0 = time.time()
             summary = summarize_output(output, context_label=title, act_title=title, act_command=command)
             sum_elapsed = time.time() - sum_t0
-            output_tokens_approx = len(summary) // 4
-            print(f"[SUMMARIZER]: done ({sum_elapsed:.2f}s, ~{input_tokens_approx}K → ~{output_tokens_approx}K tokens)")
+            output_chars = len(summary)
+            print(f"[SUMMARIZER]: done ({sum_elapsed:.1f}s, {input_chars} → {output_chars} chars)")
             return success, summary
 
         return success, output
@@ -428,7 +430,7 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
 
         if parsed['thoughts']:
             for thought in parsed['thoughts']:
-                print(f"\n[VADAR THINK]: {thought}")
+                print(f"\n[VADAR THINKING]: {thought}")
 
         if parsed['decisions']:
             for decision in parsed['decisions']:
@@ -451,7 +453,6 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
         if parsed['replies']:
             for reply in parsed['replies']:
                 print(f"\n[VADAR]: {reply}")
-                log_output(session_dir, reply)
                 last_vadar_reply_time = time.time()
 
             if interactive and approval_event is not None and waiting_for_approval is not None:
@@ -523,9 +524,10 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
             if parsed['thoughts']:
                 continue
             if parsed['raw'].strip():
-                print(f"\n[VADAR]: {parsed['raw'].strip()[:500]}")
-                log_output(session_dir, parsed['raw'].strip()[:500])
-                last_vadar_reply_time = time.time()
+                has_any_tag = bool(parsed['thoughts'] or parsed['decisions'] or parsed['replies'] or parsed['acts'] or parsed['tool_calls'] or parsed['eos_reply'] or parsed['eos_act'] or parsed['eos_done'])
+                if not has_any_tag:
+                    ctx.add('system', "Your last response had NO tags. You MUST use tags: <thinking>, <decide>, <reply>, <act>, <tool_call>, <EOS_REPLY>, <EOS_ACT>, <EOS_DONE>. Raw text is not allowed. Re-emit your response with proper tags.")
+                    continue
             break
 
         if parsed['eos_reply']:
@@ -692,7 +694,6 @@ def run_vadar_interactive():
                     parsed = _parse_model_output(response)
                     for reply in parsed['replies']:
                         print(f"\n[VADAR]: {reply}")
-                        log_output(ping_ctx['session_dir'], reply)
                         last_vadar_reply_time[0] = time.time()
                     if parsed['eos_done']:
                         print("\n[VADAR]: I'm done. Ending session.")
@@ -779,13 +780,12 @@ def _finalize_session(session_dir, ctx):
         conv_text = '\n'.join(f"[{m['role'].upper()}] {m['content']}" for m in messages)
         if len(conv_text) > 500:
             input_chars = len(conv_text)
-            input_tokens_approx = input_chars // 4
-            print(f"\n[SUMMARIZER]: running on session ({input_chars} chars, ~{input_tokens_approx}K tokens)...")
+            print(f"\n[SUMMARIZER]: running on session ({input_chars} chars)...")
             sum_t0 = time.time()
             summary = summarize_output(conv_text, context_label=f"session {os.path.basename(session_dir)}")
             sum_elapsed = time.time() - sum_t0
-            output_tokens_approx = len(summary) // 4
-            print(f"[SUMMARIZER]: done ({sum_elapsed:.2f}s, ~{input_tokens_approx}K → ~{output_tokens_approx}K tokens)")
+            output_chars = len(summary)
+            print(f"[SUMMARIZER]: done ({sum_elapsed:.1f}s, {input_chars} → {output_chars} chars)")
             session_block = f"=== SESSION: {os.path.basename(session_dir)} ===\n{summary}\n=== END SESSION ==="
             existing = ""
             if os.path.exists(VADAR_GLOBAL_CONTEXT_FILE):

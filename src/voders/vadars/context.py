@@ -168,9 +168,20 @@ def create_session(session_type='interactive'):
 def log_input(session_dir, text):
     fpath = os.path.join(session_dir, 'inputs.txt')
     try:
+        import re as _re
+        url_re = _re.compile(r'https?://\S+')
+        path_re = _re.compile(r'[\w/\\\-\.]+\.(?:wav|mp3|flac|ogg|aac|m4a|mp4|avi|mov|mkv|flv|webm|png|jpg|jpeg|gif|bmp|tiff|txt|md|py|js|json|yaml|yml|xml|csv|tsv|html|css|log|chain)', _re.IGNORECASE)
+        ts = time.strftime('%Y/%m/%d %H:%M:%S')
         with open(fpath, 'a', encoding='utf-8') as f:
-            ts = time.strftime('%Y/%m/%d %H:%M:%S')
-            f.write(f"[{ts}] {text}\n")
+            f.write(f"[{ts}] USER INPUT: {text}\n")
+            for m in url_re.finditer(text):
+                f.write(f"  [URL] {m.group(0)}\n")
+            for m in path_re.finditer(text):
+                p = m.group(0)
+                exists = os.path.exists(p)
+                status = 'EXISTS' if exists else 'NOT FOUND'
+                f.write(f"  [PATH:{status}] {p}\n")
+            f.write("\n")
     except Exception:
         pass
 
@@ -178,9 +189,19 @@ def log_input(session_dir, text):
 def log_output(session_dir, text):
     fpath = os.path.join(session_dir, 'outputs.txt')
     try:
+        ts = time.strftime('%Y/%m/%d %H:%M:%S')
         with open(fpath, 'a', encoding='utf-8') as f:
-            ts = time.strftime('%Y/%m/%d %H:%M:%S')
             f.write(f"[{ts}] {text}\n")
+    except Exception:
+        pass
+
+
+def log_output_file(session_dir, file_path, source='act'):
+    fpath = os.path.join(session_dir, 'outputs.txt')
+    try:
+        ts = time.strftime('%Y/%m/%d %H:%M:%S')
+        with open(fpath, 'a', encoding='utf-8') as f:
+            f.write(f"[{ts}] [{source}] {file_path}\n")
     except Exception:
         pass
 
