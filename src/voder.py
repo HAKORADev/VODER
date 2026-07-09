@@ -16433,11 +16433,8 @@ def vadar_run_inference_streamed(messages, max_new_tokens=1024, temperature=0.8,
         thread.start()
 
         collected = []
-        print("[VADAR]: ", end='', flush=True)
         for chunk in streamer:
             collected.append(chunk)
-            print(chunk, end='', flush=True)
-        print()
         thread.join()
 
         return ''.join(collected), None

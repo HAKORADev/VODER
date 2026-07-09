@@ -160,12 +160,25 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
         print(f"\n[ACT] {title}: PENDING — {command}")
         old_stdout = sys.stdout
         capture_buf = []
-        class _SilentCapture:
+        class _LiveCountCapture:
+            def __init__(self):
+                self.line_count = 0
+                self._last_print = 0
             def write(self, text):
                 capture_buf.append(text)
+                old_stdout.write(text)
+                newlines = text.count('\n')
+                self.line_count += newlines
+                now = time.time()
+                if now - self._last_print > 0.3 or '\n' not in text:
+                    sys.stdout = old_stdout
+                    print(f"\r[ACT] {title}: {self.line_count} lines", end='', flush=True)
+                    sys.stdout = self
+                    self._last_print = now
             def flush(self):
-                pass
-        sys.stdout = _SilentCapture()
+                old_stdout.flush()
+        live_capture = _LiveCountCapture()
+        sys.stdout = live_capture
     else:
         print(f"\n[ACT]: {title} -> {command}")
         print(f"{'─'*40}")
@@ -197,7 +210,7 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
 
         if interactive:
             status_str = '✓ SUCCESS' if success else '✗ FAILED'
-            print(f"[ACT] {title}: {status_str} ({act_elapsed:.1f}s)")
+            print(f"\r[ACT] {title}: {status_str} ({act_elapsed:.1f}s, {output.count(chr(10))} lines)    ")
         else:
             print(f"{'─'*40}")
             status = 'SUCCESS' if success else 'FAILED'
@@ -206,15 +219,21 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
         if user_request:
             recent_msgs = ctx.get_messages()[-10:] if ctx else []
             global_ctx = _read_global_context_file()
+            print(f"[EVAL]: evaluating act result...")
             verdict, reason = evaluate_act_result(user_request, title, command, output, success,
                                                   recent_messages=recent_msgs, global_context=global_ctx)
             print(f"[EVAL]: {verdict.upper()} — {reason}")
             log_act(session_dir, f"{title}_eval", f"eval verdict: {verdict}", reason, verdict == 'correct')
 
         if len(output) > summarize_threshold:
+            input_chars = len(output)
+            input_tokens_approx = input_chars // 4
+            print(f"[SUMMARIZER]: running on {input_chars} chars (~{input_tokens_approx}K tokens)...")
+            sum_t0 = time.time()
             summary = summarize_output(output, context_label=title, act_title=title, act_command=command)
-            if not interactive:
-                print(f"[SUMMARIZER]: condensed {len(output)} chars -> {len(summary)} chars")
+            sum_elapsed = time.time() - sum_t0
+            output_tokens_approx = len(summary) // 4
+            print(f"[SUMMARIZER]: done ({sum_elapsed:.2f}s, ~{input_tokens_approx}K → ~{output_tokens_approx}K tokens)")
             return success, summary
 
         return success, output
@@ -407,11 +426,20 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
         ctx.add('assistant', response)
         parsed = _parse_model_output(response)
 
+        if parsed['thoughts']:
+            for thought in parsed['thoughts']:
+                print(f"\n[VADAR THINK]: {thought}")
+
+        if parsed['decisions']:
+            for decision in parsed['decisions']:
+                print(f"\n[VADAR DECIDE]: {decision}")
+
         if parsed['thoughts'] and parsed['decisions']:
             thoughts_text = ' '.join(parsed['thoughts'])
             decisions_text = ' '.join(parsed['decisions'])
             recent_msgs = ctx.get_messages()[-10:]
             global_ctx = _read_global_context_file()
+            print(f"\n[EVAL]: evaluating plan...")
             verdict, reason = evaluate_plan(user_input, thoughts_text, decisions_text,
                                             acts=parsed['acts'], recent_messages=recent_msgs,
                                             global_context=global_ctx)
@@ -688,7 +716,7 @@ def run_vadar_interactive():
     else:
         print(f"Ping: disabled")
     print(f"{'='*60}")
-    print("Type 'exit' or 'quit' to end.\n")
+    print("Type 'exit' to end.\n")
 
     print("[VADAR]: Hey! I'm VADAR. What can I do for you?\n")
     last_vadar_reply_time[0] = time.time()
@@ -706,7 +734,7 @@ def run_vadar_interactive():
         if not user_input:
             print("[VADAR]: Cannot send an empty message. Please type something.")
             continue
-        if user_input.lower() in ('exit', 'quit'):
+        if user_input.lower() == 'exit':
             print("\n[VADAR]: Goodbye!")
             break
 
@@ -750,7 +778,14 @@ def _finalize_session(session_dir, ctx):
         messages = ctx.get_messages()
         conv_text = '\n'.join(f"[{m['role'].upper()}] {m['content']}" for m in messages)
         if len(conv_text) > 500:
+            input_chars = len(conv_text)
+            input_tokens_approx = input_chars // 4
+            print(f"\n[SUMMARIZER]: running on session ({input_chars} chars, ~{input_tokens_approx}K tokens)...")
+            sum_t0 = time.time()
             summary = summarize_output(conv_text, context_label=f"session {os.path.basename(session_dir)}")
+            sum_elapsed = time.time() - sum_t0
+            output_tokens_approx = len(summary) // 4
+            print(f"[SUMMARIZER]: done ({sum_elapsed:.2f}s, ~{input_tokens_approx}K → ~{output_tokens_approx}K tokens)")
             session_block = f"=== SESSION: {os.path.basename(session_dir)} ===\n{summary}\n=== END SESSION ==="
             existing = ""
             if os.path.exists(VADAR_GLOBAL_CONTEXT_FILE):
