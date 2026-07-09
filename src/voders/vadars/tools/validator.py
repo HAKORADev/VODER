@@ -37,8 +37,9 @@ def _strip_quotes(s):
     return s
 
 
-def validate_tool_basic(tool_name, tool_args):
+def validate_tool_basic(tool_name, tool_args, allowed_paths=None):
     args = (tool_args or '').strip()
+    allowed_paths = allowed_paths or set()
 
     if tool_name not in TOOL_REGISTRY:
         return False, f"Unknown tool '{tool_name}'. Available: {', '.join(sorted(TOOL_REGISTRY.keys()))}"
@@ -59,8 +60,8 @@ def validate_tool_basic(tool_name, tool_args):
         if not _is_url(first):
             if not os.path.exists(first):
                 return False, f"File not found: {first}"
-            if not _is_within_project(first):
-                return False, f"Path '{first}' is outside the VODER project directory."
+            if not _is_within_project(first) and first not in allowed_paths:
+                return False, f"Path '{first}' is outside the VODER project directory. Only paths inside the project or paths the user explicitly provided are allowed."
         if tool_name == 'look':
             ext = os.path.splitext(first)[1].lower()
             if ext and ext not in _IMAGE_EXTENSIONS and not _is_url(first):
@@ -76,9 +77,9 @@ def validate_tool_basic(tool_name, tool_args):
         if not first:
             return False, "read needs a file path or act title."
         if os.path.isabs(first) or '/' in first or '\\' in first:
-            if not _is_url(first) and not _is_within_project(first):
+            if not _is_url(first) and not _is_within_project(first) and first not in allowed_paths:
                 if os.path.exists(first):
-                    return False, f"Path '{first}' is outside the VODER project directory."
+                    return False, f"Path '{first}' is outside the VODER project directory. Only paths inside the project or paths the user explicitly provided are allowed."
 
     if tool_name in ('memory_read', 'memory_write', 'memory_edit', 'memory_delete'):
         parts = args.split(None, 1)

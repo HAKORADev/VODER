@@ -170,18 +170,33 @@ def log_input(session_dir, text):
     try:
         import re as _re
         url_re = _re.compile(r'https?://\S+')
+        quoted_re = _re.compile(r'"([^"]+)"|\'([^\']+)\'')
         path_re = _re.compile(r'[\w/\\\-\.]+\.(?:wav|mp3|flac|ogg|aac|m4a|mp4|avi|mov|mkv|flv|webm|png|jpg|jpeg|gif|bmp|tiff|txt|md|py|js|json|yaml|yml|xml|csv|tsv|html|css|log|chain)', _re.IGNORECASE)
         ts = time.strftime('%Y/%m/%d %H:%M:%S')
-        with open(fpath, 'a', encoding='utf-8') as f:
-            f.write(f"[{ts}] USER INPUT: {text}\n")
-            for m in url_re.finditer(text):
-                f.write(f"  [URL] {m.group(0)}\n")
-            for m in path_re.finditer(text):
-                p = m.group(0)
+        found_items = []
+        for m in url_re.finditer(text):
+            found_items.append(('URL', m.group(0), True))
+        for m in quoted_re.finditer(text):
+            path = m.group(1) or m.group(2)
+            if path and ('/' in path or '\\' in path or os.path.exists(path)):
+                exists = os.path.exists(path)
+                found_items.append(('PATH', path, exists))
+        for m in path_re.finditer(text):
+            p = m.group(0)
+            already = any(item[1] == p for item in found_items)
+            if not already:
                 exists = os.path.exists(p)
-                status = 'EXISTS' if exists else 'NOT FOUND'
-                f.write(f"  [PATH:{status}] {p}\n")
-            f.write("\n")
+                found_items.append(('PATH', p, exists))
+        if found_items:
+            with open(fpath, 'a', encoding='utf-8') as f:
+                f.write(f"[{ts}] Input scan:\n")
+                for item_type, path, exists in found_items:
+                    if item_type == 'URL':
+                        f.write(f"  [URL] {path}\n")
+                    else:
+                        status = 'EXISTS' if exists else 'NOT_FOUND'
+                        f.write(f"  [PATH:{status}] {path}\n")
+                f.write("\n")
     except Exception:
         pass
 

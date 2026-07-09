@@ -367,7 +367,7 @@ def _auto_hear_inputs(inputs, session_dir, act_outputs, model, processor):
         print(f"[AUTO-HEAR RESULT]: {str(result[1])[:300]}")
 
 
-def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, processor):
+def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, processor, allowed_paths=None):
     total_calls = 0
     total_passed = 0
     total_failed = 0
@@ -389,7 +389,7 @@ def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, proces
 
         for attempt in range(max_retries):
             t0 = time.time()
-            basic_ok, basic_err = validate_tool_basic(tool_name, fixed_args if attempt > 0 else tool_args)
+            basic_ok, basic_err = validate_tool_basic(tool_name, fixed_args if attempt > 0 else tool_args, allowed_paths=allowed_paths)
             basic_t = time.time() - t0
             if not basic_ok:
                 print(f"[VALIDATOR]: ✗ FAIL ({basic_t:.2f}s) — {basic_err}")
@@ -470,7 +470,11 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
     acts_have_run = False
 
     detected = _detect_inputs(user_input)
+    allowed_paths = set()
     if detected:
+        for inp in detected:
+            if not inp.startswith('http'):
+                allowed_paths.add(inp)
         _auto_hear_inputs(detected, session_dir, act_outputs, model, processor)
         ctx.add('system', f"I have automatically listened to/watched/looked at the inputs you mentioned: {', '.join(detected)}. Use what you learned to plan your act.")
 
@@ -539,7 +543,7 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
             for item in ordered:
                 if item['type'] == 'tool_call':
                     _process_tool_calls(
-                        [item], ctx, session_dir, act_outputs, model, processor
+                        [item], ctx, session_dir, act_outputs, model, processor, allowed_paths=allowed_paths
                     )
                 elif item['type'] == 'act':
                     if not has_eos_act:
