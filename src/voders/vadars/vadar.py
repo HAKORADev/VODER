@@ -155,6 +155,8 @@ def _validate_tag_order(parsed):
         issues.append("emitted acts without <thinking>")
     if parsed['tool_calls'] and not parsed['thoughts']:
         issues.append("emitted tool_calls without <thinking>")
+    if parsed['acts'] and not parsed['decisions']:
+        issues.append("emitted acts without <decide>")
     return issues
 
 
