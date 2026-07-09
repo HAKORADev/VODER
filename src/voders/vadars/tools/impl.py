@@ -1035,3 +1035,56 @@ def tool_search_media(args):
         return "Search timed out (60s). Try fewer results or a simpler query."
     except Exception as e:
         return f"Search error: {e}"
+
+
+_CATALOG_PATH = os.path.join(_PROJECT_ROOT, 'docs', 'COMMAND_CATALOG.md')
+
+_CATALOG_SECTIONS = {
+    'general': (1, 83),
+    'tts': (84, 526),
+    'train': (527, 583),
+    'sts': (584, 654),
+    'ttm': (655, 1311),
+    'stt': (1312, 1397),
+    'se': (1398, 1484),
+    'sfx': (1485, 1519),
+    'svs': (1520, 1567),
+    'ss': (1568, 1674),
+    'quest': (1681, 2435),
+    'chains': (2436, 2508),
+    'prebuilt_chains': (2509, 2758),
+}
+
+
+def _read_catalog_lines(start, end):
+    try:
+        with open(_CATALOG_PATH, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        if start < 1:
+            start = 1
+        if end > len(lines):
+            end = len(lines)
+        return ''.join(lines[start-1:end])
+    except Exception as e:
+        return f"Error reading catalog: {e}"
+
+
+@register_tool('read_catalog_general')
+def tool_read_catalog_general(args):
+    result = _read_catalog_lines(1, 83)
+    result += "\n\n--- Mode-specific sections omitted. Use read_catalog_mode <mode> for detailed syntax. ---\n\n"
+    for mode in ['tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'ss', 'train', 'quest', 'chains', 'prebuilt_chains']:
+        s, e = _CATALOG_SECTIONS[mode]
+        result += f"[Lines {s}-{e}: {mode} section — use read_catalog_mode {mode} to read]\n"
+    return result
+
+
+@register_tool('read_catalog_mode')
+def tool_read_catalog_mode(args):
+    mode = args.strip().lower()
+    if not mode:
+        return f"Usage: read_catalog_mode <mode>\nAvailable: {', '.join(sorted(_CATALOG_SECTIONS.keys()))}"
+    if mode not in _CATALOG_SECTIONS:
+        return f"Unknown mode '{mode}'. Available: {', '.join(sorted(_CATALOG_SECTIONS.keys()))}"
+    start, end = _CATALOG_SECTIONS[mode]
+    return _read_catalog_lines(start, end)

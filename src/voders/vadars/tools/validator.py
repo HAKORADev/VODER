@@ -12,8 +12,9 @@ _VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm', '.m4v', '.
 _IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.svg'}
 _AUDIO_EXTENSIONS = {'.wav', '.mp3', '.flac', '.ogg', '.aac', '.m4a', '.wma', '.opus'}
 
-_NO_ARG_TOOLS = {'read_role', 'delete_role', 'read_role_extras', 'delete_role_extras'}
+_NO_ARG_TOOLS = {'read_role', 'delete_role', 'read_role_extras', 'delete_role_extras', 'read_catalog_general'}
 _VALID_PLATFORMS = {'youtube', 'bilibili', 'tiktok', 'snapchat', 'instagram', 'facebook', 'twitter', 'x', 'reddit'}
+_VALID_CATALOG_MODES = {'tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'ss', 'train', 'quest', 'chains', 'prebuilt_chains', 'general'}
 
 
 def _is_url(s):
@@ -103,5 +104,12 @@ def validate_tool_basic(tool_name, tool_args):
     if tool_name == 'search':
         if 'path' not in args.lower():
             return False, "search needs 'path' keyword in the arguments."
+
+    if tool_name == 'read_catalog_mode':
+        mode = args.strip().lower()
+        if not mode:
+            return False, f"read_catalog_mode needs a mode. Available: {', '.join(sorted(_VALID_CATALOG_MODES))}"
+        if mode not in _VALID_CATALOG_MODES:
+            return False, f"Unknown mode '{mode}'. Available: {', '.join(sorted(_VALID_CATALOG_MODES))}"
 
     return True, None

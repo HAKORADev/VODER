@@ -61,6 +61,13 @@ I am silent. My fixes never enter the conversation. My reasoning never enters th
   - search_media does NOT support public_net — only the platforms listed above.
   - search_media returns a list file path. It does not take a URL.
 
+- read_catalog_general (no args)
+  - Returns the overview section of the command catalog.
+
+- read_catalog_mode <mode>
+  - mode: one of tts, sts, ttm, stt, se, sfx, svs, ss, train, quest, chains, prebuilt_chains, general.
+  - Returns the detailed syntax for that mode.
+
 - read_role (no args)
 - make_role <description>
 - edit_role <description>

@@ -3441,6 +3441,38 @@ python src/voder.py ttm lego source "drums_only.wav" make "bass guitar" styling 
 
 ---
 
+## VADAR Brotherhood — System Requirements & Status
+
+### Hardware Requirements
+
+| Resource | Minimum (CPU) | Recommended (GPU) |
+|----------|---------------|-------------------|
+| RAM | 80 GB | 80 GB VRAM (e.g. NVIDIA A100) |
+| CPU | 32+ cores | — |
+| GPU | Not required (but very slow) | NVIDIA A100 or equivalent |
+| Disk | +24 GB (model files) | +24 GB (model files) |
+| Token speed | < 1 valuable token/second | 10+ valuable tokens/second |
+
+### What "valuable token" means
+
+The VADAR brotherhood is internally talkative — the model thinks, decides, evaluates, and summarizes before it produces anything the user sees. A "valuable token" is a token that reaches the user and carries real value (a reply, an act command, a tool call). Many tokens are generated internally (thinking, eval verdicts, summarizer condensation) and never reach the user. On CPU, the gap between raw token generation and valuable token delivery can be significant — minutes may pass before the first visible output.
+
+### Current Status
+
+The VADAR brotherhood is an **experimental feature**. It uses a general-purpose multimodal model (Gemma 4 12B, abliterated uncensored variant) guided entirely by system prompts and tag-based parsing. No fine-tuning has been applied.
+
+**Limitations of the current approach:**
+- The model may not consistently use the required XML tags (`<thinking>`, `<decide>`, `<reply>`, `<act>`, `<tool_call>`) without fine-tuning
+- On CPU, inference is extremely slow — a simple "hello there" can take 30+ minutes
+- The model may identify as its base model (Gemma) instead of VADAR despite system prompt instructions
+- The brotherhood architecture (Eval, Summarizer, Catcher) is fully implemented and functional, but its effectiveness depends on the model's willingness to follow the protocol
+
+**Why not fine-tune?** Fine-tuning the Gemma 4 12B multimodal model would risk losing its multimodal capabilities (image, audio, video understanding) — the very capabilities that make VADAR useful. Until fine-tuning techniques for multimodal models mature to the point where we can preserve all modalities, the brotherhood will remain prompt-guided.
+
+**The vision:** If one day the VADAR brotherhood becomes what it was designed to be — a reliable, tag-following, tool-using agent that knows VODER inside out — it would be the most useful feature in the entire VODER platform for end-users. Instead of learning command syntax, users would just talk. Instead of building chains manually, VADAR would build them. Instead of guessing which mode to use, VADAR would decide. The architecture is ready. The model is not. Yet.
+
+---
+
 ## Version Information
 
 VODER follows timestamped versioning and is always evolving.
