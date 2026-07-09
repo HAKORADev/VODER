@@ -16434,11 +16434,98 @@ def vadar_run_inference_streamed(messages, max_new_tokens=1024, temperature=0.8,
         thread.start()
 
         collected = []
-        for chunk in streamer:
+        _stream_state = {'buffer': '', 'in_tag': False, 'tag_name': '', 'tag_content': [], 'char_count': 0, 'last_label': '', 'last_print': 0}
+        _TAG_PATTERN = re.compile(r'<(/?)(thinking|decide|reply|act|tool_call|eval|EOS_REPLY|EOS_ACT|EOS_DONE)([^>]*)>')
+
+        def _process_stream_chunk(chunk):
+            _stream_state['buffer'] += chunk
             collected.append(chunk)
-            sys.stdout.write(chunk)
-            sys.stdout.flush()
+            while True:
+                buf = _stream_state['buffer']
+                if _stream_state['in_tag']:
+                    end_idx = buf.find(f'</{_stream_state["tag_name"]}>')
+                    if end_idx == -1:
+                        content_part = buf
+                        _stream_state['tag_content'].append(content_part)
+                        _stream_state['char_count'] += len(content_part)
+                        _stream_state['buffer'] = ''
+                        label_map = {'thinking': '[THINKING]', 'decide': '[DECIDE]', 'reply': '[REPLY]', 'act': '[ACT]', 'tool_call': '[TOOL]', 'eval': '[EVAL]'}
+                        label = label_map.get(_stream_state['tag_name'], f'[{_stream_state["tag_name"].upper()}]')
+                        if label != _stream_state['last_label']:
+                            sys.stdout.write(f'\n{label}: ')
+                            sys.stdout.flush()
+                            _stream_state['last_label'] = label
+                            _stream_state['char_count'] = 0
+                            _stream_state['last_print'] = time.time()
+                        now = time.time()
+                        if now - _stream_state['last_print'] > 0.5:
+                            sys.stdout.write(f'\r{label}: {_stream_state["char_count"]} chars...  ')
+                            sys.stdout.flush()
+                            _stream_state['last_print'] = now
+                        break
+                    else:
+                        content_part = buf[:end_idx]
+                        _stream_state['tag_content'].append(content_part)
+                        _stream_state['char_count'] += len(content_part)
+                        label_map = {'thinking': '[THINKING]', 'decide': '[DECIDE]', 'reply': '[REPLY]', 'act': '[ACT]', 'tool_call': '[TOOL]', 'eval': '[EVAL]'}
+                        label = label_map.get(_stream_state['tag_name'], f'[{_stream_state["tag_name"].upper()}]')
+                        if label != _stream_state['last_label']:
+                            sys.stdout.write(f'\n{label}: ')
+                            sys.stdout.flush()
+                            _stream_state['last_label'] = label
+                        full_content = ''.join(_stream_state['tag_content'])
+                        if _stream_state['tag_name'] == 'reply':
+                            sys.stdout.write(f'\r[REPLY]: {full_content}\n')
+                        elif _stream_state['tag_name'] == 'act':
+                            sys.stdout.write(f'\r[ACT]: {full_content}\n')
+                        elif _stream_state['tag_name'] == 'tool_call':
+                            sys.stdout.write(f'\r[TOOL]: {full_content}\n')
+                        else:
+                            sys.stdout.write(f'\r{label}: {full_content}\n')
+                        sys.stdout.flush()
+                        _stream_state['buffer'] = buf[end_idx + len(f'</{_stream_state["tag_name"]}>'):]
+                        _stream_state['in_tag'] = False
+                        _stream_state['tag_content'] = []
+                        _stream_state['char_count'] = 0
+                        _stream_state['last_label'] = ''
+                else:
+                    m = _TAG_PATTERN.search(buf)
+                    if m is None:
+                        if '<' in buf and not buf.endswith('<'):
+                            pass
+                        else:
+                            text_before = buf
+                            if text_before.strip():
+                                pass
+                            _stream_state['buffer'] = ''
+                        break
+                    text_before = buf[:m.start()]
+                    if text_before.strip():
+                        pass
+                    tag_name = m.group(2)
+                    is_close = m.group(1) == '/'
+                    if not is_close:
+                        _stream_state['in_tag'] = True
+                        _stream_state['tag_name'] = tag_name
+                        _stream_state['tag_content'] = []
+                        _stream_state['char_count'] = 0
+                        _stream_state['buffer'] = buf[m.end():]
+                    else:
+                        if tag_name in ('EOS_REPLY', 'EOS_ACT', 'EOS_DONE'):
+                            sys.stdout.write(f'\n[{tag_name}]\n')
+                            sys.stdout.flush()
+                        _stream_state['buffer'] = buf[m.end():]
+
+        for chunk in streamer:
+            _process_stream_chunk(chunk)
         thread.join()
+
+        if _stream_state['in_tag'] and _stream_state['tag_content']:
+            label_map = {'thinking': '[THINKING]', 'decide': '[DECIDE]', 'reply': '[REPLY]', 'act': '[ACT]', 'tool_call': '[TOOL]', 'eval': '[EVAL]'}
+            label = label_map.get(_stream_state['tag_name'], f'[{_stream_state["tag_name"].upper()}]')
+            full_content = ''.join(_stream_state['tag_content'])
+            sys.stdout.write(f'\r{label}: {full_content}\n')
+            sys.stdout.flush()
 
         full = ''.join(collected)
         sys.stdout.write('\n')

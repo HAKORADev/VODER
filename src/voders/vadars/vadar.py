@@ -284,7 +284,6 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
         if user_request:
             recent_msgs = ctx.get_messages()[-10:] if ctx else []
             global_ctx = _read_global_context_file()
-            print(f"[EVAL]: evaluating act result... ({len(output)} chars)")
             eval_t0 = time.time()
             verdict, reason = evaluate_act_result(user_request, title, command, output, success,
                                                   recent_messages=recent_msgs, global_context=global_ctx)
@@ -493,12 +492,6 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
         response = _autoclose_tags(response)
         parsed = _parse_model_output(response)
 
-        if parsed['thoughts']:
-            print(f"\n[VADAR THINKING]: ({len(' '.join(parsed['thoughts']))} chars)")
-
-        if parsed['decisions']:
-            print(f"\n[VADAR DECIDE]: ({len(' '.join(parsed['decisions']))} chars)")
-
         order_issues = _validate_tag_order(parsed)
         if order_issues:
             ctx.add('system', f"Tag order issue: you {' and '.join(order_issues)}. Always start with <thinking> before any other tag. Re-emit your response with proper tag order.")
@@ -509,7 +502,6 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
             decisions_text = ' '.join(parsed['decisions'])
             recent_msgs = ctx.get_messages()[-10:]
             global_ctx = _read_global_context_file()
-            print(f"\n[EVAL]: evaluating plan... ({len(thoughts) + len(decisions_text)} chars input)")
             eval_t0 = time.time()
             verdict, reason = evaluate_plan(user_input, thoughts_text, decisions_text,
                                             acts=parsed['acts'], recent_messages=recent_msgs,
@@ -617,7 +609,8 @@ def run_vadar_oneline(user_input, result_path=None):
         return False
 
     session_dir, session_name = create_session('oneline')
-    log_input(session_dir, user_input)
+    if len(tasks) > 1:
+        log_input(session_dir, user_input)
 
     system_prompt = generate_system_prompt(session_type='oneline', user_input=user_input, exclude_session=session_name)
     ctx = ContextManager(session_dir)
@@ -845,7 +838,7 @@ def _finalize_session(session_dir, ctx):
         config = vadar_load_config()
         gc_cap_pct = config.get('global_context_cap_percent', 15) / 100.0
         messages = ctx.get_messages()
-        conv_text = '\n'.join(f"[{m['role'].upper()}] {m['content']}" for m in messages)
+        conv_text = '\n'.join(f"[{m['role'].upper()}] {m['content']}" for m in messages if m['role'] != 'system')
         if len(conv_text) > 500:
             input_chars = len(conv_text)
             print(f"\n[SUMMARIZER]: running on session ({input_chars} chars)...")
