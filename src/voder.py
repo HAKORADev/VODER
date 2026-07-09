@@ -16436,9 +16436,13 @@ def vadar_run_inference_streamed(messages, max_new_tokens=1024, temperature=0.8,
         collected = []
         for chunk in streamer:
             collected.append(chunk)
+            sys.stdout.write(chunk)
+            sys.stdout.flush()
         thread.join()
 
         full = ''.join(collected)
+        sys.stdout.write('\n')
+        sys.stdout.flush()
         return full, None
     except Exception as e:
         return None, str(e)

@@ -98,6 +98,66 @@ def _parse_ordered_actions(text):
     return actions
 
 
+_TAG_ORDER = {'thinking': 0, 'decide': 1, 'reply': 2, 'act': 2, 'tool_call': 2, 'eval': 2}
+_TAG_PAIRS = {'thinking': 'thinking', 'decide': 'decide', 'reply': 'reply', 'act': 'act', 'tool_call': 'tool_call', 'eval': 'eval'}
+
+
+def _autoclose_tags(text):
+    result = text
+    open_tags = []
+    tag_re = re.compile(r'<(/?)(thinking|decide|reply|act|tool_call|eval)([^>]*)>')
+    pos = 0
+    fixed = []
+    for m in tag_re.finditer(result):
+        is_close = m.group(1) == '/'
+        tag = m.group(2)
+        if not is_close:
+            if open_tags and open_tags[-1] != tag:
+                fixed.append(result[pos:m.start()])
+                fixed.append(f'</{open_tags[-1]}>')
+                fixed.append(m.group(0))
+                open_tags.pop()
+                open_tags.append(tag)
+            else:
+                fixed.append(result[pos:m.start()])
+                fixed.append(m.group(0))
+                if not open_tags or open_tags[-1] != tag:
+                    open_tags.append(tag)
+                else:
+                    open_tags.append(tag)
+            pos = m.end()
+        else:
+            fixed.append(result[pos:m.start()])
+            if open_tags and open_tags[-1] == tag:
+                fixed.append(m.group(0))
+                open_tags.pop()
+            elif tag in open_tags:
+                while open_tags and open_tags[-1] != tag:
+                    fixed.append(f'</{open_tags[-1]}>')
+                    open_tags.pop()
+                if open_tags:
+                    fixed.append(m.group(0))
+                    open_tags.pop()
+            else:
+                fixed.append(m.group(0))
+            pos = m.end()
+    fixed.append(result[pos:])
+    for tag in reversed(open_tags):
+        fixed.append(f'</{tag}>')
+    return ''.join(fixed)
+
+
+def _validate_tag_order(parsed):
+    issues = []
+    if parsed['replies'] and not parsed['thoughts']:
+        issues.append("replied without <thinking>")
+    if parsed['acts'] and not parsed['thoughts']:
+        issues.append("emitted acts without <thinking>")
+    if parsed['tool_calls'] and not parsed['thoughts']:
+        issues.append("emitted tool_calls without <thinking>")
+    return issues
+
+
 def _snapshot_results():
     snap = {}
     if not os.path.isdir(_RESULTS_DIR):
@@ -222,10 +282,12 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
         if user_request:
             recent_msgs = ctx.get_messages()[-10:] if ctx else []
             global_ctx = _read_global_context_file()
-            print(f"[EVAL]: evaluating act result...")
+            print(f"[EVAL]: evaluating act result... ({len(output)} chars)")
+            eval_t0 = time.time()
             verdict, reason = evaluate_act_result(user_request, title, command, output, success,
                                                   recent_messages=recent_msgs, global_context=global_ctx)
-            print(f"[EVAL]: {verdict.upper()} — {reason}")
+            eval_elapsed = time.time() - eval_t0
+            print(f"[EVAL]: {verdict.upper()} ({eval_elapsed:.1f}s) — {reason}")
             log_act(session_dir, f"{title}_eval", f"eval verdict: {verdict}", reason, verdict == 'correct')
 
         if len(output) > summarize_threshold:
@@ -426,33 +488,38 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
             break
 
         ctx.add('assistant', response)
+        response = _autoclose_tags(response)
         parsed = _parse_model_output(response)
 
         if parsed['thoughts']:
-            for thought in parsed['thoughts']:
-                print(f"\n[VADAR THINKING]: {thought}")
+            print(f"\n[VADAR THINKING]: ({len(' '.join(parsed['thoughts']))} chars)")
 
         if parsed['decisions']:
-            for decision in parsed['decisions']:
-                print(f"\n[VADAR DECIDE]: {decision}")
+            print(f"\n[VADAR DECIDE]: ({len(' '.join(parsed['decisions']))} chars)")
+
+        order_issues = _validate_tag_order(parsed)
+        if order_issues:
+            ctx.add('system', f"Tag order issue: you {' and '.join(order_issues)}. Always start with <thinking> before any other tag. Re-emit your response with proper tag order.")
+            continue
 
         if parsed['thoughts'] and parsed['decisions']:
             thoughts_text = ' '.join(parsed['thoughts'])
             decisions_text = ' '.join(parsed['decisions'])
             recent_msgs = ctx.get_messages()[-10:]
             global_ctx = _read_global_context_file()
-            print(f"\n[EVAL]: evaluating plan...")
+            print(f"\n[EVAL]: evaluating plan... ({len(thoughts) + len(decisions_text)} chars input)")
+            eval_t0 = time.time()
             verdict, reason = evaluate_plan(user_input, thoughts_text, decisions_text,
                                             acts=parsed['acts'], recent_messages=recent_msgs,
                                             global_context=global_ctx)
-            print(f"[EVAL]: {verdict.upper()} — {reason}")
+            eval_elapsed = time.time() - eval_t0
+            print(f"[EVAL]: {verdict.upper()} ({eval_elapsed:.1f}s) — {reason}")
             if verdict == 'wrong':
                 ctx.add('system', f"Eval says your plan is WRONG: {reason}. Fix it and try again.")
                 continue
 
         if parsed['replies']:
             for reply in parsed['replies']:
-                print(f"\n[VADAR]: {reply}")
                 last_vadar_reply_time = time.time()
 
             if interactive and approval_event is not None and waiting_for_approval is not None:
@@ -692,8 +759,7 @@ def run_vadar_interactive():
                 if not inf_err and response and response.strip():
                     ping_ctx['ctx'].add('assistant', response)
                     parsed = _parse_model_output(response)
-                    for reply in parsed['replies']:
-                        print(f"\n[VADAR]: {reply}")
+                    if parsed['replies']:
                         last_vadar_reply_time[0] = time.time()
                     if parsed['eos_done']:
                         print("\n[VADAR]: I'm done. Ending session.")
