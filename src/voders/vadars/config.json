@@ -48,5 +48,17 @@
     "listen_auto_threshold": 30,
 
     "_comment_catcher_max_retries": "How many times Catcher retries a failed tool call before giving up. Min: 1, Max: 10",
-    "catcher_max_retries": 3
+    "catcher_max_retries": 3,
+
+    "_comment_lite_gpu_layers": "VADAR Lite (GGUF): GPU layers to offload. -1 = all, 0 = CPU only. Min: -1, Max: 999",
+    "lite_gpu_layers": -1,
+
+    "_comment_lite_n_threads": "VADAR Lite (GGUF): CPU threads. -1 = auto-detect. Min: -1, Max: 256",
+    "lite_n_threads": -1,
+
+    "_comment_lite_repeat_penalty": "VADAR Lite (GGUF): repeat penalty for generation. Min: 1.0, Max: 2.0",
+    "lite_repeat_penalty": 1.1,
+
+    "_comment_lite_verbose": "VADAR Lite (GGUF): verbose llama.cpp output. true or false",
+    "lite_verbose": false
 }

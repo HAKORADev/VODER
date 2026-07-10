@@ -28,8 +28,14 @@ VIBEVOICE_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "vibevoice_asr")
 TRANSLATE_GEMMA_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "translate_gemma")
 AUDIOSR_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "audiosr")
 ALIGNER_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "aligner")
-VADAR_MODEL_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "vadar")
-VADAR_MODEL_REPO = "OpenYourMind/gemma-4-12B-it-abliterated-uncensored"
+HEAVY_VADAR_MODEL_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "heavy_vadar")
+HEAVY_VADAR_MODEL_REPO = "OpenYourMind/gemma-4-12B-it-abliterated-uncensored"
+LITE_VADAR_MODEL_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "lite_vadar")
+LITE_VADAR_MODEL_REPO = "Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit"
+LITE_VADAR_GGUF_FILENAME = "supergemma4-12b-abliterated-Q4_K_M.gguf"
+LITE_VADAR_TEMPLATE_FILENAME = "chat_template.jinja"
+VADAR_MODEL_DIR = HEAVY_VADAR_MODEL_DIR
+VADAR_MODEL_REPO = HEAVY_VADAR_MODEL_REPO
 VADAR_CONFIG_PATH = os.path.join(_src_dir, "voders", "vadars", "config.json")
 
 _VADAR_CONFIG_DEFAULTS = {
@@ -50,6 +56,10 @@ _VADAR_CONFIG_DEFAULTS = {
     'listen_max_segment': (60, int, 5, 300),
     'listen_auto_threshold': (30, int, 5, 120),
     'catcher_max_retries': (3, int, 1, 10),
+    'lite_gpu_layers': (-1, int, -1, 999),
+    'lite_n_threads': (-1, int, -1, 256),
+    'lite_repeat_penalty': (1.1, float, 1.0, 2.0),
+    'lite_verbose': (False, bool, None, None),
 }
 
 _VADAR_CONFIG = None
@@ -5045,6 +5055,29 @@ def parse_oneline_args(args):
     current_keyword = None
     result_path = None
 
+    if mode == 'overdose' and len(args) > 1 and args[1].lower() == 'vadar':
+        mode = 'vadar'
+        result['mode'] = 'vadar'
+        result['params']['use_lite'] = False
+        i = 2
+        prompt_parts = []
+        while i < len(args):
+            arg = args[i]
+            arg_lower = arg.lower()
+            if arg_lower == 'result':
+                if i + 1 < len(args):
+                    result_path = args[i + 1]
+                    i += 2
+                else:
+                    result['error'] = 'result keyword requires a path argument'
+                    return result
+            else:
+                prompt_parts.append(arg)
+                i += 1
+        result['params']['prompt'] = ' '.join(prompt_parts)
+        result['params']['result_path'] = result_path
+        return result
+
     if mode == 'vadar':
         prompt_parts = []
         while i < len(args):
@@ -5062,6 +5095,7 @@ def parse_oneline_args(args):
                 i += 1
         result['params']['prompt'] = ' '.join(prompt_parts)
         result['params']['result_path'] = result_path
+        result['params']['use_lite'] = True
         return result
 
     if mode == 'stt':
@@ -6128,7 +6162,9 @@ def _check_voice_extreme_mismatch(voice_path, use_extreme):
     return False
 
 def validate_oneline_mode(mode_name):
-    valid_modes = ['tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'ss', 'train', 'quest', 'chains', 'vadar']
+    if mode_name.lower() == 'overdose':
+        return 'overdose'
+    valid_modes = ['tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'ss', 'train', 'quest', 'chains', 'vadar', 'overdose']
     if mode_name.lower() in valid_modes:
         return mode_name.lower()
     return None
@@ -6464,7 +6500,7 @@ def execute_oneline_command(parsed):
         success = oneline_chains(params)
     elif mode == 'vadar':
         from voders.vadars.vadar import run_vadar_oneline
-        success = run_vadar_oneline(params.get('prompt', ''), result_path=params.get('result_path'))
+        success = run_vadar_oneline(params.get('prompt', ''), result_path=params.get('result_path'), use_lite=params.get('use_lite', True))
     else:
         print(f"Error: Unknown mode '{mode}'")
         show_oneline_usage()
@@ -16531,6 +16567,262 @@ def vadar_run_inference_streamed(messages, max_new_tokens=1024, temperature=0.8,
         sys.stdout.write('\n')
         sys.stdout.flush()
         return full, None
+    except Exception as e:
+        return None, str(e)
+
+
+_lite_vadar_llm = None
+_lite_vadar_template = None
+
+
+def lite_vadar_check_model_downloaded():
+    gguf_path = os.path.join(LITE_VADAR_MODEL_DIR, LITE_VADAR_GGUF_FILENAME)
+    return os.path.exists(gguf_path) and os.path.getsize(gguf_path) > 0
+
+
+def lite_vadar_load_model(force_reload=False):
+    global _lite_vadar_llm, _lite_vadar_template
+    if _lite_vadar_llm is not None and not force_reload:
+        return _lite_vadar_llm, _lite_vadar_template, None
+
+    try:
+        from llama_cpp import Llama
+    except ImportError:
+        return None, None, "llama-cpp-python not installed. Run: pip install llama-cpp-python"
+
+    if not lite_vadar_check_model_downloaded():
+        print(f"VADAR LITE: model not found at {LITE_VADAR_MODEL_DIR}. Downloading from {LITE_VADAR_MODEL_REPO}...")
+        os.makedirs(LITE_VADAR_MODEL_DIR, exist_ok=True)
+        try:
+            from huggingface_hub import hf_hub_download
+            gguf_path = hf_hub_download(
+                repo_id=LITE_VADAR_MODEL_REPO,
+                filename=LITE_VADAR_GGUF_FILENAME,
+                local_dir=LITE_VADAR_MODEL_DIR,
+            )
+            try:
+                hf_hub_download(
+                    repo_id=LITE_VADAR_MODEL_REPO,
+                    filename=LITE_VADAR_TEMPLATE_FILENAME,
+                    local_dir=LITE_VADAR_MODEL_DIR,
+                )
+            except Exception:
+                pass
+        except Exception as e:
+            return None, None, f"Model download failed: {e}"
+        if not lite_vadar_check_model_downloaded():
+            return None, None, "Download completed but model files are missing."
+        print(f"VADAR LITE: model downloaded to {LITE_VADAR_MODEL_DIR}")
+
+    print(f"VADAR LITE: loading model from {LITE_VADAR_MODEL_DIR}...")
+    try:
+        config = vadar_load_config()
+        ctx_len = config.get('context_length', 262144)
+        gpu_layers = config.get('lite_gpu_layers', -1)
+        n_threads = config.get('lite_n_threads', -1)
+        verbose = config.get('lite_verbose', False)
+
+        gguf_path = os.path.join(LITE_VADAR_MODEL_DIR, LITE_VADAR_GGUF_FILENAME)
+        _lite_vadar_llm = Llama(
+            model_path=gguf_path,
+            n_ctx=ctx_len,
+            n_gpu_layers=gpu_layers,
+            n_threads=n_threads,
+            verbose=verbose,
+        )
+
+        template_path = os.path.join(LITE_VADAR_MODEL_DIR, LITE_VADAR_TEMPLATE_FILENAME)
+        if os.path.exists(template_path):
+            with open(template_path, 'r', encoding='utf-8') as f:
+                _lite_vadar_template = f.read()
+            thinking_on = True
+            patched = "{% set enable_thinking = " + ("true" if thinking_on else "false") + " %}\n" + _lite_vadar_template
+            _lite_vadar_llm.set_chat_template(patched)
+        else:
+            embedded = _lite_vadar_llm.metadata_get("tokenizer.chat_template", None)
+            if embedded:
+                _lite_vadar_template = embedded
+                thinking_on = True
+                patched = "{% set enable_thinking = " + ("true" if thinking_on else "false") + " %}\n" + embedded
+                _lite_vadar_llm.set_chat_template(patched)
+
+        print("VADAR LITE: model loaded successfully.")
+        return _lite_vadar_llm, _lite_vadar_template, None
+    except Exception as e:
+        _lite_vadar_llm = None
+        _lite_vadar_template = None
+        return None, None, f"Failed to load lite model: {e}"
+
+
+_LITE_THINK_START = "<|channel>thought\n"
+_LITE_THINK_END = "<channel|>"
+
+
+def _parse_lite_thinking(text):
+    thinking_parts = []
+    remaining = text
+    while True:
+        start = remaining.find(_LITE_THINK_START)
+        if start == -1:
+            break
+        end = remaining.find(_LITE_THINK_END, start)
+        if end == -1:
+            break
+        thought = remaining[start + len(_LITE_THINK_START):end].strip()
+        if thought:
+            thinking_parts.append(thought)
+        remaining = remaining[:start] + remaining[end + len(_LITE_THINK_END):]
+    return thinking_parts, remaining.strip()
+
+
+def lite_vadar_run_inference(messages, max_new_tokens=1024):
+    llm, template, err = lite_vadar_load_model()
+    if err:
+        return None, err
+    try:
+        config = vadar_load_config()
+        temperature = config.get('temperature', 0.8)
+        top_p = config.get('top_p', 0.95)
+        top_k = config.get('top_k', 64)
+        repeat_penalty = config.get('lite_repeat_penalty', 1.1)
+
+        resp = llm.create_chat_completion(
+            messages=messages,
+            stream=False,
+            max_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            repeat_penalty=repeat_penalty,
+        )
+        raw = resp["choices"][0]["message"]["content"]
+        thoughts, clean = _parse_lite_thinking(raw)
+        return clean, None
+    except Exception as e:
+        return None, str(e)
+
+
+def lite_vadar_run_inference_streamed(messages, max_new_tokens=1024):
+    llm, template, err = lite_vadar_load_model()
+    if err:
+        return None, err
+    try:
+        config = vadar_load_config()
+        temperature = config.get('temperature', 0.8)
+        top_p = config.get('top_p', 0.95)
+        top_k = config.get('top_k', 64)
+        repeat_penalty = config.get('lite_repeat_penalty', 1.1)
+
+        collected = []
+        _stream_state = {'buffer': '', 'in_tag': False, 'tag_name': '', 'tag_content': [], 'char_count': 0, 'last_label': '', 'last_print': 0}
+        _TAG_PATTERN = re.compile(r'<(/?)(thinking|decide|reply|act|tool_call|eval|EOS_REPLY|EOS_ACT|EOS_DONE)([^>]*)>')
+        _think_buffer = ""
+        _in_think = False
+
+        def _process_stream_chunk(chunk):
+            _stream_state['buffer'] += chunk
+            collected.append(chunk)
+            while True:
+                buf = _stream_state['buffer']
+                if _stream_state['in_tag']:
+                    end_idx = buf.find(f'</{_stream_state["tag_name"]}>')
+                    if end_idx == -1:
+                        content_part = buf
+                        _stream_state['tag_content'].append(content_part)
+                        _stream_state['char_count'] += len(content_part)
+                        _stream_state['buffer'] = ''
+                        label_map = {'thinking': '[THINKING]', 'decide': '[DECIDE]', 'reply': '[REPLY]', 'act': '[ACT]', 'tool_call': '[TOOL]', 'eval': '[EVAL]'}
+                        label = label_map.get(_stream_state['tag_name'], f'[{_stream_state["tag_name"].upper()}]')
+                        if label != _stream_state['last_label']:
+                            sys.stdout.write(f'\n{label}: ')
+                            sys.stdout.flush()
+                            _stream_state['last_label'] = label
+                            _stream_state['char_count'] = 0
+                            _stream_state['last_print'] = time.time()
+                        now = time.time()
+                        if now - _stream_state['last_print'] > 0.5:
+                            sys.stdout.write(f'\r{label}: {_stream_state["char_count"]} chars...  ')
+                            sys.stdout.flush()
+                            _stream_state['last_print'] = now
+                        break
+                    else:
+                        content_part = buf[:end_idx]
+                        _stream_state['tag_content'].append(content_part)
+                        _stream_state['char_count'] += len(content_part)
+                        label_map = {'thinking': '[THINKING]', 'decide': '[DECIDE]', 'reply': '[REPLY]', 'act': '[ACT]', 'tool_call': '[TOOL]', 'eval': '[EVAL]'}
+                        label = label_map.get(_stream_state['tag_name'], f'[{_stream_state["tag_name"].upper()}]')
+                        if label != _stream_state['last_label']:
+                            sys.stdout.write(f'\n{label}: ')
+                            sys.stdout.flush()
+                            _stream_state['last_label'] = label
+                        full_content = ''.join(_stream_state['tag_content'])
+                        sys.stdout.write(f'\r{label}: {full_content}\n')
+                        sys.stdout.flush()
+                        _stream_state['buffer'] = buf[end_idx + len(f'</{_stream_state["tag_name"]}>'):]
+                        _stream_state['in_tag'] = False
+                        _stream_state['tag_content'] = []
+                        _stream_state['char_count'] = 0
+                        _stream_state['last_label'] = ''
+                else:
+                    m = _TAG_PATTERN.search(buf)
+                    if m is None:
+                        if '<' in buf and not buf.rstrip().endswith('<'):
+                            pass
+                        _stream_state['buffer'] = ''
+                        break
+                    tag_name = m.group(2)
+                    is_close = m.group(1) == '/'
+                    if not is_close:
+                        _stream_state['in_tag'] = True
+                        _stream_state['tag_name'] = tag_name
+                        _stream_state['tag_content'] = []
+                        _stream_state['char_count'] = 0
+                        _stream_state['buffer'] = buf[m.end():]
+                    else:
+                        if tag_name in ('EOS_REPLY', 'EOS_ACT', 'EOS_DONE'):
+                            sys.stdout.write(f'\n[{tag_name}]\n')
+                            sys.stdout.flush()
+                        _stream_state['buffer'] = buf[m.end():]
+
+        for chunk in llm.create_chat_completion(
+            messages=messages,
+            stream=True,
+            max_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            repeat_penalty=repeat_penalty,
+        ):
+            delta = chunk.get("choices", [{}])[0].get("delta", {})
+            content = delta.get("content", "")
+            if not content:
+                continue
+            if _LITE_THINK_START in content or _in_think:
+                _think_buffer += content
+                if _LITE_THINK_END in _think_buffer:
+                    think_part = _think_buffer[_think_buffer.find(_LITE_THINK_START) + len(_LITE_THINK_START):_think_buffer.find(_LITE_THINK_END)]
+                    rest = _think_buffer[_think_buffer.find(_LITE_THINK_END) + len(_LITE_THINK_END):]
+                    _in_think = False
+                    _think_buffer = ""
+                    if rest:
+                        _process_stream_chunk(rest)
+                else:
+                    _in_think = True
+            else:
+                _process_stream_chunk(content)
+
+        if _stream_state['in_tag'] and _stream_state['tag_content']:
+            label_map = {'thinking': '[THINKING]', 'decide': '[DECIDE]', 'reply': '[REPLY]', 'act': '[ACT]', 'tool_call': '[TOOL]', 'eval': '[EVAL]'}
+            label = label_map.get(_stream_state['tag_name'], f'[{_stream_state["tag_name"].upper()}]')
+            full_content = ''.join(_stream_state['tag_content'])
+            sys.stdout.write(f'\r{label}: {full_content}\n')
+            sys.stdout.flush()
+
+        full = ''.join(collected)
+        thoughts, clean = _parse_lite_thinking(full)
+        sys.stdout.write('\n')
+        sys.stdout.flush()
+        return clean, None
     except Exception as e:
         return None, str(e)
 

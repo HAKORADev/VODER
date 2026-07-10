@@ -315,16 +315,27 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
         return False, str(e)
 
 
+_use_lite_mode = True
+
+
 def _run_inference_streamed(messages, max_new_tokens=1024):
-    from voder import vadar_run_inference_streamed
     with _inference_lock:
-        return vadar_run_inference_streamed(messages, max_new_tokens=max_new_tokens)
+        if _use_lite_mode:
+            from voder import lite_vadar_run_inference_streamed
+            return lite_vadar_run_inference_streamed(messages, max_new_tokens=max_new_tokens)
+        else:
+            from voder import vadar_run_inference_streamed
+            return vadar_run_inference_streamed(messages, max_new_tokens=max_new_tokens)
 
 
 def _run_inference(messages, max_new_tokens=1024):
-    from voder import vadar_run_inference
     with _inference_lock:
-        return vadar_run_inference(messages, max_new_tokens=max_new_tokens)
+        if _use_lite_mode:
+            from voder import lite_vadar_run_inference
+            return lite_vadar_run_inference(messages, max_new_tokens=max_new_tokens)
+        else:
+            from voder import vadar_run_inference
+            return vadar_run_inference(messages, max_new_tokens=max_new_tokens)
 
 
 def _detect_inputs(text):
@@ -601,9 +612,15 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
     return True
 
 
-def run_vadar_oneline(user_input, result_path=None):
-    from voder import vadar_load_model
-    model, processor, err = vadar_load_model()
+def run_vadar_oneline(user_input, result_path=None, use_lite=True):
+    global _use_lite_mode
+    _use_lite_mode = use_lite
+    if use_lite:
+        from voder import lite_vadar_load_model
+        model, processor, err = lite_vadar_load_model()
+    else:
+        from voder import vadar_load_model
+        model, processor, err = vadar_load_model()
     if err:
         print(f"VADAR is not available — {err}")
         return False
@@ -616,7 +633,7 @@ def run_vadar_oneline(user_input, result_path=None):
     if len(tasks) > 1:
         log_input(session_dir, user_input)
 
-    system_prompt = generate_system_prompt(session_type='oneline', user_input=user_input, exclude_session=session_name)
+    system_prompt = generate_system_prompt(session_type='oneline', user_input=user_input, exclude_session=session_name, is_lite=use_lite)
     ctx = ContextManager(session_dir)
     try:
         if processor is not None and hasattr(processor, 'tokenizer'):
@@ -690,9 +707,21 @@ def run_vadar_oneline(user_input, result_path=None):
     return all_ok
 
 
-def run_vadar_interactive():
-    from voder import vadar_load_model
-    model, processor, err = vadar_load_model()
+def run_vadar_interactive(use_lite=None):
+    global _use_lite_mode
+    if use_lite is None:
+        print("\nUse overdose VADAR (heavy, multimodal, requires 80GB+ RAM/VRAM)? [y/N]: ", end='', flush=True)
+        response = input().strip().lower()
+        use_lite = response != 'y'
+    _use_lite_mode = use_lite
+    if use_lite:
+        from voder import lite_vadar_load_model
+        model, processor, err = lite_vadar_load_model()
+        if processor is not None and hasattr(processor, 'tokenizer'):
+            pass
+    else:
+        from voder import vadar_load_model
+        model, processor, err = vadar_load_model()
     if err:
         print(f"VADAR is not available — {err}")
         return False
@@ -709,7 +738,7 @@ def run_vadar_interactive():
     system_prompt = generate_system_prompt(session_type='interactive',
                                            last_user_msg_time=last_user_msg_time[0],
                                            last_vadar_reply_time=last_vadar_reply_time[0],
-                                           exclude_session=session_name)
+                                           exclude_session=session_name, is_lite=use_lite)
     ctx.add('system', system_prompt)
 
     act_outputs = {}

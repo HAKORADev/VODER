@@ -175,7 +175,7 @@ def _get_command_catalog():
         return '(could not read COMMAND_CATALOG.md)'
 
 
-def generate_system_prompt(session_type='interactive', user_input='', last_user_msg_time=None, last_vadar_reply_time=None, exclude_session=None):
+def generate_system_prompt(session_type='interactive', user_input='', last_user_msg_time=None, last_vadar_reply_time=None, exclude_session=None, is_lite=True):
     now = time.time()
     timestamp_str = time.strftime("%Y/%m/%d:%I%p:%M:%S", time.localtime(now))
     sys_info = _get_system_info()
@@ -297,9 +297,12 @@ def generate_system_prompt(session_type='interactive', user_input='', last_user_
     parts.append("")
     parts.append("## Tools Available")
     parts.append("I have the following tools. I use them by emitting structured tool calls in my response:")
-    parts.append("- look <path|url>: analyze an image. If I pass a URL, the engine downloads it automatically and feeds the local file to me.")
-    parts.append("- listen <path|url> [HH:MM:SS-HH:MM:SS]: analyze audio. Without range, returns total length + (if short enough) a description. URLs auto-download. Range format: HH:MM:SS-HH:MM:SS or MM:SS-MM:SS or seconds-seconds.")
-    parts.append("- watch <path|url> [HH:MM:SS-HH:MM:SS]: analyze video. Same rules as listen. URLs auto-download.")
+    if not is_lite:
+        parts.append("- look <path|url>: analyze an image. If I pass a URL, the engine downloads it automatically and feeds the local file to me.")
+        parts.append("- listen <path|url> [HH:MM:SS-HH:MM:SS]: analyze audio. Without range, returns total length + (if short enough) a description. URLs auto-download. Range format: HH:MM:SS-HH:MM:SS or MM:SS-MM:SS or seconds-seconds.")
+        parts.append("- watch <path|url> [HH:MM:SS-HH:MM:SS]: analyze video. Same rules as listen. URLs auto-download.")
+    else:
+        parts.append("NOTE: I am running in LITE mode. I cannot look at images, listen to audio, or watch video. I am text-only. If the user provides media files, I can still run VODER commands on them — I just cannot analyze them myself.")
     parts.append("- read <path|act_title> [start-end start-end ...]: read text or act output. Without ranges, returns total lines + summarization + the LATEST 100 lines (numbered). With one or more line ranges (e.g. read foo.txt 20-30 50-89), returns those ranges, each line numbered. Each range must have start < end.")
     parts.append("- list [types] [path]: list files. Types: zero or more of videos, images, audios, texts, others, all, .ext (space-separated). Bare list returns counts by category. Multiple types allowed: list videos images path.")
     parts.append("- search <query> path <path> [formats <fmt1,fmt2,...>]: search for files containing query in their name. Format keywords: videos, images, audios, texts, others, all, or .ext literal. Example: search hello path . formats videos,images,.txt")

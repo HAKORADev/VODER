@@ -4,6 +4,63 @@
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 - If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
+## 07/10/2026
+- Status: Stable, all features work, still developing
+- **VADAR twins — heavy VADAR (overdose) and lite VADAR**
+
+### VADAR twins
+
+VADAR now comes in two variants — twins with the same brain but different senses:
+
+| Feature | Heavy VADAR (overdose) | Lite VADAR |
+|---------|----------------------|------------|
+| Model | Gemma 4 12B abliterated uncensored (full precision) | SuperGemma 4 12B abliterated (GGUF Q4_K_M, 4-bit quantized) |
+| Engine | transformers + torch (native) | llama.cpp (via llama-cpp-python) |
+| Multimodal | Yes — look/listen/watch (image, audio, video) | No — text only, blind and deaf |
+| VRAM/RAM | 80GB+ (A100 80GB or 32+ core CPU with 80GB+ RAM) | 16GB RAM, 4 CPU cores, or any T4/RTX GPU |
+| Model size | ~24GB | ~7GB |
+| Token speed (GPU) | 10+ valuable tokens/second | 20+ tokens/second |
+| Token speed (CPU) | < 1 valuable token/second | 5+ tokens/second |
+| Model-level CoT | Not yet enabled | Enabled via `<|channel>thought` tokens |
+
+### Usage
+
+- **Lite VADAR (default):** `python voder.py vadar "hello there"` — uses the GGUF model via llama.cpp. Runs on any machine with 16GB RAM.
+- **Heavy VADAR (overdose):** `python voder.py overdose vadar "hello there"` — uses the full multimodal model via transformers+torch. Requires 80GB+ RAM/VRAM.
+- **Interactive CLI:** When selecting option 10 (VADAR), the user is prompted: "Use overdose VADAR (heavy, multimodal, requires 80GB+ RAM/VRAM)? [y/N]". Default is lite (N).
+
+### What lite VADAR can and cannot do
+
+Lite VADAR is the same agent — same tags, same tools, same eval, same catcher, same summarizer. But it is blind and deaf:
+
+- **Can do:** think, decide, reply, run acts (tts, sts, ttm, stt, se, sfx, svs, ss, train, quest, chains), use tools (read, list, search, memory, calculate, search_media, catalog tools, roleplay tools), be evaluated by Eval, be fixed by Catcher, be summarized by Summarizer.
+- **Cannot do:** look at images, listen to audio, watch video, auto-hear inputs. The `look`, `listen`, `watch` tools are removed from the system prompt in lite mode. If the user provides media files, lite VADAR can still run VODER commands on them — it just cannot analyze them itself.
+
+### Architecture
+
+Both twins share the same agent code (`vadar.py`, `eval.py`, `summarizer.py`, `catcher.py`, `context.py`, `system_prompt.py`). The only difference is:
+- Model loading: `vadar_load_model()` (heavy, transformers) vs `lite_vadar_load_model()` (lite, llama.cpp)
+- Inference: `vadar_run_inference_streamed()` vs `lite_vadar_run_inference_streamed()`
+- System prompt: `is_lite=True` hides `look`/`listen`/`watch` tools and adds a note about lite mode
+- Model paths: `models/checkpoints/heavy_vadar/` vs `models/checkpoints/lite_vadar/`
+
+The `_use_lite_mode` global flag in `vadar.py` routes all inference calls to the correct engine.
+
+### Dependencies
+
+- Added `llama-cpp-python>=0.3.0` to `requirements.txt` for lite VADAR
+- Lite VADAR auto-downloads the GGUF model from `Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit` on first run
+- The chat template (`chat_template.jinja`) is also auto-downloaded
+- Model-level thinking is enabled via `{% set enable_thinking = true %}` in the chat template, using `<|channel>thought` / `<channel|>` tokens
+
+### Config
+
+New fields in `config.json` for lite VADAR tuning:
+- `lite_gpu_layers`: GPU layers to offload (-1 = all, 0 = CPU only)
+- `lite_n_threads`: CPU threads (-1 = auto)
+- `lite_repeat_penalty`: repeat penalty for generation (default 1.1)
+- `lite_verbose`: verbose llama.cpp output (default false)
+
 ## 07/08/2026
 - Status: Stable, all features work, still developing
 - **Bug Hunt Activities and Wider Media Support**

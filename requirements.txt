@@ -91,6 +91,9 @@ asteroid-filterbanks>=0.4.0
 yt-dlp>=2026.3.17
 gallery-dl>=1.27.0
 
+# VADAR Lite (GGUF model via llama.cpp)
+llama-cpp-python>=0.3.0
+
 # OCR for image text extraction
 easyocr>=1.7.0
 
