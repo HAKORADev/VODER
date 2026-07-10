@@ -2758,17 +2758,26 @@ Run `python voder.py cli` and choose `9. Prebuilt Chains` for a guided UX:
 
 ## 11. `vadar` — VODER AI Agent
 
-> **Note:** `vadar` is the VODER agent. You talk to it in natural language; it thinks, decides, replies, and acts — running VODER oneline commands on your behalf. It is powered by Gemma 4 12B (abliterated uncensored variant), loaded locally from `src/models/checkpoints/vadar/`. No network access, no system shell — VADAR can only run VODER commands and read files inside the VODER project directory (plus paths the user provides).
+> **Note:** `vadar` is the VODER agent. You talk to it in natural language; it thinks, decides, replies, and acts — running VODER oneline commands on your behalf. No network access, no system shell — VADAR can only run VODER commands and read files inside the VODER project directory (plus paths the user provides).
 
-VADAR is the natural-language layer on top of the 8 modes and 3 task-layer features. Instead of remembering the syntax for `tts script "..." voice "..."` or `chains "song" ttm ... / "voice" svs voice "song" / ...`, you describe the task in plain English and VADAR figures out which VODER commands to run, in what order, and reads their outputs to verify the result.
+VADAR comes in two twins:
+
+- **Lite VADAR** (default: `vadar`) — uses SuperGemma 4 12B GGUF Q4_K_M via llama.cpp. Runs on 16GB RAM / 4 CPU cores / any T4 GPU. Text-only — no `look`/`listen`/`watch` tools. Model-level chain-of-thought enabled. ~7GB model.
+- **Heavy VADAR** (overdose: `overdose vadar`) — uses Gemma 4 12B abliterated uncensored via transformers+torch. Multimodal — `look`/`listen`/`watch` tools active. Requires 80GB+ RAM/VRAM. ~24GB model.
+
+Both twins share the same agent architecture: tags (`<thinking>`, `<decide>`, `<reply>`, `<act>`, `<tool_call>`), the VODER brotherhood (Eval, Summarizer, Catcher), session logging, persistent memories, and configurable personality.
 
 ### Syntax
 
 ```
+# Lite VADAR (default — runs on 16GB RAM)
 python voder.py vadar "<natural-language request>" [result "<path>"]
+
+# Heavy VADAR (overdose — multimodal, requires 80GB+ RAM/VRAM)
+python voder.py overdose vadar "<natural-language request>" [result "<path>"]
 ```
 
-- The first argument (after `vadar`) is the entire natural-language prompt. Quote it so the shell passes it as a single argument.
+- The first argument (after `vadar` or `overdose vadar`) is the entire natural-language prompt. Quote it so the shell passes it as a single argument.
 - `result "<path>"` is optional — VADAR runs its acts in `results/` like any other oneline task; the `result` keyword copies the final output to a custom path.
 
 ### Interactive CLI — option 10
@@ -2777,7 +2786,7 @@ python voder.py vadar "<natural-language request>" [result "<path>"]
 python voder.py cli
 ```
 
-Then choose `10. VADAR (AI agent — talk naturally, it decides what to run)`.
+Then choose `10. VADAR (AI agent — talk naturally, it decides what to run)`. You will be prompted: "Use overdose VADAR (heavy, multimodal, requires 80GB+ RAM/VRAM)? [y/N]". Default is lite (N).
 
 - Interactive mode opens a multi-turn chat session. Type `exit` or `quit` to end it.
 - The session runs until you exit; VADAR maintains context across turns (with a sliding context window — see below).
@@ -2786,16 +2795,15 @@ Then choose `10. VADAR (AI agent — talk naturally, it decides what to run)`.
 ### Examples
 
 ```
-# Oneline — single natural-language request, VADAR figures out the rest
+# Lite VADAR — single natural-language request
 python voder.py vadar "Generate a 30-second upbeat pop song about rain, then isolate its vocals"
 python voder.py vadar "Download this YouTube video's audio and transcribe it with timestamps: https://youtube.com/watch?v=..."
 python voder.py vadar "Make a slowed+reverb version of song.wav with extra bass"
 python voder.py vadar "Read the README and tell me what VODER can do" result "./vader_summary.txt"
 
-# Interactive CLI — choose option 10
-python voder.py cli
-# > 10
-# [VADAR]: Hey! I'm VADAR, your VODER agent. What can I do for you?
+# Heavy VADAR (overdose) — multimodal tasks
+python voder.py overdose vadar "Look at this meme image and generate a fitting sound effect" result "./sfx.wav"
+python voder.py overdose vadar "Listen to this audio clip and tell me if the quality is good enough for TTS training"
 # [You]: Generate a song about the ocean, then make a 2x louder version of it
 # [VADAR]: ...
 ```
