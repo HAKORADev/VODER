@@ -115,6 +115,13 @@ When I cannot fix it:
 """
 
 
+def _get_catcher_system_prompt(is_lite=False):
+    lite_note = ""
+    if is_lite:
+        lite_note = "\n\nNOTE: VADAR is in LITE mode. Tools look, listen, watch are NOT available. If VADAR emits any of these, return cannot_fix with reason 'Tool X is not available in LITE mode.'"
+    return _CATCHER_SYSTEM_PROMPT + lite_note
+
+
 def _parse_catcher_response(response):
     if not response:
         return None
@@ -132,7 +139,7 @@ def _parse_catcher_response(response):
     }
 
 
-def catch_and_fix(tool_name, tool_args):
+def catch_and_fix(tool_name, tool_args, is_lite=False):
     args = (tool_args or '').strip()
 
     if tool_name not in TOOL_REGISTRY:
@@ -144,7 +151,7 @@ def catch_and_fix(tool_name, tool_args):
         return False, f"Catcher could not access inference engine: {e}", args
 
     catcher_messages = [
-        {'role': 'system', 'content': _CATCHER_SYSTEM_PROMPT},
+        {'role': 'system', 'content': _get_catcher_system_prompt(is_lite=is_lite)},
         {'role': 'user', 'content': (
             f"Tool name: {tool_name}\n"
             f"Arguments: {args}\n\n"

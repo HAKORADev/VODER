@@ -37,12 +37,18 @@ def _strip_quotes(s):
     return s
 
 
-def validate_tool_basic(tool_name, tool_args, allowed_paths=None):
+_LITE_DISABLED_TOOLS = {'look', 'listen', 'watch'}
+
+
+def validate_tool_basic(tool_name, tool_args, allowed_paths=None, is_lite=False):
     args = (tool_args or '').strip()
     allowed_paths = allowed_paths or set()
 
     if tool_name not in TOOL_REGISTRY:
         return False, f"Unknown tool '{tool_name}'. Available: {', '.join(sorted(TOOL_REGISTRY.keys()))}"
+
+    if is_lite and tool_name in _LITE_DISABLED_TOOLS:
+        return False, f"Tool '{tool_name}' is not available in LITE mode. I am text-only and cannot analyze images, audio, or video. Use acts to run VODER commands on media files instead."
 
     if tool_name in _NO_ARG_TOOLS:
         if args:

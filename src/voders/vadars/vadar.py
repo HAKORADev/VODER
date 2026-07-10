@@ -189,6 +189,8 @@ def _execute_tool_call(tool_name, tool_args, session_dir=None, act_outputs=None,
     tool = TOOL_REGISTRY.get(tool_name)
     if tool is None:
         return False, f"Unknown tool: {tool_name}", 0
+    if _use_lite_mode and tool_name in ('look', 'listen', 'watch'):
+        return False, f"Tool '{tool_name}' is not available in LITE mode. I am text-only and cannot analyze images, audio, or video.", 0
     t0 = time.time()
     try:
         if tool_name in ('look', 'listen', 'watch'):
@@ -400,7 +402,7 @@ def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, proces
 
         for attempt in range(max_retries):
             t0 = time.time()
-            basic_ok, basic_err = validate_tool_basic(tool_name, fixed_args if attempt > 0 else tool_args, allowed_paths=allowed_paths)
+            basic_ok, basic_err = validate_tool_basic(tool_name, fixed_args if attempt > 0 else tool_args, allowed_paths=allowed_paths, is_lite=_use_lite_mode)
             basic_t = time.time() - t0
             if not basic_ok:
                 print(f"[VALIDATOR]: ✗ FAIL ({basic_t:.2f}s) — {basic_err}")
@@ -410,7 +412,7 @@ def _process_tool_calls(tool_calls, ctx, session_dir, act_outputs, model, proces
                 if attempt == 0:
                     print(f"[VALIDATOR]: ✓ PASS ({basic_t:.2f}s) — sending to Catcher for deep check...")
                 t0 = time.time()
-                ok, err, fixed_args, _ = catch_and_fix(tool_name, fixed_args if attempt > 0 else tool_args)
+                ok, err, fixed_args, _ = catch_and_fix(tool_name, fixed_args if attempt > 0 else tool_args, is_lite=_use_lite_mode)
                 catcher_t = time.time() - t0
                 verdict_str = '✓ OK' if ok else '✗ CANNOT_FIX'
                 print(f"[CATCHER]: {verdict_str} ({catcher_t:.2f}s){'' if ok else f' — {err}'}")
@@ -486,8 +488,11 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
         for inp in detected:
             if not inp.startswith('http'):
                 allowed_paths.add(inp)
-        _auto_hear_inputs(detected, session_dir, act_outputs, model, processor)
-        ctx.add('system', f"I have automatically listened to/watched/looked at the inputs you mentioned: {', '.join(detected)}. Use what you learned to plan your act.")
+        if _use_lite_mode:
+            ctx.add('system', f"The user mentioned these inputs: {', '.join(detected)}. I am in LITE mode and cannot look/listen/watch them myself, but I can run VODER commands on them. The paths are now accessible to my tools.")
+        else:
+            _auto_hear_inputs(detected, session_dir, act_outputs, model, processor)
+            ctx.add('system', f"I have automatically listened to/watched/looked at the inputs you mentioned: {', '.join(detected)}. Use what you learned to plan your act.")
 
     for iteration in range(max_iterations):
         messages = ctx.get_for_inference()
