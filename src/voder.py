@@ -16669,13 +16669,27 @@ def lite_vadar_load_model(force_reload=False):
         n_threads = config.get('lite_n_threads', -1)
         verbose = config.get('lite_verbose', False)
 
+        _has_gpu = False
+        try:
+            import torch
+            _has_gpu = torch.cuda.is_available()
+        except Exception:
+            pass
+
+        if _has_gpu and gpu_layers == -1:
+            gpu_layers = -1
+        elif not _has_gpu:
+            gpu_layers = 0
+
+        print(f"VADAR LITE: n_ctx={ctx_len}, n_gpu_layers={gpu_layers}, n_threads={n_threads}, has_gpu={_has_gpu}")
+
         gguf_path = os.path.join(LITE_VADAR_MODEL_DIR, LITE_VADAR_GGUF_FILENAME)
         _lite_vadar_llm = Llama(
             model_path=gguf_path,
             n_ctx=ctx_len,
             n_gpu_layers=gpu_layers,
             n_threads=n_threads,
-            verbose=verbose,
+            verbose=True,
         )
 
         print("VADAR LITE: model loaded successfully.")
