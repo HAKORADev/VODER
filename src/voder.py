@@ -32,6 +32,7 @@ HEAVY_VADAR_MODEL_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "heavy_vadar")
 HEAVY_VADAR_MODEL_REPO = "OpenYourMind/gemma-4-12B-it-abliterated-uncensored"
 LITE_VADAR_MODEL_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "lite_vadar")
 LITE_VADAR_MODEL_REPO = "Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit"
+LITE_VADAR_TEMPLATE_REPO = "Jiunsong/SuperGemma-4-12b-abliterated"
 LITE_VADAR_GGUF_FILENAME = "SuperGemma-4-12b-abliterated-Q4_K_M.gguf"
 LITE_VADAR_TEMPLATE_FILENAME = "chat_template.jinja"
 VADAR_MODEL_DIR = HEAVY_VADAR_MODEL_DIR
@@ -16602,7 +16603,7 @@ def lite_vadar_load_model(force_reload=False):
             )
             try:
                 hf_hub_download(
-                    repo_id=LITE_VADAR_MODEL_REPO,
+                    repo_id=LITE_VADAR_TEMPLATE_REPO,
                     filename=LITE_VADAR_TEMPLATE_FILENAME,
                     local_dir=LITE_VADAR_MODEL_DIR,
                 )
