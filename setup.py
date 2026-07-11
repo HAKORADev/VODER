@@ -85,23 +85,39 @@ def install_llama_cpp_with_cuda():
     cuda_ver = get_cuda_version()
     print(f"\n  Installing llama-cpp-python with CUDA support ({cuda_ver})...")
 
-    wheel_url = f"https://abetlen.github.io/llama-cpp-python/whl/{cuda_ver}"
-
     print("  Step 1: Uninstalling existing llama-cpp-python...")
     run([sys.executable, "-m", "pip", "uninstall", "llama-cpp-python", "-y"],
         check=False)
 
-    print(f"  Step 2: Installing pre-built CUDA wheel from {wheel_url}...")
-    ret = run([sys.executable, "-m", "pip", "install", "llama-cpp-python",
-               "--no-cache-dir", "--find-links", wheel_url],
-              check=False)
+    import urllib.request
+    import platform as _plat
 
-    if ret != 0:
-        print(f"\n  Pre-built wheel failed. Trying source build with CMAKE_ARGS...")
-        env = {**os.environ, "CMAKE_ARGS": "-DGGML_CUDA=on", "FORCE_CMAKE": "1"}
+    wheel_base = f"https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.33-{cuda_ver}"
+    if _plat.system() == "Windows":
+        wheel_url = f"{wheel_base}/llama_cpp_python-0.3.33-py3-none-win_amd64.whl"
+    else:
+        wheel_url = f"{wheel_base}/llama_cpp_python-0.3.33-py3-none-manylinux_2_35_x86_64.whl"
+
+    print(f"  Step 2: Downloading CUDA wheel directly: {wheel_url}")
+    wheel_path = "/tmp/llama_cpp_python_cuda.whl"
+    try:
+        urllib.request.urlretrieve(wheel_url, wheel_path)
+        print(f"  Downloaded {os.path.getsize(wheel_path) / 1024 / 1024:.1f} MB")
+        ret = run([sys.executable, "-m", "pip", "install", wheel_path, "--force-reinstall"],
+                  check=False)
+    except Exception as e:
+        print(f"  Direct download failed: {e}")
+        print(f"  Trying pip install with --find-links...")
+        wheel_index = f"https://abetlen.github.io/llama-cpp-python/whl/{cuda_ver}/llama-cpp-python/"
         ret = run([sys.executable, "-m", "pip", "install", "llama-cpp-python",
-                   "--upgrade", "--force-reinstall", "--no-cache-dir"],
-                  env=env, check=False)
+                   "--no-cache-dir", "--find-links", wheel_index, "--no-index"],
+                  check=False)
+        if ret != 0:
+            print(f"  --find-links also failed. Trying source build...")
+            env = {**os.environ, "CMAKE_ARGS": "-DGGML_CUDA=on", "FORCE_CMAKE": "1"}
+            ret = run([sys.executable, "-m", "pip", "install", "llama-cpp-python",
+                       "--upgrade", "--force-reinstall", "--no-cache-dir"],
+                      env=env, check=False)
 
     try:
         import llama_cpp
@@ -123,7 +139,7 @@ def install_llama_cpp_with_cuda():
                 except Exception:
                     pass
             if cuda_found:
-                print("  CUDA support verified in installed library.")
+                print("  CUDA support VERIFIED in installed library.")
             else:
                 print("  WARNING: CUDA support NOT found in installed library!")
                 print("  Trying source build as last resort...")
