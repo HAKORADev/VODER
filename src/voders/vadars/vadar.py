@@ -534,6 +534,8 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
 
         if parsed['replies']:
             for reply in parsed['replies']:
+                if _use_lite_mode:
+                    print(f"\n[VADAR]: {reply}")
                 last_vadar_reply_time = time.time()
 
             if interactive and approval_event is not None and waiting_for_approval is not None:

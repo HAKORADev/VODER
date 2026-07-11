@@ -60,6 +60,19 @@ New fields in `config.json` for lite VADAR tuning:
 - `lite_n_threads`: CPU threads (-1 = auto)
 - `lite_repeat_penalty`: repeat penalty for generation (default 1.1)
 - `lite_verbose`: verbose llama.cpp output (default false)
+- `lite_context_length`: max context tokens. 0 = dynamic (auto-calculate based on available RAM/VRAM). Default: 0 (dynamic)
+
+### Dynamic context window
+
+Lite VADAR uses a **dynamic context window** — it does NOT allocate the full 256K token context upfront. Instead, at model load time, it:
+
+1. Detects available system RAM (via `psutil`)
+2. Detects GPU VRAM (via `torch`, if available)
+3. Subtracts model size (~7.5 GB) and system overhead (~4 GB)
+4. Divides remaining memory by ~0.4 MB/token (KV cache cost for Gemma 4 12B)
+5. Rounds to nearest 512, caps at 262,144
+
+This means a 16GB machine gets ~11K context (not 256K), using ~4.5GB for KV cache instead of ~80GB. The context grows naturally with more memory. Set `lite_context_length` in `config.json` to a specific value to override.
 
 ## 07/08/2026
 - Status: Stable, all features work, still developing

@@ -3445,6 +3445,8 @@ python src/voder.py ttm lego source "drums_only.wav" make "bass guitar" styling 
 
 ### Hardware Requirements
 
+#### Heavy VADAR (overdose — multimodal)
+
 | Resource | Minimum (CPU) | Recommended (GPU) |
 |----------|---------------|-------------------|
 | RAM | 80 GB | 80 GB VRAM (e.g. NVIDIA A100) |
@@ -3452,6 +3454,43 @@ python src/voder.py ttm lego source "drums_only.wav" make "bass guitar" styling 
 | GPU | Not required (but very slow) | NVIDIA A100 or equivalent |
 | Disk | +24 GB (model files) | +24 GB (model files) |
 | Token speed | < 1 valuable token/second | 10+ valuable tokens/second |
+
+#### Lite VADAR (default — text-only, GGUF via llama.cpp)
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| RAM | 16 GB | 32 GB+ |
+| CPU | 4 cores | 8+ cores |
+| GPU | Not required | Any GPU with 8GB+ VRAM (T4, RTX 3060, etc.) |
+| Disk | +7.5 GB (model file) | +7.5 GB (model file) |
+| Token speed (GPU) | — | 20+ tokens/second |
+| Token speed (CPU) | 3-5 tokens/second | 5+ tokens/second |
+
+#### Lite VADAR — Dynamic Context Window
+
+Lite VADAR does NOT use a fixed context length. Instead, it dynamically calculates the maximum context based on available RAM and VRAM at model load time:
+
+1. Detects available system RAM (via `psutil`)
+2. Detects GPU VRAM (via `torch`, if available)
+3. Subtracts model size (~7.5 GB) and system overhead (~4 GB)
+4. Divides remaining memory by ~0.4 MB per token (the KV cache cost for Gemma 4 12B)
+5. Rounds to the nearest 512 tokens, caps at 262,144 (256K)
+
+This means the context window grows naturally with more memory — no configuration needed. The model only allocates KV cache for the calculated maximum, not the full 256K.
+
+**Estimated context windows by available memory:**
+
+| Available RAM/VRAM | Model | Overhead | KV Cache Pool | Context Tokens |
+|--------------------|-------|----------|---------------|----------------|
+| 16 GB | 7.5 GB | 4 GB | 4.5 GB | 11,520 |
+| 24 GB | 7.5 GB | 4 GB | 12.5 GB | 32,000 |
+| 32 GB | 7.5 GB | 4 GB | 20.5 GB | 52,480 |
+| 64 GB | 7.5 GB | 4 GB | 52.5 GB | 134,400 |
+| 128 GB | 7.5 GB | 4 GB | 116.5 GB | 262,144 (capped) |
+
+> **Note:** These are estimates. Actual KV cache usage varies with model architecture, flash attention availability, and V-cache padding. The dynamic calculator prints its calculation at model load time so you can see exactly what was allocated.
+>
+> To override the dynamic calculation, set `lite_context_length` in `config.json` to a specific value (e.g. `8192`). Set to `0` (default) for dynamic.
 
 ### What "valuable token" means
 

@@ -61,6 +61,7 @@ _VADAR_CONFIG_DEFAULTS = {
     'lite_n_threads': (-1, int, -1, 256),
     'lite_repeat_penalty': (1.1, float, 1.0, 2.0),
     'lite_verbose': (False, bool, None, None),
+    'lite_context_length': (0, int, 0, 262144),
 }
 
 _VADAR_CONFIG = None
@@ -16581,6 +16582,50 @@ def lite_vadar_check_model_downloaded():
     return os.path.exists(gguf_path) and os.path.getsize(gguf_path) > 0
 
 
+_LITE_MODEL_SIZE_GB = 7.5
+_LITE_OVERHEAD_GB = 4.0
+_LITE_KV_PER_TOKEN_MB = 0.4
+_LITE_MIN_CONTEXT = 2048
+_LITE_MAX_CONTEXT = 262144
+
+
+def _calculate_dynamic_context(config):
+    manual = config.get('lite_context_length', 0)
+    if manual and manual > 0:
+        return min(manual, _LITE_MAX_CONTEXT)
+
+    try:
+        import psutil
+        ram_gb = psutil.virtual_memory().total / (1024**3)
+        available_gb = psutil.virtual_memory().available / (1024**3)
+    except Exception:
+        ram_gb = 16
+        available_gb = 12
+
+    vram_gb = 0
+    try:
+        import torch
+        if torch.cuda.is_available():
+            for i in range(torch.cuda.device_count()):
+                props = torch.cuda.get_device_properties(i)
+                vram_gb += props.total_memory / (1024**3)
+    except Exception:
+        pass
+
+    total_pool = available_gb + vram_gb
+    usable = total_pool - _LITE_MODEL_SIZE_GB - _LITE_OVERHEAD_GB
+    if usable <= 0:
+        return _LITE_MIN_CONTEXT
+
+    context = int((usable * 1024) / _LITE_KV_PER_TOKEN_MB)
+    context = max(_LITE_MIN_CONTEXT, min(context, _LITE_MAX_CONTEXT))
+    rounded = 512
+    context = (context // rounded) * rounded
+
+    print(f"VADAR LITE: dynamic context — RAM: {available_gb:.1f}GB available, VRAM: {vram_gb:.1f}GB, model: {_LITE_MODEL_SIZE_GB}GB, overhead: {_LITE_OVERHEAD_GB}GB → {context} tokens ({usable:.1f}GB for KV cache at {_LITE_KV_PER_TOKEN_MB}MB/token)")
+    return context
+
+
 def lite_vadar_load_model(force_reload=False):
     global _lite_vadar_llm, _lite_vadar_template
     if _lite_vadar_llm is not None and not force_reload:
@@ -16610,7 +16655,7 @@ def lite_vadar_load_model(force_reload=False):
     print(f"VADAR LITE: loading model from {LITE_VADAR_MODEL_DIR}...")
     try:
         config = vadar_load_config()
-        ctx_len = config.get('context_length', 262144)
+        ctx_len = _calculate_dynamic_context(config)
         gpu_layers = config.get('lite_gpu_layers', -1)
         n_threads = config.get('lite_n_threads', -1)
         verbose = config.get('lite_verbose', False)
@@ -16692,75 +16737,8 @@ def lite_vadar_run_inference_streamed(messages, max_new_tokens=1024):
         repeat_penalty = config.get('lite_repeat_penalty', 1.1)
 
         collected = []
-        _stream_state = {'buffer': '', 'in_tag': False, 'tag_name': '', 'tag_content': [], 'char_count': 0, 'last_label': '', 'last_print': 0}
-        _TAG_PATTERN = re.compile(r'<(/?)(thinking|decide|reply|act|tool_call|eval|EOS_REPLY|EOS_ACT|EOS_DONE)([^>]*)>')
-        _think_buffer = ""
-        _in_think = False
-
-        def _process_stream_chunk(chunk):
-            _stream_state['buffer'] += chunk
-            collected.append(chunk)
-            while True:
-                buf = _stream_state['buffer']
-                if _stream_state['in_tag']:
-                    end_idx = buf.find(f'</{_stream_state["tag_name"]}>')
-                    if end_idx == -1:
-                        content_part = buf
-                        _stream_state['tag_content'].append(content_part)
-                        _stream_state['char_count'] += len(content_part)
-                        _stream_state['buffer'] = ''
-                        label_map = {'thinking': '[THINKING]', 'decide': '[DECIDE]', 'reply': '[REPLY]', 'act': '[ACT]', 'tool_call': '[TOOL]', 'eval': '[EVAL]'}
-                        label = label_map.get(_stream_state['tag_name'], f'[{_stream_state["tag_name"].upper()}]')
-                        if label != _stream_state['last_label']:
-                            sys.stdout.write(f'\n{label}: ')
-                            sys.stdout.flush()
-                            _stream_state['last_label'] = label
-                            _stream_state['char_count'] = 0
-                            _stream_state['last_print'] = time.time()
-                        now = time.time()
-                        if now - _stream_state['last_print'] > 0.5:
-                            sys.stdout.write(f'\r{label}: {_stream_state["char_count"]} chars...  ')
-                            sys.stdout.flush()
-                            _stream_state['last_print'] = now
-                        break
-                    else:
-                        content_part = buf[:end_idx]
-                        _stream_state['tag_content'].append(content_part)
-                        _stream_state['char_count'] += len(content_part)
-                        label_map = {'thinking': '[THINKING]', 'decide': '[DECIDE]', 'reply': '[REPLY]', 'act': '[ACT]', 'tool_call': '[TOOL]', 'eval': '[EVAL]'}
-                        label = label_map.get(_stream_state['tag_name'], f'[{_stream_state["tag_name"].upper()}]')
-                        if label != _stream_state['last_label']:
-                            sys.stdout.write(f'\n{label}: ')
-                            sys.stdout.flush()
-                            _stream_state['last_label'] = label
-                        full_content = ''.join(_stream_state['tag_content'])
-                        sys.stdout.write(f'\r{label}: {full_content}\n')
-                        sys.stdout.flush()
-                        _stream_state['buffer'] = buf[end_idx + len(f'</{_stream_state["tag_name"]}>'):]
-                        _stream_state['in_tag'] = False
-                        _stream_state['tag_content'] = []
-                        _stream_state['char_count'] = 0
-                        _stream_state['last_label'] = ''
-                else:
-                    m = _TAG_PATTERN.search(buf)
-                    if m is None:
-                        if '<' in buf and not buf.rstrip().endswith('<'):
-                            pass
-                        _stream_state['buffer'] = ''
-                        break
-                    tag_name = m.group(2)
-                    is_close = m.group(1) == '/'
-                    if not is_close:
-                        _stream_state['in_tag'] = True
-                        _stream_state['tag_name'] = tag_name
-                        _stream_state['tag_content'] = []
-                        _stream_state['char_count'] = 0
-                        _stream_state['buffer'] = buf[m.end():]
-                    else:
-                        if tag_name in ('EOS_REPLY', 'EOS_ACT', 'EOS_DONE'):
-                            sys.stdout.write(f'\n[{tag_name}]\n')
-                            sys.stdout.flush()
-                        _stream_state['buffer'] = buf[m.end():]
+        char_count = 0
+        last_print = 0
 
         for chunk in llm.create_chat_completion(
             messages=messages,
@@ -16775,31 +16753,19 @@ def lite_vadar_run_inference_streamed(messages, max_new_tokens=1024):
             content = delta.get("content", "")
             if not content:
                 continue
-            if _LITE_THINK_START in content or _in_think:
-                _think_buffer += content
-                if _LITE_THINK_END in _think_buffer:
-                    think_part = _think_buffer[_think_buffer.find(_LITE_THINK_START) + len(_LITE_THINK_START):_think_buffer.find(_LITE_THINK_END)]
-                    rest = _think_buffer[_think_buffer.find(_LITE_THINK_END) + len(_LITE_THINK_END):]
-                    _in_think = False
-                    _think_buffer = ""
-                    if rest:
-                        _process_stream_chunk(rest)
-                else:
-                    _in_think = True
-            else:
-                _process_stream_chunk(content)
+            collected.append(content)
+            char_count += len(content)
+            now = time.time()
+            if now - last_print > 0.5:
+                sys.stdout.write(f'\r[VADAR]: generating... {char_count} chars  ')
+                sys.stdout.flush()
+                last_print = now
 
-        if _stream_state['in_tag'] and _stream_state['tag_content']:
-            label_map = {'thinking': '[THINKING]', 'decide': '[DECIDE]', 'reply': '[REPLY]', 'act': '[ACT]', 'tool_call': '[TOOL]', 'eval': '[EVAL]'}
-            label = label_map.get(_stream_state['tag_name'], f'[{_stream_state["tag_name"].upper()}]')
-            full_content = ''.join(_stream_state['tag_content'])
-            sys.stdout.write(f'\r{label}: {full_content}\n')
-            sys.stdout.flush()
+        sys.stdout.write('\n')
+        sys.stdout.flush()
 
         full = ''.join(collected)
         thoughts, clean = _parse_lite_thinking(full)
-        sys.stdout.write('\n')
-        sys.stdout.flush()
         return clean, None
     except Exception as e:
         return None, str(e)

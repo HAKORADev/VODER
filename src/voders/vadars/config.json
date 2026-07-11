@@ -60,5 +60,8 @@
     "lite_repeat_penalty": 1.1,
 
     "_comment_lite_verbose": "VADAR Lite (GGUF): verbose llama.cpp output. true or false",
-    "lite_verbose": false
+    "lite_verbose": false,
+
+    "_comment_lite_context_length": "VADAR Lite (GGUF): max context tokens. 0 = dynamic (auto-calculate based on available RAM/VRAM). Min: 0 (dynamic), Max: 262144",
+    "lite_context_length": 0
 }
