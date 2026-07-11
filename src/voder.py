@@ -16615,14 +16615,14 @@ def _calculate_dynamic_context(config):
 
     if has_gpu and gpu_layers != 0:
         primary_pool = vram_gb
-        spill_pool = 0
-        pool_label = f"GPU0 VRAM: {vram_gb:.1f}GB (GPU-only, no RAM spill for speed)"
+        spill_pool = ram_available_gb
+        pool_label = f"GPU0 VRAM: {vram_gb:.1f}GB (primary) + RAM: {ram_available_gb:.1f}GB (spill)"
     else:
         primary_pool = ram_available_gb
         spill_pool = 0
         pool_label = f"RAM: {ram_available_gb:.1f}GB (CPU mode)"
 
-    total_pool = primary_pool + spill_pool
+    total_pool = primary_pool + spill_pool * 0.5
     usable = total_pool - _LITE_MODEL_SIZE_GB - _LITE_OVERHEAD_GB
     if usable <= 0:
         return _LITE_MIN_CONTEXT
