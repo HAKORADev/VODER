@@ -230,8 +230,7 @@ VODER orchestrates state-of-the-art open-source models — each selected for qua
 | Any-to-Any Translation | [TranslateGemma 12B](https://huggingface.co/google/translategemma-12b-it) |
 | Speaker Diarization | [pyannote](https://github.com/pyannote/pyannote-audio) |
 | Image Text Extraction | [EasyOCR](https://github.com/JaidedAI/EasyOCR) |
-| VADAR AI Agent (Heavy/Overdose) | [Gemma 4 12B abliterated uncensored](https://huggingface.co/OpenYourMind/gemma-4-12B-it-abliterated-uncensored) |
-| VADAR AI Agent (Lite) | [SuperGemma 4 12B abliterated GGUF Q4_K_M](https://huggingface.co/Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit) |
+| VADAR AI Agent | [Gemma 4 12B abliterated uncensored](https://huggingface.co/OpenYourMind/gemma-4-12B-it-abliterated-uncensored) (heavy/overdose), [SuperGemma 4 12B abliterated GGUF Q4_K_M](https://huggingface.co/Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit) (lite) |
 
 ---
 
