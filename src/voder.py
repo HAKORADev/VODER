@@ -16601,14 +16601,6 @@ def lite_vadar_load_model(force_reload=False):
                 filename=LITE_VADAR_GGUF_FILENAME,
                 local_dir=LITE_VADAR_MODEL_DIR,
             )
-            try:
-                hf_hub_download(
-                    repo_id=LITE_VADAR_TEMPLATE_REPO,
-                    filename=LITE_VADAR_TEMPLATE_FILENAME,
-                    local_dir=LITE_VADAR_MODEL_DIR,
-                )
-            except Exception:
-                pass
         except Exception as e:
             return None, None, f"Model download failed: {e}"
         if not lite_vadar_check_model_downloaded():
@@ -16631,24 +16623,6 @@ def lite_vadar_load_model(force_reload=False):
             n_threads=n_threads,
             verbose=verbose,
         )
-
-        template_path = os.path.join(LITE_VADAR_MODEL_DIR, LITE_VADAR_TEMPLATE_FILENAME)
-        if os.path.exists(template_path):
-            with open(template_path, 'r', encoding='utf-8') as f:
-                _lite_vadar_template = f.read()
-            thinking_on = True
-            patched = "{% set enable_thinking = " + ("true" if thinking_on else "false") + " %}\n" + _lite_vadar_template
-            _lite_vadar_llm.set_chat_template(patched)
-        else:
-            try:
-                embedded = _lite_vadar_llm.metadata.get("tokenizer.chat_template", None)
-                if embedded:
-                    _lite_vadar_template = embedded
-                    thinking_on = True
-                    patched = "{% set enable_thinking = " + ("true" if thinking_on else "false") + " %}\n" + embedded
-                    _lite_vadar_llm.set_chat_template(patched)
-            except Exception:
-                pass
 
         print("VADAR LITE: model loaded successfully.")
         return _lite_vadar_llm, _lite_vadar_template, None
