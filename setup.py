@@ -86,9 +86,14 @@ def install_llama_cpp_with_cuda():
     print(f"\n  Installing llama-cpp-python with CUDA support ({cuda_ver})...")
 
     wheel_url = f"https://abetlen.github.io/llama-cpp-python/whl/{cuda_ver}"
+
+    print("  Step 1: Uninstalling existing llama-cpp-python...")
+    run([sys.executable, "-m", "pip", "uninstall", "llama-cpp-python", "-y"],
+        check=False)
+
+    print(f"  Step 2: Installing pre-built CUDA wheel from {wheel_url}...")
     ret = run([sys.executable, "-m", "pip", "install", "llama-cpp-python",
-               "--upgrade", "--force-reinstall", "--no-cache-dir",
-               "--extra-index-url", wheel_url],
+               "--no-cache-dir", "--find-links", wheel_url],
               check=False)
 
     if ret != 0:
@@ -97,6 +102,37 @@ def install_llama_cpp_with_cuda():
         ret = run([sys.executable, "-m", "pip", "install", "llama-cpp-python",
                    "--upgrade", "--force-reinstall", "--no-cache-dir"],
                   env=env, check=False)
+
+    try:
+        import llama_cpp
+        import glob
+        spec = llama_cpp.__spec__
+        if spec and spec.origin:
+            pkg_dir = os.path.dirname(spec.origin)
+            so_files = glob.glob(os.path.join(pkg_dir, "lib", "*.so")) + \
+                       glob.glob(os.path.join(pkg_dir, "lib", "*.dylib")) + \
+                       glob.glob(os.path.join(pkg_dir, "lib", "*.dll"))
+            cuda_found = False
+            for so in so_files:
+                try:
+                    with open(so, "rb") as f:
+                        content = f.read()
+                        if b"cuda" in content.lower() or b"ggml_cuda" in content.lower():
+                            cuda_found = True
+                            break
+                except Exception:
+                    pass
+            if cuda_found:
+                print("  CUDA support verified in installed library.")
+            else:
+                print("  WARNING: CUDA support NOT found in installed library!")
+                print("  Trying source build as last resort...")
+                env = {**os.environ, "CMAKE_ARGS": "-DGGML_CUDA=on", "FORCE_CMAKE": "1"}
+                run([sys.executable, "-m", "pip", "install", "llama-cpp-python",
+                     "--upgrade", "--force-reinstall", "--no-cache-dir"],
+                    env=env, check=False)
+    except Exception:
+        pass
 
     return ret
 

@@ -16691,7 +16691,6 @@ def lite_vadar_load_model(force_reload=False):
             n_threads=n_threads,
             verbose=verbose,
         )
-
         print("VADAR LITE: model loaded successfully.")
         return _lite_vadar_llm, _lite_vadar_template, None
     except Exception as e:
