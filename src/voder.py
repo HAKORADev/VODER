@@ -16681,7 +16681,7 @@ def lite_vadar_load_model(force_reload=False):
         elif not _has_gpu:
             gpu_layers = 0
 
-        print(f"VADAR LITE: n_ctx={ctx_len}, n_gpu_layers={gpu_layers}, n_threads={n_threads}, has_gpu={_has_gpu}")
+        print(f"VADAR LITE: n_ctx={ctx_len}, n_gpu_layers={gpu_layers}")
 
         gguf_path = os.path.join(LITE_VADAR_MODEL_DIR, LITE_VADAR_GGUF_FILENAME)
         _lite_vadar_llm = Llama(
@@ -16689,7 +16689,7 @@ def lite_vadar_load_model(force_reload=False):
             n_ctx=ctx_len,
             n_gpu_layers=gpu_layers,
             n_threads=n_threads,
-            verbose=True,
+            verbose=verbose,
         )
 
         print("VADAR LITE: model loaded successfully.")

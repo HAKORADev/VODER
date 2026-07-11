@@ -45,7 +45,7 @@ def is_llama_cpp_installed_with_cuda():
             for so in so_files:
                 try:
                     with open(so, "rb") as f:
-                        content = f.read(8192)
+                        content = f.read()
                         if b"cuda" in content.lower() or b"ggml_cuda" in content.lower():
                             return True
                 except Exception:
@@ -55,11 +55,50 @@ def is_llama_cpp_installed_with_cuda():
     return False
 
 
+def get_cuda_version():
+    try:
+        import torch
+        if torch.cuda.is_available():
+            version = torch.version.cuda
+            if version:
+                major, minor = version.split(".")[:2]
+                return f"cu{major}{minor}"
+    except Exception:
+        pass
+    try:
+        import subprocess as _sp
+        result = _sp.run(["nvcc", "--version"], capture_output=True, text=True)
+        if result.returncode == 0:
+            for line in result.stdout.split("\n"):
+                if "release" in line.lower():
+                    parts = line.split("release")[1].split(",")
+                    if parts:
+                        ver = parts[0].strip().split(".")
+                        if len(ver) >= 2:
+                            return f"cu{ver[0]}{ver[1]}"
+    except Exception:
+        pass
+    return "cu124"
+
+
 def install_llama_cpp_with_cuda():
-    print("\n  Installing llama-cpp-python with CUDA support...")
-    env = {**os.environ, "CMAKE_ARGS": "-DGGML_CUDA=on", "FORCE_CMAKE": "1"}
-    return run([sys.executable, "-m", "pip", "install", "llama-cpp-python", "--upgrade", "--force-reinstall", "--no-cache-dir"],
-               env=env, check=False)
+    cuda_ver = get_cuda_version()
+    print(f"\n  Installing llama-cpp-python with CUDA support ({cuda_ver})...")
+
+    wheel_url = f"https://abetlen.github.io/llama-cpp-python/whl/{cuda_ver}"
+    ret = run([sys.executable, "-m", "pip", "install", "llama-cpp-python",
+               "--upgrade", "--force-reinstall", "--no-cache-dir",
+               "--extra-index-url", wheel_url],
+              check=False)
+
+    if ret != 0:
+        print(f"\n  Pre-built wheel failed. Trying source build with CMAKE_ARGS...")
+        env = {**os.environ, "CMAKE_ARGS": "-DGGML_CUDA=on", "FORCE_CMAKE": "1"}
+        ret = run([sys.executable, "-m", "pip", "install", "llama-cpp-python",
+                   "--upgrade", "--force-reinstall", "--no-cache-dir"],
+                  env=env, check=False)
+
+    return ret
 
 
 def install_llama_cpp_cpu():
