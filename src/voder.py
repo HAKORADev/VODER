@@ -16639,12 +16639,15 @@ def lite_vadar_load_model(force_reload=False):
             patched = "{% set enable_thinking = " + ("true" if thinking_on else "false") + " %}\n" + _lite_vadar_template
             _lite_vadar_llm.set_chat_template(patched)
         else:
-            embedded = _lite_vadar_llm.metadata_get("tokenizer.chat_template", None)
-            if embedded:
-                _lite_vadar_template = embedded
-                thinking_on = True
-                patched = "{% set enable_thinking = " + ("true" if thinking_on else "false") + " %}\n" + embedded
-                _lite_vadar_llm.set_chat_template(patched)
+            try:
+                embedded = _lite_vadar_llm.metadata.get("tokenizer.chat_template", None)
+                if embedded:
+                    _lite_vadar_template = embedded
+                    thinking_on = True
+                    patched = "{% set enable_thinking = " + ("true" if thinking_on else "false") + " %}\n" + embedded
+                    _lite_vadar_llm.set_chat_template(patched)
+            except Exception:
+                pass
 
         print("VADAR LITE: model loaded successfully.")
         return _lite_vadar_llm, _lite_vadar_template, None
