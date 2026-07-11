@@ -16596,33 +16596,42 @@ def _calculate_dynamic_context(config):
 
     try:
         import psutil
-        ram_gb = psutil.virtual_memory().total / (1024**3)
-        available_gb = psutil.virtual_memory().available / (1024**3)
+        ram_available_gb = psutil.virtual_memory().available / (1024**3)
     except Exception:
-        ram_gb = 16
-        available_gb = 12
+        ram_available_gb = 12
 
     vram_gb = 0
+    has_gpu = False
     try:
         import torch
         if torch.cuda.is_available():
-            for i in range(torch.cuda.device_count()):
-                props = torch.cuda.get_device_properties(i)
-                vram_gb += props.total_memory / (1024**3)
+            has_gpu = True
+            props = torch.cuda.get_device_properties(0)
+            vram_gb = props.total_memory / (1024**3)
     except Exception:
         pass
 
-    total_pool = available_gb + vram_gb
+    gpu_layers = config.get('lite_gpu_layers', -1)
+
+    if has_gpu and gpu_layers != 0:
+        primary_pool = vram_gb
+        spill_pool = ram_available_gb
+        pool_label = f"GPU0 VRAM: {vram_gb:.1f}GB (primary) + RAM: {ram_available_gb:.1f}GB (spill)"
+    else:
+        primary_pool = ram_available_gb
+        spill_pool = 0
+        pool_label = f"RAM: {ram_available_gb:.1f}GB (CPU mode)"
+
+    total_pool = primary_pool + spill_pool * 0.5
     usable = total_pool - _LITE_MODEL_SIZE_GB - _LITE_OVERHEAD_GB
     if usable <= 0:
         return _LITE_MIN_CONTEXT
 
     context = int((usable * 1024) / _LITE_KV_PER_TOKEN_MB)
     context = max(_LITE_MIN_CONTEXT, min(context, _LITE_MAX_CONTEXT))
-    rounded = 512
-    context = (context // rounded) * rounded
+    context = (context // 512) * 512
 
-    print(f"VADAR LITE: dynamic context — RAM: {available_gb:.1f}GB available, VRAM: {vram_gb:.1f}GB, model: {_LITE_MODEL_SIZE_GB}GB, overhead: {_LITE_OVERHEAD_GB}GB → {context} tokens ({usable:.1f}GB for KV cache at {_LITE_KV_PER_TOKEN_MB}MB/token)")
+    print(f"VADAR LITE: dynamic context — {pool_label}, model: {_LITE_MODEL_SIZE_GB}GB, overhead: {_LITE_OVERHEAD_GB}GB → {context} tokens ({usable:.1f}GB for KV cache at {_LITE_KV_PER_TOKEN_MB}MB/token)")
     return context
 
 
