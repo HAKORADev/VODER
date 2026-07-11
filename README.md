@@ -136,7 +136,13 @@ Both twins share the same agent architecture — tags (`<thinking>`, `<decide>`,
 
 ```bash
 git clone https://github.com/HAKORADev/VODER.git && cd VODER
+
+# Recommended: use setup.py (auto-detects CUDA, installs llama-cpp-python with GPU support)
+python setup.py
+
+# OR manual install:
 pip install -r requirements.txt && pip install --upgrade protobuf==5.29.6
+# For VADAR Lite with GPU: CMAKE_ARGS='-DGGML_CUDA=on' pip install llama-cpp-python --force-reinstall
 
 # Help
 python src/voder.py

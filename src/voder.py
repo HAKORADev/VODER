@@ -16643,73 +16643,7 @@ def lite_vadar_load_model(force_reload=False):
     try:
         from llama_cpp import Llama
     except ImportError:
-        print("VADAR LITE: llama-cpp-python not found. Installing...")
-        try:
-            import subprocess as _sp
-            _has_cuda = False
-            try:
-                import torch
-                _has_cuda = torch.cuda.is_available()
-            except Exception:
-                pass
-            if _has_cuda:
-                print("VADAR LITE: CUDA detected — installing llama-cpp-python with CUDA support...")
-                _sp.check_call([sys.executable, "-m", "pip", "install", "llama-cpp-python", "--upgrade", "--force-reinstall", "--no-cache-dir"],
-                    env={**os.environ, "CMAKE_ARGS": "-DGGML_CUDA=on", "FORCE_CMAKE": "1"})
-            else:
-                _sp.check_call([sys.executable, "-m", "pip", "install", "llama-cpp-python", "--upgrade", "--force-reinstall", "--no-cache-dir"])
-            from llama_cpp import Llama
-        except Exception as e:
-            return None, None, f"Failed to install llama-cpp-python: {e}"
-
-    _need_cuda_reinstall = False
-    try:
-        import torch
-        if torch.cuda.is_available():
-            import llama_cpp
-            lib_path = getattr(llama_cpp, '__file__', '')
-            _has_cuda_support = False
-            try:
-                import ctypes
-                lib = ctypes.CDLL(lib_path.replace('__init__.py', 'lib/libllama.so'))
-                if hasattr(lib, 'ggml_cuda_init'):
-                    _has_cuda_support = True
-            except Exception:
-                pass
-            try:
-                import importlib
-                spec = importlib.util.find_spec('llama_cpp')
-                if spec and spec.origin:
-                    import glob
-                    pkg_dir = os.path.dirname(spec.origin)
-                    so_files = glob.glob(os.path.join(pkg_dir, 'lib', '*.so')) + glob.glob(os.path.join(pkg_dir, 'lib', '*.dylib')) + glob.glob(os.path.join(pkg_dir, 'lib', '*.dll'))
-                    for so in so_files:
-                        try:
-                            with open(so, 'rb') as f:
-                                content = f.read(4096)
-                                if b'cuda' in content.lower() or b'ggml_cuda' in content.lower():
-                                    _has_cuda_support = True
-                                    break
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-            if not _has_cuda_support:
-                _need_cuda_reinstall = True
-    except Exception:
-        pass
-
-    if _need_cuda_reinstall:
-        print("VADAR LITE: CUDA GPU detected but llama-cpp-python was installed without CUDA support. Reinstalling with CUDA...")
-        try:
-            import subprocess as _sp
-            _sp.check_call([sys.executable, "-m", "pip", "install", "llama-cpp-python", "--upgrade", "--force-reinstall", "--no-cache-dir"],
-                env={**os.environ, "CMAKE_ARGS": "-DGGML_CUDA=on", "FORCE_CMAKE": "1"})
-            importlib.reload(llama_cpp)
-            from llama_cpp import Llama
-        except Exception as e:
-            print(f"VADAR LITE: CUDA reinstall failed ({e}), continuing with CPU-only mode")
-            from llama_cpp import Llama
+        return None, None, "llama-cpp-python not installed. Run: python setup.py"
 
     if not lite_vadar_check_model_downloaded():
         print(f"VADAR LITE: model not found at {LITE_VADAR_MODEL_DIR}. Downloading from {LITE_VADAR_MODEL_REPO}...")

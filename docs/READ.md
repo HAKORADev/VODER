@@ -28,7 +28,22 @@ VODER requires several system and Python dependencies:
   pip install --upgrade protobuf==5.29.6
   ```
 
-All Python dependencies are listed in `requirements.txt`. Run `pip install -r requirements.txt` after cloning.
+All Python dependencies are listed in `requirements.txt`. After cloning, run one of:
+
+  **Recommended (auto-detects CUDA for VADAR Lite GPU support):**
+  ```
+  python setup.py
+  ```
+
+  **Manual:**
+  ```
+  pip install -r requirements.txt
+  pip install --upgrade protobuf==5.29.6
+  # For VADAR Lite with GPU support:
+  CMAKE_ARGS='-DGGML_CUDA=on' pip install llama-cpp-python --force-reinstall
+  ```
+
+`setup.py` runs `pip install -r requirements.txt`, upgrades protobuf, detects CUDA, and installs `llama-cpp-python` with the correct build flags — all in one step.
 
 ### Model Directories
 
