@@ -3455,7 +3455,7 @@ python src/voder.py ttm lego source "drums_only.wav" make "bass guitar" styling 
 | Disk | +24 GB (model files) | +24 GB (model files) |
 | Token speed | < 1 valuable token/second | 10+ valuable tokens/second |
 
-#### Lite VADAR (default — text-only, GGUF via llama.cpp)
+#### Lite VADAR (default — text-only, GGUF via Ollama)
 
 | Resource | Minimum | Recommended |
 |----------|---------|-------------|

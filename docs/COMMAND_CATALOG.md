@@ -2762,7 +2762,7 @@ Run `python voder.py cli` and choose `9. Prebuilt Chains` for a guided UX:
 
 VADAR comes in two twins:
 
-- **Lite VADAR** (default: `vadar`) — uses SuperGemma 4 12B GGUF Q4_K_M via llama.cpp. Runs on 16GB RAM / 4 CPU cores / any T4 GPU. Text-only — no `look`/`listen`/`watch` tools. Model-level chain-of-thought enabled. ~7GB model.
+- **Lite VADAR** (default: `vadar`) — uses SuperGemma 4 12B GGUF Q4_K_M via Ollama. Runs on 16GB RAM / 4 CPU cores / any T4 GPU. Text-only — no `look`/`listen`/`watch` tools. Model-level chain-of-thought enabled. ~7GB model.
 - **Heavy VADAR** (overdose: `overdose vadar`) — uses Gemma 4 12B abliterated uncensored via transformers+torch. Multimodal — `look`/`listen`/`watch` tools active. Requires 80GB+ RAM/VRAM. ~24GB model.
 
 Both twins share the same agent architecture: tags (`<thinking>`, `<decide>`, `<reply>`, `<act>`, `<tool_call>`), the VODER brotherhood (Eval, Summarizer, Catcher), session logging, persistent memories, and configurable personality.

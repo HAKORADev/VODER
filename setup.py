@@ -3,160 +3,150 @@
 import subprocess
 import sys
 import os
+import platform
 
 REQUIREMENTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
 
 
-def run(cmd, env=None, check=True):
+def run(cmd, env=None, check=True, shell=False):
     print(f"\n{'='*60}")
-    print(f"  Running: {' '.join(cmd)}")
+    print(f"  Running: {cmd if isinstance(cmd, str) else ' '.join(cmd)}")
     print(f"{'='*60}\n")
-    result = subprocess.run(cmd, env=env)
+    result = subprocess.run(cmd, env=env, shell=shell)
     if check and result.returncode != 0:
-        print(f"\n  ERROR: Command failed with exit code {result.returncode}")
-        sys.exit(result.returncode)
+        print(f"\n  WARNING: Command returned exit code {result.returncode}")
     return result.returncode
 
 
-def has_cuda():
+def is_linux():
+    return platform.system() == "Linux"
+
+
+def is_windows():
+    return platform.system() == "Windows"
+
+
+def is_macos():
+    return platform.system() == "Darwin"
+
+
+def package_manager():
+    if os.path.exists("/usr/bin/apt-get") or os.path.exists("/usr/bin/apt"):
+        return "apt"
+    if os.path.exists("/usr/bin/pacman"):
+        return "pacman"
+    if os.path.exists("/usr/bin/dnf"):
+        return "dnf"
+    if os.path.exists("/usr/bin/yum"):
+        return "yum"
+    if os.path.exists("/usr/bin/zypper"):
+        return "zypper"
+    return None
+
+
+def command_exists(cmd):
     try:
-        import torch
-        return torch.cuda.is_available()
-    except ImportError:
-        pass
-    try:
-        result = subprocess.run([sys.executable, "-c", "import torch; print(torch.cuda.is_available())"],
-                                capture_output=True, text=True)
-        return result.stdout.strip() == "True"
+        subprocess.run(["which", cmd], capture_output=True, check=True)
+        return True
     except Exception:
-        return False
+        try:
+            subprocess.run(["where", cmd], capture_output=True, check=True, shell=True)
+            return True
+        except Exception:
+            return False
 
 
-def is_llama_cpp_installed_with_cuda():
-    try:
-        import llama_cpp
-        import glob
-        spec = llama_cpp.__spec__
-        if spec and spec.origin:
-            pkg_dir = os.path.dirname(spec.origin)
-            so_files = glob.glob(os.path.join(pkg_dir, "lib", "*.so")) + \
-                       glob.glob(os.path.join(pkg_dir, "lib", "*.dylib")) + \
-                       glob.glob(os.path.join(pkg_dir, "lib", "*.dll"))
-            for so in so_files:
-                try:
-                    with open(so, "rb") as f:
-                        content = f.read()
-                        if b"cuda" in content.lower() or b"ggml_cuda" in content.lower():
-                            return True
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    return False
+def install_system_packages():
+    print("\n[SYSTEM] Checking system packages...")
+
+    packages_needed = []
+    if not command_exists("ffmpeg"):
+        packages_needed.append("ffmpeg")
+    if not command_exists("sox"):
+        packages_needed.append("sox")
+    if not command_exists("soxi"):
+        packages_needed.append("sox")
+
+    if not packages_needed:
+        print("  ffmpeg, sox: already installed.")
+        return
+
+    if is_linux():
+        pm = package_manager()
+        if pm == "apt":
+            run(["sudo", "apt-get", "update", "-qq"], check=False)
+            run(["sudo", "apt-get", "install", "-y"] + packages_needed, check=False)
+        elif pm == "pacman":
+            run(["sudo", "pacman", "-S", "--noconfirm"] + packages_needed, check=False)
+        elif pm in ("dnf", "yum"):
+            run(["sudo", pm, "install", "-y"] + packages_needed, check=False)
+        elif pm == "zypper":
+            run(["sudo", "zypper", "install", "-y"] + packages_needed, check=False)
+        else:
+            print(f"  WARNING: Unknown package manager. Please install manually: {', '.join(packages_needed)}")
+    elif is_macos():
+        if command_exists("brew"):
+            run(["brew", "install"] + packages_needed, check=False)
+        else:
+            print(f"  WARNING: Homebrew not found. Please install manually: {', '.join(packages_needed)}")
+    elif is_windows():
+        if command_exists("winget"):
+            for pkg in packages_needed:
+                run(["winget", "install", "--accept-source-agreements", "--accept-package-agreements", pkg], check=False, shell=True)
+        elif command_exists("choco"):
+            run(["choco", "install", "-y"] + packages_needed, check=False, shell=True)
+        else:
+            print(f"  WARNING: winget/choco not found. Please install manually: {', '.join(packages_needed)}")
 
 
-def get_cuda_version():
-    try:
-        import torch
-        if torch.cuda.is_available():
-            version = torch.version.cuda
-            if version:
-                major, minor = version.split(".")[:2]
-                return f"cu{major}{minor}"
-    except Exception:
-        pass
-    try:
-        import subprocess as _sp
-        result = _sp.run(["nvcc", "--version"], capture_output=True, text=True)
-        if result.returncode == 0:
-            for line in result.stdout.split("\n"):
-                if "release" in line.lower():
-                    parts = line.split("release")[1].split(",")
-                    if parts:
-                        ver = parts[0].strip().split(".")
-                        if len(ver) >= 2:
-                            return f"cu{ver[0]}{ver[1]}"
-    except Exception:
-        pass
-    return "cu124"
+def install_ollama():
+    print("\n[OLLAMA] Checking Ollama...")
 
+    if command_exists("ollama"):
+        print("  Ollama: already installed.")
+        return
 
-def install_llama_cpp_with_cuda():
-    cuda_ver = get_cuda_version()
-    print(f"\n  Installing llama-cpp-python with CUDA support ({cuda_ver})...")
+    print("  Installing Ollama...")
 
-    print("  Step 1: Uninstalling existing llama-cpp-python...")
-    run([sys.executable, "-m", "pip", "uninstall", "llama-cpp-python", "-y"],
-        check=False)
-
-    import urllib.request
-    import platform as _plat
-
-    wheel_base = f"https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.33-{cuda_ver}"
-    if _plat.system() == "Windows":
-        wheel_url = f"{wheel_base}/llama_cpp_python-0.3.33-py3-none-win_amd64.whl"
+    if is_linux() or is_macos():
+        try:
+            subprocess.run("curl -fsSL https://ollama.com/install.sh | sh", shell=True, check=True)
+            print("  Ollama installed successfully.")
+        except Exception as e:
+            print(f"  WARNING: Ollama installation failed: {e}")
+            print("  Please install manually: curl -fsSL https://ollama.com/install.sh | sh")
+    elif is_windows():
+        try:
+            subprocess.run("irm https://ollama.com/install.ps1 | iex", shell=True, check=True)
+            print("  Ollama installed successfully.")
+        except Exception as e:
+            print(f"  WARNING: Ollama installation failed: {e}")
+            print("  Please install manually: irm https://ollama.com/install.ps1 | iex")
     else:
-        wheel_url = f"{wheel_base}/llama_cpp_python-0.3.33-py3-none-manylinux_2_35_x86_64.whl"
+        print("  WARNING: Unsupported OS for automatic Ollama installation.")
 
-    print(f"  Step 2: Downloading CUDA wheel directly: {wheel_url}")
-    wheel_path = "/tmp/llama_cpp_python_cuda.whl"
-    try:
-        urllib.request.urlretrieve(wheel_url, wheel_path)
-        print(f"  Downloaded {os.path.getsize(wheel_path) / 1024 / 1024:.1f} MB")
-        ret = run([sys.executable, "-m", "pip", "install", wheel_path, "--force-reinstall"],
-                  check=False)
-    except Exception as e:
-        print(f"  Direct download failed: {e}")
-        print(f"  Trying pip install with --find-links...")
-        wheel_index = f"https://abetlen.github.io/llama-cpp-python/whl/{cuda_ver}/llama-cpp-python/"
-        ret = run([sys.executable, "-m", "pip", "install", "llama-cpp-python",
-                   "--no-cache-dir", "--find-links", wheel_index, "--no-index"],
-                  check=False)
-        if ret != 0:
-            print(f"  --find-links also failed. Trying source build...")
-            env = {**os.environ, "CMAKE_ARGS": "-DGGML_CUDA=on", "FORCE_CMAKE": "1"}
-            ret = run([sys.executable, "-m", "pip", "install", "llama-cpp-python",
-                       "--upgrade", "--force-reinstall", "--no-cache-dir"],
-                      env=env, check=False)
 
+def ensure_ollama_running():
     try:
-        import llama_cpp
-        import glob
-        spec = llama_cpp.__spec__
-        if spec and spec.origin:
-            pkg_dir = os.path.dirname(spec.origin)
-            so_files = glob.glob(os.path.join(pkg_dir, "lib", "*.so")) + \
-                       glob.glob(os.path.join(pkg_dir, "lib", "*.dylib")) + \
-                       glob.glob(os.path.join(pkg_dir, "lib", "*.dll"))
-            cuda_found = False
-            for so in so_files:
-                try:
-                    with open(so, "rb") as f:
-                        content = f.read()
-                        if b"cuda" in content.lower() or b"ggml_cuda" in content.lower():
-                            cuda_found = True
-                            break
-                except Exception:
-                    pass
-            if cuda_found:
-                print("  CUDA support VERIFIED in installed library.")
-            else:
-                print("  WARNING: CUDA support NOT found in installed library!")
-                print("  Trying source build as last resort...")
-                env = {**os.environ, "CMAKE_ARGS": "-DGGML_CUDA=on", "FORCE_CMAKE": "1"}
-                run([sys.executable, "-m", "pip", "install", "llama-cpp-python",
-                     "--upgrade", "--force-reinstall", "--no-cache-dir"],
-                    env=env, check=False)
+        result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            print("  Ollama service: running.")
+            return True
     except Exception:
         pass
 
-    return ret
-
-
-def install_llama_cpp_cpu():
-    print("\n  Installing llama-cpp-python (CPU-only)...")
-    return run([sys.executable, "-m", "pip", "install", "llama-cpp-python", "--upgrade", "--force-reinstall", "--no-cache-dir"],
-               check=False)
+    print("  Starting Ollama service...")
+    try:
+        subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import time
+        time.sleep(3)
+        result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            print("  Ollama service: started.")
+            return True
+    except Exception as e:
+        print(f"  WARNING: Could not start Ollama service: {e}")
+    return False
 
 
 def main():
@@ -166,36 +156,41 @@ def main():
 ============================================================
 """)
 
-    print("[1/4] Installing requirements.txt...")
+    print("[1/5] Installing system packages (ffmpeg, sox)...")
+    install_system_packages()
+
+    print("\n[2/5] Installing Ollama...")
+    install_ollama()
+
+    print("\n[3/5] Installing Python requirements...")
     run([sys.executable, "-m", "pip", "install", "-r", REQUIREMENTS_FILE])
 
-    print("\n[2/4] Installing protobuf 5.29.6 (fix for descript-audiotools)...")
+    print("\n[4/5] Installing protobuf 5.29.6 (fix for descript-audiotools)...")
     run([sys.executable, "-m", "pip", "install", "--upgrade", "protobuf==5.29.6"])
 
-    cuda_available = has_cuda()
-    print(f"\n[3/4] CUDA detection: {'CUDA GPU DETECTED' if cuda_available else 'No CUDA GPU (CPU mode)'}")
+    print("\n[5/5] Verifying installation...")
 
-    already_installed_with_cuda = is_llama_cpp_installed_with_cuda()
-    if cuda_available and not already_installed_with_cuda:
-        print("  CUDA GPU detected but llama-cpp-python lacks CUDA support.")
-        ret = install_llama_cpp_with_cuda()
-        if ret != 0:
-            print("  CUDA build failed. Falling back to CPU-only llama-cpp-python...")
-            install_llama_cpp_cpu()
-        else:
-            print("  llama-cpp-python installed with CUDA support successfully.")
-    elif not cuda_available:
-        print("  No CUDA GPU detected. Installing CPU-only llama-cpp-python...")
-        install_llama_cpp_cpu()
+    if command_exists("ffmpeg"):
+        print("  ffmpeg: OK")
     else:
-        print("  llama-cpp-python already has CUDA support. Skipping.")
+        print("  ffmpeg: NOT FOUND")
 
-    print("\n[4/4] Verifying installation...")
+    if command_exists("sox"):
+        print("  sox: OK")
+    else:
+        print("  sox: NOT FOUND")
+
+    if command_exists("ollama"):
+        print("  ollama: OK")
+        ensure_ollama_running()
+    else:
+        print("  ollama: NOT FOUND (VADAR Lite will not work)")
+
     try:
-        import llama_cpp
-        print(f"  llama-cpp-python: {llama_cpp.__version__ if hasattr(llama_cpp, '__version__') else 'installed'}")
+        import ollama
+        print("  Python ollama library: OK")
     except ImportError:
-        print("  WARNING: llama-cpp-python not found. VADAR Lite will not work.")
+        print("  Python ollama library: NOT FOUND")
 
     try:
         import torch

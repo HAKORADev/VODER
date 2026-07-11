@@ -40,10 +40,10 @@ All Python dependencies are listed in `requirements.txt`. After cloning, run one
   pip install -r requirements.txt
   pip install --upgrade protobuf==5.29.6
   # For VADAR Lite with GPU support:
-  CMAKE_ARGS='-DGGML_CUDA=on' pip install llama-cpp-python --force-reinstall
+  CMAKE_ARGS='-DGGML_CUDA=on' pip install Ollama --force-reinstall
   ```
 
-`setup.py` runs `pip install -r requirements.txt`, upgrades protobuf, detects CUDA, and installs `llama-cpp-python` with the correct build flags — all in one step.
+`setup.py` runs `pip install -r requirements.txt`, upgrades protobuf, detects CUDA, and installs `Ollama` with the correct build flags — all in one step.
 
 ### Model Directories
 
@@ -986,7 +986,7 @@ VODER leverages state-of-the-art open-source models for professional-grade audio
 - **Speaker Diarization:** [pyannote/speaker-diarization-community-1](https://github.com/pyannote/pyannote-audio) — pyannote for identifying and labeling individual speakers in multi-speaker audio
 - **Image Text Extraction:** [EasyOCR](https://github.com/JaidedAI/EasyOCR) — EasyOCR for extracting text from images, enabling image-to-speech workflows
 - **VADAR AI Agent (Heavy/Overdose):** [OpenYourMind/gemma-4-12B-it-abliterated-uncensored](https://huggingface.co/OpenYourMind/gemma-4-12B-it-abliterated-uncensored) — Gemma 4 12B (abliterated uncensored variant) for the heavy VADAR natural-language agent. Multimodal (text + image + audio + video), loaded locally via `AutoModelForMultimodalLM` + `AutoProcessor` from `transformers`. The model downloads automatically on first run (uses `huggingface_hub.snapshot_download` to pull files into `src/models/checkpoints/heavy_vadar/`) — see [VADAR Model Setup](#vadar-model-setup) above.
-- **VADAR AI Agent (Lite):** [Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit](https://huggingface.co/Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit) — SuperGemma 4 12B (abliterated, GGUF Q4_K_M 4-bit quantized) for the lite VADAR natural-language agent. Text-only (no multimodal), loaded via `llama-cpp-python` (llama.cpp). The GGUF model + chat template download automatically on first run (uses `huggingface_hub.hf_hub_download` to pull files into `src/models/checkpoints/lite_vadar/`). Runs on 16GB RAM / 4 CPU cores / any T4 GPU.
+- **VADAR AI Agent (Lite):** [Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit](https://huggingface.co/Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit) — SuperGemma 4 12B (abliterated, GGUF Q4_K_M 4-bit quantized) for the lite VADAR natural-language agent. Text-only (no multimodal), loaded via `Ollama` (Ollama). The GGUF model + chat template download automatically on first run (uses `huggingface_hub.hf_hub_download` to pull files into `src/models/checkpoints/lite_vadar/`). Runs on 16GB RAM / 4 CPU cores / any T4 GPU.
 
 ---
 

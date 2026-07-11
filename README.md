@@ -38,7 +38,7 @@ VODER brings together **8 processing modes** under one interface — speech-to-t
 - **Voice Re-Synthesis** — Transcribe speech and re-read it in a different voice using `tts svc`, with an optional `sts:` prefix for high-fidelity voice conversion via Seed-VC v2.
 - **Side-Quests** — Lightweight utility tasks that live outside the main engine: URL download, audio format conversion, cutting / merging / mixing / removing ranges, silence stripping, speed / pitch / soundlevel / bassboost / reverb / loudnorm effects, and more. Run `python voder.py quest` to see all available quests, grouped by category.
 - **Chains** — User-defined pipelines that wire any number of voder tasks together: each chain is named, its output is captured to temp, and later chains can reference earlier chain names as input paths. Build a song, isolate its vocals, train a voice from them, then dub a video — all in one command.
-- **VADAR AI Agent** — A natural-language agent that comes in two twins: **lite** (default, runs on 16GB RAM via llama.cpp + GGUF) and **heavy/overdose** (multimodal, requires 80GB+ RAM/VRAM via transformers+torch). Describe a task in plain English and VADAR thinks, decides, replies, and acts — running the right VODER commands in the right order, reading their outputs, and reporting results. Has its own tools (`read`, `list`, `search`, `memory_*`, `calculate`, catalog tools), session logging, persistent memories, and a configurable personality. The brotherhood (Eval, Summarizer, Catcher) works behind the scenes. No network access, no system shell — only VODER commands and project files.
+- **VADAR AI Agent** — A natural-language agent that comes in two twins: **lite** (default, runs on 16GB RAM via Ollama + GGUF) and **heavy/overdose** (multimodal, requires 80GB+ RAM/VRAM via transformers+torch). Describe a task in plain English and VADAR thinks, decides, replies, and acts — running the right VODER commands in the right order, reading their outputs, and reporting results. Has its own tools (`read`, `list`, `search`, `memory_*`, `calculate`, catalog tools), session logging, persistent memories, and a configurable personality. The brotherhood (Eval, Summarizer, Catcher) works behind the scenes. No network access, no system shell — only VODER commands and project files.
 - **Smart Input Pipeline** — Paste a YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, or X/Twitter URL directly as input. VODER verifies the link actually points to a video before downloading. Feed an image and VODER extracts text via OCR. Automatically extract voice clips from multi-speaker audio for one-click voice cloning.
 
 ---
@@ -114,7 +114,7 @@ VADAR is the natural-language layer on top of everything else. Instead of rememb
 
 VADAR comes in two twins:
 
-- **Lite VADAR** (default) — `python src/voder.py vadar "..."` — uses [SuperGemma 4 12B GGUF Q4_K_M](https://huggingface.co/Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit) via llama.cpp. Runs on 16GB RAM / 4 CPU cores / any T4 GPU. Text-only (no image/audio/video analysis). Model-level chain-of-thought enabled. ~7GB model.
+- **Lite VADAR** (default) — `python src/voder.py vadar "..."` — uses [SuperGemma 4 12B GGUF Q4_K_M](https://huggingface.co/Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit) via Ollama. Runs on 16GB RAM / 4 CPU cores / any T4 GPU. Text-only (no image/audio/video analysis). Model-level chain-of-thought enabled. ~7GB model.
 - **Heavy VADAR** (overdose) — `python src/voder.py overdose vadar "..."` — uses [Gemma 4 12B abliterated uncensored](https://huggingface.co/OpenYourMind/gemma-4-12B-it-abliterated-uncensored) via transformers+torch. Multimodal (look/listen/watch). Requires 80GB+ RAM/VRAM. ~24GB model.
 
 ```
@@ -137,12 +137,12 @@ Both twins share the same agent architecture — tags (`<thinking>`, `<decide>`,
 ```bash
 git clone https://github.com/HAKORADev/VODER.git && cd VODER
 
-# Recommended: use setup.py (auto-detects CUDA, installs llama-cpp-python with GPU support)
+# Recommended: use setup.py (auto-detects CUDA, installs Ollama with GPU support)
 python setup.py
 
 # OR manual install:
 pip install -r requirements.txt && pip install --upgrade protobuf==5.29.6
-# For VADAR Lite with GPU: CMAKE_ARGS='-DGGML_CUDA=on' pip install llama-cpp-python --force-reinstall
+# For VADAR Lite with GPU: CMAKE_ARGS='-DGGML_CUDA=on' pip install Ollama --force-reinstall
 
 # Help
 python src/voder.py

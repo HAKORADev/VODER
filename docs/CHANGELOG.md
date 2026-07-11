@@ -6,7 +6,7 @@
 
 ## 07/10/2026
 - Status: Stable, all features work, still developing
-- **VADAR twins — heavy VADAR (overdose) and lite VADAR**
+- **VADAR twins wins — Ollama-powered lite VADAR + setup.py installer**
 
 ### VADAR twins
 
@@ -15,17 +15,37 @@ VADAR now comes in two variants — twins with the same brain but different sens
 | Feature | Heavy VADAR (overdose) | Lite VADAR |
 |---------|----------------------|------------|
 | Model | Gemma 4 12B abliterated uncensored (full precision) | SuperGemma 4 12B abliterated (GGUF Q4_K_M, 4-bit quantized) |
-| Engine | transformers + torch (native) | llama.cpp (via llama-cpp-python) |
+| Engine | transformers + torch (native) | Ollama (auto GPU offload, no manual CUDA builds) |
 | Multimodal | Yes — look/listen/watch (image, audio, video) | No — text only, blind and deaf |
-| VRAM/RAM | 80GB+ (A100 80GB or 32+ core CPU with 80GB+ RAM) | 16GB RAM, 4 CPU cores, or any T4/RTX GPU |
+| VRAM/RAM | 80GB+ (A100 80GB or 32+ core CPU with 80GB+ RAM) | 16GB RAM, 4 CPU cores, or any T4/L4/RTX GPU |
 | Model size | ~24GB | ~7GB |
-| Token speed (GPU) | 10+ valuable tokens/second | 20+ tokens/second |
-| Token speed (CPU) | < 1 valuable token/second | 5+ tokens/second |
-| Model-level CoT | Not yet enabled | Enabled via `<|channel>thought` tokens |
+| GPU support | Via transformers (bfloat16, device_map=auto) | Via Ollama (automatic GPU detection + offload) |
+
+### Ollama integration
+
+Lite VADAR now uses **Ollama** instead of llama-cpp-python. Ollama handles GPU detection, model loading, and inference automatically — no manual CUDA builds, no CMAKE_ARGS, no wheel hunting.
+
+- The GGUF model is downloaded on first run and registered with Ollama as `vadar-lite`
+- Ollama auto-detects CUDA GPUs and offloads model layers automatically
+- Dynamic context window is passed to Ollama via Modelfile `PARAMETER num_ctx`
+- The Python `ollama` library is used for chat completions (streaming + non-streaming)
+- Model-level chain-of-thought (`<|channel>thought` tokens) is stripped from responses
+
+### setup.py — automated installer
+
+New `setup.py` script automates the entire VODER installation:
+
+1. **System packages**: detects package manager (apt, pacman, dnf, yum, zypper, brew, winget, choco) and installs `ffmpeg` + `sox` automatically
+2. **Ollama**: installs Ollama via official scripts (Linux: `curl -fsSL https://ollama.com/install.sh | sh`, Windows: `irm https://ollama.com/install.ps1 | iex`)
+3. **Python requirements**: `pip install -r requirements.txt`
+4. **Protobuf fix**: `pip install --upgrade protobuf==5.29.6`
+5. **Verification**: checks ffmpeg, sox, ollama, torch CUDA availability
+
+Usage: `python setup.py` (after cloning the repo)
 
 ### Usage
 
-- **Lite VADAR (default):** `python voder.py vadar "hello there"` — uses the GGUF model via llama.cpp. Runs on any machine with 16GB RAM.
+- **Lite VADAR (default):** `python voder.py vadar "hello there"` — uses Ollama + GGUF. Runs on any machine with 16GB RAM. GPU auto-detected by Ollama.
 - **Heavy VADAR (overdose):** `python voder.py overdose vadar "hello there"` — uses the full multimodal model via transformers+torch. Requires 80GB+ RAM/VRAM.
 - **Interactive CLI:** When selecting option 10 (VADAR), the user is prompted: "Use overdose VADAR (heavy, multimodal, requires 80GB+ RAM/VRAM)? [y/N]". Default is lite (N).
 
@@ -39,19 +59,20 @@ Lite VADAR is the same agent — same tags, same tools, same eval, same catcher,
 ### Architecture
 
 Both twins share the same agent code (`vadar.py`, `eval.py`, `summarizer.py`, `catcher.py`, `context.py`, `system_prompt.py`). The only difference is:
-- Model loading: `vadar_load_model()` (heavy, transformers) vs `lite_vadar_load_model()` (lite, llama.cpp)
+- Model loading: `vadar_load_model()` (heavy, transformers) vs `lite_vadar_load_model()` (lite, Ollama)
 - Inference: `vadar_run_inference_streamed()` vs `lite_vadar_run_inference_streamed()`
 - System prompt: `is_lite=True` hides `look`/`listen`/`watch` tools and adds a note about lite mode
 - Model paths: `models/checkpoints/heavy_vadar/` vs `models/checkpoints/lite_vadar/`
+- Lite VADAR registers the GGUF with Ollama via `ollama.create(model='vadar-lite', modelfile=...)`
 
 The `_use_lite_mode` global flag in `vadar.py` routes all inference calls to the correct engine.
 
 ### Dependencies
 
-- Added `llama-cpp-python>=0.3.0` to `requirements.txt` for lite VADAR
+- Added `ollama>=0.4.0` to `requirements.txt` for lite VADAR (Python Ollama client)
+- Requires Ollama installed on system — `python setup.py` handles this automatically
 - Lite VADAR auto-downloads the GGUF model from `Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit` on first run
-- The chat template (`chat_template.jinja`) is also auto-downloaded
-- Model-level thinking is enabled via `{% set enable_thinking = true %}` in the chat template, using `<|channel>thought` / `<channel|>` tokens
+- Model-level thinking is parsed from `<|channel>thought` / `<channel|>` tokens and stripped from responses
 
 ### Config
 

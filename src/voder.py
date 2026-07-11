@@ -16573,8 +16573,10 @@ def vadar_run_inference_streamed(messages, max_new_tokens=1024, temperature=0.8,
         return None, str(e)
 
 
-_lite_vadar_llm = None
-_lite_vadar_template = None
+_lite_vadar_loaded = False
+_LITE_VADAR_MODEL_NAME = "vadar-lite"
+_LITE_THINK_START = "<|channel>thought\n"
+_LITE_THINK_END = "<channel|>"
 
 
 def lite_vadar_check_model_downloaded():
@@ -16635,15 +16637,43 @@ def _calculate_dynamic_context(config):
     return context
 
 
+def _ensure_ollama_running():
+    try:
+        result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            return True
+    except Exception:
+        pass
+    try:
+        subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import time as _time
+        _time.sleep(3)
+        result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _ollama_model_exists():
+    try:
+        result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
+        return _LITE_VADAR_MODEL_NAME in result.stdout
+    except Exception:
+        return False
+
+
 def lite_vadar_load_model(force_reload=False):
-    global _lite_vadar_llm, _lite_vadar_template
-    if _lite_vadar_llm is not None and not force_reload:
-        return _lite_vadar_llm, _lite_vadar_template, None
+    global _lite_vadar_loaded
+    if _lite_vadar_loaded and not force_reload:
+        return True, None, None
 
     try:
-        from llama_cpp import Llama
+        import ollama
     except ImportError:
-        return None, None, "llama-cpp-python not installed. Run: python setup.py"
+        return None, None, "ollama library not installed. Run: python setup.py"
+
+    if not _ensure_ollama_running():
+        return None, None, "Ollama service not running. Install Ollama: python setup.py"
 
     if not lite_vadar_check_model_downloaded():
         print(f"VADAR LITE: model not found at {LITE_VADAR_MODEL_DIR}. Downloading from {LITE_VADAR_MODEL_REPO}...")
@@ -16661,46 +16691,25 @@ def lite_vadar_load_model(force_reload=False):
             return None, None, "Download completed but model files are missing."
         print(f"VADAR LITE: model downloaded to {LITE_VADAR_MODEL_DIR}")
 
-    print(f"VADAR LITE: loading model from {LITE_VADAR_MODEL_DIR}...")
+    if _ollama_model_exists() and not force_reload:
+        print(f"VADAR LITE: Ollama model '{_LITE_VADAR_MODEL_NAME}' already registered.")
+        _lite_vadar_loaded = True
+        return True, None, None
+
+    print(f"VADAR LITE: registering model with Ollama...")
+    config = vadar_load_config()
+    ctx_len = _calculate_dynamic_context(config)
+
+    gguf_path = os.path.join(LITE_VADAR_MODEL_DIR, LITE_VADAR_GGUF_FILENAME)
+    modelfile_content = f'FROM {gguf_path}\nPARAMETER num_ctx {ctx_len}\nPARAMETER temperature {config.get("temperature", 0.8)}\nPARAMETER top_p {config.get("top_p", 0.95)}\nPARAMETER top_k {config.get("top_k", 64)}\nPARAMETER repeat_penalty {config.get("lite_repeat_penalty", 1.1)}\n'
+
     try:
-        config = vadar_load_config()
-        ctx_len = _calculate_dynamic_context(config)
-        gpu_layers = config.get('lite_gpu_layers', -1)
-        n_threads = config.get('lite_n_threads', -1)
-        verbose = config.get('lite_verbose', False)
-
-        _has_gpu = False
-        try:
-            import torch
-            _has_gpu = torch.cuda.is_available()
-        except Exception:
-            pass
-
-        if _has_gpu and gpu_layers == -1:
-            gpu_layers = -1
-        elif not _has_gpu:
-            gpu_layers = 0
-
-        print(f"VADAR LITE: n_ctx={ctx_len}, n_gpu_layers={gpu_layers}")
-
-        gguf_path = os.path.join(LITE_VADAR_MODEL_DIR, LITE_VADAR_GGUF_FILENAME)
-        _lite_vadar_llm = Llama(
-            model_path=gguf_path,
-            n_ctx=ctx_len,
-            n_gpu_layers=gpu_layers,
-            n_threads=n_threads,
-            verbose=verbose,
-        )
-        print("VADAR LITE: model loaded successfully.")
-        return _lite_vadar_llm, _lite_vadar_template, None
+        ollama.create(model=_LITE_VADAR_MODEL_NAME, modelfile=modelfile_content)
+        print(f"VADAR LITE: model registered with Ollama as '{_LITE_VADAR_MODEL_NAME}' (ctx={ctx_len})")
+        _lite_vadar_loaded = True
+        return True, None, None
     except Exception as e:
-        _lite_vadar_llm = None
-        _lite_vadar_template = None
-        return None, None, f"Failed to load lite model: {e}"
-
-
-_LITE_THINK_START = "<|channel>thought\n"
-_LITE_THINK_END = "<channel|>"
+        return None, None, f"Failed to register model with Ollama: {e}"
 
 
 def _parse_lite_thinking(text):
@@ -16721,26 +16730,25 @@ def _parse_lite_thinking(text):
 
 
 def lite_vadar_run_inference(messages, max_new_tokens=1024):
-    llm, template, err = lite_vadar_load_model()
+    ok, _, err = lite_vadar_load_model()
     if err:
         return None, err
     try:
+        import ollama
         config = vadar_load_config()
-        temperature = config.get('temperature', 0.8)
-        top_p = config.get('top_p', 0.95)
-        top_k = config.get('top_k', 64)
-        repeat_penalty = config.get('lite_repeat_penalty', 1.1)
-
-        resp = llm.create_chat_completion(
+        response = ollama.chat(
+            model=_LITE_VADAR_MODEL_NAME,
             messages=messages,
             stream=False,
-            max_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            repeat_penalty=repeat_penalty,
+            options={
+                'num_predict': max_new_tokens,
+                'temperature': config.get('temperature', 0.8),
+                'top_p': config.get('top_p', 0.95),
+                'top_k': config.get('top_k', 64),
+                'repeat_penalty': config.get('lite_repeat_penalty', 1.1),
+            },
         )
-        raw = resp["choices"][0]["message"]["content"]
+        raw = response['message']['content']
         thoughts, clean = _parse_lite_thinking(raw)
         return clean, None
     except Exception as e:
@@ -16748,31 +16756,29 @@ def lite_vadar_run_inference(messages, max_new_tokens=1024):
 
 
 def lite_vadar_run_inference_streamed(messages, max_new_tokens=1024):
-    llm, template, err = lite_vadar_load_model()
+    ok, _, err = lite_vadar_load_model()
     if err:
         return None, err
     try:
+        import ollama
         config = vadar_load_config()
-        temperature = config.get('temperature', 0.8)
-        top_p = config.get('top_p', 0.95)
-        top_k = config.get('top_k', 64)
-        repeat_penalty = config.get('lite_repeat_penalty', 1.1)
-
         collected = []
         char_count = 0
         last_print = 0
 
-        for chunk in llm.create_chat_completion(
+        for chunk in ollama.chat(
+            model=_LITE_VADAR_MODEL_NAME,
             messages=messages,
             stream=True,
-            max_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            repeat_penalty=repeat_penalty,
+            options={
+                'num_predict': max_new_tokens,
+                'temperature': config.get('temperature', 0.8),
+                'top_p': config.get('top_p', 0.95),
+                'top_k': config.get('top_k', 64),
+                'repeat_penalty': config.get('lite_repeat_penalty', 1.1),
+            },
         ):
-            delta = chunk.get("choices", [{}])[0].get("delta", {})
-            content = delta.get("content", "")
+            content = chunk.get('message', {}).get('content', '')
             if not content:
                 continue
             collected.append(content)
