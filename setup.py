@@ -66,6 +66,8 @@ def install_system_packages():
         packages_needed.append("sox")
     if not command_exists("soxi"):
         packages_needed.append("sox")
+    if not command_exists("zstd"):
+        packages_needed.append("zstd")
 
     if not packages_needed:
         print("  ffmpeg, sox: already installed.")
