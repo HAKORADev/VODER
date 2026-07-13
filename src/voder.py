@@ -16703,8 +16703,20 @@ def lite_vadar_load_model(force_reload=False):
     gguf_path = os.path.join(LITE_VADAR_MODEL_DIR, LITE_VADAR_GGUF_FILENAME)
     modelfile_content = f'FROM {gguf_path}\nPARAMETER num_ctx {ctx_len}\nPARAMETER temperature {config.get("temperature", 0.8)}\nPARAMETER top_p {config.get("top_p", 0.95)}\nPARAMETER top_k {config.get("top_k", 64)}\nPARAMETER repeat_penalty {config.get("lite_repeat_penalty", 1.1)}\n'
 
+    modelfile_tmp = os.path.join(LITE_VADAR_MODEL_DIR, 'Modelfile')
     try:
-        ollama.create(model=_LITE_VADAR_MODEL_NAME, modelfile=modelfile_content)
+        with open(modelfile_tmp, 'w') as f:
+            f.write(modelfile_content)
+    except Exception as e:
+        return None, None, f"Failed to write Modelfile: {e}"
+
+    try:
+        result = subprocess.run(
+            ["ollama", "create", _LITE_VADAR_MODEL_NAME, "-f", modelfile_tmp],
+            capture_output=True, text=True, timeout=300,
+        )
+        if result.returncode != 0:
+            return None, None, f"Ollama create failed: {result.stderr or result.stdout}"
         print(f"VADAR LITE: model registered with Ollama as '{_LITE_VADAR_MODEL_NAME}' (ctx={ctx_len})")
         _lite_vadar_loaded = True
         return True, None, None

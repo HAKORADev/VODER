@@ -64,13 +64,15 @@ def install_system_packages():
         packages_needed.append("ffmpeg")
     if not command_exists("sox"):
         packages_needed.append("sox")
-    if not command_exists("soxi"):
-        packages_needed.append("sox")
     if not command_exists("zstd"):
         packages_needed.append("zstd")
+    if is_linux() and not command_exists("lspci") and not command_exists("lshw"):
+        packages_needed.append("lshw")
+
+    packages_needed = list(dict.fromkeys(packages_needed))
 
     if not packages_needed:
-        print("  ffmpeg, sox: already installed.")
+        print("  All system packages already installed.")
         return
 
     if is_linux():
