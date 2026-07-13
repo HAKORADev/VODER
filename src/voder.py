@@ -16584,8 +16584,9 @@ def lite_vadar_check_model_downloaded():
     return os.path.exists(gguf_path) and os.path.getsize(gguf_path) > 0
 
 
-_LITE_MODEL_SIZE_GB = 7.5
+_LITE_MODEL_SIZE_GB = 8.0
 _LITE_OVERHEAD_GB = 4.0
+_LITE_GPU_OVERHEAD_GB = 0.128
 _LITE_KV_PER_TOKEN_MB = 0.4
 _LITE_MIN_CONTEXT = 2048
 _LITE_MAX_CONTEXT = 262144
@@ -16617,15 +16618,17 @@ def _calculate_dynamic_context(config):
 
     if has_gpu and gpu_layers != 0:
         primary_pool = vram_gb
-        spill_pool = 0
-        pool_label = f"GPU0 VRAM: {vram_gb:.1f}GB (VRAM-only for GPU speed)"
+        spill_pool = ram_available_gb
+        overhead = _LITE_GPU_OVERHEAD_GB
+        pool_label = f"GPU0 VRAM: {vram_gb:.1f}GB (primary) + RAM: {ram_available_gb:.1f}GB (spill), overhead: {overhead}GB"
     else:
         primary_pool = ram_available_gb
         spill_pool = 0
-        pool_label = f"RAM: {ram_available_gb:.1f}GB (CPU mode)"
+        overhead = _LITE_OVERHEAD_GB
+        pool_label = f"RAM: {ram_available_gb:.1f}GB (CPU mode), overhead: {overhead}GB"
 
-    total_pool = primary_pool + spill_pool
-    usable = total_pool - _LITE_MODEL_SIZE_GB - _LITE_OVERHEAD_GB
+    total_pool = primary_pool + spill_pool * 0.5
+    usable = total_pool - _LITE_MODEL_SIZE_GB - overhead
     if usable <= 0:
         return _LITE_MIN_CONTEXT
 
@@ -16633,7 +16636,7 @@ def _calculate_dynamic_context(config):
     context = max(_LITE_MIN_CONTEXT, min(context, _LITE_MAX_CONTEXT))
     context = (context // 512) * 512
 
-    print(f"VADAR LITE: dynamic context — {pool_label}, model: {_LITE_MODEL_SIZE_GB}GB, overhead: {_LITE_OVERHEAD_GB}GB → {context} tokens ({usable:.1f}GB for KV cache at {_LITE_KV_PER_TOKEN_MB}MB/token)")
+    print(f"VADAR LITE: dynamic context — {pool_label}, model: {_LITE_MODEL_SIZE_GB}GB → {context} tokens ({usable:.1f}GB for KV cache at {_LITE_KV_PER_TOKEN_MB}MB/token)")
     return context
 
 
