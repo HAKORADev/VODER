@@ -294,13 +294,7 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
             log_act(session_dir, f"{title}_eval", f"eval verdict: {verdict}", reason, verdict == 'correct')
 
         if len(output) > summarize_threshold:
-            input_chars = len(output)
-            print(f"[SUMMARIZER]: running on {input_chars} chars...")
-            sum_t0 = time.time()
             summary = summarize_output(output, context_label=title, act_title=title, act_command=command)
-            sum_elapsed = time.time() - sum_t0
-            output_chars = len(summary)
-            print(f"[SUMMARIZER]: done ({sum_elapsed:.1f}s, {input_chars} → {output_chars} chars)")
             return success, summary
 
         return success, output
@@ -880,13 +874,7 @@ def _finalize_session(session_dir, ctx):
         messages = ctx.get_messages()
         conv_text = '\n'.join(f"[{m['role'].upper()}] {m['content']}" for m in messages if m['role'] != 'system')
         if len(conv_text) > 500:
-            input_chars = len(conv_text)
-            print(f"\n[SUMMARIZER]: running on session ({input_chars} chars)...")
-            sum_t0 = time.time()
             summary = summarize_output(conv_text, context_label=f"session {os.path.basename(session_dir)}")
-            sum_elapsed = time.time() - sum_t0
-            output_chars = len(summary)
-            print(f"[SUMMARIZER]: done ({sum_elapsed:.1f}s, {input_chars} → {output_chars} chars)")
             session_block = f"=== SESSION: {os.path.basename(session_dir)} ===\n{summary}\n=== END SESSION ==="
             existing = ""
             if os.path.exists(VADAR_GLOBAL_CONTEXT_FILE):
