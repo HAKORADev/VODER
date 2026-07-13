@@ -14,7 +14,7 @@ from voders.vadars.context import ContextManager, create_session, log_input, log
 from voders.vadars.tools import TOOL_REGISTRY
 from voders.vadars.catcher import catch_and_fix
 from voders.vadars.tools.validator import validate_tool_basic
-from voders.vadars.stream_parser import StreamParser, render_stream
+from voders.vadars.stream_parser import StreamParser
 
 
 TOOL_CALL_RE = re.compile(r'<tool_call>\s*(\w+)\s*(.*?)\s*</tool_call>', re.DOTALL)
