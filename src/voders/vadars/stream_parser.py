@@ -143,10 +143,25 @@ class StreamParser:
         while pos < len(text):
             m = _TAG_PATTERN.search(text, pos)
             if m is None:
+                remaining = text[pos:]
+                if remaining.strip():
+                    if not self.interactive:
+                        sys.stdout.write(remaining)
+                        sys.stdout.flush()
+                    else:
+                        label = f'{self.agent_label}'
+                        sys.stdout.write(f'\n[{label}]: {len(remaining)} chars...  ')
+                        sys.stdout.flush()
                 break
             before = text[pos:m.start()]
             if before.strip():
-                pass
+                if not self.interactive:
+                    sys.stdout.write(before)
+                    sys.stdout.flush()
+                else:
+                    label = f'{self.agent_label}'
+                    sys.stdout.write(f'\n[{label}]: {len(before)} chars...  ')
+                    sys.stdout.flush()
             tag_name = m.group(2)
             is_close = m.group(1) == '/'
             if not is_close and tag_name not in ('EOS_REPLY', 'EOS_ACT', 'EOS_DONE'):
