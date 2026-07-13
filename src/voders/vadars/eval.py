@@ -136,8 +136,8 @@ def _build_eval_messages(user_request, thoughts, decisions, acts=None,
 def _call_eval_with_retry(messages, max_retries=2):
     for attempt in range(max_retries + 1):
         try:
-            from voders.vadars.vadar import _run_inference
-            response, err = _run_inference(messages, max_new_tokens=20000)
+            from voders.vadars.vadar import _run_inference_streamed
+            response, err = _run_inference_streamed(messages, max_new_tokens=20000, label='EVAL', interactive=False)
         except Exception:
             from voder import vadar_run_inference
             response, err = vadar_run_inference(messages, max_new_tokens=20000)

@@ -14,6 +14,7 @@ from voders.vadars.context import ContextManager, create_session, log_input, log
 from voders.vadars.tools import TOOL_REGISTRY
 from voders.vadars.catcher import catch_and_fix
 from voders.vadars.tools.validator import validate_tool_basic
+from voders.vadars.stream_parser import StreamParser, render_stream
 
 
 TOOL_CALL_RE = re.compile(r'<tool_call>\s*(\w+)\s*(.*?)\s*</tool_call>', re.DOTALL)
@@ -314,14 +315,14 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
 _use_lite_mode = True
 
 
-def _run_inference_streamed(messages, max_new_tokens=1024, label='VADAR'):
+def _run_inference_streamed(messages, max_new_tokens=1024, label='VADAR', interactive=False):
     with _inference_lock:
         if _use_lite_mode:
             from voder import lite_vadar_run_inference_streamed
-            return lite_vadar_run_inference_streamed(messages, max_new_tokens=max_new_tokens, label=label)
+            return lite_vadar_run_inference_streamed(messages, max_new_tokens=max_new_tokens, label=label, interactive=interactive)
         else:
             from voder import vadar_run_inference_streamed
-            return vadar_run_inference_streamed(messages, max_new_tokens=max_new_tokens)
+            return vadar_run_inference_streamed(messages, max_new_tokens=max_new_tokens, label=label, interactive=interactive)
 
 
 def _run_inference(messages, max_new_tokens=1024):
@@ -492,7 +493,7 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
         messages = ctx.get_for_inference()
         ts_msg = {'role': 'system', 'content': f"Current time: {time.strftime('%Y/%m/%d:%I%p:%M:%S')}"}
         messages.append(ts_msg)
-        response, err = _run_inference_streamed(messages)
+        response, err = _run_inference_streamed(messages, interactive=interactive)
         if err or not response or not response.strip():
             response, err = _run_inference(messages)
         if err:
@@ -586,6 +587,15 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
                     print(f"{'─'*40}")
                     status = 'SUCCESS' if success else 'FAILED'
                     print(f"[ACT RESULT]: {title} -> {status}")
+                    result_files = [line for line in output.split('\n') if '[RESULT FILES]' in line]
+                    file_paths = ''
+                    if result_files:
+                        file_paths = result_files[0].replace('[RESULT FILES]: ', '').strip()
+                    notification = f"Act '{title}' completed. Command: {command}. Status: {status}."
+                    if file_paths:
+                        notification += f" Result files: {file_paths}."
+                    notification += f" Use read {title} to see the output."
+                    ctx.add('system', notification)
                     ctx.add('tool', f"Act '{title}' result ({status}):\n{output[-2000:]}")
                     if act_log is not None:
                         act_log.append({'title': title, 'command': command, 'success': success, 'output': output})

@@ -89,37 +89,17 @@ def summarize_output(text, context_label="", act_title=None, act_command=None):
         {'role': 'user', 'content': f"Summarize this output:{label_part}{feed_note}\n\n--- BEGIN OUTPUT ---\n{feed_text}\n--- END OUTPUT ---\n\nProduce a <summary> with <overview>, <details>, and <status>. Be thorough — use the space you need."},
     ]
 
-    import time as _time
-    collected = []
-    char_count = 0
-    last_print = 0
-    sys.stdout.write(f"[SUMMARIZER]: generating... 0 chars  ")
-    sys.stdout.flush()
-
     try:
         from voders.vadars.vadar import _run_inference_streamed
-        for chunk_data in [None]:
-            response, err = _run_inference_streamed(summarizer_messages, max_new_tokens=4096, label='SUMMARIZER')
-            if err:
-                response, err = None, err
-            break
-        if err:
-            return f"[Summarizer could not run: {err}]\n\nFirst 500 chars of output:\n{text[:500]}"
-        if not response:
-            return f"[Summarizer produced no output]\n\nFirst 500 chars of original:\n{text[:500]}"
-        raw = response
+        response, err = _run_inference_streamed(summarizer_messages, max_new_tokens=4096, label='SUMMARIZER', interactive=False)
     except Exception:
-        try:
-            from voders.vadars.vadar import _run_inference
-            response, err = _run_inference(summarizer_messages, max_new_tokens=4096)
-        except Exception:
-            from voder import vadar_run_inference
-            response, err = vadar_run_inference(summarizer_messages, max_new_tokens=4096)
-        if err:
-            return f"[Summarizer could not run: {err}]\n\nFirst 500 chars of output:\n{text[:500]}"
-        if not response:
-            return f"[Summarizer produced no output]\n\nFirst 500 chars of original:\n{text[:500]}"
-        raw = response
+        from voder import vadar_run_inference
+        response, err = vadar_run_inference(summarizer_messages, max_new_tokens=4096)
+    if err:
+        return f"[Summarizer could not run: {err}]\n\nFirst 500 chars of output:\n{text[:500]}"
+    if not response:
+        return f"[Summarizer produced no output]\n\nFirst 500 chars of original:\n{text[:500]}"
+    raw = response
 
     try:
         from voder import _parse_lite_thinking
@@ -127,9 +107,6 @@ def summarize_output(text, context_label="", act_title=None, act_command=None):
         response = clean if clean.strip() else raw
     except Exception:
         response = raw
-
-    sys.stdout.write(f'\r[SUMMARIZER]: parsing response...                    ')
-    sys.stdout.flush()
 
     summary_match = re.search(r'<summary>(.*?)</summary>', response, re.DOTALL)
     if summary_match:
