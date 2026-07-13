@@ -314,11 +314,11 @@ def _execute_act(title, command, session_dir, act_outputs, user_request="",
 _use_lite_mode = True
 
 
-def _run_inference_streamed(messages, max_new_tokens=1024):
+def _run_inference_streamed(messages, max_new_tokens=1024, label='VADAR'):
     with _inference_lock:
         if _use_lite_mode:
             from voder import lite_vadar_run_inference_streamed
-            return lite_vadar_run_inference_streamed(messages, max_new_tokens=max_new_tokens)
+            return lite_vadar_run_inference_streamed(messages, max_new_tokens=max_new_tokens, label=label)
         else:
             from voder import vadar_run_inference_streamed
             return vadar_run_inference_streamed(messages, max_new_tokens=max_new_tokens)

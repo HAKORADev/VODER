@@ -16770,7 +16770,7 @@ def lite_vadar_run_inference(messages, max_new_tokens=1024):
         return None, str(e)
 
 
-def lite_vadar_run_inference_streamed(messages, max_new_tokens=1024):
+def lite_vadar_run_inference_streamed(messages, max_new_tokens=1024, label='VADAR'):
     ok, _, err = lite_vadar_load_model()
     if err:
         return None, err
@@ -16800,7 +16800,7 @@ def lite_vadar_run_inference_streamed(messages, max_new_tokens=1024):
             char_count += len(content)
             now = time.time()
             if now - last_print > 0.5:
-                sys.stdout.write(f'\r[VADAR]: generating... {char_count} chars  ')
+                sys.stdout.write(f'\r[{label}]: generating... {char_count} chars  ')
                 sys.stdout.flush()
                 last_print = now
 

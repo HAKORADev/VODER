@@ -99,7 +99,7 @@ def summarize_output(text, context_label="", act_title=None, act_command=None):
     try:
         from voders.vadars.vadar import _run_inference_streamed
         for chunk_data in [None]:
-            response, err = _run_inference_streamed(summarizer_messages, max_new_tokens=4096)
+            response, err = _run_inference_streamed(summarizer_messages, max_new_tokens=4096, label='SUMMARIZER')
             if err:
                 response, err = None, err
             break
