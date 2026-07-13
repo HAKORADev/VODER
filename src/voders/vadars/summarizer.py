@@ -60,8 +60,6 @@ def _format_duration(seconds):
 
 
 def summarize_output(text, context_label="", act_title=None, act_command=None):
-    from voder import vadar_run_inference
-
     if not text or not text.strip():
         return "Empty output — nothing to summarize."
 
@@ -91,7 +89,12 @@ def summarize_output(text, context_label="", act_title=None, act_command=None):
         {'role': 'user', 'content': f"Summarize this output:{label_part}{feed_note}\n\n--- BEGIN OUTPUT ---\n{feed_text}\n--- END OUTPUT ---\n\nProduce a <summary> with <overview>, <details>, and <status>. Be thorough — use the space you need."},
     ]
 
-    response, err = vadar_run_inference(summarizer_messages, max_new_tokens=4096)
+    try:
+        from voders.vadars.vadar import _run_inference
+        response, err = _run_inference(summarizer_messages, max_new_tokens=4096)
+    except Exception:
+        from voder import vadar_run_inference
+        response, err = vadar_run_inference(summarizer_messages, max_new_tokens=4096)
     if err:
         return f"[Summarizer could not run: {err}]\n\nFirst 500 chars of output:\n{text[:500]}"
     if not response:
