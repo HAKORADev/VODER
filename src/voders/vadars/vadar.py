@@ -494,14 +494,13 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
         ts_msg = {'role': 'system', 'content': f"Current time: {time.strftime('%Y/%m/%d:%I%p:%M:%S')}"}
         messages.append(ts_msg)
         response, err = _run_inference_streamed(messages, interactive=interactive)
-        if err or not response or not response.strip():
-            response, err = _run_inference(messages)
         if err:
             print(f"\n[VADAR inference error]: {err}")
             return False
         if not response or not response.strip():
-            print("\n[VADAR]: (model produced no output)")
-            break
+            if not response and not err:
+                print("\n[VADAR]: (model produced no output)")
+                break
 
         ctx.add('assistant', response)
         response = _autoclose_tags(response)
