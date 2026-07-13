@@ -874,6 +874,7 @@ def _finalize_session(session_dir, ctx):
         messages = ctx.get_messages()
         conv_text = '\n'.join(f"[{m['role'].upper()}] {m['content']}" for m in messages if m['role'] != 'system')
         if len(conv_text) > 500:
+            print(f"\n[VADAR]: Session ending — summarizing for global context...")
             summary = summarize_output(conv_text, context_label=f"session {os.path.basename(session_dir)}")
             session_block = f"=== SESSION: {os.path.basename(session_dir)} ===\n{summary}\n=== END SESSION ==="
             existing = ""

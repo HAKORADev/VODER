@@ -16620,12 +16620,17 @@ def _calculate_dynamic_context(config):
         primary_pool = vram_gb
         spill_pool = ram_available_gb
         overhead = _LITE_GPU_OVERHEAD_GB
-        pool_label = f"GPU0 VRAM: {vram_gb:.1f}GB (primary) + RAM: {ram_available_gb:.1f}GB (spill), overhead: {overhead}GB"
+        vram_for_model = min(_LITE_MODEL_SIZE_GB, vram_gb - overhead)
+        vram_for_kv = max(0, vram_gb - _LITE_MODEL_SIZE_GB - overhead)
+        ram_spill_for_kv = max(0, spill_pool * 0.5)
+        total_kv = vram_for_kv + ram_spill_for_kv
+        pool_label = f"GPU0 VRAM: {vram_gb:.1f}GB (model: {vram_for_model:.1f}GB + KV: {vram_for_kv:.1f}GB) + RAM spill: {ram_spill_for_kv:.1f}GB (KV) = {total_kv:.1f}GB total for KV"
     else:
         primary_pool = ram_available_gb
         spill_pool = 0
         overhead = _LITE_OVERHEAD_GB
-        pool_label = f"RAM: {ram_available_gb:.1f}GB (CPU mode), overhead: {overhead}GB"
+        total_kv = max(0, primary_pool - _LITE_MODEL_SIZE_GB - overhead)
+        pool_label = f"RAM: {ram_available_gb:.1f}GB (model: {_LITE_MODEL_SIZE_GB}GB + overhead: {overhead}GB + KV: {total_kv:.1f}GB)"
 
     total_pool = primary_pool + spill_pool * 0.5
     usable = total_pool - _LITE_MODEL_SIZE_GB - overhead
