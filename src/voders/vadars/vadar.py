@@ -506,6 +506,17 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
         response = _autoclose_tags(response)
         parsed = _parse_model_output(response)
 
+        clean_response = response
+        for tag in ['thinking', 'decide', 'eval']:
+            clean_response = re.sub(rf'<{tag}>.*?</{tag}>', '', clean_response, flags=re.DOTALL)
+        for tag in ['thinking', 'decide', 'eval', 'reply', 'act', 'tool_call']:
+            clean_response = clean_response.replace(f'<{tag}>', '').replace(f'</{tag}>', '')
+        for eos in ['<EOS_REPLY>', '<EOS_ACT>', '<EOS_DONE>']:
+            clean_response = clean_response.replace(eos, '')
+        clean_response = clean_response.strip()
+        if clean_response:
+            ctx.messages[-1]['content'] = clean_response
+
         order_issues = _validate_tag_order(parsed)
         if order_issues:
             ctx.add('system', f"Tag order issue: you {' and '.join(order_issues)}. Always start with <thinking> before any other tag. Re-emit your response with proper tag order.")
@@ -528,8 +539,6 @@ def _run_agent_loop(ctx, user_input, session_dir, act_outputs, model, processor,
 
         if parsed['replies']:
             for reply in parsed['replies']:
-                if _use_lite_mode:
-                    print(f"\n[VADAR]: {reply}")
                 last_vadar_reply_time = time.time()
 
             if interactive and approval_event is not None and waiting_for_approval is not None:
