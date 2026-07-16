@@ -34,10 +34,14 @@ The vendored dac does not depend on transformers, so it works fine with either t
 
 ### Bugfix: enforce voice clone reference duration limits in TTS engines
 
-Both TTS engines in VODER accept reference audio for voice cloning, but the code had no maximum duration check — a user could pass a 5-minute reference audio and the engine would try to feed it all to the model. The official model limits are:
+Both TTS engines in VODER accept reference audio for voice cloning, but the code had no maximum duration check — a user could pass a 30-minute reference audio and the engine would try to feed it all to the model, eventually crashing when the encoded reference exceeded the model's context window.
 
-- **Qwen3-TTS** (regular `tts` mode): **60 seconds** per reference (DashScope API hard cap; the open-source model has only a 32,768-token context budget shared between reference + text + generation, so longer references eat generation budget)
-- **Fish S2-Pro** (`tts extreme` mode): **30 seconds** per reference (SGLang-Omni serving path hard cap; longer references slow inference with minimal quality gain)
+The actual hard limits are determined by each model's context window (32768 tokens), NOT by the hosted-API caps (DashScope's 60s, SGLang-Omni's 30s) — VODER runs the open-source local models, not the hosted APIs. Calculated from the model configs and codec frame rates:
+
+- **Qwen3-TTS** (regular `tts` mode): `max_position_embeddings = 32768` tokens at 12.5 Hz frame rate = ~43.7 min total context. Capped at **1200s (20 min)** so the reference leaves at least ~20 min of context for text + generation.
+- **Fish S2-Pro** (`tts extreme` mode): `text_config.max_seq_len = 32768` tokens at ~21 Hz = ~26 min total context, minus 2048 tokens reserved for generation (enforced by `inference.py`). Capped at **600s (10 min)** — leaves comfortable headroom for generation.
+
+These caps are intentionally generous (not the 10-30s "quality recommendation" range) because VODER supports use cases like cloning a voice from a long video with many speaker samples — generic 30s caps would defeat the purpose.
 
 Added a core helper `_enforce_voice_clone_limit(audio_path, max_seconds, engine_label)` that:
 1. Reads the audio duration via `torchaudio.info`
@@ -45,10 +49,10 @@ Added a core helper `_enforce_voice_clone_limit(audio_path, max_seconds, engine_
 3. If duration > limit: loads the first `max_seconds` of audio, saves to a temp WAV, returns the truncated path (temp file is added to a cleanup list)
 4. On any error: falls back to the original audio with a warning (never blocks the pipeline)
 
-The helper is called at the start of `QwenTTS.extract_voice()` (limit = 60s) and `FishTTS.encode_voice()` (limit = 30s). These are the two lowest-level voice clone entry points — every path flows through them:
+The helper is called at the start of `QwenTTS.extract_voice()` (limit = 1200s) and `FishTTS.encode_voice()` (limit = 600s). These are the two lowest-level voice clone entry points — every path flows through them:
 
 - Single reference `tts ... target "ref.wav"` → `extract_voice` ✓
-- Multi-reference `tts ... target "ref1.wav" "ref2.wav"` → `_compose_refs` (already caps combined to 30s) → `extract_voice` ✓
+- Multi-reference `tts ... target "ref1.wav" "ref2.wav"` → `_compose_refs` → `extract_voice` ✓
 - `train voice:name "ref.wav"` → `extract_voice` or `encode_voice` ✓
 - `train voice:name "ref1.wav" "ref2.wav"` → `_resolve_multi_refs` (concatenates without cap) → `extract_voice` or `encode_voice` ✓ (truncation happens at the engine)
 - Dialogue mode voice cloning → `extract_voice` ✓
@@ -56,10 +60,10 @@ The helper is called at the start of `QwenTTS.extract_voice()` (limit = 60s) and
 - `_tts_extract_voice` dispatcher → routes to `extract_voice` or `encode_voice` ✓
 
 The limits are defined as module-level constants near the top of `voder.py`:
-- `QWEN3_TTS_VOICE_CLONE_MAX_SECONDS = 60`
-- `FISH_S2PRO_VOICE_CLONE_MAX_SECONDS = 30`
+- `QWEN3_TTS_VOICE_CLONE_MAX_SECONDS = 1200`
+- `FISH_S2PRO_VOICE_CLONE_MAX_SECONDS = 600`
 
-When truncation occurs, a message is printed: `[Qwen3-TTS] Voice clone reference is 120.0s — truncating to 60s (model limit)...` so the user knows their reference was clipped.
+When truncation occurs, a message is printed: `[Qwen3-TTS] Voice clone reference is 1800.0s — truncating to 1200s (model limit)...` so the user knows their reference was clipped.
 
 **Files:**
 - Modified: `src/voder.py` — added `QWEN3_TTS_VOICE_CLONE_MAX_SECONDS` and `FISH_S2PRO_VOICE_CLONE_MAX_SECONDS` constants, added `_enforce_voice_clone_limit()` core helper, wired it into `QwenTTS.extract_voice()` and `FishTTS.encode_voice()`. No in-code comments.
