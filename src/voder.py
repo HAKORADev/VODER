@@ -29,6 +29,9 @@ TRANSLATE_GEMMA_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "translate_gemma")
 AUDIOSR_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "audiosr")
 ALIGNER_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "aligner")
 
+QWEN3_TTS_VOICE_CLONE_MAX_SECONDS = 60
+FISH_S2PRO_VOICE_CLONE_MAX_SECONDS = 30
+
 os.environ["HF_HOME"] = MODELS_DIR
 os.environ["HF_HUB_CACHE"] = MODELS_TMP_DIR
 os.environ["TRANSFORMERS_CACHE"] = MODELS_TMP_DIR
@@ -3258,6 +3261,27 @@ class QwenTTSVoiceDesign:
             except:
                 pass
 
+
+def _enforce_voice_clone_limit(audio_path, max_seconds, engine_label="TTS"):
+    try:
+        import torchaudio
+        info = torchaudio.info(audio_path)
+        duration = info.num_frames / info.sample_rate
+        if duration <= max_seconds:
+            return audio_path, []
+        print(f"[{engine_label}] Voice clone reference is {duration:.1f}s — truncating to {max_seconds}s (model limit)...")
+        waveform, sample_rate = torchaudio.load(audio_path, num_frames=int(max_seconds * info.sample_rate))
+        truncated_path = os.path.join(
+            tempfile.gettempdir(),
+            f"voder_voice_ref_truncated_{int(time.time())}_{random.randint(1000, 9999)}.wav"
+        )
+        torchaudio.save(truncated_path, waveform, sample_rate)
+        return truncated_path, [truncated_path]
+    except Exception as e:
+        print(f"[{engine_label}] Warning: could not enforce voice clone limit ({e}) — using original audio")
+        return audio_path, []
+
+
 class QwenTTS:
     def __init__(self, model_dir=None):
         self.model_dir = MODELS_CHECKPOINTS_DIR if model_dir is None else model_dir
@@ -3295,6 +3319,9 @@ class QwenTTS:
         if self.model is None:
             return None
         try:
+            audio_path, _trunc_cleanup = _enforce_voice_clone_limit(
+                audio_path, QWEN3_TTS_VOICE_CLONE_MAX_SECONDS, engine_label="Qwen3-TTS"
+            )
             import torchaudio
             waveform, sample_rate = torchaudio.load(audio_path)
             waveform_np = waveform.cpu().numpy().flatten()
@@ -3372,6 +3399,9 @@ class FishTTS:
         if not self.ensure_model():
             return None
         try:
+            audio_path, _trunc_cleanup = _enforce_voice_clone_limit(
+                audio_path, FISH_S2PRO_VOICE_CLONE_MAX_SECONDS, engine_label="Fish S2-Pro"
+            )
             import torch
             from fish_speech.models.text2semantic.inference import encode_audio
             prompt_tokens = encode_audio(audio_path, self.codec, self.device)
