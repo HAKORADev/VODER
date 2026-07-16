@@ -4,6 +4,34 @@
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 - If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
+## 07/17/2026
+- Status: Stable, all features work, still developing
+- **VADAR funeral aftermath — revert VADAR-induced dependency bumps**
+
+### Reverted: transformers and huggingface-hub to pre-VADAR versions
+
+The 07/08 commit `3fc81cd "Vendor dac + upgrade transformers to 5.x for Gemma4Unified tokenizer support"` bumped two dependencies specifically because VADAR needed them:
+
+- `transformers==4.57.3` → `transformers>=5.0.0` — VADAR required 5.x for the Gemma4Unified tokenizer
+- `huggingface-hub==0.34.0` → `huggingface-hub>=1.0.0` — required by transformers 5.x
+
+With VADAR removed, these bumps are no longer needed. Reverted to the pre-VADAR pinned versions:
+
+- `transformers>=5.0.0` → `transformers==4.57.3`
+- `huggingface-hub>=1.0.0` → `huggingface-hub==0.34.0`
+
+The 07/08 commit note explicitly warned: *"VibeVoice and Qwen-TTS use deep transformers internal APIs that may have moved in 5.x. These will need testing and possibly patching when the models are loaded with transformers 5.x installed."* Reverting to 4.57.3 eliminates this latent risk — VibeVoice and Qwen-TTS were never re-tested against 5.x, so going back to the version they were built against is the safe call.
+
+### Not reverted: dac vendoring
+
+The 07/08 commit also vendored `dac` into `src/libs/dac/` and replaced the `dac` + `descript-audio-codec==1.0.0` requirements with `descript-audiotools>=0.7.2`. This was a side-effect of the transformers 5.x conflict (dac pins `typer~=0.15.2`, transformers 5.x needs `typer>=0.26`).
+
+The vendored dac does not depend on transformers, so it works fine with either transformers 4.x or 5.x. Keeping the vendored copy is the less invasive option — re-introducing the PyPI `dac` package would require deleting `src/libs/dac/`, removing the `src/libs/` sys.path addition in `voder.py`, and re-testing every code path that imports from `dac.` (Fish-Speech, Qwen-TTS, AudioSR). That can be a separate follow-up if desired.
+
+### Files
+
+- Modified: `requirements.txt` — reverted `transformers` and `huggingface-hub` to pre-VADAR pinned versions.
+
 ## 07/16/2026
 - Status: Stable, all features work, still developing
 - **VADAR funeral — the agent layer is dead, the salvage ships**
