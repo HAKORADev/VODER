@@ -1,5 +1,12 @@
 CATEGORIES = [
     {
+        'name': 'Media Discovery',
+        'quests': [
+            'download',
+            'media-search',
+        ],
+    },
+    {
         'name': 'Media Manipulation',
         'subcategories': [
             {

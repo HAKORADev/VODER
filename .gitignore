@@ -1,8 +1,2 @@
 __pycache__/
 *.pyc
-src/voders/vadars/sessions/*
-!src/voders/vadars/sessions/.gitkeep
-src/voders/vadars/memories/vadar/*
-!src/voders/vadars/memories/vadar/.gitkeep
-src/voders/vadars/memories/user/*
-!src/voders/vadars/memories/user/.gitkeep

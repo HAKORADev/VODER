@@ -1,7 +1,7 @@
 # VODER Command Catalog
 
-> Complete reference of every oneline command — the 8 main processing modes (TTS, STS, TTM, STT, SE, SFX, SVS, SS), the 3 task-layer features (Voice Training, Side-Quests, Chains), and the VADAR AI agent — with their flags, keywords, and syntax.
-> Modes are sorted by mode order; features follow; VADAR sits on top as a natural-language agent that can call any of them.
+> Complete reference of every oneline command — the 8 main processing modes (TTS, STS, TTM, STT, SE, SFX, SVS, SS) and the 3 task-layer features (Voice Training, Side-Quests, Chains) — with their flags, keywords, and syntax.
+> Modes are sorted by mode order; features follow.
 
 ---
 
@@ -39,12 +39,6 @@ The 3 task-layer features:
 | `quest` | Side-Quests (utility tasks outside the voder engine) |
 | `chains` | Chains (user-defined pipelines of voder oneline tasks) |
 
-The VODER AI agent:
-
-| Agent | Name |
-|-------|------|
-| `vadar` | VADAR (natural-language AI agent — describe a task, VADAR thinks, decides, and runs VODER commands for you) |
-
 ### Quick Jump
 
 | Mode / Feature | Section |
@@ -62,7 +56,6 @@ The VODER AI agent:
 | [8. SS](#8-ss--speakers-separator) | Speaker extraction & separation |
 | [9. quest](#9-quest--side-quests) | Side-quests (utility tasks) grouped into Media Manipulation (convert, cut, remove, merge, mix, silence, reverse, fade, soundlevel, bassboost, speed, pitch, glue, reverb, loudnorm, noframes) plus standalone `download`. |
 | [10. chains](#10-chains--user-defined-pipelines) | Compose multiple voder oneline tasks into a pipeline |
-| [11. vadar](#11-vadar--voder-ai-agent) | Natural-language AI agent that thinks, decides, and runs VODER commands for you |
 | [Input Types](#input-types) | Supported file & URL formats |
 | [Output](#output) | Output directory & naming |
 
@@ -1692,11 +1685,12 @@ python voder.py quest <quest-name> [quest args...] [result "<path>"]
 
 ### Available quests
 
-Side-quests are grouped by category in the `quest` listing (run `python voder.py quest` with no args to see the live tree). `download` stands alone at the top (it's a fetch utility, not a manipulation); the other 17 quests live under the **Media Manipulation** category, split into three sub-categories — **Sound Effects**, **Audio Editing**, and **Format & File**. Categorization is defined externally in `src/voders/quests_categories.py`, not on the quest classes themselves. The grouping is purely organizational — every side-quest is still called by its unique name (`quest <name> ...`), with no prefix.
+Side-quests are grouped by category in the `quest` listing (run `python voder.py quest` with no args to see the live tree). The **Media Discovery** category contains the two fetch utilities (`download` and `media-search`); the **Media Manipulation** category contains the other 17 quests, split into three sub-categories — **Sound Effects**, **Audio Editing**, and **Format & File**. Categorization is defined externally in `src/voders/quests_categories.py`, not on the quest classes themselves. The grouping is purely organizational — every side-quest is still called by its unique name (`quest <name> ...`), with no prefix.
 
 | Quest | Sub-category | Description | Output naming |
 |-------|--------------|-------------|---------------|
-| `download` | — (standalone) | Download a URL as audio (default) or video (`video` keyword). Also accepts local file paths (copies them). | `voder_quest_download_<original-name>_<timestamp>.<ext>` |
+| `download` | Media Discovery | Download a URL as audio (default), video (`video` keyword), or image (`image` keyword). Auto-detects image/video URLs by extension. Also accepts local file paths (copies them). | `voder_quest_download_<original-name>_<timestamp>.<ext>` |
+| `media-search` | Media Discovery | Search media across platforms via yt-dlp (default, video/audio) or gallery-dl (with `image` keyword, images). Multi-platform via slash-separated list. Writes a results list file to `results/downloads/others/`. | `voder_quest_media-search_<engine>_<platforms>_<query>_<timestamp>.txt` |
 | `noframes` | Format & File | Extract audio from a LOCAL VIDEO file. Refuses URLs and audio-only files. | `voder_quest_noframes_<original-name>_<timestamp>.wav` |
 | `convert` | Format & File | Convert a local audio file to any other audio format (40+ formats). Same-format just copies. | `voder_quest_convert_<name>_<timestamp>.<format>` |
 | `compress` | Format & File | Compress an audio file at level 1 (low), 2 (default), or 3 (highest). | `voder_quest_compress_L<level>_<name>_<timestamp>.<ext>` |
@@ -1720,12 +1714,15 @@ Side-quests are grouped by category in the `quest` listing (run `python voder.py
 | Argument | Description |
 |----------|-------------|
 | `video` | (optional) Switch to a full video download instead of audio. |
+| `image` | (optional) Switch to an image download via gallery-dl. |
 | `"<url>"` or `"<path>"` | A URL from any supported platform (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter) or a local file path. |
 | `result "<path>"` | (optional) Copy the result to a custom path. |
 
 **Behavior:**
 
 - URL input: downloads via yt-dlp (audio/video) or gallery-dl (images). Audio path uses `download_url_audio` (MP3 @ 192 kbps); video path uses `download_url_video` (MP4, best quality); image path uses `download_url_image` (gallery-dl, original format). The URL is verified by the universal URL handler before downloading. Downloads that fail without cookies are automatically retried with Chrome → Brave → Edge cookies.
+- **Auto-detection**: when no `video`/`image` keyword is given and the URL ends in a known image extension (`.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.bmp`, `.tiff`, `.svg`) it is auto-routed to the image path; URLs ending in a known video extension (`.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`, `.flv`, `.m4v`, `.wmv`, `.ts`, `.mts`, `.3gp`) are auto-routed to the video path. This covers direct file links (e.g., `https://example.com/poster.jpg`) where the format is in the URL.
+- For URLs without a recognizable extension (most social-media URLs — Instagram posts, Reddit posts, etc.), the default audio path is attempted; if it fails, the error message suggests the right keyword to use (`image` or `video`).
 - Local file input: copies the file to `results/downloads/<type>/` with the quest naming scheme (no re-encoding).
 - The `<original-name>` is derived from the platform video ID (for URLs — e.g. YouTube video ID, TikTok video ID, Bilibili BV id, Instagram reel id, Facebook video id, Twitter status id, Reddit post id) or the file's stem (for local files), sanitized to safe filename characters and capped at 40–60 characters.
 - Supported platforms: YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter, Reddit. Experimental `public_net` support for other sites (attempted via yt-dlp/gallery-dl with a warning — works if the tool supports the site, but untested).
@@ -1741,6 +1738,12 @@ python voder.py quest download video "https://youtube.com/watch?v=..."
 # Download an image (or image gallery) from Reddit/Instagram/X/etc.
 python voder.py quest download image "https://reddit.com/r/.../comments/..."
 
+# Direct image URL — auto-detected, no keyword needed
+python voder.py quest download "https://example.com/poster.jpg"
+
+# Direct video URL — auto-detected, no keyword needed
+python voder.py quest download "https://example.com/clip.mp4"
+
 # Copy a local file to results/downloads/ with the quest naming scheme
 python voder.py quest download "/path/to/local.wav"
 python voder.py quest download "/path/to/local.mp4"
@@ -1751,7 +1754,62 @@ python voder.py quest download video "https://youtube.com/watch?v=..." result ".
 python voder.py quest download image "https://reddit.com/..." result "./out.jpg"
 ```
 
-### 9.2 `noframes`
+### 9.2 `media-search`
+
+| Argument | Description |
+|----------|-------------|
+| `image` | (optional, first position) Switch the search engine from yt-dlp (default — video/audio platforms) to gallery-dl (image platforms). |
+| `<platform(s)>` | One platform name, or multiple platform names separated by `/` (e.g., `youtube`, `youtube/reddit`, `pixiv/danbooru/gelbooru`). Platform names use letters, digits, hyphen, underscore only. Unknown names are treated as `public_net` best-effort (yt-dlp or gallery-dl will try to scrape `https://<platform>.com/search?q=<query>`). |
+| `"<query>"` | The search query. Quote it if it contains spaces. |
+| `<count>` | (optional) Maximum results per platform. Integer 1–100. Default 20. Out-of-range or non-integer values error out. |
+| `result "<path>"` | (optional) Copy the results list file to a custom path. |
+
+**Behavior:**
+
+- Engine selection:
+  - **yt-dlp** (default, no `image` keyword): searches video/audio platforms. For YouTube/Reddit/Bilibili it uses native yt-dlp search prefixes (`ytsearch{N}:`, `redditsearch{N}:`, `bilisearch{N}:`). For TikTok/Snapchat/Instagram/Facebook/X it builds the platform's search URL and lets yt-dlp scrape it. For unknown platform names, it builds `https://<platform>.com/search?q=<query>` and attempts a public_net scrape.
+  - **gallery-dl** (`image` keyword): searches image platforms by building the platform's tag/search URL (e.g., `instagram.com/explore/tags/<tag>/`, `pixiv.net/en/tags/<tag>/artworks`, `danbooru.donmai.us/posts?tags=<tag>`, `tumblr.com/search/<query>`, `wallhaven.cc/search?q=<query>`, etc.) and running `gallery-dl -j --simulate` to dump JSON metadata without downloading the images.
+- Multi-platform: when `<platform(s)>` contains slashes, the search is run **per platform**, with `<count>` applied as the per-platform cap. Duplicates are removed. Results from all platforms are combined into a single list file.
+- Cookies retry: if a search returns no results or fails with a login/auth error, it is retried with Chrome → Brave → Edge cookies (same mechanism as `quest download`). This is genuinely useful for login-walled content (Instagram hashtag search, Pixiv tag search for some content, etc.).
+- Output: a single text list file at `results/downloads/others/voder_quest_media-search_<engine>_<platforms>_<query>_<timestamp>.txt` containing per-platform summary + entry details (title, URL, extractor, type, duration/dimensions).
+- **No results = no file**: if every platform returns zero results, no list file is created. A per-platform summary is printed to the terminal so the user can see which platforms failed and why.
+
+**Supported yt-dlp platforms** (built-in search): `youtube`, `reddit`, `bilibili`, `tiktok`, `snapchat`, `instagram`, `facebook`, `twitter`/`x`. Any other name is attempted as `public_net`.
+
+**Supported gallery-dl platforms** (built-in search URL): `instagram`, `pixiv`, `danbooru`, `gelbooru`, `yandere`, `konachan`, `reddit`, `twitter`/`x`, `flickr`, `pinterest`, `artstation`, `deviantart`, `tumblr`, `wallhaven`, `unsplash`, `behance`, `500px`, `imgur`, `vk`, `weibo`. Any other name is attempted as `public_net`.
+
+```
+# Search YouTube for 10 lofi tracks (yt-dlp, default engine)
+python voder.py quest media-search youtube "lofi study mix" 10
+
+# Search Instagram for cyberpunk art images (gallery-dl, image keyword)
+python voder.py quest media-search image instagram "cyberpunk art" 15
+
+# Search YouTube AND Reddit in one go (5 results each = up to 10 total)
+python voder.py quest media-search youtube/reddit "asmr cooking" 5
+
+# Search 3 image platforms at once (50 results each)
+python voder.py quest media-search image pixiv/danbooru/gelbooru "blue hair" 50
+
+# Default count is 20 if no number is given
+python voder.py quest media-search youtube "lofi beats"
+
+# Unknown platform name — tried as public_net (best-effort)
+python voder.py quest media-search somesite "interesting query" 10
+
+# Save the results list to a custom path
+python voder.py quest media-search youtube "news" 20 result "./results.txt"
+
+# Errors:
+# python voder.py quest media-search youtube "q" 0       # ERROR: count must be 1-100
+# python voder.py quest media-search youtube "q" 101     # ERROR: count must be 1-100
+# python voder.py quest media-search youtube "q" abc     # ERROR: invalid count
+# python voder.py quest media-search youtube$bad "q"     # ERROR: invalid platform name
+```
+
+**Pair with `quest download`:** once you have a URL from the results list file, fetch it with `quest download "<url>"` (audio), `quest download video "<url>"` (video), or `quest download image "<url>"` (image).
+
+### 9.3 `noframes`
 
 | Argument | Description |
 |----------|-------------|
@@ -1778,7 +1836,7 @@ python voder.py quest noframes "video.mp4" result "./out.wav"
 # python voder.py quest noframes "audio.wav"                          # ERROR: refuses non-video files
 ```
 
-### 9.3 `convert`
+### 9.4 `convert`
 
 | Argument | Description |
 |----------|-------------|
@@ -1816,7 +1874,7 @@ python voder.py quest convert MP3 "song.wav"
 python voder.py quest convert .flac "song.wav"
 ```
 
-### 9.4 `compress`
+### 9.5 `compress`
 
 | Argument | Description |
 |----------|-------------|
@@ -1847,7 +1905,7 @@ python voder.py quest compress 3 "song.mp3"
 python voder.py quest compress 2 "song.wav" result "./out.wav"
 ```
 
-### 9.5 `cut`
+### 9.6 `cut`
 
 | Argument | Description |
 |----------|-------------|
@@ -1880,7 +1938,7 @@ python voder.py quest cut 10-30 "song.wav" result "./clip.wav"
 # python voder.py quest cut abc-5 "song.wav"   # ERROR: not a valid range
 ```
 
-### 9.6 `remove`
+### 9.7 `remove`
 
 | Argument | Description |
 |----------|-------------|
@@ -1928,7 +1986,7 @@ python voder.py quest remove "10-20" "song.wav" result "./trimmed.wav"
 # python voder.py quest remove "0-100000" "clip.wav"  # If all ranges cover the entire file -> ERROR: nothing would remain
 ```
 
-### 9.7 `merge`
+### 9.8 `merge`
 
 | Argument | Description |
 |----------|-------------|
@@ -2005,7 +2063,7 @@ python voder.py quest mix "song.wav" 20 "vocals.wav" result "./mashup.wav"
 # python voder.py quest mix "song.wav" hello "vocals.wav"    # ERROR: 'hello' is not a number and not a recognized source
 ```
 
-### 9.8 `silence`
+### 9.9 `silence`
 
 | Argument | Description |
 |----------|-------------|
@@ -2039,7 +2097,7 @@ python voder.py quest silence "podcast.wav" result "./tight.wav"
 # python voder.py quest silence "in.wav" 95    # ERROR: threshold must be 10-90
 ```
 
-### 9.9 `reverse`
+### 9.10 `reverse`
 
 | Argument | Description |
 |----------|-------------|
@@ -2064,7 +2122,7 @@ python voder.py quest reverse "clip.mp4"
 python voder.py quest reverse "song.wav" result "./backwards.wav"
 ```
 
-### 9.10 `fade`
+### 9.11 `fade`
 
 | Argument | Description |
 |----------|-------------|
@@ -2097,7 +2155,7 @@ python voder.py quest fade "song.wav" 5 result "./cinematic.wav"
 # python voder.py quest fade "song.wav" 100   # ERROR: fade duration must be 0.5-60s
 ```
 
-### 9.11 `soundlevel`
+### 9.12 `soundlevel`
 
 | Argument | Description |
 |----------|-------------|
@@ -2140,7 +2198,7 @@ python voder.py quest soundlevel 2.00 "song.wav" result "./louder.wav"
 # python voder.py quest soundlevel abc "song.wav"    # ERROR: must be a number
 ```
 
-### 9.12 `bassboost`
+### 9.13 `bassboost`
 
 | Argument | Description |
 |----------|-------------|
@@ -2184,7 +2242,7 @@ python voder.py quest bassboost 50 "song.wav" result "./bass.wav"
 # python voder.py quest bassboost abc "song.wav" # ERROR: must be an integer
 ```
 
-### 9.13 `speed`
+### 9.14 `speed`
 
 | Argument | Description |
 |----------|-------------|
@@ -2222,7 +2280,7 @@ python voder.py quest speed 2.00 "song.wav" result "./slowed.wav"
 # python voder.py quest speed 2.00 "video.mp4"   # ERROR: audio files only
 ```
 
-### 9.14 `pitch`
+### 9.15 `pitch`
 
 | Argument | Description |
 |----------|-------------|
@@ -2274,7 +2332,7 @@ python voder.py quest pitch 0.50 "voice.wav" result "./demon.wav"
 # python voder.py quest pitch abc "voice.wav"   # ERROR: must be a number
 ```
 
-### 9.15 `glue`
+### 9.16 `glue`
 
 | Argument | Description |
 |----------|-------------|
@@ -2320,7 +2378,7 @@ python voder.py quest glue "audio.wav" "video.mp4" result "./final.mp4"
 # python voder.py quest glue "only_one.wav"                         # ERROR: needs two arguments
 ```
 
-### 9.16 `reverb`
+### 9.17 `reverb`
 
 | Argument | Description |
 |----------|-------------|
@@ -2395,7 +2453,7 @@ python voder.py chains \
 # python voder.py quest reverb 50                # ERROR: needs an input
 ```
 
-### 9.17 `loudnorm`
+### 9.18 `loudnorm`
 
 | Argument | Description |
 |----------|-------------|
@@ -2753,179 +2811,6 @@ Run `python voder.py cli` and choose `9. Prebuilt Chains` for a guided UX:
 - **Progress tracker**: shows `Prebuilt X/Y (name) — Step N/M (step-name) — <type>` plus `Input K/L for step 'name' — overall P/Q (NN%)`.
 - **Execution**: after all inputs are gathered, prints "Press Enter to start execution" and runs each step. On mid-run error, prints `Something went further than expected.` with the error message (max 500 chars) and the chain/step where it failed.
 - **Verification up front**: before asking for any inputs, the runner verifies the `.chain` file. If verification fails, lists all errors and aborts without prompting for inputs.
-
----
-
-## 11. `vadar` — VODER AI Agent
-
-> **Note:** `vadar` is the VODER agent. You talk to it in natural language; it thinks, decides, replies, and acts — running VODER oneline commands on your behalf. No network access, no system shell — VADAR can only run VODER commands and read files inside the VODER project directory (plus paths the user provides).
-
-VADAR comes in two twins:
-
-- **Lite VADAR** (default: `vadar`) — uses SuperGemma 4 12B GGUF Q4_K_M via Ollama. Runs on 16GB RAM / 4 CPU cores / any T4 GPU. Text-only — no `look`/`listen`/`watch` tools. Model-level chain-of-thought enabled. ~7GB model.
-- **Heavy VADAR** (overdose: `overdose vadar`) — uses Gemma 4 12B abliterated uncensored via transformers+torch. Multimodal — `look`/`listen`/`watch` tools active. Requires 80GB+ RAM/VRAM. ~24GB model.
-
-Both twins share the same agent architecture: tags (`<thinking>`, `<decide>`, `<reply>`, `<act>`, `<tool_call>`), the VODER brotherhood (Eval, Summarizer, Catcher), session logging, persistent memories, and configurable personality.
-
-### Syntax
-
-```
-# Lite VADAR (default — runs on 16GB RAM)
-python voder.py vadar "<natural-language request>" [result "<path>"]
-
-# Heavy VADAR (overdose — multimodal, requires 80GB+ RAM/VRAM)
-python voder.py overdose vadar "<natural-language request>" [result "<path>"]
-```
-
-- The first argument (after `vadar` or `overdose vadar`) is the entire natural-language prompt. Quote it so the shell passes it as a single argument.
-- `result "<path>"` is optional — VADAR runs its acts in `results/` like any other oneline task; the `result` keyword copies the final output to a custom path.
-
-### Interactive CLI — option 10
-
-```
-python voder.py cli
-```
-
-Then choose `10. VADAR (AI agent — talk naturally, it decides what to run)`. You will be prompted: "Use overdose VADAR (heavy, multimodal, requires 80GB+ RAM/VRAM)? [y/N]". Default is lite (N).
-
-- Interactive mode opens a multi-turn chat session. Type `exit` or `quit` to end it.
-- The session runs until you exit; VADAR maintains context across turns (with a sliding context window — see below).
-- Each session is logged under `src/voders/vadars/sessions/<timestamp>_interactive/` (see Session management below).
-
-### Examples
-
-```
-# Lite VADAR — single natural-language request
-python voder.py vadar "Generate a 30-second upbeat pop song about rain, then isolate its vocals"
-python voder.py vadar "Download this YouTube video's audio and transcribe it with timestamps: https://youtube.com/watch?v=..."
-python voder.py vadar "Make a slowed+reverb version of song.wav with extra bass"
-python voder.py vadar "Read the README and tell me what VODER can do" result "./vader_summary.txt"
-
-# Heavy VADAR (overdose) — multimodal tasks
-python voder.py overdose vadar "Look at this meme image and generate a fitting sound effect" result "./sfx.wav"
-python voder.py overdose vadar "Listen to this audio clip and tell me if the quality is good enough for TTS training"
-# [You]: Generate a song about the ocean, then make a 2x louder version of it
-# [VADAR]: ...
-```
-
-### Tools
-
-VADAR has the following tools. It emits structured tool calls in its response, and VODER runs them and feeds the results back into VADAR's context.
-
-| Tool | Syntax | Description |
-|------|--------|-------------|
-| `look` | `look <path\|url>` | Analyze an image file. Returns a description of what VADAR sees. |
-| `listen` | `listen <path\|url> [start-end]` | Analyze audio. Without a range, returns the total length + a summary. With an `HH:MM:SS-HH:MM:SS` range, listens to that segment. |
-| `watch` | `watch <path\|url> [start-end]` | Analyze video. Same semantics as `listen`. |
-| `read` | `read <path\|act_title> [start-end]` | Read text or a previous act's output. Without a range, returns the total line count + the first 100 lines. With a `start-end` line range, returns those lines. |
-| `list` | `list [type] [path]` | List files. Type can be: `videos`, `images`, `audios`, `texts`, `others`, `all`, or `.extension`. Without a type, shows counts by category. |
-| `search` | `search <query> path <path> [formats <fmt1,fmt2,...>]` | Search for files containing the query in their name, scoped to a path. |
-| `memory_read` | `memory_read <vadar\|user> <id>` | Read a memory file (VADAR's own or the user's). |
-| `memory_write` | `memory_write <vadar\|user> <content>` | Create a new memory file. |
-| `memory_edit` | `memory_edit <vadar\|user> <id> <content>` | Edit an existing memory file. |
-| `memory_delete` | `memory_delete <vadar\|user> <id>` | Delete a memory file (must have read it first). |
-| `calculate` | `calculate <code>` | Run Python code using supported libraries (default: `math` only — extendable via `src/voders/vadars/supported_libs.txt`). |
-
-### Acts
-
-An **act** is a VODER oneline command VADAR runs. Each act has a unique title in the session. VADAR emits acts like:
-
-```
-act <title> <voder oneline command>
-```
-
-The command runs (e.g., `ttm lyrics "..." styling "pop" 30`), and VADAR can read its output using the `read` tool with the act title. Acts are how VADAR actually gets things done — every mode, side-quest, and chain is reachable as an act.
-
-### Agent Loop
-
-For each user request, VADAR follows this loop (it can iterate multiple times for complex tasks):
-
-1. **THINK** — reason about what the user wants and what it should do.
-2. **DECIDE** — choose a plan of action.
-3. **REPLY** — communicate with the user (what it will do, or ask for clarification).
-4. **ACT** — run VODER commands (zero or more).
-5. **EVAL** — evaluate whether the act succeeded.
-6. **REPLY** — report the result to the user.
-
-VADAR emits special EOS tokens to signal state transitions: `<EOS_REPLY>` ends a reply (the user can then respond), `<EOS_ACT>` signals that an act command should be executed, and `<EOS_DONE>` signals the task is completely finished.
-
-### Session management
-
-Each VADAR invocation creates a session directory under `src/voders/vadars/sessions/<timestamp>_<type>/` (where `<type>` is `oneline` or `interactive`). The session contains:
-
-| File | Contents |
-|------|----------|
-| `inputs.txt` | Every user input, timestamped. |
-| `outputs.txt` | Every VADAR reply, timestamped. |
-| `acts.txt` | Every act VADAR ran — title, command, success/failure, and the last 20 lines of output. |
-| `log.txt` | Chronological log of every message (system, user, assistant, tool) — the full transcript. |
-| `context.txt` | The current sliding-context-window snapshot (system prompt + retained messages). |
-
-### Memory
-
-VADAR has two memory stores, both stored as plain `.txt` files:
-
-- `src/voders/vadars/memories/vadar/` — VADAR's own memories (things it wants to remember about the user, the project, past sessions). Use `memory_write vadar "<...>"` to create a new one.
-- `src/voders/vadars/memories/user/` — Memories about the user (preferences, recurring requests). Use `memory_write user "<...>"` to create a new one.
-
-Each memory file is numbered (`1.txt`, `2.txt`, …). VADAR can read, edit, and delete them with the `memory_read` / `memory_edit` / `memory_delete` tools.
-
-### Personality
-
-VADAR's personality is defined in `src/voders/vadars/about/`, all written in the first person ("I"):
-
-| File | Default | Contents |
-|------|---------|----------|
-| `personality.md` | shipped with content | VADAR's core personality — direct, honest, no corporate language, loves audio. |
-| `custom-vadar.md` | **empty (0 bytes)** | User-customizable VADAR traits. You write your own content here (e.g., "I am supportive and funny"). |
-| `user.md` | **empty (0 bytes)** | About the user. You write your own content here (e.g., "my name is John") so VADAR knows who it's talking to. |
-| `how-to-respond.md` | shipped with content | Response-style guide (length, language, tone, thinking, acting, admitting limits, multi-reply, silence, refusing, personality stability). |
-
-These files are loaded into the system prompt at the start of every session.
-
-### Config
-
-| File | Default | Purpose |
-|------|---------|---------|
-| `src/voders/vadars/config.json (ping_time field)` | `15` (seconds) | How long VADAR waits before it can be "pinged" to check in on a silent user. |
-| `src/voders/vadars/supported_libs.txt` | `math` | Whitelist of Python libraries the `calculate` tool can import. One library per line. |
-
-### Brotherhood
-
-VADAR is part of the VODER brotherhood:
-
-- **VADAR** (me): the main agent. Thinks, decides, replies, and acts.
-- **Eval**: VADAR's brother who evaluates its plans and results — checks whether the plan is correct before VADAR replies, and whether the act succeeded after VADAR acts.
-- **Summarizer**: VADAR's brother who condenses long outputs into summaries VADAR can work with.
-
-They share the same context and work together.
-
-### Dynamic system prompt
-
-VADAR's system prompt is rebuilt at the start of every session. It includes:
-
-- Current timestamp and last-seen time (how long since VADAR last talked to the user).
-- OS specs, Python version, CPU cores/threads, RAM, GPU + VRAM (via `psutil` and `torch`).
-- Top locale languages.
-- The full VODER command catalog (every mode, side-quest, and chain) so VADAR knows what it can call.
-- The personality files from `src/voders/vadars/about/`.
-- The constraints: no network access, no system shell, only VODER project paths + user-provided paths. Knowledge cutoff is approximately mid-2025.
-
-### Sliding context window
-
-VADAR keeps a context window of ~8192 tokens. When the context fills up, it slides — the oldest non-system messages are dropped (first 5%), and the most recent 95% is retained. The system prompt is always preserved. This lets VADAR maintain a coherent conversation without unbounded memory growth.
-
-### Model setup
-
-VADAR requires the Gemma 4 12B model (abliterated uncensored variant) from `OpenYourMind/gemma-4-12B-it-abliterated-uncensored` on HuggingFace. The model files (`.safetensors` weights, config, tokenizer, processor) go in `src/models/checkpoints/vadar/`. Dependencies — `torch`, `transformers`, `psutil`, `huggingface_hub` — are already in `requirements.txt`, so no extra pip install is needed.
-
-**Download the model with one command** (downloads ~24GB via `huggingface_hub.snapshot_download`):
-
-```bash
-python voder.py vadar "hello"
-```
-
-The model loading / downloading / caching logic lives in `src/voder.py` (not in the VADAR package). Without the model files in place, `vadar` prints setup instructions (mentioning the automatic download command) and exits. See [READ.md](READ.md) for full setup details.
 
 ---
 

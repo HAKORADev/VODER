@@ -91,10 +91,6 @@ asteroid-filterbanks>=0.4.0
 yt-dlp>=2026.3.17
 gallery-dl>=1.27.0
 
-# VADAR Lite (GGUF model via Ollama)
-# Requires Ollama installed on system — run: python setup.py
-ollama>=0.4.0
-
 # OCR for image text extraction
 easyocr>=1.7.0
 

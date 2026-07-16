@@ -4,9 +4,20 @@ import shutil
 from voders.sidequests import SideQuest, _register_side_quest
 
 
+_IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.svg'}
+_VIDEO_EXTS = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.m4v', '.wmv', '.ts', '.mts', '.3gp'}
+
+
+def _url_extension(url):
+    if not url:
+        return ''
+    cleaned = url.split('?')[0].split('#')[0]
+    return os.path.splitext(cleaned)[1].lower()
+
+
 class Quest(SideQuest):
     name = 'download'
-    description = 'Download a URL as audio (default), video (with video keyword), or image (with image keyword). Supports YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter, Reddit. Experimental public_net support for other sites. Cookies retry (Chrome/Brave/Edge) on failure.'
+    description = 'Download a URL as audio (default), video (with video keyword), or image (with image keyword). Supports YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter, Reddit. Experimental public_net support for other sites. Auto-detects image/video URLs by extension. Cookies retry (Chrome/Brave/Edge) on failure.'
 
     def parse(self, args):
         from voder import is_supported_url
@@ -46,6 +57,14 @@ class Quest(SideQuest):
         url = parsed['url']
         want_video = parsed['want_video']
         want_image = parsed['want_image']
+        if not want_video and not want_image and (url.startswith('http://') or url.startswith('https://')):
+            ext = _url_extension(url)
+            if ext in _IMAGE_EXTS:
+                print(f"Auto-detected image URL (extension '{ext}') — routing to image download.")
+                want_image = True
+            elif ext in _VIDEO_EXTS:
+                print(f"Auto-detected video URL (extension '{ext}') — routing to video download.")
+                want_video = True
         downloads_dir = os.path.join(results_dir, 'downloads')
         os.makedirs(downloads_dir, exist_ok=True)
         original_name = self._derive_name(url)
@@ -57,6 +76,7 @@ class Quest(SideQuest):
                 downloaded, err = download_url_image(url, temp_dir=images_dir)
                 if downloaded is None:
                     print(f"Error: {err}")
+                    print(f"Hint: this URL did not resolve as an image. Try 'quest download \"{url}\"' for audio or 'quest download video \"{url}\"' for video.")
                     return False
                 ext = os.path.splitext(downloaded)[1] or '.jpg'
                 out_name = f"voder_quest_download_{original_name}_{timestamp}{ext}"
@@ -82,6 +102,7 @@ class Quest(SideQuest):
                 is_vid, verify_err, _pid = is_video_url(url, verify=True)
                 if not is_vid:
                     print(f"Error: {verify_err or 'This link is not a video'}")
+                    print(f"Hint: try 'quest download image \"{url}\"' if this is an image, or 'quest download \"{url}\"' for audio.")
                     return False
                 downloaded, info_or_err = download_url_video(url)
                 if downloaded is None:
@@ -109,10 +130,12 @@ class Quest(SideQuest):
                 is_vid, verify_err, _pid = is_video_url(url, verify=True)
                 if not is_vid:
                     print(f"Error: {verify_err or 'This link is not a video'}")
+                    print(f"Hint: this URL was not recognized as a video. Try 'quest download image \"{url}\"' if it is an image, or 'quest download video \"{url}\"' to force video.")
                     return False
                 ok, err, audio_path = download_url_audio(url, skip_verify=True)
                 if not ok:
                     print(f"Error: {err}")
+                    print(f"Hint: this URL did not resolve as audio/video. Try 'quest download image \"{url}\"' if it is an image.")
                     return False
                 ext = os.path.splitext(audio_path)[1] or '.mp3'
                 out_name = f"voder_quest_download_{original_name}_{timestamp}{ext}"

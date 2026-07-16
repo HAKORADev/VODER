@@ -4,6 +4,111 @@
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 - If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
+## 07/16/2026
+- Status: Stable, all features work, still developing
+- **VADAR funeral — the agent layer is dead, the salvage ships**
+
+### VADAR funeral
+
+After 9 rounds of deep gap analysis and the VADAR twins (heavy/lite) build, an honest cost/benefit review concluded that the VODER brotherhood (VADAR + Eval + Summarizer + Catcher) was over-engineered for what it delivered. Most of its machinery existed to support itself, not to serve real VODER users. The decision: kill the agent layer entirely, salvage the few pieces that had standalone value as plain VODER features.
+
+This entry does both: it ships the salvage (`quest media-search` + `quest download` improvements) AND removes the entire agent system in a single commit.
+
+### VADAR brotherhood removed
+
+The entire VODER agent system has been deleted. Everything below is gone:
+
+- **`src/voders/vadars/` folder** — deleted entirely. This contained `vadar.py` (main agent loop), `eval.py` (Eval brother), `summarizer.py` (Summarizer brother), `catcher.py` (Catcher brother), `system_prompt.py`, `context.py`, `stream_parser.py`, `tools/` (validator + 22 tool implementations), `config.json`, `about/` (personality/roleplay/user/how-to-respond markdown files), `supported_libs.txt`, `sessions/` (runtime), `memories/` (runtime), `ping-time.txt`, and `global_context.txt`.
+- **`voder.py`** — removed:
+  - All VADAR constants and config (`HEAVY_VADAR_MODEL_DIR`, `LITE_VADAR_MODEL_DIR`, `VADAR_CONFIG_PATH`, `_VADAR_CONFIG_DEFAULTS`, `_VADAR_CONFIG`, `vadar_load_config`)
+  - All VADAR model functions: `vadar_load_model`, `vadar_run_inference`, `vadar_run_inference_streamed`, `lite_vadar_load_model`, `lite_vadar_run_inference`, `lite_vadar_run_inference_streamed`, `vadar_check_model_downloaded`, `lite_vadar_check_model_downloaded`, `_calculate_dynamic_context`, `_ensure_ollama_running`, `_ollama_model_exists`, `_parse_lite_thinking`
+  - The `vadar` mode in oneline arg parsing (and the `overdose vadar` routing)
+  - The `vadar` mode in `valid_modes` list
+  - The `vadar` line in `show_oneline_usage()`
+  - The `elif mode == 'vadar'` dispatch branch in `parse_and_execute_oneline`
+  - The `if mode != 'vadar'` guard around `organize_results()`
+  - ~510 lines of code removed in total from `voder.py`
+- **`src/voders/interactiveCLI/__init__.py`** — removed mode 10 (`_cli_vadar_mode` function, dispatch table entry, menu print line, input prompt `1-10` → `1-9`, invalid-choice message). Interactive CLI menu is now 1–9 (TTS, STS, TTM, SE, SFX, SVS, STT, SS, Chains).
+- **`setup.py`** — removed `install_ollama()` and `ensure_ollama_running()` functions, removed the Ollama install step, removed Ollama verification, removed the VADAR quick-start examples. Step count went from 5 to 4.
+- **`requirements.txt`** — removed `ollama>=0.4.0` (was VADAR-only).
+- **`.gitignore`** — removed the `src/voders/vadars/sessions/*` and `src/voders/vadars/memories/*` rules (folder no longer exists).
+
+**Dependencies kept (still used by other features):**
+- `transformers>=5.0.0` — used by Whisper STT, Qwen TTS, other pipelines
+- `torch==2.8.0` — pervasive across the codebase
+- `gallery-dl>=1.27.0` — used by `quest download image` and `quest media-search`
+- `yt-dlp>=2026.3.17` — used by `quest download` and `quest media-search`
+
+### Documentation cleaned
+
+All VADAR/brotherhood references removed from the non-historical docs. The historical CHANGELOG entries (07/07 "VADAR — a new warrior" and the salvage note above) are preserved as the historical record.
+
+- `README.md` — removed VADAR feature bullet, VADAR sub-section, Ollama install line, VADAR quick-start examples, VADAR rows in tasks/models tables (~39 lines)
+- `docs/COMMAND_CATALOG.md` — removed the entire `## 11. vadar` section (~170 lines) plus VADAR mentions in the intro and overview
+- `docs/READ.md` — removed VADAR model setup section, VADAR TOC entry, the entire `## VADAR (vadar) — the natural-language agent` section, VADAR bullets in features/AI-integration lists (~100 lines)
+- `docs/voder-skill.md` — removed the entire `## 2.11 VADAR` section (~94 lines) plus VADAR mentions in the overview
+- `docs/Bots.md` — removed the entire `## VADAR — Your New Friend` section (~87 lines) plus the TOC entry and feature bullet
+- `docs/Guide.md` — removed the entire `### VADAR (vadar)` sub-section (~178 lines), the entire `## VADAR Brotherhood — System Requirements & Status` section (~68 lines), in-flow VADAR mentions (~250 lines total)
+- `docs/FAQ.md` — already VADAR-free, no change
+- `docs/Languages.md` — already VADAR-free (the "Evaluated" match was a false positive), no change
+
+### New side-quest: `quest media-search`
+
+A new side-quest for searching media across platforms — the only VADAR tool that had real standalone value. It replaces the agent-only `search_media` internal tool with a proper VODER side-quest that any user can call.
+
+**Syntax:**
+
+```
+python voder.py quest media-search [image] <platform(s)> "<query>" [count] [result "<path>"]
+```
+
+- **Engine selection**:
+  - No `image` keyword → **yt-dlp** search (video/audio platforms: YouTube, Reddit, Bilibili, TikTok, Snapchat, Instagram, Facebook, X/Twitter; unknown names attempted as `public_net`).
+  - `image` keyword → **gallery-dl** search (image platforms: Instagram, Pixiv, Danbooru, Gelbooru, Yandere, Konachan, Reddit, Twitter/X, Flickr, Pinterest, ArtStation, DeviantArt, Tumblr, Wallhaven, Unsplash, Behance, 500px, Imgur, VK, Weibo; unknown names attempted as `public_net`).
+- **Multi-platform**: separate platforms with `/` (e.g., `youtube/reddit`, `pixiv/danbooru/gelbooru`). The search runs **per platform**, with `<count>` applied as the per-platform cap. Results from all platforms are combined into a single list file. Duplicates are removed.
+- **Count**: integer 1–100, default 20. Out-of-range or non-integer values error out. This is a per-platform cap, not a guarantee — if a platform returns fewer results, you get fewer.
+- **Cookies retry**: yt-dlp and gallery-dl searches that fail or return nothing are automatically retried with Chrome → Brave → Edge cookies (same mechanism as `quest download`). Useful for login-walled search pages (Instagram hashtag search, some Pixiv tag content, etc.).
+- **No results = no file**: if every platform returns zero results, no list file is created. A per-platform summary is printed to the terminal so the user can see which platforms failed and why.
+- **Output**: `results/downloads/others/voder_quest_media-search_<engine>_<platforms>_<query>_<timestamp>.txt` — header with metadata + per-platform summary + per-entry details (title, URL, extractor/platform, type, duration/dimensions).
+
+**Pair with `quest download`**: the list file contains URLs ready to be fetched with `quest download "<url>"` (audio), `quest download video "<url>"` (video), or `quest download image "<url>"` (image).
+
+### `quest download` improvements
+
+- **URL extension auto-detection**: when no `video`/`image` keyword is given and the URL ends in a known image extension (`.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.bmp`, `.tiff`, `.svg`), the URL is auto-routed to the image path. URLs ending in a known video extension (`.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`, `.flv`, `.m4v`, `.wmv`, `.ts`, `.mts`, `.3gp`) are auto-routed to the video path. Covers direct file links where the format is in the URL — no need to remember the keyword.
+- **Helpful error messages on ambiguity**: when a URL without a clear extension fails the default audio path, the error message now suggests the right keyword to use (`image` or `video`). Same for video path failures — it suggests `image` or plain (audio). This addresses the `public_net` side-effect where the URL might not contain the file format and the user doesn't know which keyword to use.
+
+### Side-quest categorization
+
+Side-quests are now organized into two top-level categories (defined in `src/voders/quests_categories.py`):
+
+- **Media Discovery** — `download`, `media-search` (the fetch utilities)
+- **Media Manipulation** — the other 17 quests, split into **Sound Effects**, **Audio Editing**, **Format & File** (unchanged)
+
+Previously `download` stood alone at the top of the listing as "standalone"; now it has a sibling. The new category is purely organizational — every side-quest is still called by its unique name (`quest <name> ...`), with no prefix.
+
+### Documentation
+
+- `docs/COMMAND_CATALOG.md`:
+  - New section **9.2 `media-search`** with full syntax, behavior, supported platforms list, and examples (renumbered 9.2–9.17 → 9.3–9.18 to make room).
+  - Updated section **9.1 `download`** with the new `image` keyword row in the argument table, the auto-detection behavior, and examples for direct image/video URLs.
+  - Updated the side-quests overview table to show the new `Media Discovery` category and the auto-detection note in `download`'s description.
+  - Public-net download support was already documented (line 1731) — no change needed there.
+
+### Files
+
+- New: `src/voders/quests/media_search.py` — the new side-quest implementation (no in-code comments).
+- Modified: `src/voders/quests/download.py` — added URL extension auto-detection + helpful error messages (no in-code comments).
+- Modified: `src/voders/quests_categories.py` — new `Media Discovery` top-level category.
+- Modified: `docs/COMMAND_CATALOG.md` — new section 9.2, updated section 9.1, renumbered 9.3–9.18, updated overview table.
+- Modified: `setup.py` — removed Ollama install/verify steps, removed VADAR quick-start examples.
+- Modified: `requirements.txt` — removed `ollama>=0.4.0`.
+- Modified: `.gitignore` — removed VADAR-specific ignore rules.
+- Modified: `src/voders/interactiveCLI/__init__.py` — removed mode 10 (VADAR), menu now 1–9.
+- Modified: `src/voder.py` — removed all VADAR constants, config, model functions, oneline mode parsing, dispatch branch (~510 lines removed).
+- Modified: `README.md`, `docs/COMMAND_CATALOG.md`, `docs/READ.md`, `docs/voder-skill.md`, `docs/Bots.md`, `docs/Guide.md` — removed all VADAR/brotherhood references.
+- Deleted: `src/voders/vadars/` — entire folder (vadar.py, eval.py, summarizer.py, catcher.py, system_prompt.py, context.py, stream_parser.py, tools/, config.json, about/, supported_libs.txt, and runtime folders).
+
 ## 07/10/2026
 - Status: Stable, all features work, still developing
 - **VADAR twins wins — Ollama-powered lite VADAR + setup.py installer**
