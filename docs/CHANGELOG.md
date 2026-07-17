@@ -94,12 +94,12 @@ The `result` keyword now supports bare names (no quotes, no path) for in-place n
 
 | Syntax | Behavior |
 |--------|----------|
-| `result file-name` | Copy latest output to `results/file-name.<real_ext>` — extension auto-appended |
+| `result file-name` | Copy latest output to `results/file-name` — **literal, no extension** (file saved with exactly the name given) |
 | `result file-name.mp3` | Copy to `results/file-name.mp3` — extension as written (no conversion) |
-| `result file-name.auto` | Copy to `results/file-name.<real_ext>` — `.auto` replaced with real extension |
+| `result file-name.auto` | Copy to `results/file-name.<real_ext>` — `.auto` is the ONLY magic suffix, replaced with the engine's actual extension |
 | `result "path/to/file"` | Copy to that path (old behavior preserved) |
 
-**Why no auto-extension by default?** To ensure the user knows the exact file name. VODER prints `Result saved as: results/file1.wav` so the user knows the path for the next `&&` segment. Explicit extensions (`.mp3`) are respected as-is — VODER does not convert formats, it only names files.
+**Why literal by default?** To ensure the user knows the exact file name. VODER prints `Result saved as: results/file1` so the user knows the path for the next `&&` segment. If you want the engine's real extension, use `.auto`. If you want a specific extension, say so explicitly — VODER does not convert formats, it only names files.
 
 #### Implementation details
 

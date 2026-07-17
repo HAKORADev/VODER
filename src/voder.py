@@ -6461,7 +6461,7 @@ def copy_result_to_path(result_path):
                 else:
                     dest_filename = result_path
             else:
-                dest_filename = f"{result_path}{real_ext}"
+                dest_filename = result_path
             destination = os.path.join(results_dir, dest_filename)
             shutil.copy2(latest_file, destination)
             print(f"Result saved as: {destination}")

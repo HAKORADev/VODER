@@ -2829,25 +2829,25 @@ Run `python voder.py cli` and choose `9. Prebuilt Chains` for a guided UX:
 
 | Syntax | Behavior |
 |--------|----------|
-| `result file-name` | Copy the latest output to `results/file-name.<real_ext>` — extension auto-appended from what the engine actually produced |
+| `result file-name` | Copy the latest output to `results/file-name` — **literal, no extension** (the file is saved with exactly the name you gave) |
 | `result file-name.mp3` | Copy to `results/file-name.mp3` — extension stays as written (no format conversion; the user is responsible for matching) |
-| `result file-name.auto` | Copy to `results/file-name.<real_ext>` — `.auto` is replaced with the engine's actual extension |
+| `result file-name.auto` | Copy to `results/file-name.<real_ext>` — `.auto` is the ONLY magic suffix; it gets replaced with the engine's actual extension |
 | `result "path/to/file"` | Copy to that path (old behavior — use quotes for custom paths) |
 
-**Why no auto-extension by default?** To make sure the user really knows the real file name. When you write `result file1`, you get `results/file1.wav` (or `.mp3`, `.mp4`, etc. — whatever the engine produced). You know the exact name because VODER prints `Result saved as: results/file1.wav`. If you want a specific extension, say so explicitly — VODER won't guess.
+**Why literal by default?** To make sure the user really knows the real file name. When you write `result file1`, you get `results/file1` — no guessing, no auto-extension. VODER prints `Result saved as: results/file1` so you know the exact path. If you want the engine's real extension, use `.auto`. If you want a specific extension, say so explicitly.
 
 ### Examples
 
 **Example 1: Sequential pipeline (TTS → SE)**
 ```bash
-python voder.py tts script "hello" voice "narrator" result greeting "&&" se results/greeting.wav result clean
+python voder.py tts script "hello" voice "narrator" result greeting.auto "&&" se results/greeting.wav result clean.auto
 ```
-- Command 1: TTS generates speech → saved as `results/greeting.wav`
+- Command 1: TTS generates speech → saved as `results/greeting.wav` (`.auto` picks up the real WAV extension)
 - Command 2: SE enhances `results/greeting.wav` → saved as `results/clean.wav`
 
 **Example 2: Bidirectional (TTS → SVS → STS references both)**
 ```bash
-python voder.py tts script "hello" result orig "&&" svs results/orig.wav voice result vocals "&&" sts base results/vocals.wav target results/orig.wav result converted
+python voder.py tts script "hello" result orig.auto "&&" svs results/orig.wav voice result vocals.auto "&&" sts base results/vocals.wav target results/orig.wav result converted.auto
 ```
 - Command 1: TTS → `results/orig.wav`
 - Command 2: SVS extracts vocals from `orig.wav` → `results/vocals.wav`
@@ -2856,23 +2856,23 @@ python voder.py tts script "hello" result orig "&&" svs results/orig.wav voice r
 
 **Example 3: Mix extended commands with regular chains**
 ```bash
-python voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "vocals" svs voice "song" result song_vocals "&&" sts base results/song_vocals.wav target "ref.wav" result cover
+python voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "vocals" svs voice "song" result song_vocals.auto "&&" sts base results/song_vocals.wav target "ref.wav" result cover.auto
 ```
 - Command 1: Regular chains pipeline — TTM generates music, SVS extracts vocals → last chain output saved as `results/song_vocals.wav`
 - Command 2: STS voice conversion on the extracted vocals → `results/cover.wav`
 
 **Example 4: Independent parallel commands (no file sharing)**
 ```bash
-python voder.py tts script "greeting" voice "narrator" result greeting "&&" sfx sound "thunder rumbling" duration 5 result thunder
+python voder.py tts script "greeting" voice "narrator" result greeting.auto "&&" sfx sound "thunder rumbling" duration 5 result thunder.auto
 ```
 - Two completely independent commands, each producing a named result. Useful for batch-generating assets in one line.
 
 **Example 5: Quest download → process**
 ```bash
-python voder.py quest download "https://youtube.com/watch?v=..." result podcast "&&" stt results/podcast.mp3 timestamp result transcript "&&" se results/podcast.mp3 result clean_audio
+python voder.py quest download "https://youtube.com/watch?v=..." result podcast.auto "&&" stt results/podcast.mp3 timestamp result transcript "&&" se results/podcast.mp3 result clean_audio.auto
 ```
 - Command 1: Download YouTube audio → `results/podcast.mp3`
-- Command 2: Transcribe the podcast → `results/transcript.txt`
+- Command 2: Transcribe the podcast → `results/transcript` (STT output is text; `.auto` picks up `.txt` if the engine produces one, otherwise the file is named `transcript` literally)
 - Command 3: Enhance the podcast audio → `results/clean_audio.wav`
 
 ### `&&` vs `chains` — when to use which
