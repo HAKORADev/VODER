@@ -63,19 +63,13 @@ The 3 task-layer features:
 
 ## Global Keywords (available in all modes)
 
-### `result <path-or-name>`
+### `result "<path>"`
 
-Copy the latest output file to a custom path OR rename it in-place with a bare name. See [section 10b](#10b-extended-commands--) for the full syntax table.
+Copy the latest output file to a custom path after the command finishes.
 
 ```
-# Quoted path (old behavior) — copy to a custom location
 python voder.py tts script "hello" voice "male voice" result "C:/output/hello.wav"
-
-# Bare name (new behavior) — copy to results/<name> with no extension
-python voder.py tts script "hello" voice "male voice" result greeting
-
-# Bare name with .auto — copy to results/<name>.<real_ext>
-python voder.py tts script "hello" voice "male voice" result greeting.auto
+python voder.py stt "audio.wav" result "./transcript.txt"
 ```
 
 ---
@@ -2822,16 +2816,22 @@ Run `python voder.py cli` and choose `9. Prebuilt Chains` for a guided UX:
 
 ## 10b. Extended Commands (`&&`)
 
-> Chain multiple VODER oneline commands on a single line, where each command can reference outputs from any earlier command — including bidirectionally. This is **not** the same as `chains` (section 10): chains are linear pipelines with named steps; extended commands are independent VODER invocations that share files by known names.
+> Write multiple VODER oneline commands on a single line. Each command is a **dimension** — an independent entity with its own inputs and outputs. VODER's **Dimensions Resolver** builds a dependency graph, detects paradoxes and Mandela errors, ranks commands into execution levels, and runs them in the optimal order — with same-mode commands batched together for model-load efficiency.
+>
+> This is fundamentally different from `chains` (section 10): chains are linear pipelines with named steps and hidden intermediates. Extended commands are independent dimensions that can reference each other in any direction — including forward references where a command uses a file that a later command will produce.
 
 ### How it works
 
 1. Write multiple VODER oneline commands separated by `"&&"` (quoted — the shell would otherwise interpret unquoted `&&` as its own operator)
-2. Each command runs sequentially — if one fails, the chain stops
-3. Use `result <bare-name>` (no quotes, no path) to save a command's output to `results/<bare-name>` with a known name (literal — no extension unless you use `.auto`)
-4. Later commands reference earlier outputs by their full path (e.g., `results/file1.wav`)
+2. Each command is parsed for its **outputs** (via `result <name>`) and **inputs** (any arg referencing a path in `results/`)
+3. The Dimensions Resolver builds a dependency graph: command B depends on command A if B references a file that A produces
+4. **Paradox detection**: if the graph has a cycle (A waits for B, B waits for A), execution is refused with a PARADOX ERROR
+5. **Mandela detection**: if a command references a file in `results/` that no command produces and doesn't exist on disk, execution is refused with a MANDELA ERROR — "a file that will never exist"
+6. Commands are ranked into **levels**: level 1 = no dependencies, level 2 = depends on level 1 outputs, etc.
+7. Within each level, commands are **mode-batched** (all STS together, all TTS together, etc.) to minimize model load/unload thrash
+8. Execution runs level by level — all level 1 commands finish before level 2 starts
 
-### The `result` keyword (new behavior)
+### The `result` keyword
 
 | Syntax | Behavior |
 |--------|----------|
@@ -2844,55 +2844,131 @@ Run `python voder.py cli` and choose `9. Prebuilt Chains` for a guided UX:
 
 ### Examples
 
-**Example 1: Sequential pipeline (TTS → SE)**
-```bash
-python voder.py tts script "hello" voice "narrator" result greeting.auto "&&" se results/greeting.wav result clean.auto
-```
-- Command 1: TTS generates speech → saved as `results/greeting.wav` (`.auto` picks up the real WAV extension)
-- Command 2: SE enhances `results/greeting.wav` → saved as `results/clean.wav`
+**Example 1: Forward reference — write the final command first**
 
-**Example 2: Bidirectional (TTS → SVS → STS references both)**
-```bash
-python voder.py tts script "hello" result orig.auto "&&" svs results/orig.wav voice result vocals.auto "&&" sts base results/vocals.wav target results/orig.wav result converted.auto
-```
-- Command 1: TTS → `results/orig.wav`
-- Command 2: SVS extracts vocals from `orig.wav` → `results/vocals.wav`
-- Command 3: STS converts `vocals.wav` using `orig.wav` as the target voice → `results/converted.wav`
-- **Bidirectional:** command 3 references BOTH `vocals.wav` (from command 2) AND `orig.wav` (from command 1). You cannot do this with regular `chains` — chains are strictly linear.
+The user writes STS first, but STS needs outputs from TTS and SVS. The resolver figures out the correct execution order.
 
-**Example 3: Mix extended commands with regular chains**
+```bash
+python voder.py sts base results/vocals.wav target results/orig.wav result cover.auto "&&" tts script "hello" result orig.auto "&&" svs results/orig.wav voice result vocals.auto
+```
+
+What the resolver sees:
+- Step 1 (STS): needs `results/vocals.wav` (from step 3) and `results/orig.wav` (from step 2)
+- Step 2 (TTS): no dependencies, produces `orig`
+- Step 3 (SVS): needs `results/orig.wav` (from step 2), produces `vocals`
+
+Execution plan:
+```
+Level 1: step 2 (tts)        ← runs first, no dependencies
+Level 2: step 3 (svs)        ← waits for step 2's output
+Level 3: step 1 (sts)        ← waits for steps 2 AND 3
+```
+
+The user wrote `STS && TTS && SVS` but VODER ran `TTS → SVS → STS`. **This is the real bidirectional execution** — not just "reference an earlier step" but "write commands in any order and let the resolver figure out the correct sequence."
+
+**Example 2: Mode batching within a level**
+
+Two independent TTS commands and one SFX, all at level 1. The resolver batches the two TTS commands together (to reuse the loaded TTS model), then runs SFX.
+
+```bash
+python voder.py tts script "greeting" voice "narrator" result greeting.auto "&&" sfx sound "thunder" duration 5 result thunder.auto "&&" tts script "farewell" voice "narrator" result farewell.auto
+```
+
+Execution plan:
+```
+Level 1: step 1 (tts) → step 3 (tts) → step 2 (sfx)
+```
+
+Steps 1 and 3 are batched (both TTS), then step 2 (SFX) runs. Without mode batching, the order would be TTS → SFX → TTS — loading and unloading the TTS model twice.
+
+**Example 3: Deep chain — 4 levels, written in reverse**
+
+```bash
+python voder.py sts base results/c.wav target results/d.wav result final.auto "&&" tts script "hello" result a.auto "&&" se results/a.wav result b.auto "&&" svs results/b.wav voice result c.auto "&&" sfx sound "boom" result d.auto
+```
+
+Execution plan:
+```
+Level 1: step 2 (tts) → step 5 (sfx)    ← both have no dependencies, batched by mode
+Level 2: step 3 (se)                    ← waits for step 2
+Level 3: step 4 (svs)                   ← waits for step 3
+Level 4: step 1 (sts)                   ← waits for steps 4 AND 5
+```
+
+**Example 4: Mix extended commands with regular chains**
+
 ```bash
 python voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "vocals" svs voice "song" result song_vocals.auto "&&" sts base results/song_vocals.wav target "ref.wav" result cover.auto
 ```
-- Command 1: Regular chains pipeline — TTM generates music, SVS extracts vocals → last chain output saved as `results/song_vocals.wav`
-- Command 2: STS voice conversion on the extracted vocals → `results/cover.wav`
 
-**Example 4: Independent parallel commands (no file sharing)**
-```bash
-python voder.py tts script "greeting" voice "narrator" result greeting.auto "&&" sfx sound "thunder rumbling" duration 5 result thunder.auto
-```
-- Two completely independent commands, each producing a named result. Useful for batch-generating assets in one line.
+- Step 1: Regular chains pipeline (TTM → SVS) → produces `results/song_vocals.wav`
+- Step 2: STS voice conversion → depends on step 1's output
 
-**Example 5: Quest download → process**
+**Example 5: Quest download → process pipeline**
+
 ```bash
 python voder.py quest download "https://youtube.com/watch?v=..." result podcast.auto "&&" stt results/podcast.mp3 timestamp result transcript "&&" se results/podcast.mp3 result clean_audio.auto
 ```
-- Command 1: Download YouTube audio → `results/podcast.mp3`
-- Command 2: Transcribe the podcast → `results/transcript` (STT output is text; `.auto` picks up `.txt` if the engine produces one, otherwise the file is named `transcript` literally)
-- Command 3: Enhance the podcast audio → `results/clean_audio.wav`
+
+- Step 1: Download YouTube audio → `results/podcast.mp3`
+- Step 2: Transcribe → depends on step 1
+- Step 3: Enhance audio → depends on step 1 (NOT step 2 — both reference `podcast.mp3`)
+
+Execution plan:
+```
+Level 1: step 1 (quest)
+Level 2: step 2 (stt) → step 3 (se)    ← both depend on step 1, batched by mode
+```
+
+### Error types
+
+**OUTPUT CONFLICT** — two commands produce the same file name in the same location.
+
+```
+python voder.py tts script "hello" result greeting.auto "&&" tts script "world" result greeting.auto
+```
+```
+[Dimensions Resolver] OUTPUT CONFLICT — step 1 and step 2 both produce 'greeting' in 'results/'
+```
+
+**MANDELA ERROR** — a command references a file in `results/` that no command produces and doesn't exist on disk. The file will never exist.
+
+```
+python voder.py tts script "hello" result orig.auto "&&" se results/nonexistent.wav result clean.auto
+```
+```
+[Dimensions Resolver] MANDELA ERROR — step 2 references 'results/nonexistent.wav'
+  No command produces 'nonexistent' and the file does not exist on disk.
+  This file will never exist. Either add a command that produces it, or fix the reference.
+```
+
+**PARADOX ERROR** — circular dependency. Command A waits for B, B waits for A (or a longer cycle).
+
+```
+python voder.py sts base results/b.wav target "ref.wav" result a.auto "&&" sts base results/a.wav target "ref.wav" result b.auto
+```
+```
+[Dimensions Resolver] PARADOX ERROR — circular dependency detected among steps: 1, 2
+  Step 1 waits for: step 2
+  Step 2 waits for: step 1
+  Cannot resolve execution order. Fix the circular reference.
+```
 
 ### `&&` vs `chains` — when to use which
 
-| Feature | `chains` (section 10) | `&&` extended commands |
-|---------|----------------------|------------------------|
+| Feature | `chains` (section 10) | `&&` dimensions (section 10b) |
+|---------|----------------------|-------------------------------|
 | Separator | ` / ` (space slash space) | `"&&"` (quoted) |
 | Reference style | By chain name (resolved internally) | By full file path |
-| Direction | Linear (each chain references the previous) | Any direction (bidirectional, skip-ahead, parallel) |
-| Intermediate outputs | Stored in `temp_chains/` (hidden) | Stored in `results/` (visible, named) |
-| Use case | Linear pipeline with named steps | Multi-step workflows where later steps reference earlier outputs non-linearly |
+| Execution order | Linear (written order) | **Resolver-determined** (dependency graph + topological sort) |
+| Forward references | No — must reference earlier steps only | **Yes** — write commands in any order |
+| Intermediates | Hidden in `temp_chains/` (deleted after use) | Visible in `results/` (named, persistent) |
+| Mode batching | No (runs in written order) | **Yes** (same-mode commands at the same level batch together) |
+| Error detection | Step failure stops chain | **Paradox, Mandela, output conflict** — pre-validated before any execution |
+| Reusability | Saveable as `.chain` files | One-shot (no save format) |
+| Use case | Linear pipeline with named steps | Multi-step workflows with non-linear dependencies, forward references, or mode-batching needs |
 
-**Rule of thumb:** if your workflow is a straight line (A → B → C → D), use `chains`. If you need to reference an earlier output out of order (A → B → C, but C also references A), use `&&`.
-
+**Rule of thumb:** if your workflow is a straight line (A → B → C → D) and you want to save/reuse it, use `chains`. If you need forward references, non-linear dependencies, mode batching, or just want all your outputs visible in `results/` with names you chose, use `&&`.
 ---
 
 ## Input Types
@@ -2911,7 +2987,7 @@ Most modes that accept file paths also support (see exceptions below):
 | Facebook URL | `https://www.facebook.com/watch?v=...`, `https://fb.watch/...`, etc. |
 | X / Twitter URL | `https://twitter.com/<user>/status/...`, `https://x.com/<user>/status/...`, `https://t.co/...` |
 
-> **Note:** All URL types go through the same universal URL handler (inline in `src/voder.py` — `detect_platform`, `classify_url`, `is_video_url`). The handler runs a two-step detection: first a shape check (host + path patterns per platform, instant and offline) that rejects channel pages, profiles, playlists, and other non-video URLs; then a `yt-dlp` video verification step (online, `download=False`) that confirms the link actually resolves to a downloadable video stream before downloading. Short-link domains (`youtu.be`, `b23.tv`, `vm.tiktok.com`, `fb.watch`, `t.co`, etc.) are recognized as video URLs by default.
+> **Note:** All URL types go through the same universal URL handler (`src/url_handler.py`). The handler runs a two-step detection: first a shape check (host + path patterns per platform, instant and offline) that rejects channel pages, profiles, playlists, and other non-video URLs; then a `yt-dlp` video verification step (online, `download=False`) that confirms the link actually resolves to a downloadable video stream before downloading. Short-link domains (`youtu.be`, `b23.tv`, `vm.tiktok.com`, `fb.watch`, `t.co`, etc.) are recognized as video URLs by default.
 
 Video files are automatically handled: audio is extracted for processing, then merged back with the original video track for output (where applicable).
 

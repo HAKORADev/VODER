@@ -16236,6 +16236,193 @@ def _split_oneline_segments(command_line):
 
 
 
+class _CommandDimension:
+    def __init__(self, index, args):
+        self.index = index
+        self.args = args
+        self.mode = args[0].lower() if args else 'unknown'
+        self.outputs = []
+        self.input_refs = []
+        self.dependencies = set()
+        self.level = 0
+        self._extract_io()
+
+    @staticmethod
+    def _normalize_loc(loc):
+        norm = loc.replace('\\', '/')
+        while norm.startswith('./'):
+            norm = norm[2:]
+        while norm.endswith('/') and norm:
+            norm = norm[:-1]
+        return norm
+
+    @staticmethod
+    def _split_stem(basename):
+        if '.' in basename:
+            return basename.rsplit('.', 1)[0]
+        return basename
+
+    def _extract_io(self):
+        i = 0
+        while i < len(self.args):
+            arg = self.args[i]
+            if arg.lower() == 'result' and i + 1 < len(self.args):
+                result_arg = self.args[i + 1]
+                self._add_output(result_arg)
+                i += 2
+                continue
+            self._add_input_if_path(arg)
+            i += 1
+
+    def _add_output(self, result_arg):
+        has_path_sep = '/' in result_arg or '\\' in result_arg
+        if has_path_sep:
+            norm = result_arg.replace('\\', '/').rstrip('/')
+            location = self._normalize_loc(os.path.dirname(norm))
+            basename = os.path.basename(norm)
+        else:
+            location = 'results'
+            basename = result_arg
+        stem = self._split_stem(basename)
+        self.outputs.append((stem, location))
+
+    def _add_input_if_path(self, arg):
+        if not arg or arg.lower() == 'result':
+            return
+        if arg.startswith('http://') or arg.startswith('https://'):
+            return
+        if '/' not in arg and '\\' not in arg:
+            return
+        norm = arg.replace('\\', '/').rstrip('/')
+        if not norm:
+            return
+        location = self._normalize_loc(os.path.dirname(norm))
+        basename = os.path.basename(norm)
+        stem = self._split_stem(basename)
+        self.input_refs.append((arg, location, stem))
+
+
+def _run_extended_commands(args):
+    segments = []
+    current = []
+    for arg in args:
+        if arg == '&&':
+            if current:
+                segments.append(current)
+                current = []
+        else:
+            current.append(arg)
+    if current:
+        segments.append(current)
+
+    if not segments:
+        return False
+    if len(segments) == 1:
+        return parse_and_execute_oneline(segments[0])
+
+    dimensions = [_CommandDimension(i + 1, seg) for i, seg in enumerate(segments)]
+
+    output_registry = {}
+    for dim in dimensions:
+        for stem, location in dim.outputs:
+            key = (stem, location)
+            if key in output_registry:
+                other = output_registry[key]
+                loc_display = location + '/' if location else 'results/'
+                print(f"\n[Dimensions Resolver] OUTPUT CONFLICT — step {dim.index} and step {other} both produce '{stem}' in '{loc_display}'")
+                return False
+            output_registry[key] = dim.index
+
+    for dim in dimensions:
+        for raw_path, inp_dir, inp_stem in dim.input_refs:
+            for (out_stem, out_loc), producer_idx in output_registry.items():
+                if inp_stem == out_stem and inp_dir == out_loc and producer_idx != dim.index:
+                    dim.dependencies.add(producer_idx)
+
+    for dim in dimensions:
+        for raw_path, inp_dir, inp_stem in dim.input_refs:
+            matched = False
+            for (out_stem, out_loc), producer_idx in output_registry.items():
+                if inp_stem == out_stem and inp_dir == out_loc and producer_idx != dim.index:
+                    matched = True
+                    break
+            if not matched and inp_dir == 'results':
+                if not os.path.exists(raw_path):
+                    print(f"\n[Dimensions Resolver] MANDELA ERROR — step {dim.index} references '{raw_path}'")
+                    print(f"  No command produces '{inp_stem}' and the file does not exist on disk.")
+                    print(f"  This file will never exist. Either add a command that produces it, or fix the reference.")
+                    return False
+
+    dependents = {dim.index: [] for dim in dimensions}
+    for dim in dimensions:
+        for dep in dim.dependencies:
+            if dep in dependents:
+                dependents[dep].append(dim.index)
+
+    in_degree = {dim.index: len(dim.dependencies) for dim in dimensions}
+    queue = sorted([idx for idx, deg in in_degree.items() if deg == 0])
+    levels = {}
+    current_level = 1
+
+    while queue:
+        next_queue = []
+        for idx in queue:
+            levels[idx] = current_level
+        for idx in queue:
+            for dependent in dependents[idx]:
+                in_degree[dependent] -= 1
+                if in_degree[dependent] == 0:
+                    next_queue.append(dependent)
+        queue = sorted(set(next_queue))
+        current_level += 1
+
+    if len(levels) < len(dimensions):
+        unassigned = [d.index for d in dimensions if d.index not in levels]
+        print(f"\n[Dimensions Resolver] PARADOX ERROR — circular dependency detected among steps: {', '.join(str(i) for i in unassigned)}")
+        for idx in unassigned:
+            dim = dimensions[idx - 1]
+            deps = ', '.join(f"step {d}" for d in sorted(dim.dependencies)) or '(none)'
+            print(f"  Step {idx} waits for: {deps}")
+        print(f"  Cannot resolve execution order. Fix the circular reference.")
+        return False
+
+    max_level = max(levels.values())
+    level_groups = []
+    for lv in range(1, max_level + 1):
+        group = [d for d in dimensions if levels[d.index] == lv]
+        level_groups.append((lv, group))
+
+    print(f"\n[Dimensions Resolver] {len(dimensions)} command(s) across {max_level} level(s):")
+    for dim in dimensions:
+        deps = ', '.join(f"step {d}" for d in sorted(dim.dependencies)) or '(none)'
+        outs = ', '.join(f"{s} ({l + '/' if l else 'results/'})" for s, l in dim.outputs) or '(none)'
+        print(f"  Step {dim.index} [{dim.mode}] — waits for: {deps} — produces: {outs}")
+    print(f"\n[Dimensions Resolver] Execution plan:")
+    for lv, group in level_groups:
+        steps_str = ' → '.join(f"step {d.index}" for d in sorted(group, key=lambda d: d.index))
+        print(f"  Level {lv}: {steps_str}")
+    print()
+
+    for lv, group in level_groups:
+        mode_groups = {}
+        for dim in group:
+            mode_groups.setdefault(dim.mode, []).append(dim)
+        mode_order = sorted(mode_groups.keys(), key=lambda m: min(d.index for d in mode_groups[m]))
+
+        for mode in mode_order:
+            mode_dims = sorted(mode_groups[mode], key=lambda d: d.index)
+            for dim in mode_dims:
+                print(f"\n{'='*60}")
+                print(f"[Dimensions Resolver] Level {lv} — step {dim.index}/{len(dimensions)} [{dim.mode}]")
+                print(f"{'='*60}")
+                success = parse_and_execute_oneline(dim.args)
+                if not success:
+                    print(f"\n[Dimensions Resolver] Step {dim.index} failed — stopping.")
+                    return False
+
+    return True
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         if sys.argv[1] == "gui" and len(sys.argv) == 2:
@@ -16252,29 +16439,8 @@ if __name__ == "__main__":
         if len(sys.argv) > arg_offset:
             args = sys.argv[arg_offset:]
             if '&&' in args:
-                segments = []
-                current = []
-                for arg in args:
-                    if arg == '&&':
-                        if current:
-                            segments.append(current)
-                            current = []
-                    else:
-                        current.append(arg)
-                if current:
-                    segments.append(current)
-                all_ok = True
-                for i, seg in enumerate(segments, 1):
-                    if len(segments) > 1:
-                        print(f"\n{'='*60}")
-                        print(f"[Extended Command {i}/{len(segments)}]")
-                        print(f"{'='*60}")
-                    result = parse_and_execute_oneline(seg)
-                    if not result:
-                        all_ok = False
-                        print(f"\n[Extended Command {i}] failed — stopping.")
-                        break
-                sys.exit(0 if all_ok else 1)
+                success = _run_extended_commands(args)
+                sys.exit(0 if success else 1)
             else:
                 result = parse_and_execute_oneline(args)
                 sys.exit(0 if result else 1)
