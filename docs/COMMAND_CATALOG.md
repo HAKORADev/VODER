@@ -2814,6 +2814,81 @@ Run `python voder.py cli` and choose `9. Prebuilt Chains` for a guided UX:
 
 ---
 
+## 11. Extended Commands (`&&`)
+
+> Chain multiple VODER oneline commands on a single line, where each command can reference outputs from any earlier command — including bidirectionally. This is **not** the same as `chains` (section 10): chains are linear pipelines with named steps; extended commands are independent VODER invocations that share files by known names.
+
+### How it works
+
+1. Write multiple VODER oneline commands separated by `"&&"` (quoted — the shell would otherwise interpret unquoted `&&` as its own operator)
+2. Each command runs sequentially — if one fails, the chain stops
+3. Use `result <bare-name>` (no quotes, no path) to save a command's output to `results/<bare-name>.<ext>` with a known name
+4. Later commands reference earlier outputs by their full path (e.g., `results/file1.wav`)
+
+### The `result` keyword (new behavior)
+
+| Syntax | Behavior |
+|--------|----------|
+| `result file-name` | Copy the latest output to `results/file-name.<real_ext>` — extension auto-appended from what the engine actually produced |
+| `result file-name.mp3` | Copy to `results/file-name.mp3` — extension stays as written (no format conversion; the user is responsible for matching) |
+| `result file-name.auto` | Copy to `results/file-name.<real_ext>` — `.auto` is replaced with the engine's actual extension |
+| `result "path/to/file"` | Copy to that path (old behavior — use quotes for custom paths) |
+
+**Why no auto-extension by default?** To make sure the user really knows the real file name. When you write `result file1`, you get `results/file1.wav` (or `.mp3`, `.mp4`, etc. — whatever the engine produced). You know the exact name because VODER prints `Result saved as: results/file1.wav`. If you want a specific extension, say so explicitly — VODER won't guess.
+
+### Examples
+
+**Example 1: Sequential pipeline (TTS → SE)**
+```bash
+python voder.py tts script "hello" voice "narrator" result greeting "&&" se results/greeting.wav result clean
+```
+- Command 1: TTS generates speech → saved as `results/greeting.wav`
+- Command 2: SE enhances `results/greeting.wav` → saved as `results/clean.wav`
+
+**Example 2: Bidirectional (TTS → SVS → STS references both)**
+```bash
+python voder.py tts script "hello" result orig "&&" svs results/orig.wav voice result vocals "&&" sts base results/vocals.wav target results/orig.wav result converted
+```
+- Command 1: TTS → `results/orig.wav`
+- Command 2: SVS extracts vocals from `orig.wav` → `results/vocals.wav`
+- Command 3: STS converts `vocals.wav` using `orig.wav` as the target voice → `results/converted.wav`
+- **Bidirectional:** command 3 references BOTH `vocals.wav` (from command 2) AND `orig.wav` (from command 1). You cannot do this with regular `chains` — chains are strictly linear.
+
+**Example 3: Mix extended commands with regular chains**
+```bash
+python voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "vocals" svs voice "song" result song_vocals "&&" sts base results/song_vocals.wav target "ref.wav" result cover
+```
+- Command 1: Regular chains pipeline — TTM generates music, SVS extracts vocals → last chain output saved as `results/song_vocals.wav`
+- Command 2: STS voice conversion on the extracted vocals → `results/cover.wav`
+
+**Example 4: Independent parallel commands (no file sharing)**
+```bash
+python voder.py tts script "greeting" voice "narrator" result greeting "&&" sfx sound "thunder rumbling" duration 5 result thunder
+```
+- Two completely independent commands, each producing a named result. Useful for batch-generating assets in one line.
+
+**Example 5: Quest download → process**
+```bash
+python voder.py quest download "https://youtube.com/watch?v=..." result podcast "&&" stt results/podcast.mp3 timestamp result transcript "&&" se results/podcast.mp3 result clean_audio
+```
+- Command 1: Download YouTube audio → `results/podcast.mp3`
+- Command 2: Transcribe the podcast → `results/transcript.txt`
+- Command 3: Enhance the podcast audio → `results/clean_audio.wav`
+
+### `&&` vs `chains` — when to use which
+
+| Feature | `chains` (section 10) | `&&` extended commands |
+|---------|----------------------|------------------------|
+| Separator | ` / ` (space slash space) | `"&&"` (quoted) |
+| Reference style | By chain name (resolved internally) | By full file path |
+| Direction | Linear (each chain references the previous) | Any direction (bidirectional, skip-ahead, parallel) |
+| Intermediate outputs | Stored in `temp_chains/` (hidden) | Stored in `results/` (visible, named) |
+| Use case | Linear pipeline with named steps | Multi-step workflows where later steps reference earlier outputs non-linearly |
+
+**Rule of thumb:** if your workflow is a straight line (A → B → C → D), use `chains`. If you need to reference an earlier output out of order (A → B → C, but C also references A), use `&&`.
+
+---
+
 ## Input Types
 
 Most modes that accept file paths also support (see exceptions below):

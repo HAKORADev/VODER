@@ -6429,23 +6429,42 @@ def copy_result_to_path(result_path):
         results_dir = os.path.join(os.getcwd(), "results")
         if not os.path.exists(results_dir):
             return
-        files = [os.path.join(results_dir, f) for f in os.listdir(results_dir) if os.path.isfile(os.path.join(results_dir, f))]
+        files = []
+        for root, dirs, filenames in os.walk(results_dir):
+            for f in filenames:
+                fp = os.path.join(root, f)
+                if os.path.isfile(fp):
+                    files.append(fp)
         if not files:
             return
         latest_file = max(files, key=os.path.getmtime)
+        real_ext = os.path.splitext(latest_file)[1]
 
-        result_dir = os.path.dirname(result_path)
-        result_filename = os.path.basename(result_path)
+        has_path_sep = '/' in result_path or '\\' in result_path
 
-        if not result_dir:
-            destination = os.path.join(".", result_filename)
-            os.makedirs(".", exist_ok=True)
+        if has_path_sep:
+            result_dir = os.path.dirname(result_path)
+            result_filename = os.path.basename(result_path)
+            if not result_dir:
+                destination = os.path.join(".", result_filename)
+                os.makedirs(".", exist_ok=True)
+            else:
+                os.makedirs(result_dir, exist_ok=True)
+                destination = result_path
+            shutil.copy2(latest_file, destination)
+            print(f"Result copied to: {destination}")
         else:
-            os.makedirs(result_dir, exist_ok=True)
-            destination = result_path
-
-        shutil.copy2(latest_file, destination)
-        print(f"Result copied to: {destination}")
+            if '.' in result_path:
+                name_part, ext_part = result_path.rsplit('.', 1)
+                if ext_part.lower() == 'auto':
+                    dest_filename = f"{name_part}{real_ext}"
+                else:
+                    dest_filename = result_path
+            else:
+                dest_filename = f"{result_path}{real_ext}"
+            destination = os.path.join(results_dir, dest_filename)
+            shutil.copy2(latest_file, destination)
+            print(f"Result saved as: {destination}")
     except Exception as e:
         print(f"Note: Could not copy to result path: {e}")
 
@@ -16231,8 +16250,34 @@ if __name__ == "__main__":
         if sys.argv[1] == "cli":
             arg_offset = 2
         if len(sys.argv) > arg_offset:
-            result = parse_and_execute_oneline(sys.argv[arg_offset:])
-            sys.exit(0 if result else 1)
+            args = sys.argv[arg_offset:]
+            if '&&' in args:
+                segments = []
+                current = []
+                for arg in args:
+                    if arg == '&&':
+                        if current:
+                            segments.append(current)
+                            current = []
+                    else:
+                        current.append(arg)
+                if current:
+                    segments.append(current)
+                all_ok = True
+                for i, seg in enumerate(segments, 1):
+                    if len(segments) > 1:
+                        print(f"\n{'='*60}")
+                        print(f"[Extended Command {i}/{len(segments)}]")
+                        print(f"{'='*60}")
+                    result = parse_and_execute_oneline(seg)
+                    if not result:
+                        all_ok = False
+                        print(f"\n[Extended Command {i}] failed — stopping.")
+                        break
+                sys.exit(0 if all_ok else 1)
+            else:
+                result = parse_and_execute_oneline(args)
+                sys.exit(0 if result else 1)
     print("VODER — Local voice processing toolkit")
     print("=" * 60)
     print()
@@ -16241,6 +16286,7 @@ if __name__ == "__main__":
     print("  python voder.py gui                   Launch the GUI")
     print("  python voder.py cli                   Interactive CLI mode")
     print("  python voder.py <mode> [args...]      Run a one-line command")
+    print('  python voder.py cmd1 "&&" cmd2        Extended command chaining')
     print()
     print("Available modes: tts, sts, ttm, stt, se, sfx, svs, ss, train, quest, chains")
     print()

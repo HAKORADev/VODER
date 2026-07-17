@@ -68,6 +68,51 @@ When truncation occurs, a message is printed: `[Qwen3-TTS] Voice clone reference
 **Files:**
 - Modified: `src/voder.py` — added `QWEN3_TTS_VOICE_CLONE_MAX_SECONDS` and `FISH_S2PRO_VOICE_CLONE_MAX_SECONDS` constants, added `_enforce_voice_clone_limit()` core helper, wired it into `QwenTTS.extract_voice()` and `FishTTS.encode_voice()`. No in-code comments.
 
+### Chaining system update — extended commands (`&&`) and smarter `result` keyword
+
+Advanced multi-step workflows are now possible with two new features:
+
+#### Extended commands (`&&`)
+
+Multiple VODER oneline commands can now be chained on a single line using `"&&"` as a separator. Each command runs sequentially, and later commands can reference outputs from any earlier command — including **bidirectionally** (a later command can reference an output from two commands ago, which is impossible with regular `chains`).
+
+**Syntax:**
+```
+python voder.py cmd1 result file1 "&&" cmd2 results/file1.ext result file2 "&&" cmd3 results/file2.ext results/file1.ext result file3
+```
+
+- `"&&"` must be quoted (the shell would otherwise interpret unquoted `&&` as its own operator)
+- If any command fails, the chain stops immediately
+- Each segment is a full VODER oneline command (mode + args)
+- Works with all modes including `chains` — a `chains` command can be one segment in an extended command chain
+
+**Why `&&` vs `chains`?** Regular `chains` (section 10) are linear pipelines — each chain references the previous chain's output. `&&` extended commands allow non-linear references: command 3 can reference outputs from both command 1 and command 2. This enables bidirectional workflows like "generate audio → extract vocals → convert vocals using the original audio as the target voice."
+
+#### Smarter `result` keyword
+
+The `result` keyword now supports bare names (no quotes, no path) for in-place naming:
+
+| Syntax | Behavior |
+|--------|----------|
+| `result file-name` | Copy latest output to `results/file-name.<real_ext>` — extension auto-appended |
+| `result file-name.mp3` | Copy to `results/file-name.mp3` — extension as written (no conversion) |
+| `result file-name.auto` | Copy to `results/file-name.<real_ext>` — `.auto` replaced with real extension |
+| `result "path/to/file"` | Copy to that path (old behavior preserved) |
+
+**Why no auto-extension by default?** To ensure the user knows the exact file name. VODER prints `Result saved as: results/file1.wav` so the user knows the path for the next `&&` segment. Explicit extensions (`.mp3`) are respected as-is — VODER does not convert formats, it only names files.
+
+#### Implementation details
+
+- `copy_result_to_path()` rewritten: searches `results/` recursively for the latest file (was top-level only — broke for quest outputs saved to `results/downloads/`), classifies result argument as bare name (no `/`) vs path (has `/`), applies extension logic
+- Quest `result_path` handling centralized: quests now pass `result_path=None` to their `execute()` methods — `copy_result_to_path()` handles all result naming uniformly (fixes a pre-existing bug where quests and `copy_result_to_path` would both try to copy, potentially overwriting each other)
+- `&&` parsing in `__main__`: splits `sys.argv` on standalone `&&` args, executes each segment via `parse_and_execute_oneline`, stops on first failure
+- Help message updated with `&&` usage line
+
+**Files:**
+- Modified: `src/voder.py` — rewrote `copy_result_to_path()`, added `&&` parsing in `__main__`, updated help message. No in-code comments.
+- Modified: `src/voders/sidequests.py` — `oneline_quest()` now passes `result_path=None` to quests. No in-code comments.
+- Modified: `docs/COMMAND_CATALOG.md` — new section 11 "Extended Commands (`&&`)" with 5 examples and a comparison table vs `chains`.
+
 ## 07/16/2026
 - Status: Stable, all features work, still developing
 - **VADAR funeral — the agent layer is dead, the salvage ships**

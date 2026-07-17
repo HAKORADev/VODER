@@ -133,7 +133,7 @@ def oneline_quest(params):
         return False
     results_dir = os.path.join(os.getcwd(), "results")
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    return quest.execute(parsed, results_dir, timestamp, result_path=result_path)
+    return quest.execute(parsed, results_dir, timestamp, result_path=None)
 
 
 _discover_quests()
