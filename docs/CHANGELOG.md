@@ -4,124 +4,15 @@
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 - If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
-## 07/17/2026
-- Status: Stable, all features work, still developing
-- **VADAR funeral aftermath — revert VADAR-induced dependency bumps**
-
-### Reverted: transformers and huggingface-hub to pre-VADAR versions
-
-The 07/08 commit `3fc81cd "Vendor dac + upgrade transformers to 5.x for Gemma4Unified tokenizer support"` bumped two dependencies specifically because VADAR needed them:
-
-- `transformers==4.57.3` → `transformers>=5.0.0` — VADAR required 5.x for the Gemma4Unified tokenizer
-- `huggingface-hub==0.34.0` → `huggingface-hub>=1.0.0` — required by transformers 5.x
-
-With VADAR removed, these bumps are no longer needed. Reverted to the pre-VADAR pinned versions:
-
-- `transformers>=5.0.0` → `transformers==4.57.3`
-- `huggingface-hub>=1.0.0` → `huggingface-hub==0.34.0`
-
-The 07/08 commit note explicitly warned: *"VibeVoice and Qwen-TTS use deep transformers internal APIs that may have moved in 5.x. These will need testing and possibly patching when the models are loaded with transformers 5.x installed."* Reverting to 4.57.3 eliminates this latent risk — VibeVoice and Qwen-TTS were never re-tested against 5.x, so going back to the version they were built against is the safe call.
-
-### Not reverted: dac vendoring
-
-The 07/08 commit also vendored `dac` into `src/libs/dac/` and replaced the `dac` + `descript-audio-codec==1.0.0` requirements with `descript-audiotools>=0.7.2`. This was a side-effect of the transformers 5.x conflict (dac pins `typer~=0.15.2`, transformers 5.x needs `typer>=0.26`).
-
-The vendored dac does not depend on transformers, so it works fine with either transformers 4.x or 5.x. Keeping the vendored copy is the less invasive option — re-introducing the PyPI `dac` package would require deleting `src/libs/dac/`, removing the `src/libs/` sys.path addition in `voder.py`, and re-testing every code path that imports from `dac.` (Fish-Speech, Qwen-TTS, AudioSR). That can be a separate follow-up if desired.
-
-### Files
-
-- Modified: `requirements.txt` — reverted `transformers` and `huggingface-hub` to pre-VADAR pinned versions.
-
-### Bugfix: enforce voice clone reference duration limits in TTS engines
-
-Both TTS engines in VODER accept reference audio for voice cloning, but the code had no maximum duration check — a user could pass a 30-minute reference audio and the engine would try to feed it all to the model, eventually crashing when the encoded reference exceeded the model's context window.
-
-The actual hard limits are determined by each model's context window (32768 tokens), NOT by the hosted-API caps (DashScope's 60s, SGLang-Omni's 30s) — VODER runs the open-source local models, not the hosted APIs. Calculated from the model configs and codec frame rates:
-
-- **Qwen3-TTS** (regular `tts` mode): `max_position_embeddings = 32768` tokens at 12.5 Hz frame rate = ~43.7 min total context. Capped at **1200s (20 min)** so the reference leaves at least ~20 min of context for text + generation.
-- **Fish S2-Pro** (`tts extreme` mode): `text_config.max_seq_len = 32768` tokens at ~21 Hz = ~26 min total context, minus 2048 tokens reserved for generation (enforced by `inference.py`). Capped at **600s (10 min)** — leaves comfortable headroom for generation.
-
-These caps are intentionally generous (not the 10-30s "quality recommendation" range) because VODER supports use cases like cloning a voice from a long video with many speaker samples — generic 30s caps would defeat the purpose.
-
-Added a core helper `_enforce_voice_clone_limit(audio_path, max_seconds, engine_label)` that:
-1. Reads the audio duration via `torchaudio.info`
-2. If duration ≤ limit: returns the original path unchanged (no cost)
-3. If duration > limit: loads the first `max_seconds` of audio, saves to a temp WAV, returns the truncated path (temp file is added to a cleanup list)
-4. On any error: falls back to the original audio with a warning (never blocks the pipeline)
-
-The helper is called at the start of `QwenTTS.extract_voice()` (limit = 1200s) and `FishTTS.encode_voice()` (limit = 600s). These are the two lowest-level voice clone entry points — every path flows through them:
-
-- Single reference `tts ... target "ref.wav"` → `extract_voice` ✓
-- Multi-reference `tts ... target "ref1.wav" "ref2.wav"` → `_compose_refs` → `extract_voice` ✓
-- `train voice:name "ref.wav"` → `extract_voice` or `encode_voice` ✓
-- `train voice:name "ref1.wav" "ref2.wav"` → `_resolve_multi_refs` (concatenates without cap) → `extract_voice` or `encode_voice` ✓ (truncation happens at the engine)
-- Dialogue mode voice cloning → `extract_voice` ✓
-- TTS dub / SLC / SVC voice cloning → `extract_voice` or `encode_voice` ✓
-- `_tts_extract_voice` dispatcher → routes to `extract_voice` or `encode_voice` ✓
-
-The limits are defined as module-level constants near the top of `voder.py`:
-- `QWEN3_TTS_VOICE_CLONE_MAX_SECONDS = 1200`
-- `FISH_S2PRO_VOICE_CLONE_MAX_SECONDS = 600`
-
-When truncation occurs, a message is printed: `[Qwen3-TTS] Voice clone reference is 1800.0s — truncating to 1200s (model limit)...` so the user knows their reference was clipped.
-
-**Files:**
-- Modified: `src/voder.py` — added `QWEN3_TTS_VOICE_CLONE_MAX_SECONDS` and `FISH_S2PRO_VOICE_CLONE_MAX_SECONDS` constants, added `_enforce_voice_clone_limit()` core helper, wired it into `QwenTTS.extract_voice()` and `FishTTS.encode_voice()`. No in-code comments.
-
-### Chaining system update — extended commands (`&&`) and smarter `result` keyword
-
-Advanced multi-step workflows are now possible with two new features:
-
-#### Extended commands (`&&`)
-
-Multiple VODER oneline commands can now be chained on a single line using `"&&"` as a separator. Each command runs sequentially, and later commands can reference outputs from any earlier command — including **bidirectionally** (a later command can reference an output from two commands ago, which is impossible with regular `chains`).
-
-**Syntax:**
-```
-python voder.py cmd1 result file1 "&&" cmd2 results/file1.ext result file2 "&&" cmd3 results/file2.ext results/file1.ext result file3
-```
-
-- `"&&"` must be quoted (the shell would otherwise interpret unquoted `&&` as its own operator)
-- If any command fails, the chain stops immediately
-- Each segment is a full VODER oneline command (mode + args)
-- Works with all modes including `chains` — a `chains` command can be one segment in an extended command chain
-
-**Why `&&` vs `chains`?** Regular `chains` (section 10) are linear pipelines — each chain references the previous chain's output. `&&` extended commands allow non-linear references: command 3 can reference outputs from both command 1 and command 2. This enables bidirectional workflows like "generate audio → extract vocals → convert vocals using the original audio as the target voice."
-
-#### Smarter `result` keyword
-
-The `result` keyword now supports bare names (no quotes, no path) for in-place naming:
-
-| Syntax | Behavior |
-|--------|----------|
-| `result file-name` | Copy latest output to `results/file-name` — **literal, no extension** (file saved with exactly the name given) |
-| `result file-name.mp3` | Copy to `results/file-name.mp3` — extension as written (no conversion) |
-| `result file-name.auto` | Copy to `results/file-name.<real_ext>` — `.auto` is the ONLY magic suffix, replaced with the engine's actual extension |
-| `result "path/to/file"` | Copy to that path (old behavior preserved) |
-
-**Why literal by default?** To ensure the user knows the exact file name. VODER prints `Result saved as: results/file1` so the user knows the path for the next `&&` segment. If you want the engine's real extension, use `.auto`. If you want a specific extension, say so explicitly — VODER does not convert formats, it only names files.
-
-#### Implementation details
-
-- `copy_result_to_path()` rewritten: searches `results/` recursively for the latest file (was top-level only — broke for quest outputs saved to `results/downloads/`), classifies result argument as bare name (no `/`) vs path (has `/`), applies extension logic
-- Quest `result_path` handling centralized: quests now pass `result_path=None` to their `execute()` methods — `copy_result_to_path()` handles all result naming uniformly (fixes a pre-existing bug where quests and `copy_result_to_path` would both try to copy, potentially overwriting each other)
-- `&&` parsing in `__main__`: splits `sys.argv` on standalone `&&` args, executes each segment via `parse_and_execute_oneline`, stops on first failure
-- Help message updated with `&&` usage line
-
-**Files:**
-- Modified: `src/voder.py` — rewrote `copy_result_to_path()`, added `&&` parsing in `__main__`, updated help message. No in-code comments.
-- Modified: `src/voders/sidequests.py` — `oneline_quest()` now passes `result_path=None` to quests. No in-code comments.
-- Modified: `docs/COMMAND_CATALOG.md` — new section 11 "Extended Commands (`&&`)" with 5 examples and a comparison table vs `chains`.
-
 ## 07/16/2026
 - Status: Stable, all features work, still developing
-- **VADAR funeral — the agent layer is dead, the salvage ships**
+- **VADAR funeral + aftermath — agent layer removed, dependencies reverted, TTS voice clone limits enforced, chaining system extended**
 
 ### VADAR funeral
 
 After 9 rounds of deep gap analysis and the VADAR twins (heavy/lite) build, an honest cost/benefit review concluded that the VODER brotherhood (VADAR + Eval + Summarizer + Catcher) was over-engineered for what it delivered. Most of its machinery existed to support itself, not to serve real VODER users. The decision: kill the agent layer entirely, salvage the few pieces that had standalone value as plain VODER features.
 
-This entry does both: it ships the salvage (`quest media-search` + `quest download` improvements) AND removes the entire agent system in a single commit.
+This entry does it all in one wave: it ships the salvage (`quest media-search` + `quest download` improvements), removes the entire agent system, reverts the VADAR-induced dependency bumps, enforces TTS voice clone duration limits, and adds extended command chaining (`&&`) with a smarter `result` keyword.
 
 ### VADAR brotherhood removed
 
@@ -217,6 +108,106 @@ Previously `download` stood alone at the top of the listing as "standalone"; now
 - Modified: `src/voder.py` — removed all VADAR constants, config, model functions, oneline mode parsing, dispatch branch (~510 lines removed).
 - Modified: `README.md`, `docs/COMMAND_CATALOG.md`, `docs/READ.md`, `docs/voder-skill.md`, `docs/Bots.md`, `docs/Guide.md` — removed all VADAR/brotherhood references.
 - Deleted: `src/voders/vadars/` — entire folder (vadar.py, eval.py, summarizer.py, catcher.py, system_prompt.py, context.py, stream_parser.py, tools/, config.json, about/, supported_libs.txt, and runtime folders).
+
+### Reverted: transformers and huggingface-hub to pre-VADAR versions
+
+The 07/08 commit `3fc81cd "Vendor dac + upgrade transformers to 5.x for Gemma4Unified tokenizer support"` bumped two dependencies specifically because VADAR needed them:
+
+- `transformers==4.57.3` → `transformers>=5.0.0` — VADAR required 5.x for the Gemma4Unified tokenizer
+- `huggingface-hub==0.34.0` → `huggingface-hub>=1.0.0` — required by transformers 5.x
+
+With VADAR removed, these bumps are no longer needed. Reverted to the pre-VADAR pinned versions:
+
+- `transformers>=5.0.0` → `transformers==4.57.3`
+- `huggingface-hub>=1.0.0` → `huggingface-hub==0.34.0`
+
+The 07/08 commit note explicitly warned: *"VibeVoice and Qwen-TTS use deep transformers internal APIs that may have moved in 5.x. These will need testing and possibly patching when the models are loaded with transformers 5.x installed."* Reverting to 4.57.3 eliminates this latent risk — VibeVoice and Qwen-TTS were never re-tested against 5.x, so going back to the version they were built against is the safe call.
+
+### Not reverted: dac vendoring
+
+The 07/08 commit also vendored `dac` into `src/libs/dac/` and replaced the `dac` + `descript-audio-codec==1.0.0` requirements with `descript-audiotools>=0.7.2`. This was a side-effect of the transformers 5.x conflict (dac pins `typer~=0.15.2`, transformers 5.x needs `typer>=0.26`).
+
+The vendored dac does not depend on transformers, so it works fine with either transformers 4.x or 5.x. Keeping the vendored copy is the less invasive option — re-introducing the PyPI `dac` package would require deleting `src/libs/dac/`, removing the `src/libs/` sys.path addition in `voder.py`, and re-testing every code path that imports from `dac.` (Fish-Speech, Qwen-TTS, AudioSR). That can be a separate follow-up if desired.
+
+### Bugfix: enforce voice clone reference duration limits in TTS engines
+
+Both TTS engines in VODER accept reference audio for voice cloning, but the code had no maximum duration check — a user could pass a 30-minute reference audio and the engine would try to feed it all to the model, eventually crashing when the encoded reference exceeded the model's context window.
+
+The actual hard limits are determined by each model's context window (32768 tokens), NOT by the hosted-API caps (DashScope's 60s, SGLang-Omni's 30s) — VODER runs the open-source local models, not the hosted APIs. Calculated from the model configs and codec frame rates:
+
+- **Qwen3-TTS** (regular `tts` mode): `max_position_embeddings = 32768` tokens at 12.5 Hz frame rate = ~43.7 min total context. Capped at **1200s (20 min)** so the reference leaves at least ~20 min of context for text + generation.
+- **Fish S2-Pro** (`tts extreme` mode): `text_config.max_seq_len = 32768` tokens at ~21 Hz = ~26 min total context, minus 2048 tokens reserved for generation (enforced by `inference.py`). Capped at **600s (10 min)** — leaves comfortable headroom for generation.
+
+These caps are intentionally generous (not the 10-30s "quality recommendation" range) because VODER supports use cases like cloning a voice from a long video with many speaker samples — generic 30s caps would defeat the purpose.
+
+Added a core helper `_enforce_voice_clone_limit(audio_path, max_seconds, engine_label)` that:
+1. Reads the audio duration via `torchaudio.info`
+2. If duration ≤ limit: returns the original path unchanged (no cost)
+3. If duration > limit: loads the first `max_seconds` of audio, saves to a temp WAV, returns the truncated path (temp file is added to a cleanup list)
+4. On any error: falls back to the original audio with a warning (never blocks the pipeline)
+
+The helper is called at the start of `QwenTTS.extract_voice()` (limit = 1200s) and `FishTTS.encode_voice()` (limit = 600s). These are the two lowest-level voice clone entry points — every path flows through them:
+
+- Single reference `tts ... target "ref.wav"` → `extract_voice` ✓
+- Multi-reference `tts ... target "ref1.wav" "ref2.wav"` → `_compose_refs` → `extract_voice` ✓
+- `train voice:name "ref.wav"` → `extract_voice` or `encode_voice` ✓
+- `train voice:name "ref1.wav" "ref2.wav"` → `_resolve_multi_refs` (concatenates without cap) → `extract_voice` or `encode_voice` ✓ (truncation happens at the engine)
+- Dialogue mode voice cloning → `extract_voice` ✓
+- TTS dub / SLC / SVC voice cloning → `extract_voice` or `encode_voice` ✓
+- `_tts_extract_voice` dispatcher → routes to `extract_voice` or `encode_voice` ✓
+
+The limits are defined as module-level constants near the top of `voder.py`:
+- `QWEN3_TTS_VOICE_CLONE_MAX_SECONDS = 1200`
+- `FISH_S2PRO_VOICE_CLONE_MAX_SECONDS = 600`
+
+When truncation occurs, a message is printed: `[Qwen3-TTS] Voice clone reference is 1800.0s — truncating to 1200s (model limit)...` so the user knows their reference was clipped.
+
+### Chaining system update — extended commands (`&&`) and smarter `result` keyword
+
+Advanced multi-step workflows are now possible with two new features:
+
+#### Extended commands (`&&`)
+
+Multiple VODER oneline commands can now be chained on a single line using `"&&"` as a separator. Each command runs sequentially, and later commands can reference outputs from any earlier command — including **bidirectionally** (a later command can reference an output from two commands ago, which is impossible with regular `chains`).
+
+**Syntax:**
+```
+python voder.py cmd1 result file1 "&&" cmd2 results/file1.ext result file2 "&&" cmd3 results/file2.ext results/file1.ext result file3
+```
+
+- `"&&"` must be quoted (the shell would otherwise interpret unquoted `&&` as its own operator)
+- If any command fails, the chain stops immediately
+- Each segment is a full VODER oneline command (mode + args)
+- Works with all modes including `chains` — a `chains` command can be one segment in an extended command chain
+
+**Why `&&` vs `chains`?** Regular `chains` (section 10) are linear pipelines — each chain references the previous chain's output. `&&` extended commands allow non-linear references: command 3 can reference outputs from both command 1 and command 2. This enables bidirectional workflows like "generate audio → extract vocals → convert vocals using the original audio as the target voice."
+
+#### Smarter `result` keyword
+
+The `result` keyword now supports bare names (no quotes, no path) for in-place naming:
+
+| Syntax | Behavior |
+|--------|----------|
+| `result file-name` | Copy latest output to `results/file-name` — **literal, no extension** (file saved with exactly the name given) |
+| `result file-name.mp3` | Copy to `results/file-name.mp3` — extension as written (no conversion) |
+| `result file-name.auto` | Copy to `results/file-name.<real_ext>` — `.auto` is the ONLY magic suffix, replaced with the engine's actual extension |
+| `result "path/to/file"` | Copy to that path (old behavior preserved) |
+
+**Why literal by default?** To ensure the user knows the exact file name. VODER prints `Result saved as: results/file1` so the user knows the path for the next `&&` segment. If you want the engine's real extension, use `.auto`. If you want a specific extension, say so explicitly — VODER does not convert formats, it only names files.
+
+#### Implementation details
+
+- `copy_result_to_path()` rewritten: searches `results/` recursively for the latest file (was top-level only — broke for quest outputs saved to `results/downloads/`), classifies result argument as bare name (no `/`) vs path (has `/`), applies extension logic
+- Quest `result_path` handling centralized: quests now pass `result_path=None` to their `execute()` methods — `copy_result_to_path()` handles all result naming uniformly (fixes a pre-existing bug where quests and `copy_result_to_path` would both try to copy, potentially overwriting each other)
+- `&&` parsing in `__main__`: splits `sys.argv` on standalone `&&` args, executes each segment via `parse_and_execute_oneline`, stops on first failure
+- Help message updated with `&&` usage line
+
+### Additional files modified in this entry
+
+- Modified: `requirements.txt` — reverted `transformers` and `huggingface-hub` to pre-VADAR pinned versions.
+- Modified: `src/voder.py` — added `QWEN3_TTS_VOICE_CLONE_MAX_SECONDS` and `FISH_S2PRO_VOICE_CLONE_MAX_SECONDS` constants, added `_enforce_voice_clone_limit()` core helper, wired it into `QwenTTS.extract_voice()` and `FishTTS.encode_voice()`, rewrote `copy_result_to_path()`, added `&&` parsing in `__main__`, updated help message. No in-code comments.
+- Modified: `src/voders/sidequests.py` — `oneline_quest()` now passes `result_path=None` to quests. No in-code comments.
+- Modified: `docs/COMMAND_CATALOG.md` — new section 10b "Extended Commands (`&&`)" with 5 examples and a comparison table vs `chains`, updated Global Keywords section for the new `result` syntax, fixed stale `url_handler.py` reference in Input Types (now points to inline functions in `voder.py`), added 10a and 10b to the Quick Jump table.
 
 ## 07/10/2026
 - Status: Stable, all features work, still developing

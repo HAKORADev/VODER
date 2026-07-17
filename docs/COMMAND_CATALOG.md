@@ -56,6 +56,8 @@ The 3 task-layer features:
 | [8. SS](#8-ss--speakers-separator) | Speaker extraction & separation |
 | [9. quest](#9-quest--side-quests) | Side-quests (utility tasks) grouped into Media Manipulation (convert, cut, remove, merge, mix, silence, reverse, fade, soundlevel, bassboost, speed, pitch, glue, reverb, loudnorm, noframes) plus standalone `download`. |
 | [10. chains](#10-chains--user-defined-pipelines) | Compose multiple voder oneline tasks into a pipeline |
+| [10a. Prebuilt Chains](#10a-prebuilt-chains--build-load-comment-decompile-compile-journey) | Build, load, comment, decompile, compile, journey |
+| [10b. Extended Commands (`&&`)](#10b-extended-commands--) | Multi-command chaining with bidirectional references |
 | [Input Types](#input-types) | Supported file & URL formats |
 | [Output](#output) | Output directory & naming |
 
@@ -63,13 +65,19 @@ The 3 task-layer features:
 
 ## Global Keywords (available in all modes)
 
-### `result "<path>"`
+### `result <path-or-name>`
 
-Copy the latest output file to a custom path after the command finishes.
+Copy the latest output file to a custom path OR rename it in-place with a bare name. See [section 10b](#10b-extended-commands--) for the full syntax table.
 
 ```
+# Quoted path (old behavior) — copy to a custom location
 python voder.py tts script "hello" voice "male voice" result "C:/output/hello.wav"
-python voder.py stt "audio.wav" result "./transcript.txt"
+
+# Bare name (new behavior) — copy to results/<name> with no extension
+python voder.py tts script "hello" voice "male voice" result greeting
+
+# Bare name with .auto — copy to results/<name>.<real_ext>
+python voder.py tts script "hello" voice "male voice" result greeting.auto
 ```
 
 ---
@@ -2814,7 +2822,7 @@ Run `python voder.py cli` and choose `9. Prebuilt Chains` for a guided UX:
 
 ---
 
-## 11. Extended Commands (`&&`)
+## 10b. Extended Commands (`&&`)
 
 > Chain multiple VODER oneline commands on a single line, where each command can reference outputs from any earlier command — including bidirectionally. This is **not** the same as `chains` (section 10): chains are linear pipelines with named steps; extended commands are independent VODER invocations that share files by known names.
 
@@ -2822,7 +2830,7 @@ Run `python voder.py cli` and choose `9. Prebuilt Chains` for a guided UX:
 
 1. Write multiple VODER oneline commands separated by `"&&"` (quoted — the shell would otherwise interpret unquoted `&&` as its own operator)
 2. Each command runs sequentially — if one fails, the chain stops
-3. Use `result <bare-name>` (no quotes, no path) to save a command's output to `results/<bare-name>.<ext>` with a known name
+3. Use `result <bare-name>` (no quotes, no path) to save a command's output to `results/<bare-name>` with a known name (literal — no extension unless you use `.auto`)
 4. Later commands reference earlier outputs by their full path (e.g., `results/file1.wav`)
 
 ### The `result` keyword (new behavior)
@@ -2905,7 +2913,7 @@ Most modes that accept file paths also support (see exceptions below):
 | Facebook URL | `https://www.facebook.com/watch?v=...`, `https://fb.watch/...`, etc. |
 | X / Twitter URL | `https://twitter.com/<user>/status/...`, `https://x.com/<user>/status/...`, `https://t.co/...` |
 
-> **Note:** All URL types go through the same universal URL handler (`src/url_handler.py`). The handler runs a two-step detection: first a shape check (host + path patterns per platform, instant and offline) that rejects channel pages, profiles, playlists, and other non-video URLs; then a `yt-dlp` video verification step (online, `download=False`) that confirms the link actually resolves to a downloadable video stream before downloading. Short-link domains (`youtu.be`, `b23.tv`, `vm.tiktok.com`, `fb.watch`, `t.co`, etc.) are recognized as video URLs by default.
+> **Note:** All URL types go through the same universal URL handler (inline in `src/voder.py` — `detect_platform`, `classify_url`, `is_video_url`). The handler runs a two-step detection: first a shape check (host + path patterns per platform, instant and offline) that rejects channel pages, profiles, playlists, and other non-video URLs; then a `yt-dlp` video verification step (online, `download=False`) that confirms the link actually resolves to a downloadable video stream before downloading. Short-link domains (`youtu.be`, `b23.tv`, `vm.tiktok.com`, `fb.watch`, `t.co`, etc.) are recognized as video URLs by default.
 
 Video files are automatically handled: audio is extracted for processing, then merged back with the original video track for output (where applicable).
 
