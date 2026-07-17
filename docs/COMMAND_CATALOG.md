@@ -56,8 +56,6 @@ The 3 task-layer features:
 | [8. SS](#8-ss--speakers-separator) | Speaker extraction & separation |
 | [9. quest](#9-quest--side-quests) | Side-quests (utility tasks) grouped into Media Manipulation (convert, cut, remove, merge, mix, silence, reverse, fade, soundlevel, bassboost, speed, pitch, glue, reverb, loudnorm, noframes) plus standalone `download`. |
 | [10. chains](#10-chains--user-defined-pipelines) | Compose multiple voder oneline tasks into a pipeline |
-| [10a. Prebuilt Chains](#10a-prebuilt-chains--build-load-comment-decompile-compile-journey) | Build, load, comment, decompile, compile, journey |
-| [10b. Extended Commands (`&&`)](#10b-extended-commands--) | Multi-command chaining with bidirectional references |
 | [Input Types](#input-types) | Supported file & URL formats |
 | [Output](#output) | Output directory & naming |
 
