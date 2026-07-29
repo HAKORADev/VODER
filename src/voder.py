@@ -288,6 +288,12 @@ def is_public_net_url(url):
     return detect_platform(url) is None and is_supported_url(url)
 
 
+def is_known_platform_url(url):
+    if not url or not isinstance(url, str):
+        return False
+    return detect_platform(url) is not None
+
+
 def _matches_any(path, patterns):
     return any(re.match(p, path) for p in patterns)
 
@@ -4647,6 +4653,14 @@ def ss_extract_speakers(audio_path, use_overdose=False):
 def resolve_target_to_audio(path):
     cleanup_files = []
     if is_supported_url(path):
+        if not is_known_platform_url(path):
+            print(f"Error: '{path}' is from an unsupported platform (public_net).")
+            print(f"       Modes only accept URLs from: YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter, Reddit.")
+            print(f"       To use content from other sites, download it first with:")
+            print(f"         python voder.py quest download \"{path}\" result myfile.auto")
+            print(f"       Then pass the local file to your command:")
+            print(f"         python voder.py <mode> results/myfile.<ext> ...")
+            return None, cleanup_files
         platform_id = detect_platform(path)
         pname = platform_name(platform_id)
         is_vid, verify_err, _pid = is_video_url(path, verify=True)
@@ -4680,6 +4694,10 @@ def resolve_target_to_audio(path):
 
 def validate_dialogue_source_file(file_path):
     if is_supported_url(file_path):
+        if not is_known_platform_url(file_path):
+            return False, (f"'{file_path}' is from an unsupported platform (public_net). "
+                           f"Dialogue source only accepts URLs from supported platforms. "
+                           f"Download it first with 'quest download'."), None
         platform_id = detect_platform(file_path)
         return True, "url", platform_id
 

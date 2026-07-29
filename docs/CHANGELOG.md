@@ -30,6 +30,28 @@ Same fix applied to `classify_url()` which had the same `_normalize_url` bug —
 **Files:**
 - Modified: `src/voder.py` — rewrote `is_supported_url()` (lines 266–284), added local-path guard to `classify_url()` (line 296). No in-code comments.
 
+### public_net restricted to quest download and media-search only
+
+**Follow-up to issue #1 fix:** beyond fixing the local-path-as-URL bug, public_net URLs (URLs from unsupported platforms like `https://example.com/video`) are now rejected by all main processing modes (TTS, STS, TTM, STT, SE, SFX, SVS, SS), voice training, chains, and dialogue source analysis.
+
+**Why:** if a user typos a file path (e.g., `rsults/file.wav` instead of `results/file.wav`), the old code might try to treat it as a URL and attempt a download. By restricting public_net to `quest download` and `quest media-search` only, modes will simply report "file not found" for typos instead of making confusing network attempts.
+
+**The workflow for unsupported-platform content:**
+1. Download with quest download: `python voder.py quest download "https://example.com/video" result myfile.auto`
+2. Use the local file in any mode: `python voder.py se results/myfile.wav`
+3. Or chain with `&&`: `python voder.py quest download "https://example.com/video" result myfile.auto "&&" se results/myfile.wav result clean.auto`
+
+**Implementation:**
+- New: `is_known_platform_url(url)` — returns `True` only for the 8 supported platforms (YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, X/Twitter, Reddit). Returns `False` for public_net URLs.
+- Modified: `resolve_target_to_audio()` — now checks `is_known_platform_url()` after `is_supported_url()`. If the URL is public_net, rejects with a helpful 5-line error message telling the user to use `quest download` first.
+- Modified: `validate_dialogue_source_file()` — same public_net rejection for dialogue source analysis.
+- Unchanged: `quest download` and `quest media-search` — still accept public_net URLs with the existing warning.
+- Unchanged: `is_supported_url()` — still correctly identifies URLs vs local paths (from the issue #1 fix). Arg parsers use it to distinguish URLs from keywords, which is fine. The rejection happens at the mode entry point (`resolve_target_to_audio`), not at arg parsing.
+
+**Files:**
+- Modified: `src/voder.py` — added `is_known_platform_url()` function, added public_net rejection to `resolve_target_to_audio()` and `validate_dialogue_source_file()`. No in-code comments.
+- Modified: `docs/COMMAND_CATALOG.md` — Input Types section updated with "Supported platforms only in modes" note, public_net workflow explanation, and fixed the stale `url_handler.py` reference (now points to inline functions in `voder.py`).
+
 ## 07/16/2026
 - Status: Stable, all features work, still developing
 - **VADAR funeral + aftermath — agent layer removed, dependencies reverted, TTS voice clone limits enforced, dimensions resolver with paradox/mandela detection**

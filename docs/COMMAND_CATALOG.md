@@ -2987,7 +2987,13 @@ Most modes that accept file paths also support (see exceptions below):
 | Facebook URL | `https://www.facebook.com/watch?v=...`, `https://fb.watch/...`, etc. |
 | X / Twitter URL | `https://twitter.com/<user>/status/...`, `https://x.com/<user>/status/...`, `https://t.co/...` |
 
-> **Note:** All URL types go through the same universal URL handler (`src/url_handler.py`). The handler runs a two-step detection: first a shape check (host + path patterns per platform, instant and offline) that rejects channel pages, profiles, playlists, and other non-video URLs; then a `yt-dlp` video verification step (online, `download=False`) that confirms the link actually resolves to a downloadable video stream before downloading. Short-link domains (`youtu.be`, `b23.tv`, `vm.tiktok.com`, `fb.watch`, `t.co`, etc.) are recognized as video URLs by default.
+> **Supported platforms only in modes:** The 8 main processing modes (TTS, STS, TTM, STT, SE, SFX, SVS, SS), voice training, chains, and dialogue source analysis only accept URLs from the platforms listed above. URLs from other sites (public_net) are rejected with a message telling you to download the file first via `quest download`.
+>
+> **public_net is only accepted in:** `quest download` and `quest media-search`. If you need content from an unsupported site, download it first: `python voder.py quest download "https://example.com/video" result myfile.auto`, then pass the local file (`results/myfile.wav`) to your mode command.
+>
+> **Why?** If you typo a file path (e.g., `rsults/file.wav` instead of `results/file.wav`), it won't be accidentally treated as a URL and trigger a download attempt. Modes will simply report "file not found."
+>
+> **Note:** All URL types go through the same universal URL handler (inline in `src/voder.py` — `detect_platform`, `classify_url`, `is_video_url`). The handler runs a two-step detection: first a shape check (host + path patterns per platform, instant and offline) that rejects channel pages, profiles, playlists, and other non-video URLs; then a `yt-dlp` video verification step (online, `download=False`) that confirms the link actually resolves to a downloadable video stream before downloading. Short-link domains (`youtu.be`, `b23.tv`, `vm.tiktok.com`, `fb.watch`, `t.co`, etc.) are recognized as video URLs by default.
 
 Video files are automatically handled: audio is extracted for processing, then merged back with the original video track for output (where applicable).
 
