@@ -264,11 +264,23 @@ def platform_name(platform_id):
 
 
 def is_supported_url(url):
+    if not url or not isinstance(url, str):
+        return False
+    if url.startswith(('http://', 'https://')):
+        return True
+    if '://' in url and not url.startswith(('file://',)):
+        return True
+    if os.path.exists(url):
+        return False
+    if (url.startswith('/') or url.startswith('\\') or
+        (len(url) >= 2 and url[1] == ':') or
+        url.startswith('./') or url.startswith('../') or
+        url.startswith('.\\') or url.startswith('..\\')):
+        return False
     if detect_platform(url) is not None:
         return True
-    normalized = _normalize_url(url)
-    if normalized and (normalized.startswith('http://') or normalized.startswith('https://')):
-        return True
+    if '.' in url.split('/')[0].split('?')[0]:
+        return False
     return False
 
 
@@ -281,6 +293,8 @@ def _matches_any(path, patterns):
 
 
 def classify_url(url):
+    if not is_supported_url(url):
+        return "unsupported", None
     platform_id = detect_platform(url)
     if not platform_id:
         normalized = _normalize_url(url)

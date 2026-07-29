@@ -4,6 +4,32 @@
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 - If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
+## 07/30/2026
+- Status: Stable, all features work, still developing
+- **Bugfix: local file paths treated as URLs (issue #1)**
+
+### Bugfix: `is_supported_url()` treated local file paths as URLs
+
+**Reported in [issue #1](https://github.com/HAKORADev/VODER/issues/1):** running `python src/voder.py se "/home/user/file.wav"` failed with `Error: Error checking video: Invalid URL 'https:///home/user/file.wav': No host supplied`. SE (and any mode using `resolve_target_to_audio`) was treating local file paths as URLs and trying to download them.
+
+**Root cause:** The `is_supported_url()` function called `_normalize_url()` which prepends `https://` to ANY string without a URL scheme — including local file paths like `/home/user/file.wav`. So `is_supported_url("/home/user/file.wav")` returned `True`, causing the URL download path to activate. The `_normalize_url` helper was designed for URL normalization (e.g., turning `youtube.com/watch?v=...` into `https://youtube.com/watch?v=...`), but it didn't distinguish between URLs and local paths.
+
+**Fix:** Rewrote `is_supported_url()` to explicitly reject local file paths before checking for URL patterns:
+- Absolute paths: starting with `/` or `\`
+- Windows drive letters: `C:\` or `C:/`
+- Relative paths: `./`, `../`, `.\`, `..\`
+- Files that exist on disk (`os.path.exists(url)` returns `True`)
+- Bare filenames with extensions (e.g., `test.wav`)
+
+Only strings that pass these local-path checks AND look like URLs (start with `http://`/`https://`, have a `://` scheme, or match a known platform domain) return `True`.
+
+Same fix applied to `classify_url()` which had the same `_normalize_url` bug — it was classifying local paths as `public_net`.
+
+**Verified with 15 test cases:** the issue scenario (`/home/user/Projects/VODER/test.wav`), files that exist on disk, bare filenames, relative paths, Windows paths (forward and backslash), and all URL types (YouTube, TikTok, Bilibili, short URLs, public_net, URLs without protocol).
+
+**Files:**
+- Modified: `src/voder.py` — rewrote `is_supported_url()` (lines 266–284), added local-path guard to `classify_url()` (line 296). No in-code comments.
+
 ## 07/16/2026
 - Status: Stable, all features work, still developing
 - **VADAR funeral + aftermath — agent layer removed, dependencies reverted, TTS voice clone limits enforced, dimensions resolver with paradox/mandela detection**
