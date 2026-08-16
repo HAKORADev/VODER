@@ -1,0 +1,4 @@
+from music3.models.autoencoders.minimax_music3_vocoder import MiniMaxMusic3Vocoder
+from music3.models.condition_embedders.condition_embedder_minimax_music3 import MiniMaxMusic3ConditionEncoder
+from music3.models.transformers.minimax_music3_rvq_depth_decoder import MiniMaxMusic3RVQDepthDecoder
+from music3.models.transformers.transformer_minimax_music3 import MiniMaxMusic3Transformer1DModel

@@ -1302,6 +1302,114 @@ sfx:thunder/10-5/200      # Level above 100 (warning → clamped to 100)
 
 ---
 
+### 3c. Extreme TTM — MiniMax Music 3
+
+> **MiniMax Music 3** is a high-performance music generation model that creates complete songs up to **5 minutes** long with expressive vocals, evolving arrangements, and stable long-form audio quality. It uses an 8B Global LLM (Qwen3) for long-range musical structure, a 0.6B Local LLM for frame-level acoustic detail, and a continuous hidden-state synthesis system based on Flow Matching and Flow-VAE.
+>
+> **GitHub:** [MiniMax-AI/MiniMax-Music3](https://github.com/MiniMax-AI/MiniMax-Music3)
+>
+> **Does NOT support:** reference audio, voice cloning, remix, repaint, complete, lego, extract, or VC. Only bare generation and bgm are available in extreme mode.
+
+#### Syntax
+
+```
+python voder.py ttm extreme lyrics "<lyrics>" styling "<music_description>" [duration]
+python voder.py ttm extreme bgm "<source>" music "<description>" [level N]
+python voder.py tts script "..." voice "..." music extreme "<description>"
+```
+
+#### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `extreme` | Switch from ACE-Step to MiniMax Music 3 |
+| `lyrics "<text>"` | Lyrics with section tags (see below) |
+| `styling "<text>"` | Music description (genre, mood, vocals, instrumentation, arrangement) |
+| `duration` | (optional) Duration in seconds, 10–300 (default: 60). Capped at 300 (5 min). |
+| `bgm "<source>"` | Source audio/video file or URL for background music replacement |
+| `music "<desc>"` | Music description for bgm mode |
+| `level N` | (optional) Music volume 0–100 for bgm mode (default: 35) |
+
+#### Lyrics section tags
+
+MiniMax Music 3 accepts structured lyrics with section tags. Each tag must be on its own line — any text on the same line as a tag is dropped by the model's input contract. Tags are case-insensitive (automatically lowercased).
+
+| Tag | Purpose |
+|-----|---------|
+| `[intro]` | Song introduction (typically instrumental) |
+| `[verse]` | Main verse section |
+| `[pre-chorus]` | Build-up before the chorus |
+| `[chorus]` | The hook / main repeated section |
+| `[post-chorus]` | Section after the chorus |
+| `[bridge]` | Contrasting section, often modulates |
+| `[instrumental]` | Instrumental break (no vocals) |
+| `[solo]` | Solo section (e.g., guitar solo) |
+| `[outro]` | Song ending |
+| `[start]` | Automatically prepended by VODER (do not add manually) |
+| `[custom-tag]` | Any custom tag (e.g., `[bass-drop]`, `[breakdown]`) — the model treats it as a structural marker |
+
+> **Important:** Tags must be on their own line. Writing `[verse] Hello world` will drop "Hello world" — only the tag is kept. Put the lyrics on the next line.
+
+#### Music description (styling)
+
+The music description defines the musical style. For best results, include:
+- **Genre and subgenre** (e.g., "warm acoustic pop", "cinematic orchestral epic")
+- **Vocal details** (gender, timbre, performance style)
+- **Instrumentation** (primary and secondary instruments)
+- **Arrangement** (section-level evolution, groove, dynamics)
+- **Production profile** (mix character, spatial effects)
+
+Example: `"A warm acoustic pop song with intimate female vocals, fingerpicked guitar, soft piano, and a gradual emotional build into a wide final chorus."`
+
+A concise description works too — the model fills in the details. For maximum control, use the [Structured Caption format](https://github.com/MiniMax-AI/MiniMax-Music3#prompt-enhancement) from the MiniMax Music 3 skills.
+
+#### Output
+
+- **Format:** 44.1 kHz, 16-bit stereo WAV
+- **Max duration:** 300 seconds (5 minutes)
+- **Output naming:** `voder_ttm_extreme_<timestamp>.wav` (bare) or `voder_ttm_extreme_bgm_<timestamp>.wav` (bgm)
+
+#### Locked sub-modes
+
+When `extreme` is active, the following TTM sub-modes are **rejected** (MiniMax Music 3 does not support them):
+- `remix` — requires source audio style transfer
+- `repaint` — requires source audio restyling
+- `complete` — requires source audio stem completion
+- `lego` — requires source audio stem extraction
+- `extract` — requires source audio stem isolation
+- `vc` — requires reference voice for post-generation voice conversion
+
+Only **bare generation** (`lyrics` + `styling`) and **bgm** (background music replacement) are supported.
+
+#### TTS music extreme
+
+In TTS dialogue/single mode, add `extreme` after the `music` keyword to use MiniMax Music 3 for background music generation instead of ACE-Step:
+
+```
+python voder.py tts script "Hello world" voice "narrator" music extreme "epic orchestral"
+python voder.py tts script "James: Hello" script "Sarah: Hi" voice "James: deep male" voice "Sarah: female" music extreme "ambient synth" level 30
+```
+
+The generated music length matches the spoken dialogue duration (+5s buffer). VODER automatically uses instrumental lyrics (`[intro]`, `[instrumental]`, `[outro]`) so the background music has no vocals that would clash with the spoken dialogue.
+
+#### Examples
+
+```
+# Bare generation — 60 second song
+python voder.py ttm extreme lyrics "[verse]\nMorning light\n[chorus]\nSoftly breathing" styling "warm acoustic pop, intimate female vocals, fingerpicked guitar" 60
+
+# Full 5-minute song
+python voder.py ttm extreme lyrics "[intro]\n[verse]\nLong lyrics here\n[chorus]\nMore lyrics\n[bridge]\nDifferent section\n[outro]" styling "cinematic orchestral epic with choir" 300
+
+# BGM replacement — replace background music in a podcast
+python voder.py ttm extreme bgm "podcast.wav" music "lo-fi chill hip hop, mellow beats, vinyl crackle" level 25
+
+# TTS with extreme background music
+python voder.py tts script "Welcome to the show" voice "narrator" music extreme "upbeat electronic dance, synth leads, driving bass"
+```
+
+---
+
 ## 4. `stt` — Speech-to-Text (Transcription)
 
 Transcribe audio/video to text using Whisper.

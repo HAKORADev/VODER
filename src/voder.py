@@ -28,6 +28,12 @@ VIBEVOICE_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "vibevoice_asr")
 TRANSLATE_GEMMA_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "translate_gemma")
 AUDIOSR_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "audiosr")
 ALIGNER_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "aligner")
+MUSIC3_DIR = os.path.join(MODELS_CHECKPOINTS_DIR, "music3")
+MUSIC3_REPO = "MiniMaxAI/MiniMax-Music3"
+MUSIC3_MAX_DURATION = 300
+MUSIC3_SAMPLE_RATE = 44100
+MUSIC3_FRAME_RATE = 25.0
+MUSIC3_MAX_FRAMES = 9000
 
 QWEN3_TTS_VOICE_CLONE_MAX_SECONDS = 1200
 FISH_S2PRO_VOICE_CLONE_MAX_SECONDS = 600
@@ -4251,6 +4257,133 @@ ACESTEP_INSTRUMENT_TRACKS = {"woodwinds", "brass", "fx", "synth", "strings", "pe
                               "keyboard", "guitar", "bass", "drums"}
 ACESTEP_VOICE_TRACKS = {"vocals", "backing_vocals"}
 
+
+class MiniMaxMusic3Wrapper:
+    def __init__(self):
+        self.pipeline = None
+        self.model_dir = MUSIC3_DIR
+        os.makedirs(self.model_dir, exist_ok=True)
+
+    def ensure_model(self):
+        if self.pipeline is not None:
+            return True
+        try:
+            import torch
+            from huggingface_hub import snapshot_download
+            if not os.path.exists(os.path.join(self.model_dir, "modular_model_index.json")):
+                print(f"Downloading MiniMax Music 3 from HuggingFace ({MUSIC3_REPO})...")
+                print("This is a large download (~20GB). It may take a while depending on your connection.")
+                snapshot_download(
+                    repo_id=MUSIC3_REPO,
+                    local_dir=self.model_dir,
+                    local_dir_use_symlinks=False,
+                )
+            print("Loading MiniMax Music 3 pipeline...")
+            from music3 import (
+                MiniMaxMusic3ModularPipeline,
+                MiniMaxMusic3ConditionEncoder,
+                MiniMaxMusic3Transformer1DModel,
+                MiniMaxMusic3RVQDepthDecoder,
+                MiniMaxMusic3Vocoder,
+            )
+            from music3.modular_pipelines.minimax_music3.modular_blocks_minimax_music3 import MiniMaxMusic3Blocks
+            from diffusers import FlowMatchEulerDiscreteScheduler
+            from diffusers.guiders import ClassifierFreeGuidance
+            from transformers import Qwen3ForCausalLM, Qwen2Tokenizer
+            device = "cuda:0" if torch.cuda.is_available() else "cpu"
+            dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+            pipe = MiniMaxMusic3ModularPipeline()
+            pipe.tokenizer = Qwen2Tokenizer.from_pretrained(os.path.join(self.model_dir, "tokenizer"))
+            pipe.language_model = Qwen3ForCausalLM.from_pretrained(
+                os.path.join(self.model_dir, "language_model"),
+                torch_dtype=dtype,
+            ).to(device)
+            pipe.rvq_depth_decoder = MiniMaxMusic3RVQDepthDecoder.from_pretrained(
+                os.path.join(self.model_dir, "rvq_depth_decoder"),
+                torch_dtype=dtype,
+            ).to(device)
+            pipe.condition_encoder = MiniMaxMusic3ConditionEncoder.from_pretrained(
+                os.path.join(self.model_dir, "condition_encoder"),
+                torch_dtype=dtype,
+            ).to(device)
+            pipe.transformer = MiniMaxMusic3Transformer1DModel.from_pretrained(
+                os.path.join(self.model_dir, "transformer"),
+                torch_dtype=dtype,
+            ).to(device)
+            pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+                os.path.join(self.model_dir, "scheduler"),
+            )
+            pipe.vocoder = MiniMaxMusic3Vocoder.from_pretrained(
+                os.path.join(self.model_dir, "vocoder"),
+                torch_dtype=dtype,
+            ).to(device)
+            pipe.guider = ClassifierFreeGuidance(1.5)
+            pipe._blocks = MiniMaxMusic3Blocks()
+            self.pipeline = pipe
+            print("MiniMax Music 3 loaded successfully.")
+            return True
+        except Exception as e:
+            print(f"Error loading MiniMax Music 3: {e}")
+            import traceback
+            traceback.print_exc()
+            self.pipeline = None
+            return False
+
+    def generate(self, lyrics, style_prompt, output_path, duration=60, seed=0):
+        if not self.ensure_model():
+            return False
+        try:
+            import torch
+            import soundfile as sf
+            import numpy as np
+            duration = min(duration, MUSIC3_MAX_DURATION)
+            max_frames = min(int(duration * MUSIC3_FRAME_RATE), MUSIC3_MAX_FRAMES)
+            print(f"Generating music with MiniMax Music 3 (up to {duration}s, {max_frames} frames)...")
+            device = self.pipeline._execution_device if hasattr(self.pipeline, '_execution_device') else "cpu"
+            generator = torch.Generator(device=device).manual_seed(seed)
+            output = self.pipeline(
+                prompt=style_prompt,
+                lyrics=lyrics,
+                audio_duration=float(duration),
+                generator=generator,
+                num_inference_steps=30,
+                output="audios",
+            )
+            audio = output
+            if isinstance(audio, torch.Tensor):
+                audio = audio.cpu().numpy()
+            if audio.ndim == 3:
+                audio = audio[0]
+            if audio.ndim == 1:
+                audio = np.stack([audio, audio], axis=0)
+            elif audio.shape[0] == 1:
+                audio = np.repeat(audio, 2, axis=0)
+            sr = self.pipeline.sampling_rate if hasattr(self.pipeline, 'sampling_rate') else MUSIC3_SAMPLE_RATE
+            audio_int16 = np.clip(audio, -1.0, 1.0)
+            audio_int16 = (audio_int16 * 32767).astype(np.int16)
+            sf.write(output_path, audio_int16.T, sr, subtype='PCM_16')
+            print(f"Music generated successfully: {output_path}")
+            return True
+        except Exception as e:
+            print(f"Error generating music with MiniMax Music 3: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def cleanup(self):
+        if self.pipeline is not None:
+            del self.pipeline
+            self.pipeline = None
+            import gc
+            gc.collect()
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except:
+                pass
+
+
 def resolve_acestep_tracks(instruments_raw):
     track_classes = []
     use_everything = False
@@ -5471,10 +5604,10 @@ def parse_oneline_args(args):
             result['params']['overdose'] = True
             i += 1
         elif arg_lower == 'extreme':
-            if mode in ('tts', 'sts'):
+            if mode in ('tts', 'sts', 'ttm'):
                 result['params']['extreme'] = True
             else:
-                print("Warning: 'extreme' keyword is only valid in TTS and STS modes, ignoring")
+                print("Warning: 'extreme' keyword is only valid in TTS, STS, and TTM modes, ignoring")
             i += 1
         elif mode == 'ttm' and arg_lower == 'complete':
             result['params']['complete'] = True
@@ -6303,6 +6436,12 @@ def show_oneline_usage():
     print('  python voder.py ttm bgm "audio.wav" music "piano" "sfx:thunder/10-5/50"')
     print('  python voder.py ttm bgm "audio.wav" "sfx:rain/8-22" "sfx:thunder/10-5/60"')
     print('  python voder.py ttm bgm "audio.wav" music "piano" reference "30-60(ref.wav)"')
+    print()
+    print("Extreme TTM examples (MiniMax Music 3 — up to 5 min, full songs with vocals):")
+    print('  python voder.py ttm extreme lyrics "[verse]\\nHello world" styling "warm acoustic pop" 60')
+    print('  python voder.py ttm extreme lyrics "lyrics here" styling "cinematic orchestral" 180')
+    print('  python voder.py ttm extreme bgm "source.wav" music "soft piano ambient" level 30')
+    print('  python voder.py tts script "Hello world" voice "narrator" music extreme "epic orchestral"')
     print()
     print("Complete + SFX examples (add instruments and/or sound effects):")
     print('  python voder.py ttm complete "source.wav" add "drums bass" "sfx:thunder/10-5/50"')
@@ -8665,16 +8804,46 @@ def oneline_tts(params):
                     tts_obj = None
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                ace = AceStepWrapper(use_overdose=use_overdose)
-                if ace.handler is None:
-                    print("Error: Failed to load ACE-Step model")
-                    return False
-                success = _generate_music_and_mix(ace, music_description, dialogue_temp.name, output_path, music_level_spec, reference_audio=reference_audio)
-                del ace
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                if not success:
-                    return False
+                if use_extreme:
+                    print("Loading MiniMax Music 3 (extreme) for background music...")
+                    music3 = MiniMaxMusic3Wrapper()
+                    if music3.ensure_model():
+                        import torchaudio as _ta_info
+                        info = _ta_info.info(dialogue_temp.name)
+                        dialogue_duration = info.num_frames / info.sample_rate
+                        gen_dur = min(int(dialogue_duration) + 5, MUSIC3_MAX_DURATION)
+                        music_temp = os.path.join(results_dir, f"_tts_music_extreme_{int(time.time())}.wav")
+                        success = music3.generate(
+                            lyrics="[intro]\n[instrumental]\n[outro]",
+                            style_prompt=music_description,
+                            output_path=music_temp,
+                            duration=gen_dur,
+                        )
+                        music3.cleanup()
+                        if success:
+                            print("Mixing dialogue with MiniMax Music 3 background...")
+                            success = _mix_dialogue_with_music(dialogue_temp.name, music_temp, output_path, music_level_spec)
+                            try:
+                                os.unlink(music_temp)
+                            except:
+                                pass
+                        if not success:
+                            print("Error: MiniMax Music 3 background music generation failed")
+                            return False
+                    else:
+                        print("Error: Failed to load MiniMax Music 3")
+                        return False
+                else:
+                    ace = AceStepWrapper(use_overdose=use_overdose)
+                    if ace.handler is None:
+                        print("Error: Failed to load ACE-Step model")
+                        return False
+                    success = _generate_music_and_mix(ace, music_description, dialogue_temp.name, output_path, music_level_spec, reference_audio=reference_audio)
+                    del ace
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    if not success:
+                        return False
                 os.unlink(dialogue_temp.name)
             else:
                 shutil.move(dialogue_temp.name, output_path)
@@ -8958,6 +9127,142 @@ def oneline_sts(params):
                     except:
                         pass
 
+def oneline_ttm_extreme(params, results_dir):
+    lyrics_list = params.get('lyrics', [])
+    styling_list = params.get('styling', [])
+    if not lyrics_list:
+        print("Error: TTM extreme requires lyrics")
+        return False
+    if not styling_list:
+        print("Error: TTM extreme requires styling (music description)")
+        return False
+    lyrics = lyrics_list[0].replace('\\n', '\n')
+    style = styling_list[0].replace('\\n', '\n')
+    duration = params.get('duration', 60)
+    if isinstance(duration, list):
+        duration = duration[-1] if duration else 60
+    try:
+        duration = int(duration)
+    except (ValueError, TypeError):
+        duration = 60
+    if duration < 10:
+        print("Error: Duration must be at least 10 seconds")
+        return False
+    if duration > MUSIC3_MAX_DURATION:
+        print(f"Warning: Duration capped to {MUSIC3_MAX_DURATION}s (MiniMax Music 3 maximum)")
+        duration = MUSIC3_MAX_DURATION
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    output_path = os.path.join(results_dir, f"voder_ttm_extreme_{timestamp}.wav")
+    wrapper = MiniMaxMusic3Wrapper()
+    try:
+        success = wrapper.generate(
+            lyrics=lyrics,
+            style_prompt=style,
+            output_path=output_path,
+            duration=duration,
+        )
+        if success:
+            print(f"\n✓ Success! Output saved to: {output_path}")
+        return success
+    finally:
+        wrapper.cleanup()
+
+
+def oneline_ttm_extreme_bgm(params, results_dir):
+    bgm_source = params.get('bgm_source', '')
+    if not bgm_source:
+        print("Error: bgm requires a source path (audio/video file or URL)")
+        return False
+    music_params_list = params.get('music', [])
+    music_description = None
+    if music_params_list:
+        music_description = music_params_list[-1]
+        if music_description:
+            music_description = music_description.strip()
+    if not music_description:
+        print('Error: bgm requires a music description (use: music "description")')
+        return False
+    level = 35
+    level_list = params.get('level', [])
+    if level_list:
+        try:
+            lv = int(level_list[-1])
+            if lv < 0 or lv > 100:
+                print("Error: level must be between 0 and 100")
+                return False
+            level = lv
+        except (ValueError, TypeError):
+            pass
+    _bgm_cleanup = []
+    try:
+        resolved_source, cleanup = resolve_target_to_audio(bgm_source)
+        if resolved_source is None:
+            print("Error: Could not resolve bgm source")
+            return False
+        _bgm_cleanup.extend(cleanup)
+        import torchaudio
+        info = torchaudio.info(resolved_source)
+        source_duration = info.num_frames / info.sample_rate
+        gen_duration = min(int(source_duration) + 5, MUSIC3_MAX_DURATION)
+        print(f"Source duration: {source_duration:.1f}s — generating {gen_duration}s of music with MiniMax Music 3...")
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        temp_music = os.path.join(results_dir, f"_bgm_extreme_music_{timestamp}.wav")
+        _bgm_cleanup.append(temp_music)
+        wrapper = MiniMaxMusic3Wrapper()
+        try:
+            success = wrapper.generate(
+                lyrics="[intro]\n[instrumental]\n[outro]",
+                style_prompt=music_description,
+                output_path=temp_music,
+                duration=gen_duration,
+            )
+            if not success:
+                print("Error: Music generation failed")
+                return False
+        finally:
+            wrapper.cleanup()
+        print("Mixing generated music with source audio...")
+        music_vol = level / 100.0
+        src_wav, src_sr = torchaudio.load(resolved_source)
+        mus_wav, mus_sr = torchaudio.load(temp_music)
+        if mus_sr != src_sr:
+            resampler = torchaudio.transforms.Resample(mus_sr, src_sr)
+            mus_wav = resampler(mus_wav)
+        if mus_wav.shape[0] == 1:
+            mus_wav = mus_wav.repeat(2, 1)
+        elif mus_wav.shape[0] > 2:
+            mus_wav = mus_wav[:2]
+        if src_wav.shape[0] == 1:
+            src_wav = src_wav.repeat(2, 1)
+        elif src_wav.shape[0] > 2:
+            src_wav = src_wav[:2]
+        src_len = src_wav.shape[1]
+        mus_len = mus_wav.shape[1]
+        if mus_len < src_len:
+            padding = torch.zeros(2, src_len - mus_len)
+            mus_wav = torch.cat([mus_wav, padding], dim=1)
+        elif mus_len > src_len:
+            mus_wav = mus_wav[:, :src_len]
+        mixed = src_wav * (1.0 - music_vol * 0.5) + mus_wav * music_vol
+        mixed = mixed.clamp(-1.0, 1.0)
+        output_path = os.path.join(results_dir, f"voder_ttm_extreme_bgm_{timestamp}.wav")
+        torchaudio.save(output_path, mixed, src_sr)
+        print(f"\n✓ Success! Output saved to: {output_path}")
+        return True
+    except Exception as e:
+        print(f"Error in extreme bgm: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    finally:
+        for f in _bgm_cleanup:
+            if f and os.path.exists(f):
+                try:
+                    os.unlink(f)
+                except:
+                    pass
+
+
 def oneline_ttm(params):
     original_cwd = os.getcwd()
     results_dir = os.path.join(original_cwd, "results")
@@ -8966,6 +9271,27 @@ def oneline_ttm(params):
     _is_remix = params.get('is_remix', False)
     use_overdose = params.get('overdose', False)
     use_vc = params.get('vc', False)
+    use_extreme = params.get('extreme', False)
+
+    if use_extreme:
+        _locked_submodes = {
+            'is_remix': _is_remix,
+            'vc': use_vc,
+            'is_repaint': params.get('is_repaint', False),
+            'complete': params.get('complete', False),
+            'lego': params.get('lego', False),
+            'extract': params.get('extract', False),
+        }
+        _active_locks = [k for k, v in _locked_submodes.items() if v]
+        if _active_locks:
+            print(f"Error: TTM extreme only supports bare generation and bgm. Locked sub-modes detected: {', '.join(_active_locks)}")
+            print("       MiniMax Music 3 does not support reference audio, source audio modification, or voice conversion.")
+            print("       Use 'ttm extreme lyrics \"...\" styling \"...\" [duration]' for bare generation,")
+            print("       or 'ttm extreme bgm \"source.wav\" music \"description\" [level N]' for background music replacement.")
+            return False
+        if params.get('bgm_source'):
+            return oneline_ttm_extreme_bgm(params, results_dir)
+        return oneline_ttm_extreme(params, results_dir)
 
     if use_vc:
         if _is_remix:

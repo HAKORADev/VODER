@@ -4,6 +4,49 @@
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 - If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
+## 08/16/2026
+- Status: Stable, all features work, still developing
+- **Extreme text-to-song model addition — MiniMax Music 3**
+
+### Extreme TTM — MiniMax Music 3 integration
+
+Added [MiniMax Music 3](https://github.com/MiniMax-AI/MiniMax-Music3) as the `extreme` mode for TTM (Text-to-Music). MiniMax Music 3 is a high-performance music generation model that creates complete songs up to **5 minutes** long with expressive vocals, evolving arrangements, and stable long-form audio quality.
+
+**Architecture:** 8B Global LLM (Qwen3-8B) for long-range musical structure + 0.6B Local LLM for frame-level acoustic detail + continuous hidden-state synthesis (Flow Matching + Flow-VAE). Produces 44.1 kHz, 16-bit stereo WAV.
+
+**Vendored source:** The MiniMax Music 3 pipeline classes (~1680 lines across 10 files) were vendored from diffusers 0.40.0.dev0 into `src/music3/` with all relative imports rewritten to absolute `from diffusers...` imports. This allows VODER to use the model with the stable diffusers 0.39.0 from PyPI — no need to install diffusers from GitHub. The vendored classes import base classes (`ModelMixin`, `ConfigMixin`, `ModularPipeline`, `FlowMatchEulerDiscreteScheduler`, `ClassifierFreeGuidance`, etc.) from the installed diffusers, which are all present in 0.39.0.
+
+**Usage:**
+```
+# Bare generation — full song with lyrics
+python voder.py ttm extreme lyrics "[verse]\nHello world" styling "warm acoustic pop" 60
+
+# BGM replacement — replace background music in existing audio
+python voder.py ttm extreme bgm "podcast.wav" music "lo-fi chill" level 25
+
+# TTS with extreme background music
+python voder.py tts script "Hello" voice "narrator" music extreme "epic orchestral"
+```
+
+**Lyrics section tags:** `[intro]`, `[verse]`, `[pre-chorus]`, `[chorus]`, `[post-chorus]`, `[bridge]`, `[instrumental]`, `[solo]`, `[outro]`, plus custom tags like `[bass-drop]`. Tags must be on their own line — text on the same line as a tag is dropped.
+
+**Locked sub-modes:** When `extreme` is active, remix, repaint, complete, lego, extract, and VC are rejected (MiniMax Music 3 does not support reference audio or source audio modification). Only bare generation and bgm are available.
+
+**Duration limit:** 10–300 seconds (5 minutes max). The model uses 9000 acoustic frames at 25 Hz frame rate, capped at 360 seconds by the model architecture; VODER caps at 300 seconds for safety.
+
+**Model download:** Cached at `src/models/checkpoints/music3/`. First run downloads ~20GB from HuggingFace (`MiniMaxAI/MiniMax-Music3`). Uses the same universal download/cache/load/unload pattern as all other VODER models.
+
+**TTS music extreme:** In TTS dialogue/single mode, `music extreme "<description>"` uses MiniMax Music 3 for background music generation instead of ACE-Step. The generated music is instrumental-only (auto-lyrics: `[intro]`, `[instrumental]`, `[outro]`) to avoid vocal clashing with the spoken dialogue. Music duration matches the spoken dialogue + 5s buffer.
+
+**Language support:** 80+ languages (same tier system as Fish Audio S2-Pro). The Global LLM is Qwen3-8B, which is inherently multilingual. Language is auto-detected from the lyrics text.
+
+**Files:**
+- New: `src/music3/` — vendored MiniMax Music 3 pipeline classes (10 Python files + `__init__.py` files, ~1680 lines). Relative imports rewritten to absolute `from diffusers...` / `from music3...` imports. No in-code comments added by VODER (original diffusers comments retained in vendored files).
+- Modified: `src/voder.py` — added `MUSIC3_DIR` and related constants, `MiniMaxMusic3Wrapper` class (download, load, generate, cleanup), `oneline_ttm_extreme()` and `oneline_ttm_extreme_bgm()` functions, TTM extreme routing in `oneline_ttm()`, TTS music extreme routing in TTS dialogue path, `ttm` added to `extreme` keyword acceptance in arg parser, extreme TTM examples in usage help. No in-code comments.
+- Modified: `README.md` — added MiniMax Music 3 to models table.
+- Modified: `docs/COMMAND_CATALOG.md` — new section 3c "Extreme TTM — MiniMax Music 3" with full syntax, lyrics section tags table, music description guide, locked sub-modes list, TTS music extreme docs, and examples.
+- Modified: `docs/Languages.md` — added MiniMax Music 3 to overview table and new detailed section with language support, lyrics tags, and notes.
+
 ## 07/30/2026
 - Status: Stable, all features work, still developing
 - **Bugfix: local file paths treated as URLs (issue #1)**

@@ -13,6 +13,7 @@ VODER is not an English‑only tool. The AI models it orchestrates collectively 
 | **Qwen3‑TTS Base** | TTS+VC, TTS (modify speech) | 10 + 2 dialects | Yes | Detects language from input text |
 | **Fish Audio S2‑Pro** | TTS (extreme), SLC (extreme), SVC (extreme), Modify Speech (extreme) | 80+ | Yes | Detects language from input text; voice effects via [tag] syntax |
 | **ACE‑Step 1.5** | TTM, TTM+VC, Background Music | 50 | Yes | Detects language from lyrics/caption |
+| **MiniMax Music 3** | TTM (extreme), TTS music (extreme) | 80+ | Yes | Detects language from lyrics; Qwen3-8B language model |
 | **EasyOCR** | STT, TTS, TTS+VC (image input) | 85 | No | Hardcoded to English in VODER |
 | **TangoFlux** | SFX | 1 (English) | No | Text encoder trained on English only |
 | **Seed‑VC v2** | STS | Any | N/A | Language‑agnostic (audio waveforms) |
@@ -315,6 +316,32 @@ yue Cantonese     zh  Chinese
 - No language‑specific model variants exist — a single model handles all 50 languages.
 - For background music in dialogue mode, lyrics are set to `"..."` (placeholder for empty vocals), so language detection is irrelevant — the model generates instrumental music only.
 - The LM models are based on Qwen3, which is inherently multilingual.
+
+---
+
+## MiniMax Music 3 — Music Generation (Extreme TTM)
+
+**Model:** `MiniMaxAI/MiniMax-Music3`
+**Modes:** TTM (extreme), TTS background music (extreme)
+**Language handling:** The Global LLM is initialized from Qwen3-8B, which is inherently multilingual. The model was trained on over 10 million hours of audio data covering more than 80 languages. Language is detected from the lyrics text — no manual language specification is needed.
+
+**Supported languages:** 80+ languages, including but not limited to:
+- **Tier 1:** English, Chinese (Mandarin/Cantonese), Japanese
+- **Tier 2:** Korean, Spanish, Portuguese, Arabic, Russian, French, German
+- **Global coverage:** Italian, Turkish, Ukrainian, Urdu, Vietnamese, Thai, Hindi, Indonesian, Malay, Dutch, Polish, Swedish, Catalan, Czech, Romanian, Danish, Finnish, Hungarian, Greek, Hebrew, Bulgarian, Norwegian, and many more
+
+**Lyrics section tags (language-agnostic):**
+The model accepts lyrics with structural section tags. Tags are lowercased automatically and must be on their own line:
+- `[intro]`, `[verse]`, `[pre-chorus]`, `[chorus]`, `[post-chorus]`, `[bridge]`, `[instrumental]`, `[solo]`, `[outro]`
+- Custom tags like `[bass-drop]` or `[breakdown]` are also accepted
+
+**Music description language:**
+The music description (styling) should be written in English for best results, as the model's training data is predominantly English-captioned. However, the model can understand descriptions in other languages with slightly reduced precision.
+
+**Notes:**
+- For TTS background music (extreme), VODER uses instrumental-only lyrics (`[intro]`, `[instrumental]`, `[outro]`) so the generated music has no vocals that would clash with the spoken dialogue.
+- The model does not support reference audio, voice cloning, or source audio modification — only text-conditioned generation.
+- Output is 44.1 kHz, 16-bit stereo WAV.
 
 ---
 
