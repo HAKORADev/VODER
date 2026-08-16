@@ -1308,12 +1308,13 @@ sfx:thunder/10-5/200      # Level above 100 (warning → clamped to 100)
 >
 > **GitHub:** [MiniMax-AI/MiniMax-Music3](https://github.com/MiniMax-AI/MiniMax-Music3)
 >
-> **Does NOT support:** reference audio, voice cloning, remix, repaint, complete, lego, extract, or VC. Only bare generation and bgm are available in extreme mode.
+> **Does NOT support:** reference audio for style transfer, remix, repaint, complete, lego, extract. Only bare generation, bgm, and VC are available in extreme mode. VC works because it's a post-generation step (generate song → extract vocals → convert with Seed-VC → mix back) — it doesn't depend on the generation model's capabilities.
 
 #### Syntax
 
 ```
 python voder.py ttm extreme lyrics "<lyrics>" styling "<music_description>" [duration]
+python voder.py ttm extreme vc lyrics "<lyrics>" styling "<music_description>" [duration] clone "<ref.wav>"
 python voder.py ttm extreme bgm "<source>" music "<description>" [level N]
 python voder.py tts script "..." voice "..." music extreme "<description>"
 ```
@@ -1367,19 +1368,18 @@ A concise description works too — the model fills in the details. For maximum 
 
 - **Format:** 44.1 kHz, 16-bit stereo WAV
 - **Max duration:** 300 seconds (5 minutes)
-- **Output naming:** `voder_ttm_extreme_<timestamp>.wav` (bare) or `voder_ttm_extreme_bgm_<timestamp>.wav` (bgm)
+- **Output naming:** `voder_ttm_extreme_<timestamp>.wav` (bare), `voder_ttm_extreme_vc_<timestamp>.wav` (VC), or `voder_ttm_extreme_bgm_<timestamp>.wav` (bgm)
 
 #### Locked sub-modes
 
-When `extreme` is active, the following TTM sub-modes are **rejected** (MiniMax Music 3 does not support them):
+When `extreme` is active, the following TTM sub-modes are **rejected** (MiniMax Music 3 does not support source audio manipulation):
 - `remix` — requires source audio style transfer
 - `repaint` — requires source audio restyling
 - `complete` — requires source audio stem completion
 - `lego` — requires source audio stem extraction
 - `extract` — requires source audio stem isolation
-- `vc` — requires reference voice for post-generation voice conversion
 
-Only **bare generation** (`lyrics` + `styling`) and **bgm** (background music replacement) are supported.
+**Supported in extreme:** bare generation (`lyrics` + `styling`), **VC** (voice conversion — post-generation step, doesn't depend on the model), and **bgm** (background music replacement). VC works because it generates the song first, then extracts vocals and converts them with Seed-VC v1 — the generation model's capabilities are irrelevant to the VC step.
 
 #### TTS music extreme
 
@@ -1400,6 +1400,9 @@ python voder.py ttm extreme lyrics "[verse]\nMorning light\n[chorus]\nSoftly bre
 
 # Full 5-minute song
 python voder.py ttm extreme lyrics "[intro]\n[verse]\nLong lyrics here\n[chorus]\nMore lyrics\n[bridge]\nDifferent section\n[outro]" styling "cinematic orchestral epic with choir" 300
+
+# Voice conversion — generate song, then convert vocals to clone voice
+python voder.py ttm extreme vc lyrics "[verse]\nHello world" styling "pop rock" 60 clone "voice_ref.wav"
 
 # BGM replacement — replace background music in a podcast
 python voder.py ttm extreme bgm "podcast.wav" music "lo-fi chill hip hop, mellow beats, vinyl crackle" level 25

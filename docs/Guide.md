@@ -173,9 +173,13 @@ When we list minimum requirements, we're being honest about what actually works.
 | TTS (Extreme, no music) | 8GB | +~10GB (Fish S2-Pro) +~3GB (SVS) | 21GB | Optional | 8GB |
 | TTS (Extreme + Overdose) | 8GB | +~8GB (VibeVoice ASR) +~10GB (Fish S2-Pro) +~3GB (SVS) | 29GB | Optional | 24GB |
 | TTS (Extreme + music) | 8GB | +~10GB (Fish S2-Pro) +15GB (ACE) +~3GB (SVS) | 36GB | Optional | 16GB |
+| TTS (Extreme + music extreme) | 8GB | +~10GB (Fish S2-Pro) +~20GB (MiniMax Music 3) +~3GB (SVS) | 41GB | Optional | 24GB (recommended) |
 | STS | 8GB | +5GB (Seed-VC) +~3GB (SVS) | 16GB | Optional | 14GB |
 | TTM (standard) | 8GB | +15GB (ACE) | 23GB | Optional | 15GB (RTX 3080/16GB GPU) |
 | TTM (overdose) | 8GB | +~24GB (ACE-Step XL-Turbo) | 32GB | Optional | 32GB (RTX 4090) |
+| TTM (extreme) | 8GB | +~20GB (MiniMax Music 3: 8B Qwen3 + 2.4B Flow Matching + 123M Vocoder) | 28GB | Optional | 24GB (recommended) |
+| TTM (extreme + VC) | 8GB | +~20GB (MiniMax Music 3) +5GB (Seed-VC v1) +~3GB (SVS) | 36GB | Optional | 32GB (recommended) |
+| TTM (extreme bgm) | 8GB | +~20GB (MiniMax Music 3) | 28GB | Optional | 24GB (recommended) |
 | TTM (VC enabled) | 8GB | +15GB (ACE) +5GB (Seed-VC) +~3GB (SVS) | 31GB | Optional | 16GB |
 | TTM (complete sub-task) | 8GB | +~24GB (ACE-Step XL-Turbo) +~3GB (SVS) | 35GB | Optional | 32GB (RTX 4090) |
 | TTM (complete + SFX overlay) | 8GB | +~24GB (ACE-Step XL-Turbo) +~3GB (SVS) +~3-4GB (TangoFlux, ACE offloaded first) | 38GB | Optional | 32GB (RTX 4090) |
@@ -1206,6 +1210,39 @@ TTM offers three tiers of ACE‑Step quality:
 **Overdose Mode:**
 
 When enabled, Overdose uses the larger XL‑Turbo model with the 4B language model for higher quality output. This produces noticeably better musical results — richer instrumentation, better vocal quality, more coherent song structure — but requires 32GB+ VRAM or 48GB+ combined system memory. If insufficient resources are detected, VODER automatically falls back to standard mode with a warning.
+
+**Extreme Mode (MiniMax Music 3):**
+
+When the `extreme` keyword is used, TTM switches from ACE-Step to **MiniMax Music 3** — a fundamentally different architecture that produces higher-quality, longer-form music with expressive vocals and evolving arrangements. Key differences from ACE-Step:
+
+| Feature | ACE-Step (standard/overdose) | MiniMax Music 3 (extreme) |
+|---------|------------------------------|---------------------------|
+| Max duration | 300s (5 min) | 300s (5 min) |
+| Architecture | Diffusion-based | 8B Global LLM + 0.6B Local LLM + Flow Matching + Flow-VAE |
+| Output quality | Good | Significantly better — stable long-form coherence, richer vocals |
+| Language support | 50 languages | 80+ languages (Qwen3-8B backbone) |
+| Reference audio | Yes (style transfer) | **No** — text-conditioned only |
+| Sub-modes | remix, repaint, complete, lego, extract, bgm, vc | **bgm and vc only** (others locked) |
+| VRAM | 15-32GB | 24GB recommended |
+| Model size | 15-24GB | ~20GB |
+
+MiniMax Music 3 does NOT support reference audio for style transfer — it's purely text-conditioned (lyrics + music description). The `remix`, `repaint`, `complete`, `lego`, and `extract` sub-modes are locked when `extreme` is active because they all require source audio manipulation that MiniMax Music 3 cannot do.
+
+**VC with Extreme:** The `vc` flag IS supported with `extreme` because voice conversion is a post-generation step — the song is generated with MiniMax Music 3, then Seed-VC v1 converts the vocals to match the clone reference. This works because VC doesn't depend on the generation model's capabilities, only on the generated audio output.
+
+Usage:
+```
+# Bare generation
+python voder.py ttm extreme lyrics "[verse]\nHello world" styling "warm acoustic pop" 60
+
+# With voice conversion
+python voder.py ttm extreme vc lyrics "..." styling "..." 60 clone "voice_ref.wav"
+
+# BGM replacement
+python voder.py ttm extreme bgm "source.wav" music "lo-fi chill" level 25
+```
+
+**Lyrics section tags:** MiniMax Music 3 accepts structured lyrics with tags like `[intro]`, `[verse]`, `[pre-chorus]`, `[chorus]`, `[post-chorus]`, `[bridge]`, `[instrumental]`, `[solo]`, `[outro]`. Each tag must be on its own line — text on the same line as a tag is dropped. Custom tags (e.g., `[bass-drop]`) are also accepted as structural markers.
 
 **Voice Conversion (via vc flag):**
 

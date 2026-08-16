@@ -30,7 +30,7 @@ python voder.py tts script "Hello" voice "narrator" music extreme "epic orchestr
 
 **Lyrics section tags:** `[intro]`, `[verse]`, `[pre-chorus]`, `[chorus]`, `[post-chorus]`, `[bridge]`, `[instrumental]`, `[solo]`, `[outro]`, plus custom tags like `[bass-drop]`. Tags must be on their own line — text on the same line as a tag is dropped.
 
-**Locked sub-modes:** When `extreme` is active, remix, repaint, complete, lego, extract, and VC are rejected (MiniMax Music 3 does not support reference audio or source audio modification). Only bare generation and bgm are available.
+**Locked sub-modes:** When `extreme` is active, remix, repaint, complete, lego, and extract are rejected (MiniMax Music 3 does not support source audio manipulation). **VC is supported** because it's a post-generation step — generate song with MiniMax Music 3, extract vocals with SVS, convert with Seed-VC v1, mix back. The VC step doesn't depend on the generation model's capabilities.
 
 **Duration limit:** 10–300 seconds (5 minutes max). The model uses 9000 acoustic frames at 25 Hz frame rate, capped at 360 seconds by the model architecture; VODER caps at 300 seconds for safety.
 
@@ -42,10 +42,11 @@ python voder.py tts script "Hello" voice "narrator" music extreme "epic orchestr
 
 **Files:**
 - New: `src/music3/` — vendored MiniMax Music 3 pipeline classes (10 Python files + `__init__.py` files, ~1680 lines). Relative imports rewritten to absolute `from diffusers...` / `from music3...` imports. No in-code comments added by VODER (original diffusers comments retained in vendored files).
-- Modified: `src/voder.py` — added `MUSIC3_DIR` and related constants, `MiniMaxMusic3Wrapper` class (download, load, generate, cleanup), `oneline_ttm_extreme()` and `oneline_ttm_extreme_bgm()` functions, TTM extreme routing in `oneline_ttm()`, TTS music extreme routing in TTS dialogue path, `ttm` added to `extreme` keyword acceptance in arg parser, extreme TTM examples in usage help. No in-code comments.
+- Modified: `src/voder.py` — added `MUSIC3_DIR` and related constants, `MiniMaxMusic3Wrapper` class (download, load, generate, cleanup), `oneline_ttm_extreme()`, `oneline_ttm_extreme_vc()`, and `oneline_ttm_extreme_bgm()` functions, TTM extreme routing in `oneline_ttm()` (bare + VC + bgm, with locked sub-modes check excluding VC), TTS music extreme routing in TTS dialogue path, `ttm` added to `extreme` keyword acceptance in arg parser, extreme TTM examples in usage help. No in-code comments.
 - Modified: `README.md` — added MiniMax Music 3 to models table.
-- Modified: `docs/COMMAND_CATALOG.md` — new section 3c "Extreme TTM — MiniMax Music 3" with full syntax, lyrics section tags table, music description guide, locked sub-modes list, TTS music extreme docs, and examples.
+- Modified: `docs/COMMAND_CATALOG.md` — new section 3c "Extreme TTM — MiniMax Music 3" with full syntax, lyrics section tags table, music description guide, locked sub-modes list (VC explicitly supported), TTS music extreme docs, and examples including VC.
 - Modified: `docs/Languages.md` — added MiniMax Music 3 to overview table and new detailed section with language support, lyrics tags, and notes.
+- Modified: `docs/Guide.md` — added TTM extreme, TTM extreme + VC, TTM extreme bgm, and TTS extreme + music extreme rows to the system requirements table; added "Extreme Mode (MiniMax Music 3)" section under TTM with comparison table vs ACE-Step, VC support explanation, and lyrics tags.
 
 ## 07/30/2026
 - Status: Stable, all features work, still developing

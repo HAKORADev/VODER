@@ -9263,6 +9263,149 @@ def oneline_ttm_extreme_bgm(params, results_dir):
                     pass
 
 
+def oneline_ttm_extreme_vc(params, results_dir):
+    lyrics_list = params.get('lyrics', [])
+    styling_list = params.get('styling', [])
+    if not lyrics_list:
+        print("Error: TTM extreme VC requires lyrics")
+        return False
+    if not styling_list:
+        print("Error: TTM extreme VC requires styling (music description)")
+        return False
+    lyrics = lyrics_list[0].replace('\\n', '\n')
+    style = styling_list[0].replace('\\n', '\n')
+    duration = params.get('duration', 60)
+    if isinstance(duration, list):
+        duration = duration[-1] if duration else 60
+    try:
+        duration = int(duration)
+    except (ValueError, TypeError):
+        duration = 60
+    if duration < 10:
+        print("Error: Duration must be at least 10 seconds")
+        return False
+    if duration > MUSIC3_MAX_DURATION:
+        print(f"Warning: Duration capped to {MUSIC3_MAX_DURATION}s (MiniMax Music 3 maximum)")
+        duration = MUSIC3_MAX_DURATION
+    clone_path = params.get('clone_path')
+    if not clone_path:
+        print("Error: TTM extreme VC requires clone source path (use: clone \"ref.wav\")")
+        return False
+    _vc_cleanup = []
+    use_first = params.get('clone_first', False)
+    clone_multi = _parse_multi_refs(clone_path)
+    if clone_multi:
+        clean_vocal = _resolve_multi_refs(clone_multi, _vc_cleanup, use_first=use_first)
+        if not clean_vocal:
+            return False
+    else:
+        if use_first:
+            print("Warning: 'first' keyword ignored (only one reference provided)")
+        if not os.path.exists(clone_path) and not is_youtube_url(clone_path):
+            print(f"Error: Clone source not found: {clone_path}")
+            return False
+        resolved_audio, cleanup = resolve_target_to_audio(clone_path)
+        if resolved_audio is None:
+            print("Error: Could not resolve clone source")
+            return False
+        _vc_cleanup.extend(cleanup)
+        clean_vocal = svs_extract_vocals(resolved_audio)
+        if clean_vocal != resolved_audio and clean_vocal not in _vc_cleanup:
+            _vc_cleanup.append(clean_vocal)
+        if resolved_audio not in _vc_cleanup and resolved_audio != clean_vocal:
+            _vc_cleanup.append(resolved_audio)
+    temp_ttm_output = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    temp_ttm_44k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    temp_clone_44k = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    temp_vc_output = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    try:
+        wrapper = MiniMaxMusic3Wrapper()
+        try:
+            print(f"Generating music with MiniMax Music 3 ({duration}s)...")
+            success = wrapper.generate(
+                lyrics=lyrics,
+                style_prompt=style,
+                output_path=temp_ttm_output.name,
+                duration=duration,
+            )
+            if not success:
+                print("Error: Music generation failed")
+                return False
+        finally:
+            wrapper.cleanup()
+        print("Extracting vocals from generated song...")
+        ttm_vocals = svs_extract_vocals(temp_ttm_output.name)
+        if ttm_vocals and ttm_vocals != temp_ttm_output.name:
+            _vc_cleanup.append(ttm_vocals)
+        else:
+            ttm_vocals = temp_ttm_output.name
+        print("Extracting music from generated song...")
+        ttm_music = svs_extract_music(temp_ttm_output.name)
+        if ttm_music and ttm_music != temp_ttm_output.name:
+            _vc_cleanup.append(ttm_music)
+        else:
+            ttm_music = None
+        print("Resampling generated vocals to 44100Hz...")
+        waveform_vocals, sr_vocals = torchaudio.load(ttm_vocals)
+        if sr_vocals != 44100:
+            resampler_vocals = torchaudio.transforms.Resample(sr_vocals, 44100)
+            waveform_vocals = resampler_vocals(waveform_vocals)
+        torchaudio.save(temp_ttm_44k.name, waveform_vocals, 44100)
+        print("Resampling clone voice to 44100Hz...")
+        waveform_clone, sr_clone = torchaudio.load(clean_vocal)
+        if sr_clone != 44100:
+            resampler_clone = torchaudio.transforms.Resample(sr_clone, 44100)
+            waveform_clone = resampler_clone(waveform_clone)
+        torchaudio.save(temp_clone_44k.name, waveform_clone, 44100)
+        print("Loading Seed-VC v1 model...")
+        seed_vc = SeedVCV1()
+        if seed_vc.model is None:
+            print("Error: Failed to load Seed-VC v1 model")
+            return False
+        print("Converting voice...")
+        vc_success = seed_vc.convert(
+            source_path=temp_ttm_44k.name,
+            reference_path=temp_clone_44k.name,
+            output_path=temp_vc_output.name
+        )
+        if not vc_success:
+            print("Error: Voice conversion failed")
+            return False
+        del seed_vc
+        seed_vc = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        if ttm_music:
+            print("Mixing converted vocals with generated music...")
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            output_path = os.path.join(results_dir, f"voder_ttm_extreme_vc_{timestamp}.wav")
+            ret = os.system(f'ffmpeg -y -i "{temp_vc_output.name}" -i "{ttm_music}" -filter_complex "[0:a]volume=1.0[vc];[1:a]volume=1.0[music];[vc][music]amix=inputs=2:duration=longest" "{output_path}" 2>/dev/null')
+            if ret != 0 or not os.path.exists(output_path):
+                print("Warning: Mixing failed, saving converted vocals only")
+                shutil.copy(temp_vc_output.name, output_path)
+        else:
+            print("Saving output...")
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            output_path = os.path.join(results_dir, f"voder_ttm_extreme_vc_{timestamp}.wav")
+            shutil.copy(temp_vc_output.name, output_path)
+        print(f"\n✓ Success! Output saved to: {output_path}")
+        return True
+    finally:
+        for temp_file in [temp_ttm_output.name, temp_ttm_44k.name, temp_clone_44k.name, temp_vc_output.name]:
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+        for f in _vc_cleanup:
+            if f and os.path.exists(f):
+                try:
+                    os.unlink(f)
+                except:
+                    pass
+
+
 def oneline_ttm(params):
     original_cwd = os.getcwd()
     results_dir = os.path.join(original_cwd, "results")
@@ -9276,7 +9419,6 @@ def oneline_ttm(params):
     if use_extreme:
         _locked_submodes = {
             'is_remix': _is_remix,
-            'vc': use_vc,
             'is_repaint': params.get('is_repaint', False),
             'complete': params.get('complete', False),
             'lego': params.get('lego', False),
@@ -9284,11 +9426,14 @@ def oneline_ttm(params):
         }
         _active_locks = [k for k, v in _locked_submodes.items() if v]
         if _active_locks:
-            print(f"Error: TTM extreme only supports bare generation and bgm. Locked sub-modes detected: {', '.join(_active_locks)}")
-            print("       MiniMax Music 3 does not support reference audio, source audio modification, or voice conversion.")
+            print(f"Error: TTM extreme only supports bare generation, bgm, and vc. Locked sub-modes detected: {', '.join(_active_locks)}")
+            print("       MiniMax Music 3 does not support reference audio or source audio modification.")
             print("       Use 'ttm extreme lyrics \"...\" styling \"...\" [duration]' for bare generation,")
+            print("       'ttm extreme vc lyrics \"...\" styling \"...\" [duration] clone \"ref.wav\"' for voice conversion,")
             print("       or 'ttm extreme bgm \"source.wav\" music \"description\" [level N]' for background music replacement.")
             return False
+        if use_vc:
+            return oneline_ttm_extreme_vc(params, results_dir)
         if params.get('bgm_source'):
             return oneline_ttm_extreme_bgm(params, results_dir)
         return oneline_ttm_extreme(params, results_dir)
