@@ -8,6 +8,8 @@
 - Status: In development — Project Eva DLC
 - **Project Eva — the expansion DLC for VODER**
 
+<img src="https://raw.githubusercontent.com/HAKORADev/VODER/main/src/eva.png" alt="Project Eva" width="400"/>
+
 ### Project Eva
 
 Project Eva is VODER's first DLC (Downloadable Content) expansion. It extends VODER beyond audio into image, video, chat, and world generation — all under the same engine, same infrastructure, same CLI patterns. Eva is NOT a standalone app; it lives inside VODER as `voders/DLCs/eva/` and uses the same model download/cache/load/unload patterns as every other VODER feature.
