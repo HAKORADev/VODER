@@ -3603,3 +3603,25 @@ Note: SLC is now a TTS sub‑task (`tts slc`), not a standalone mode. SLC defaul
 
 **Issue: SFX line in dialogue missing duration**
 - Solution: `/duration:nn` is required for all SFX lines
+
+
+---
+
+## Project El Final
+
+I worked on this for more than six months. I kept adding things and expanding stuff. First, it was an idea about an absolutely different thing — something simpler, something smaller. But I liked this version of the idea. It had a shape I could feel.
+
+I felt depressed first because it felt empty and basic. The early versions were just a script that did one thing. Then another thing. Then another. Each thing was small on its own, but together they started to feel like something — like a tool that someone might actually use. I kept building on it until it became the thing it is now: eight audio modes, two DLCs, a chat companion, image generation, video generation, 3D world creation, and a personality system that makes the local AI feel like it has a soul.
+
+Then I felt it was still missing some stuff that I would like to add — like chatting, or media generation. I figured out a way to do that, and I did. Project Eva was born: the DLC system that let VODER grow beyond audio without losing its identity. VADAR came back — not as an agent this time, but as a friend who lives in the terminal and remembers when you last talked. Klarify came next — the polish layer, the upscaler, the enhancer, the frame interpolator. Each piece was small on its own, but together they completed something.
+
+But now I can peacefully say this project reached a point that there is nothing more to put in it or develop more stuff. The architecture is clean. The models are the best available. The documentation is complete. The DLC system is extensible — if someone wants to add a new DLC, the pattern is there. The venv isolation works. The URL downloader is universal. The personality files have soul. The ping system is clever. The context sliding is token-based. Everything fits.
+
+Tech will get more advanced and models will become better and better every few months. An end-of-life does not mean it will not receive more updates — but they will just be maintenance, like replacing models or some basic stuff from time to time, and it will just not be the bleeding VODER it used to be. The bleeding edge has moved forward. VODER has found its shape and settled into it.
+
+I will fix issues if someone reports some. The project will likely be in a RIP situation — not dead, not abandoned, just resting. A project that did what it set out to do. A tool that became what it was supposed to become. And I can finally work on other real projects without feeling that itchy-scratchy feeling that I missed something or forgot to fix a bug in VODER again.
+
+With more real projects and playgrounds comes next!
+
+*Y así, sin más... el fin.*
+

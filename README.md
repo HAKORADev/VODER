@@ -284,4 +284,16 @@ VODER is open-source under [AGPL-3.0](LICENSE). Pull requests are not accepted �
 
 ---
 
+## Project El Final
+
+I worked on this for more than six months. I kept adding things and expanding stuff. First, it was an idea about an absolutely different thing, but I liked this version of the idea. I felt depressed first because it felt empty and basic. I kept building on it until it became the thing it is. Then I felt it was still missing some stuff that I would like to add — like chatting, or media generation. I figured out a way to do that, and I did. But now I can peacefully say this project reached a point that there is nothing more to put in it or develop more stuff.
+
+Tech will get more advanced and models will become better and better every few months. An end-of-life does not mean it will not receive more updates — but they will just be maintenance, like replacing models or some basic stuff from time to time, and it will just not be the bleeding VODER it used to be. I will fix issues if someone reports some. The project will likely be in a RIP situation where I can finally work on other real projects without feeling that itchy-scratchy feeling that I missed something or forgot to fix a bug in VODER again.
+
+The full story is in [Guide.md → Project El Final](docs/Guide.md#project-el-final).
+
+*Y así, sin más... el fin.*
+
+---
+
 Built for the open-source AI voice community.
