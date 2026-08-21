@@ -51,6 +51,44 @@ VODER downloads and caches models automatically on first use. Models are stored 
 - **VibeVoice ASR** (advanced transcription) — downloaded on first SS/overdose STT use
 - Ensure sufficient disk space is available for model files
 
+### Project Eva DLC — Additional Setup
+
+Project Eva extends VODER with image, video, chat, and world generation. Additional dependencies and setup:
+
+- **Ollama** — Required for VADAR chat (TTT mode). Installs Gemma 4 12B GGUF model automatically on first use. `setup.py` installs Ollama automatically. Manual install: `curl -fsSL https://ollama.com/install.sh | sh` (Linux/macOS) or `irm https://ollama.com/install.ps1 | iex` (Windows).
+- **HF_TOKEN** — Required for gated models (Flux 2 Dev). Create a free token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) and paste it in `src/HF_TOKEN.txt`. `setup.py` creates this file automatically if it doesn't exist.
+- **segment-anything** — Required for SAM 3.1 segmentation (`pip install segment-anything`). Used internally by TTI/TTV editing for automatic masking.
+- **trimesh** — Required for 3D mesh export in TTW objectify (`pip install trimesh`).
+- **imageio + imageio-ffmpeg** — Required for video output in TTV (`pip install imageio imageio-ffmpeg`).
+- **opencv-python** — Required for image/video processing in Eva modes (`pip install opencv-python`).
+
+**Project Eva model directories** (all auto-downloaded on first use):
+
+| Model | Directory | Size | Mode |
+|-------|-----------|------|------|
+| Flux 2 Dev | `src/models/checkpoints/flux2_dev/` | ~64GB | TTI (gen/edit/nbg) |
+| MiniMax H3 | `src/models/checkpoints/minimax_h3/` | ~130GB | TTV (gen) |
+| Wan 2.2 Animate 14B | `src/models/checkpoints/wan2_2_animate_14b/` | ~28GB | TTV (animify) |
+| Wan 2.1 VACE 14B | `src/models/checkpoints/wan_vace_14b/` | ~28GB | TTV (edit) |
+| Wan 2.2 S2V 14B | `src/models/checkpoints/wan2_2_s2v_14b/` | ~28GB | TTV (lipsync) |
+| Gemma 4 12B (GGUF) | `src/models/checkpoints/vadar_eva/` | ~8GB | TTT (VADAR chat — default) |
+| Qwen3.8-27B OBLITERATED (GGUF) | `src/models/checkpoints/vadar_heavy/` | ~19GB | TTT (VADAR chat — heavy) |
+| HY-World 2.0 | `src/models/checkpoints/hy_world/` | ~40GB | TTW (gen) |
+| TRELLIS.2 | `src/models/checkpoints/trellis2/` | ~14GB | TTW (edit/objectify) |
+| SAM 3.1 | `src/models/checkpoints/sam3/` | ~4GB | Segmentation (internal) |
+| SigLIP 2 giant | `src/models/checkpoints/siglip2/` | ~8GB | Vision encoder (internal) |
+
+**Vendored source code** (included in the repo, no separate download needed):
+
+| Source | Location | Purpose |
+|--------|----------|---------|
+| `src/h3/` | MiniMax H3 diffusers pipeline (13 files) | Video generation pipeline classes |
+| `src/wan21/` | Wan 2.1 VACE source (22 files, trimmed) | Video editing pipeline classes |
+| `src/wan22/` | Wan 2.2 inference code (57 files) | Video animify + lipsync pipeline classes |
+| `src/trellis2/` | Microsoft TRELLIS.2 source (72 files, trimmed) | Image-to-3D pipeline classes |
+| `src/hyworld2/` | Tencent HY-World 2.0 source (128 files) | 3D world generation classes |
+| `src/music3/` | MiniMax Music 3 pipeline (10 files) | Extreme TTM pipeline classes |
+
 ### Mode History
 
 > `tts+vc` and `ttm+vc` are no longer standalone modes. Voice cloning in TTS is handled via the `target` parameter, and voice conversion in TTM is handled via the `vc` flag. Use `tts` and `ttm` respectively.

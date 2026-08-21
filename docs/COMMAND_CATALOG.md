@@ -56,6 +56,8 @@ The 3 task-layer features:
 | [8. SS](#8-ss--speakers-separator) | Speaker extraction & separation |
 | [9. quest](#9-quest--side-quests) | Side-quests (utility tasks) grouped into Media Manipulation (convert, cut, remove, merge, mix, silence, reverse, fade, soundlevel, bassboost, speed, pitch, glue, reverb, loudnorm, noframes) plus standalone `download`. |
 | [10. chains](#10-chains--user-defined-pipelines) | Compose multiple voder oneline tasks into a pipeline |
+| [11. Project Eva DLC](#11-project-eva-dlc--eva) | Image (TTI), Video (TTV), Chat (TTT/VADAR), World (TTW) |
+| [12. Klarify DLC](#12-klarify-dlc--klarify) | Upscale, enhance, interpolate |
 | [Input Types](#input-types) | Supported file & URL formats |
 | [Output](#output) | Output directory & naming |
 
@@ -3115,3 +3117,410 @@ Video files are automatically handled: audio is extracted for processing, then m
 - All outputs are saved to the `results/` directory in the current working directory.
 - Output filenames follow the pattern: `voder_<mode>[_<detail>]_<timestamp>.<ext>`
 - Use `result "<path>"` to copy the latest output to a custom location.
+
+---
+
+## 11. Project Eva DLC — `eva`
+
+> Project Eva is VODER's DLC expansion. It extends VODER beyond audio into image (TTI), video (TTV), chat (TTT/VADAR), and world (TTW) generation. All Eva modes support the `result` keyword, `&&` chaining, and chains integration — same as any VODER mode.
+
+### Invocation
+
+```
+python voder.py eva <mode> <sub_mode> [args] [result <name>]
+```
+
+Interactive CLI: option `0. DLCs` → `1. Eva` → select mode (1-4).
+
+### Modes
+
+| Mode | Name | Sub-modes | Model | Isolated Env |
+|------|------|-----------|-------|--------------|
+| `tti` | Text-to-Image | `gen`, `edit`, `nbg`, `mini gen`, `mini edit`, `mini nbg` | Flux 2 Dev (32B), Flux 2 Klein 9B (mini) | `src/envs/flux2/` |
+| `ttv` | Text-to-Video | `gen`, `animify`, `edit`, `lipsync` | MiniMax H3 (gen), Wan 2.2 Animate 14B (animify), Wan 2.1 VACE 14B (edit), Wan 2.2 S2V 14B (lipsync) | `src/envs/h3/`, `src/envs/animate/`, `src/envs/vace/` |
+| `ttt` | Text-to-Text (VADAR) | `gen` (chat) | Gemma 4 12B (abliterated GGUF via Ollama) | system `ollama` binary |
+| `ttw` | Text-to-World | `gen`, `edit objectify`, `objectify` | HY-World 2.0 (gen), TRELLIS.2 (edit objectify/objectify) | `src/envs/hyworld/`, `src/envs/trellis/` |
+
+### Setup
+
+Each Eva model runs in its own isolated Python venv (see `docs/Guide.md` → *Project Eva Model Environments* for details). Set them up with:
+
+```bash
+python setup.py                       # full install including all Eva envs
+python setup.py --envs all           # set up only the Eva model envs
+python setup.py --envs flux2          # set up a specific env
+python setup.py --envs flux2 --force  # re-create from scratch
+```
+
+If an Eva mode is invoked without its env set up, the wrapper prints a clear `Run: python setup.py --envs <model>` message and exits — no silent failures.
+
+### Common Keywords (all Eva modes)
+
+| Keyword | Description |
+|---------|-------------|
+| `desc "<text>"` | Description / prompt for the generation |
+| `resolution "WxH"` | Output resolution (e.g. `1024x1024`, `1280x720`). Each model has supported resolutions and a max dimension — unsupported values warn and use default. |
+| `seed N` | Random seed for reproducibility (default: 0) |
+| `duration N` | Duration in seconds (TTV only, default: 10) |
+| `reference "<path>"` | Reference image/video/audio for editing or generation conditioning. Can be repeated. References are auto-classified by extension (images: png/jpg/etc, videos: mp4/etc, audio: wav/mp3/etc). Dynamic limits per model per type. |
+| `url <items>` | Download web URLs as inputs/references. After `url`, list items separated by spaces. Each item is either: bare `"link"` (auto-detect type based on Eva mode), `image "link"` (force image download), `video "link"` (force video download), `audio "link"` (download video and extract audio via ffmpeg), or `"local_file"` (local file, no download). First item becomes the input, rest become references. Uses VODER's universal URL downloader with browser cookies fallback. |
+| `result <name>` | Same as all VODER modes — bare name, `.auto`, or quoted path |
+
+### 11.1 TTI — Text-to-Image
+
+**Model:** [Flux 2 Dev](https://huggingface.co/black-forest-labs/FLUX.2-dev) (32B, gated — requires HF_TOKEN)
+
+**Sub-modes:** `gen`, `edit`, `nbg` (transparent PNG)
+
+| Keyword | Description | Default | Valid range |
+|---------|-------------|---------|-------------|
+| `desc "<text>"` | Description / prompt. Required for all TTI sub-modes. | (none) | any text |
+| `resolution "WxH"` | Output resolution. Unsupported values warn and use the default. | `1024x1024` | see below |
+| `seed N` | Random seed for reproducibility. | `0` | any integer |
+| `reference "<path>"` | Reference image for `edit`. Up to 4 image refs. Can be repeated. | (none) | up to 4 image refs |
+
+**Supported resolutions:** `512x512`, `768x768`, `1024x1024` (default), `1536x1536`, `2048x2048`, `1024x768`, `768x1024`, `1536x1024`, `1024x1536`, `1920x1080`, `1080x1920`, `1280x720`, `720x1280`. Max dimension: 2048.
+
+**Inference settings (locked for best quality per official model docs):** 28 steps, guidance scale 3.5.
+
+**Output:** PNG
+
+```
+# Generate — basic image from prompt
+python voder.py eva tti gen desc "a cyberpunk city at night"
+
+# Generate — with explicit resolution and seed
+python voder.py eva tti gen desc "a cyberpunk city at night" resolution "1024x1024" seed 42
+
+# Generate — at higher resolution
+python voder.py eva tti gen desc "a portrait of a woman" resolution "1536x1024" seed 7
+
+# Edit — modify an input image with a prompt
+python voder.py eva tti edit "input.png" desc "add a red sky"
+
+# Edit — with explicit resolution
+python voder.py eva tti edit "input.png" desc "add a red sky" resolution "1024x1024"
+
+# Edit — with reference images (Flux 2 Dev accepts reference_images for conditioning)
+python voder.py eva tti edit "input.png" desc "replace the car with a truck" \
+    reference "truck1.png" reference "truck2.png" seed 42
+
+# NBG — transparent PNG (no background)
+# Generates with green-screen prompt, then removes background via RGB difference detection
+python voder.py eva tti nbg desc "a character standing"
+
+# NBG — with explicit resolution
+python voder.py eva tti nbg desc "a character standing" resolution "1024x1024" seed 42
+```
+
+**NBG (no background):** VODER generates the image with an internal prompt that places the subject on a solid green background, then post-processes by scanning RGB value differences to detect the background boundary and converting to transparent PNG. Edge feathering is applied for smooth transitions.
+
+**Mini gen / mini edit — [Flux 2 Klein 9B](https://huggingface.co/black-forest-labs/FLUX.2-klein-9B):** A smaller, faster variant of Flux 2 Dev (9B vs 32B). Same venv, same diffusers from git main. Uses `Flux2KleinPipeline` for gen (50 steps, guidance 4.0) and `Flux2KleinInpaintPipeline` for edit (50 steps, guidance 8.0). Supports the same resolutions and reference limits as the full Flux 2 Dev. Gated — requires HF_TOKEN.
+
+```
+# Mini gen — faster image generation
+python voder.py eva tti mini gen desc "a cyberpunk city at night"
+python voder.py eva tti mini gen desc "a portrait" resolution "1024x1024" seed 42
+
+# Mini edit — faster image editing
+python voder.py eva tti mini edit "input.png" desc "add a red sky"
+python voder.py eva tti mini edit "input.png" desc "replace the car" reference "truck.png" seed 42
+
+# Mini nbg — faster transparent PNG (no background)
+python voder.py eva tti mini nbg desc "a character standing"
+python voder.py eva tti mini nbg desc "a logo" resolution "1024x1024" seed 42
+```
+
+### 11.2 TTV — Text-to-Video
+
+Four sub-modes, four models:
+
+| Sub-mode | Model | Inputs | Output |
+|----------|-------|--------|--------|
+| `gen` | [MiniMax H3](https://github.com/MiniMax-AI/MiniMax-H3) (33B, video + stereo audio at 32kHz) | prompt only, or with image/video/audio refs | MP4 with audio |
+| `animify` | [Wan 2.2 Animate 14B](https://huggingface.co/Wan-AI/Wan2.2-Animate-14B) | 1 image + 1 reference video (motion source) | MP4 |
+| `edit` | [Wan 2.1 VACE 14B](https://huggingface.co/Wan-AI/Wan2.1-VACE-14B) | 1 input video + prompt + optional image refs | MP4 |
+| `lipsync` | [Wan 2.2 S2V 14B](https://huggingface.co/Wan-AI/Wan2.2-S2V-14B) | 1 image (face/character first frame) + 1 audio | MP4 with merged audio |
+
+**Keyword reference (all TTV sub-modes):**
+
+| Keyword | Description | Default | Valid range |
+|---------|-------------|---------|-------------|
+| `desc "<text>"` | Description / prompt. Required for `gen` and `edit`. Optional for `animify` and `lipsync` (model uses defaults if omitted). | (none) | any text |
+| `resolution "WxH"` | Output resolution. Unsupported values warn and use the model default. | per model | per model (see below) |
+| `seed N` | Random seed for reproducibility. `-1` = random. | `0` | any integer |
+| `duration N` | Video length in seconds. | per model | per model (see below) |
+| `reference "<path>"` | Reference media (image/video/audio). Auto-classified by extension. Can be repeated. Limits per model per type. | (none) | per model |
+
+**Per-model resolutions and durations:**
+
+| Sub-mode | Default | All supported | Max dim | Duration range |
+|----------|---------|---------------|---------|----------------|
+| `gen` (H3) | `1280x720` | `1280x720`, `720x1280`, `832x480`, `480x832`, `1024x1024` | 1280 | 1-10 seconds |
+| `animify` (Wan 2.2 Animate) | model's native | model's native (resolution follows the reference video) | 1280 | derived from `clip_len` × (1/30 fps) |
+| `edit` (Wan 2.1 VACE) | `832x480` | `832x480`, `480x832` | 1280 | 1-5 seconds |
+| `lipsync` (Wan 2.2 S2V) | model's native | model's native (resolution follows the reference image) | 1280 | derived from `infer_frames` × (1/24 fps) |
+
+**Reference limits per model:**
+
+| Sub-mode | Image refs | Video refs | Audio refs |
+|----------|-----------|------------|------------|
+| `gen` (H3 Ref2VA) | up to 9 | up to 3 | up to 3 |
+| `animify` (Wan 2.2 Animate) | 1 (the input image — positional arg, not `reference`) | exactly 1 (the motion source — via `reference`) | 0 |
+| `edit` (Wan 2.1 VACE) | up to 4 | 0 | 0 |
+| `lipsync` (Wan 2.2 S2V) | 1 (the input image — positional arg, not `reference`) | 0 | exactly 1 (the audio — via `reference`) |
+
+**Reference auto-classification by extension:**
+- Images: `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.gif`, `.tiff`
+- Videos: `.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`, `.flv`, `.m4v`
+- Audio: `.wav`, `.mp3`, `.flac`, `.ogg`, `.aac`, `.m4a`
+
+**Inference settings (locked for best quality per official model docs):**
+
+| Sub-mode | Steps | Guide scale | Sampler | FPS |
+|----------|-------|-------------|---------|-----|
+| `gen` (H3) | model default | 2.5 (CFG) | model default | 24 |
+| `animify` (Wan 2.2 Animate) | 20 | 1.0 | dpm++ | 30 |
+| `edit` (Wan 2.1 VACE) | 40 | 7.5 | model default | 24 |
+| `lipsync` (Wan 2.2 S2V) | 40 | 4.5 | unipc | 24 |
+
+**SAM 3.1 auto-masking:** For `gen` (when a single image reference is provided), `edit` (input image), and `animify` (input image), SAM 3.1 runs on the input/first image reference and creates a masked version with transparent background to give the model extra accuracy on which subject to focus.
+
+**`gen` — MiniMax H3 video generation (with synchronized stereo audio):**
+```
+# Basic generation (audio + video from prompt)
+python voder.py eva ttv gen desc "a cat playing piano"
+
+# With explicit duration and resolution
+python voder.py eva ttv gen desc "a cat playing piano" duration 10 resolution "1280x720" seed 42
+
+# With image + video + audio references (Ref2VA — character + dance ref + music)
+python voder.py eva ttv gen desc "a dancer in a neon city" \
+    reference "character.jpg" reference "dance_ref.mp4" reference "music.mp3" seed 42
+```
+
+**`animify` — Wan 2.2 Animate (image + reference video → animation):**
+```
+# Basic animify (input image animated using reference video's motion)
+python voder.py eva ttv animify "character.png" reference "pose.mp4"
+
+# With content prompt and seed
+python voder.py eva ttv animify "character.png" \
+    desc "the character is dancing" reference "dance_ref.mp4" seed 42
+
+# Without a prompt — uses the model's built-in default prompt
+python voder.py eva ttv animify "character.png" reference "dance_ref.mp4" seed 42
+```
+
+**`edit` — Wan 2.1 VACE (video editing with object replacement/modification):**
+```
+# Basic edit (modify an input video by prompt)
+python voder.py eva ttv edit "input.mp4" desc "make it night time"
+
+# With reference image for object replacement and explicit duration
+python voder.py eva ttv edit "input.mp4" desc "replace the car with a truck" \
+    reference "truck.png" duration 5 seed 42
+
+# With multiple reference images
+python voder.py eva ttv edit "input.mp4" desc "add a tree on the left" \
+    reference "tree1.png" reference "tree2.png" seed 42
+```
+
+**`lipsync` — Wan 2.2 S2V (image + audio → cinematic lip-synced video):**
+```
+# Basic lipsync (face image + audio → talking/singing video)
+python voder.py eva ttv lipsync "face.png" reference "voice.wav"
+
+# With content prompt for style guidance
+python voder.py eva ttv lipsync "face.png" \
+    desc "cinematic close-up" reference "song.mp3" seed 42
+
+# Without a prompt — generates purely from audio + image
+python voder.py eva ttv lipsync "face.png" reference "speech.wav" seed 42
+```
+
+The output MP4 from `lipsync` is automatically merged with the input audio (via ffmpeg) so the final file has synchronized sound.
+
+### 11.3 TTT — Text-to-Text (VADAR Chat)
+
+**Models:**
+- [Gemma 4 12B](https://huggingface.co/Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit) (abliterated uncensored, GGUF Q4_K_M via Ollama) — the default `vadar` model, ~7GB, fast, fits 12GB+ GPU
+- [Qwen3.8-27B OBLITERATED](https://huggingface.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED) (complementary abliteration blend, GGUF Q5_K_M via Ollama) — the `vadar-heavy` model, ~19GB, true 0% refusal rate, fits 24GB+ GPU
+
+**Features:**
+- Streaming responses (thinking is always on but hidden from user)
+- Dynamic context window (auto-calculated based on available VRAM/RAM, drops oldest 5% when near capacity)
+- Time awareness (current time + last seen, injected into system prompt per message)
+- Ping system (internal system check-in during silence, VADAR may reply or stay quiet)
+- Memory awareness (sees memory files in system prompt, tells user what to write — cannot write directly)
+- Personality files (personality.md, custom-vadar.md, how-to-respond.md, user.md, roleplay.md, roleplay-extras.md)
+- Session logging (clean user/vadar log per session, no thinking or internal prompts)
+- Session resume (type `resume` in interactive mode to continue a previous session)
+
+```
+# One-shot response (uses default vadar model)
+python voder.py eva ttt gen "how are you?"
+
+# One-shot response with vadar-heavy
+python voder.py eva ttt heavy gen "how are you?"
+
+# Interactive chat (prompts for model selection)
+python voder.py eva ttt
+
+# Interactive chat with vadar-heavy (skips the prompt)
+python voder.py eva ttt heavy
+```
+
+When entering interactive chat, the user is prompted:
+```
+VADAR chat models:
+  1. vadar      — Gemma 4 12B (abliterated, 7GB, fast)
+  2. vadar-heavy — Qwen3.8-27B OBLITERATED (19GB, true 0% refusal)
+Use vadar-heavy? (y/N):
+```
+If the user chooses `vadar-heavy` but the model isn't downloaded yet, VODER automatically downloads the GGUF (~19GB) from HuggingFace and registers it in Ollama. If download fails, it falls back to the default `vadar` model.
+
+Both models share the same personality files, memories, sessions, ping system, and context sliding — only the underlying model weights and sampler settings differ.
+
+**Ping system:** If the user is silent for N seconds (default 15, configurable in `ping-time.txt`), VADAR receives an internal system check-in (not a user message). VADAR may reply briefly or respond with `(silence)` to stay quiet. Set ping-time.txt to 0 to disable. Values 1-4 are reset to 15.
+
+**Session logging:** Each chat session creates `sessions/<timestamp>_chat/log.txt` with clean `[USER]` and `[VADAR]` entries — no thinking text, no internal prompts. The log is used for:
+- Last-seen tracking (time awareness across sessions)
+- Session resume (type `resume` in interactive mode, enter session name, continue with fresh system prompt but same conversation history)
+
+**Memory files:** VADAR can see its memory files in the system prompt but cannot write to them directly. When the user tells VADAR something worth remembering, VADAR tells the user what to write in the appropriate file:
+- `src/voders/DLCs/eva/chat/memories/vadar/` — memories about VADAR itself
+- `src/voders/DLCs/eva/chat/memories/user/` — memories about the user
+
+**Customization files** (all in `src/voders/DLCs/eva/chat/about/`):
+- `personality.md` — VADAR's core personality
+- `custom-vadar.md` — custom traits (user-editable)
+- `how-to-respond.md` — response style guidelines
+- `user.md` — about the user (user-editable)
+- `roleplay.md` — active roleplay (empty = no roleplay)
+- `roleplay-extras.md` — roleplay details (empty = none)
+
+### 11.4 TTW — Text-to-World
+
+**Gen model:** [HY-World 2.0](https://github.com/Tencent-Hunyuan/HY-World-2.0) (3D scene generation — outputs .glb)
+**Objectify model:** [TRELLIS.2](https://github.com/microsoft/TRELLIS.2) (image → 3D mesh with PBR materials)
+**Edit model:** [TRELLIS.2](https://github.com/microsoft/TRELLIS.2) (mesh + reference image → retextured mesh with PBR materials) — invoked as `ttw edit objectify`
+
+**Output format:** GLB (universal — works in Unity, Unreal, Godot, Blender, and all major 3D software)
+
+**HY-World references (gen):** Supports up to 3 reference images for world conditioning. SAM 3.1 auto-masks single image references to isolate the subject.
+
+**TRELLIS objectify:** Takes exactly 1 input image, no references. Produces 1 textured 3D mesh (.glb with PBR materials — base color, metallic, roughness, alpha).
+
+**TRELLIS edit objectify (retexture):** Takes 1 input 3D object (.glb from a previous `ttw objectify`) + 1 reference image. The reference image guides the texture generation — the mesh geometry is preserved, the PBR materials are regenerated to match the reference image's appearance. The conditioning is image-only (no text prompt) — to get a specific texture style, generate the reference image with `tti gen` first (e.g. `tti gen "bronze metal surface"` → use the output as the reference image for `ttw edit objectify`).
+
+```
+# Generate 3D world
+python voder.py eva ttw gen desc "a medieval castle on a hill" seed 42
+
+# Generate with reference images
+python voder.py eva ttw gen desc "a fantasy landscape" reference "ref1.jpg" reference "ref2.jpg"
+
+# Objectify — convert image to 3D object
+python voder.py eva ttw objectify "character.png"
+python voder.py eva ttw objectify "object.jpg" seed 42
+
+# Edit — retexture an existing 3D object using a reference image
+python voder.py eva ttw edit objectify "character.glb" reference "bronze_texture.png"
+python voder.py eva ttw edit objectify "character.glb" reference "rust_texture.png" seed 42
+```
+
+**SAM 3.1 integration:** TTI edit, TTV edit, TTW edit, and TTW objectify automatically run SAM 3.1 on the input/first reference image. SAM segments the main subject using center-point detection (no user interaction) and creates a masked version with transparent background. This gives the model extra accuracy in object-based tasks — it knows exactly which object to focus on. The masking happens transparently before the image reaches the model.
+
+**Output files:** `voder_eva_ttw_gen_<desc>_<timestamp>.glb`, `voder_eva_ttw_edit_<desc>_<timestamp>.glb`, `voder_eva_ttw_objectify_<timestamp>.glb`
+
+### 11.5 Supporting Models
+
+| Model | Purpose | Used by |
+|-------|---------|---------|
+| [SAM 3.1](https://huggingface.co/facebook/sam3.1) | Segmentation (image/video masking for editing) | TTI edit, TTV edit |
+| [SigLIP 2 giant](https://huggingface.co/google/siglip2-giant-opt-patch16-384) | Vision encoder (feature extraction) | TTI, TTV (internal) |
+
+### 11.6 Automatic Downscaling
+
+Inputs (images/videos) that exceed a model's maximum resolution are automatically downscaled using LANCZOS resampling (ported from the [Klarity](https://github.com/HAKORADev/klarity) project). The downscaling happens transparently — the user does not need to manually resize.
+
+For editing: if the input image is larger than the model's max, it gets downscaled first. If the user specifies a `resolution` that exceeds the max, it gets clamped. Resolution values that are below the image's native resolution are accepted (downscale).
+
+### 11.7 Output Naming
+
+All Eva outputs follow the pattern:
+```
+voder_eva_<mode>_<sub_mode>_<description-up-to-100chars>_<timestamp>.<format>
+```
+
+Examples:
+- `voder_eva_tti_gen_a_cyberpunk_city_at_night_20260820_120000.png`
+- `voder_eva_ttv_edit_make_it_night_time_20260820_120000.mp4`
+- `voder_eva_ttw_objectify_20260820_120000.glb`
+
+---
+
+## 12. Klarify DLC — `klarify`
+
+> Klarify is VODER's second DLC. It integrates the [Klarity](https://github.com/HAKORADev/klarity) project's upscaling, enhancement (denoise + deblur), and frame interpolation into VODER's DLC system. Uses the best models only (no lite/heavy distinction — just the SOTA heavy variants). Supports both CPU and GPU.
+
+### Modes
+
+| Mode | Name | Supports | Model |
+|------|------|----------|-------|
+| `upscale` | Upscale x4 then -2 LANCZOS | Images and videos | Real-HAT-GAN-sharper |
+| `enhance` | Denoise + Deblur | Images and videos | NAFNet-SIDD-width64 (denoise) + NAFNet-GoPro-width64 (deblur) |
+| `interpolate` | Frame interpolation | Videos only | RIFE v4.25 |
+
+### Syntax
+
+```
+python voder.py klarify <upscale|enhance|interpolate> "<input_path>" [multi N] [result <name>]
+```
+
+### 12.1 Upscale
+
+Upscales the input x4 using Real-HAT-GAN-sharper, then downscales x2 using LANCZOS. This gives double the pixels with x4 quality without making fine-artifacts visible.
+
+```
+python voder.py klarify upscale "input.png"
+python voder.py klarify upscale "input.mp4"
+```
+
+### 12.2 Enhance
+
+Runs denoise (NAFNet-SIDD-width64) then deblur (NAFNet-GoPro-width64) in a single pass. Removes noise and blur from images and videos.
+
+```
+python voder.py klarify enhance "noisy_photo.jpg"
+python voder.py klarify enhance "blurry_video.mp4"
+```
+
+### 12.3 Interpolate
+
+Interpolates video frames using RIFE v4.25. Multiplies the frame count by `N` (default 2), increasing FPS for smooth slow-motion or higher frame rate. Video only — images are not supported.
+
+```
+# 2x interpolation (default)
+python voder.py klarify interpolate "input.mp4"
+
+# 4x interpolation
+python voder.py klarify interpolate "input.mp4" multi 4
+```
+
+### Multi-Step Workflows
+
+For the full treatment (enhance → upscale → interpolate on a video), chain the commands:
+
+```
+python voder.py klarify enhance "input.mp4" result enhanced.auto "&&" klarify upscale "results/enhanced.mp4" result upscaled.auto "&&" klarify interpolate "results/upscaled.mp4" result final.auto
+```
+
+Or use `&&` with named results for cleaner chaining.
+
+### Output
+
+- All outputs go to `results/DLCs/klarify/`
+- Naming: `voder_klarify_<mode>_<timestamp>.<ext>`
+- The `result` keyword works the same as all VODER modes

@@ -1,0 +1,16 @@
+torch>=2.6.0
+torchvision
+transformers>=4.51.0
+accelerate>=0.34.0
+safetensors>=0.4.0
+sentencepiece>=0.2.0
+protobuf>=5.29.0
+Pillow>=10.0.0
+huggingface-hub>=0.34.0
+einops>=0.6.0
+imageio>=2.31.0
+imageio-ffmpeg>=0.4.9
+opencv-python>=4.9.0.80
+numpy>=1.21.0
+qwen-vl-utils>=0.0.8
+diffusers @ git+https://github.com/huggingface/diffusers.git@main

@@ -1,0 +1,11 @@
+torch>=2.4.0
+torchvision
+transformers>=4.49.0
+accelerate>=0.34.0
+safetensors>=0.4.0
+sentencepiece>=0.2.0
+protobuf>=5.29.0
+Pillow>=10.0.0
+huggingface-hub>=0.34.0
+einops>=0.6.0
+numpy>=1.21.0

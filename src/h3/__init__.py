@@ -1,0 +1,5 @@
+from h3.models.autoencoders.autoencoder_kl_minimax_h3 import AutoencoderKLMiniMaxH3
+from h3.models.autoencoders.autoencoder_kl_minimax_h3_audio import AutoencoderKLMiniMaxH3Audio
+from h3.models.transformers.transformer_minimax_h3 import MiniMaxH3Transformer3DModel
+from h3.schedulers.scheduling_minimax_h3 import MiniMaxH3Scheduler
+from h3.modular_pipelines.minimax_h3.modular_pipeline import MiniMaxH3ModularPipeline

@@ -91,6 +91,12 @@ asteroid-filterbanks>=0.4.0
 yt-dlp>=2026.3.17
 gallery-dl>=1.27.0
 
+# VADAR chat (Gemma 4 GGUF via Ollama — used by eva ttt)
+ollama>=0.4.0
+
+# Image/Video processing (used by Klarify DLC and Eva downscale helper)
+opencv-python>=4.9.0.80
+
 # OCR for image text extraction
 easyocr>=1.7.0
 

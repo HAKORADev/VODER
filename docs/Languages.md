@@ -1,6 +1,6 @@
 # VODER — Language Support Reference
 
-VODER is not an English‑only tool. The AI models it orchestrates collectively support over 99 languages across transcription, speech synthesis, music generation, and image text extraction. This document provides a complete breakdown of which languages each component supports, how language detection works, and what the current limitations are.
+VODER is not an English‑only tool. The AI models it orchestrates collectively support over 99 languages across transcription, speech synthesis, music generation, image text extraction, and — with Project Eva — image/video generation, 3D world creation, and AI chat. This document provides a complete breakdown of which languages each component supports, how language detection works, and what the current limitations are.
 
 ---
 
@@ -23,6 +23,14 @@ VODER is not an English‑only tool. The AI models it orchestrates collectively 
 | **Pyannote** | Diarization | Any | N/A | Language‑agnostic (voice embeddings) |
 | **VibeVoice ASR** | STT (overdose), SS, TTS (dub) | 53 | Yes | Native speaker diarization; 24GB+ VRAM or 48GB+ RAM required; audio events preserved for dub pipeline |
 | **TranslateGemma 12B** | STT (translate), TTS (SLC translate, dub), STT (subtitle translate) | 76 | Yes | Any-to-any translation; decoupled from ASR; 24GB+ VRAM recommended; auto-detects source language with `auto` |
+| **Flux 2 Dev** (Eva TTI) | Image generation/editing | Any (text prompts) | N/A | Prompt language detected from text; best results in English |
+| **MiniMax H3** (Eva TTV) | Video generation with audio | 80+ | Yes | Qwen3-VL text encoder is multilingual; prompt detected from text |
+| **Wan 2.1 VACE** (Eva TTV edit) | Video editing | 50+ | Yes | CLIP + T5 encoders detect language from prompt |
+| **HY-World 2.0** (Eva TTW) | 3D world generation | Any (text prompts) | N/A | Prompt language detected from text; best results in English |
+| **TRELLIS.2** (Eva TTW objectify) | Image to 3D object | N/A | N/A | Language-agnostic (image input only, no text processing) |
+| **SAM 3.1** (Eva segmentation) | Image/video segmentation | Any | N/A | Language-agnostic (vision model, no text processing) |
+| **SigLIP 2** (Eva vision encoder) | Feature extraction | Any (text + image) | N/A | Multilingual text encoder; processes text + image embeddings |
+| **Gemma 4 12B** (Eva VADAR) | Text-to-text chat | 80+ | Yes | Qwen3/Gemma multilingual; auto-detects language from user input |
 
 ---
 
@@ -573,3 +581,49 @@ SUPPORTED_TTS_LANGUAGES = {
 ```
 
 This constant is used by both Qwen3‑TTS VoiceDesign and Qwen3‑TTS Base to validate and map language parameters. When a user specifies an ISO code, it is resolved to the full English name expected by the model. When `"Auto"` is specified, the model performs its own language detection from the input text and the mapping is bypassed.
+
+---
+
+## Project Eva — Language Support
+
+Project Eva extends VODER beyond audio. The Eva models handle text prompts in multiple languages:
+
+### Flux 2 Dev (TTI — Image Generation)
+
+**Language handling:** Flux 2 Dev accepts text prompts in any language, but the model was trained predominantly on English-captioned data. Non-English prompts work but may produce less precise results. For best quality, write image descriptions in English.
+
+**Supported resolutions:** 512x512, 768x768, 1024x1024 (default), 1536x1536, 2048x2048, and various aspect ratios. Max dimension: 2048.
+
+### MiniMax H3 (TTV — Video Generation)
+
+**Language handling:** H3 uses Qwen3-VL-32B as its text encoder, which is inherently multilingual (80+ languages). The model detects language from the prompt text. Video generation includes synchronized audio — the audio language follows the prompt language.
+
+**Supported resolutions:** 1280x720 (default), 720x1280, 832x480, 480x832, 1024x1024. Max dimension: 1280. Duration: 1-10 seconds.
+
+### Wan 2.1 VACE (TTV — Video Editing)
+
+**Language handling:** VACE uses CLIP (XLM-RoBERTa) + T5 (UMT5-XXL) encoders, both multilingual. Supports 50+ languages for prompt understanding. Editing instructions can be written in any supported language.
+
+**Supported resolutions:** 832x480 (default), 480x832. Duration: 1-5 seconds. Frame count must be 4n+1.
+
+### HY-World 2.0 (TTW — 3D World Generation)
+
+**Language handling:** HY-World accepts text prompts in any language but was trained primarily on English data. Non-English prompts work with reduced precision. Output is a 3D scene file (.glb) — language only affects the prompt interpretation, not the output format.
+
+### TRELLIS.2 (TTW — Image to 3D Object)
+
+**Language handling:** Language-agnostic. TRELLIS.2 takes an image as input (no text prompt for the core conversion). The image is processed through vision encoders only.
+
+### VADAR / Gemma 4 12B (TTT — Chat)
+
+**Language handling:** Gemma 4 is inherently multilingual, supporting 80+ languages. Language is auto-detected from the user's input. VADAR responds in the same language the user writes in.
+
+**Supported languages:** All major languages including English, Chinese (Mandarin/Cantonese), Japanese, Korean, Spanish, Portuguese, Arabic, Russian, French, German, Italian, Turkish, Ukrainian, Urdu, Vietnamese, Thai, Hindi, Indonesian, Malay, Dutch, Polish, Swedish, and many more.
+
+### SAM 3.1 (Segmentation)
+
+**Language handling:** Language-agnostic. SAM processes images/videos through vision only — no text input is required for segmentation. Text prompts for targeted segmentation (e.g., "segment the person") are handled by the vision encoder.
+
+### SigLIP 2 (Vision Encoder)
+
+**Language handling:** SigLIP 2 is a multilingual vision-language model. It can encode text in any language and match it with image features. Used internally by Eva models for feature extraction.

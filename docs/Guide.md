@@ -3,6 +3,7 @@
 ## Table of Contents
 
 - [About VODER](#about-voder)
+- [About Project Eva](#about-project-eva)
 - [Introduction & Vision](#introduction--vision)
 - [The Philosophy: Quality Over Speed](#the-philosophy-quality-over-speed)
 - [Why Hardcoded Models?](#why-hardcoded-models)
@@ -132,6 +133,33 @@ Today, VODER has grown far beyond just "voice" processing. It handles music, sou
 
 ---
 
+## About Project Eva
+
+**Why This Name?**
+
+Project Eva was supposed to be called **Evy** or **Ivy** — where "E" or "I" gives the sound of "I" in the word "image" and "vy" gives the sound of a heavy V, pointing to multiple Vs (video). But that felt less meaningful, so the name evolved to **Ivaco** — Image, Video, Audio (at the middle), Chat, wOrld. But the same mistake that happened with VODER (forcing an acronym to fit) was about to happen again, so that was abandoned.
+
+Other names were considered: **EnVys** (where E = image, N = &, Vys = multi V). But ultimately, **Eva** was chosen. It's a cool word near "Evy" but — importantly — has no meaning and no forced shortcuts. The name "Eva" also leaves room for future expansion. If a quantum computer emulator ever gets added to Project Eva, there's no need to think of a new name — Eva is abstract enough to contain anything.
+
+The **DLC (Downloadable Content)** branding is intentional. By calling Eva a "DLC" instead of "VODER 6" or a new project, the audio-only identity of VODER is preserved. VODER stays "the audio platform." Eva is "the expansion that adds everything else." This is the lesson from the VADAR incident — when VADAR was killed because it "passed the line of audio-only platform," the mistake was mixing the agent into VODER's core. With DLC branding, Eva lives alongside VODER without pretending VODER is something it isn't.
+
+VADAR is back — not as an agent with tool calling and project-awareness, but as a standalone uncensored chatbot inside Project Eva's TTT mode. It's a simpler version of what it was before, but it's here to stay this time. The chat use case is what makes VADAR semi-forever — every platform needs a local AI companion.
+
+VADAR runs on two interchangeable models via Ollama:
+
+1. **vadar** (default) — Gemma 4 12B (abliterated, GGUF Q4_K_M, ~7GB). Fast, fits 12GB+ GPUs. Registered as `vadar-eva` in Ollama.
+2. **vadar-heavy** — Qwen3.8-27B OBLITERATED (complementary abliteration blend, GGUF Q5_K_M, ~19GB). True 0% refusal rate validated on 842 harmful prompts. Fits 24GB+ GPUs. Registered as `vadar-heavy` in Ollama. Created by [Pliny the Prompter](https://github.com/elder-plinius/OBLITERATUS) using a novel 60/40 LEACE+SVD complementary blend technique.
+
+When entering interactive chat (`python voder.py eva ttt`), the user is prompted to choose between the two models. Both share the same personality files, memories, sessions, ping system, and context sliding — only the model weights and sampler settings differ (vadar uses temp=0.8/rep_pen=1.1, vadar-heavy uses temp=0.7/rep_pen=1.15).
+
+Both models are registered in the local Ollama instance and available to any software that supports local Ollama models — not just VODER. Users can connect from agent frameworks, coding assistants, or any tool that speaks the Ollama API (`http://localhost:11434`). The personality files and system prompt are VODER-specific (injected per message inside VODER's chat mode), but the raw models are accessible externally. Ollama itself does not support per-model personalities, but external agent software may add their own system prompts on top of the model.
+
+**Project Eva is not just the `DLCs/eva/` folder.** It is the DLC system itself — the architecture that allows expansion packs to plug into VODER. Future DLCs (like Klarify — upscaling, denoising, frame interpolation) use the same system. Eva is the first DLC; the system is the project.
+
+With more real projects and playgrounds comes next!
+
+---
+
 ## The Philosophy: Quality Over Speed
 
 ### We Don't Chase FPS
@@ -194,11 +222,23 @@ When we list minimum requirements, we're being honest about what actually works.
 | SVS | 8GB | +~3-4GB (BS-RoFormer) | 12GB | Optional | 4GB |
 | SS (standard) | 8GB | +4GB (Whisper) +2-3GB (Pyannote) +2-3GB (UniSE TSE) +~3GB (SVS) | 20GB | Optional | 4GB |
 | SS (overdose) | 8GB | +~8GB (VibeVoice ASR) +2-3GB (UniSE TSE) +~3GB (SVS) | 24GB | Optional | 24GB (recommended) |
+| **Eva TTI (gen/edit/nbg)** | 8GB | +~64GB (Flux 2 Dev 32B BF16) | 72GB | Optional | 24GB (recommended, bfloat16) |
+| **Eva TTI (mini gen/mini edit)** | 8GB | +~18GB (Flux 2 Klein 9B BF16) | 26GB | Optional | 12GB (recommended) |
+| **Eva TTV gen** | 8GB | +~130GB (MiniMax H3 33B + Qwen3-VL-32B) | 138GB | Optional | 48GB+ (multi-GPU) |
+| **Eva TTV animify** | 8GB | +~28GB (Wan 2.2 Animate 14B) | 36GB | Optional | 24GB (recommended) |
+| **Eva TTV edit** | 8GB | +~28GB (Wan 2.1 VACE 14B) | 36GB | Optional | 24GB (recommended) |
+| **Eva TTV lipsync** | 8GB | +~28GB (Wan 2.2 S2V 14B) | 36GB | Optional | 24GB (recommended) |
+| **Eva TTT (VADAR)** | 8GB | +~8GB (Gemma 4 12B GGUF Q4_K_M) or +~19GB (Qwen3.8-27B Q5_K_M) | 16GB / 27GB | Optional | GPU auto-detected by Ollama |
+| **Eva TTW gen** | 8GB | +~40GB (HY-World 2.0 multi-component) | 48GB | Optional | 32GB (recommended) |
+| **Eva TTW edit** | 8GB | +~14GB (TRELLIS.2 4B + VAEs + texturing pipeline) | 22GB | Optional | 16GB (recommended) |
+| **Eva TTW objectify** | 8GB | +~14GB (TRELLIS.2 4B + VAEs) | 22GB | Optional | 16GB (recommended) |
+| **Eva SAM 3.1** | 8GB | +~4GB (SAM 3.1 848M) | 12GB | Optional | 6GB |
+| **Eva SigLIP 2** | 8GB | +~8GB (SigLIP 2 giant 2B) | 16GB | Optional | 8GB |
 
 - **CPU**: 4-6 cores minimum for model loading and non-GPU operations
 - **RAM**: 12GB minimum for basic modes (STT, TTS VoiceDesign, SE, SFX, SVS), 15-16GB for modes with voice cloning or diarization, 23GB for standard ACE-related modes (TTM, TTS with music), 32GB+ for overdose and complete modes
 - **GPU (CUDA)**: Optional - all modes work on CPU. GPU acceleration significantly speeds up STS, TTM, and modes using Seed-VC or ACE-Step
-- **VRAM**: 4GB minimum (6GB recommended, 16GB for best performance with music modes, 32GB for overdose modes). STT and diarization modes are CPU-only and require no GPU.
+- **VRAM**: 4GB minimum (6GB recommended, 16GB for best performance with music modes, 32GB for overdose modes). STT and diarization modes are CPU-only and require no GPU. Project Eva modes benefit from 24GB+ VRAM (Flux 2 Dev, VACE, HY-World, TRELLIS). VADAR chat runs on 16GB RAM with Ollama auto-detecting GPU.
 - **Storage**: SSD recommended for model downloads and result saving
 
 **VRAM Guidelines:**
@@ -208,10 +248,11 @@ When we list minimum requirements, we're being honest about what actually works.
 | No GPU (CPU only) | Slow | All modes (STT, STT+diarization, OCR, SE, SFX, SVS included) |
 | 4GB | Usable | TTS (VoiceDesign), TTS (SLC), TTS (SVC), TTS (Modify Speech), SE (default), SE (voice/blend), SFX, SVS |
 | 6GB | Minimum | TTS (VoiceDesign), TTS (SLC), TTS (SVC), TTS (Modify Speech), SE (all sub-modes), SFX, SVS |
+| 12GB | Entry Eva | Eva TTI mini gen/mini edit (Flux 2 Klein 9B), Eva TTT (vadar — Gemma 4 12B) |
 | 14GB | Mid-range | STS, all TTS modes, SE (all sub-modes), SFX |
 | 15-16GB | Recommended | TTS with music, TTM (standard), TTM+VC, all modes |
-| 24GB | High | All standard modes at full speed, SS (overdose), STT (overdose) |
-| 32GB | Maximum | TTM (overdose), TTM (complete), all modes at full speed (RTX 4090) |
+| 24GB | High | All standard modes at full speed, SS (overdose), STT (overdose), Eva TTV animify/edit/lipsync, Eva TTW objectify, Eva TTW edit, Eva TTT (vadar-heavy — Qwen3.8-27B) |
+| 32GB | Maximum | TTM (overdose), TTM (complete), all modes at full speed (RTX 4090), Eva TTI (Flux 2 Dev with offload), Eva TTV gen (H3), Eva TTW gen |
 | T4 (16GB) | Server-grade | All standard modes (not typical consumer GPU) |
 
 These aren't arbitrary numbers. They're based on actual testing of the models VODER uses.
@@ -306,6 +347,104 @@ Previously, model files could end up in multiple locations depending on how they
 - Share installations across machines
 
 The centralized system solves all of these problems. Everything VODER needs lives under `src/models/`, making the installation self‑contained and predictable.
+
+### Project Eva Model Environments
+
+Project Eva models (Flux 2 Dev, MiniMax H3, Wan 2.1 VACE, HY-World 2.0, TRELLIS.2, SAM 3.1, SigLIP 2) each run in their **own isolated Python virtual environment** under `src/envs/<model>/`. This is necessary because:
+
+- Flux 2 Dev needs the latest `diffusers` from git main (the version pinned in VODER's main requirements doesn't have `Flux2Pipeline`).
+- MiniMax H3 needs recent `transformers` and `diffusers` from main (for Qwen3-VL support).
+- TRELLIS.2 needs custom CUDA packages (`nvdiffrast`, `flash-attn`, `cumesh`, `o-voxel`, `flexgemm`) that conflict with VODER's main env.
+- SAM 3.1 needs `torch>=2.7` and recent `transformers`.
+- Each model's official installation recipe is followed exactly — no version compromises.
+
+**Directory Structure:**
+
+```
+src/envs/
+├── flux2/                   # Flux 2 Dev (image gen / edit / nbg)
+│   ├── bin/                 # Python venv binaries
+│   ├── lib/                 # Installed packages
+│   └── requirements.txt     # Per-model pinned requirements
+├── h3/                      # MiniMax H3 (video gen)
+│   └── requirements.txt
+├── animate/                 # Wan 2.2 Animate 14B + S2V 14B (video animify + lipsync)
+│   └── requirements.txt
+├── vace/                    # Wan 2.1 VACE 14B (video edit)
+│   └── requirements.txt
+├── hyworld/                 # Tencent HY-World 2.0 (world gen / edit)
+│   └── requirements.txt
+├── trellis/                 # Microsoft TRELLIS.2 (image to 3D)
+│   └── requirements.txt
+├── sam3/                    # Meta SAM 3.1 (segmentation)
+│   └── requirements.txt
+└── siglip2/                 # SigLIP 2 giant (vision encoder)
+    └── requirements.txt
+```
+
+**Setup Commands:**
+
+```bash
+# Set up all Eva model envs at once (during full installation)
+python setup.py
+
+# Set up only specific envs (after the main install is done)
+python setup.py --envs flux2
+python setup.py --envs flux2 h3 trellis
+
+# Set up all Eva envs without re-running main install
+python setup.py --envs all
+
+# Force re-create an env (deletes existing one and re-installs)
+python setup.py --envs flux2 --force
+
+# Skip system packages or ollama (if they're already set up)
+python setup.py --skip-system --skip-ollama
+```
+
+**How It Works Internally:**
+
+Each Eva wrapper (`src/voders/DLCs/eva/image/flux2.py`, etc.) writes a JSON spec describing the requested action (prompt, output path, parameters) and then shells out to the model's venv Python interpreter via `subprocess`. The venv runs a small entry-point script (`src/voders/DLCs/eva/_runners/<model>_runner.py`) which:
+
+1. Reads the JSON spec from `EVA_SPEC_PATH` env var.
+2. Imports the model per its official docs (e.g. `from diffusers import Flux2Pipeline` in the flux2 venv).
+3. Runs the inference.
+4. Writes a JSON result to `EVA_RESULT_PATH` (with `success`, `output_path`, `error` fields).
+
+This keeps each model's dependencies isolated while letting the main VODER process orchestrate everything. The main VODER env stays clean — no version conflicts, no broken imports.
+
+**Sudo Handling:**
+
+`setup.py` detects whether `sudo` is available on Linux. If `sudo` is not available (e.g. on a managed server without root access), the script attempts to install system packages (`ffmpeg`, `sox`, `zstd`, `git`, `curl`, `lshw`) without `sudo`. If the package install fails (because root is required), `setup.py` prints a clear message with the manual install command and continues with the rest of the installation. The Python venvs (which don't require root) are always created successfully regardless of sudo availability.
+
+**CUDA Toolkit requirement (animate and trellis envs):**
+
+The `animate` and `trellis` envs require the CUDA Toolkit (nvcc) to compile CUDA extensions during install:
+- `animate`: SAM-2 is built from source (cloned from `github.com/facebookresearch/sam2.git`, installed with `--no-build-isolation`)
+- `trellis`: `nvdiffrast`, `cumesh`, `flexgemm`, `o-voxel` (all cloned from their official repos and installed with `--no-build-isolation`), plus `flash-attn==2.7.3` (installed with `--no-build-isolation`)
+
+These envs pin torch to an exact `+cu128` version (e.g. `torch==2.11.0+cu128`) so pip pulls the CUDA 12.8 build from `download.pytorch.org/whl/cu128` instead of the default cu130 build from PyPI. Without the explicit `+cu128` suffix, pip picks the higher-versioned PyPI torch (cu130), which then mismatches the host's CUDA 12.8 toolkit and the CUDA extensions fail to compile.
+
+**Synthetic CUDA_HOME (automatic):** Many minimal CUDA installs (Kaggle, Docker images, etc.) ship the `nvcc` compiler at `/usr/local/cuda/bin/nvcc` but are MISSING the CUDA development headers (`cusparse.h`, `cublas_v2.h`, `curand.h`, `cufft.h`, `cusolver_common.h`) at `/usr/local/cuda/include/`. PyTorch's cu128 wheel bundles these headers as the `nvidia-cusparse-cu12`, `nvidia-cublas-cu12`, `nvidia-cufft-cu12`, `nvidia-curand-cu12`, `nvidia-cusolver-cu12` pip packages (installed to `<venv>/lib/python3.X/site-packages/nvidia/<lib>/include/`), but PyTorch's CUDA-extension build looks at `$CUDA_HOME/include/` (default `/usr/local/cuda/include`), not the venv's site-packages.
+
+`setup.py` handles this automatically via `_ensure_cuda_dev_headers()`:
+1. Checks if the 5 critical headers exist at `$CUDA_HOME/include` (default `/usr/local/cuda/include`).
+2. If any are missing, builds a synthetic CUDA_HOME at `/tmp/voder_cuda_home/` that symlinks:
+   - All headers from `<venv>/lib/python3.X/site-packages/nvidia/*/include/` into `/tmp/voder_cuda_home/include/`
+   - All libs from `<venv>/lib/python3.X/site-packages/nvidia/*/lib/` (and `lib64/`) into `/tmp/voder_cuda_home/lib64/`
+   - The system nvcc binary (if present at `/usr/local/cuda/bin/nvcc`) into `/tmp/voder_cuda_home/bin/nvcc`
+   - Any headers already in the system `/usr/local/cuda/include/` (so we don't lose anything that's already there)
+3. Passes `CUDA_HOME=/tmp/voder_cuda_home` as an environment variable to all the `pip install --no-build-isolation` calls for the CUDA extensions.
+
+This means **no sudo / apt is needed** to install the CUDA dev headers — they're already bundled in the torch wheel, we just point the build at them. Works on Kaggle, Docker, managed servers, etc.
+
+If the build still fails after this, the host is missing the actual `nvcc` compiler binary — install the full CUDA Toolkit 12.8 from https://developer.nvidia.com/cuda-toolkit-archive.
+
+These CUDA extensions are **required** for trellis (the model imports `cumesh`, `o_voxel`, `flex_gemm` at runtime). For animate, SAM-2 is also required (the model uses it for pose/face preprocessing).
+
+**Idempotent:**
+
+Re-running `python setup.py` is safe. Already-installed packages are skipped, already-created venvs are reused, already-downloaded models aren't re-downloaded. Use `--force` to start fresh on a specific env.
 
 ---
 

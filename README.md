@@ -23,6 +23,8 @@
 
 VODER brings together **8 processing modes** under one interface — speech-to-text, text-to-speech, voice conversion, music generation, speech enhancement, sound effects, vocal separation, and speaker diarization — plus language dubbing (`tts dub`), any-to-any translation via TranslateGemma 12B, transcribe-edit-resynthesize (built into TTS interactive), three task-layer features that build on top of the modes: **`train`** (save reusable voice clones as `.tts` / `.ttse`), **side-quests** (`quest` — lightweight utility tasks like URL download and audio manipulation), and **chains** (user-defined pipelines that wire any number of voder oneline tasks together end-to-end). It runs entirely on your machine, needs no subscription, and works with or without a GPU.
 
+With **Project Eva** (the DLC expansion), VODER also does **text-to-image** (TTI), **text-to-video** (TTV), **text-to-world** (TTW — 3D scene generation), and **text-to-text chat** (TTT — VADAR, the uncensored local AI). Eva is a DLC — it plugs into VODER's existing engine, same infrastructure, same CLI patterns. Access it via `python voder.py eva <mode>`.
+
 ---
 
 ## Features
@@ -39,6 +41,7 @@ VODER brings together **8 processing modes** under one interface — speech-to-t
 - **Side-Quests** — Lightweight utility tasks that live outside the main engine: URL download, audio format conversion, cutting / merging / mixing / removing ranges, silence stripping, speed / pitch / soundlevel / bassboost / reverb / loudnorm effects, and more. Run `python voder.py quest` to see all available quests, grouped by category.
 - **Chains** — User-defined pipelines that wire any number of voder tasks together: each chain is named, its output is captured to temp, and later chains can reference earlier chain names as input paths. Build a song, isolate its vocals, train a voice from them, then dub a video — all in one command.
 - **Smart Input Pipeline** — Paste a YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, or X/Twitter URL directly as input. VODER verifies the link actually points to a video before downloading. Feed an image and VODER extracts text via OCR. Automatically extract voice clips from multi-speaker audio for one-click voice cloning.
+- **Project Eva DLC** — Image generation/editing (Flux 2 Dev), video generation with audio (MiniMax H3), video editing (Wan 2.1 VACE), 3D world generation (HY-World 2.0), image-to-3D object conversion (TRELLIS.2), and VADAR — the uncensored local AI chatbot (Gemma 4 12B via Ollama). All accessible via `voder.py eva <tti|ttv|ttt|ttw>`.
 
 ---
 
@@ -152,7 +155,30 @@ python src/voder.py train extreme voice:narrator "ref1.wav"
 
 # Chains (wire multiple voder oneline tasks together)
 python src/voder.py chains "song" ttm lyrics "la la la" styling "pop" 30 / "voice" svs voice "song" / "cover" sts base "voice" target "ref.wav"
+
+# Project Eva DLC
+python src/voder.py eva tti gen "a cyberpunk city at night" resolution "1024x1024"
+python src/voder.py eva tti edit "input.png" desc "add a red sky" reference "ref.png"
+python src/voder.py eva tti nbg "a character standing"
+python src/voder.py eva ttv gen "a cat playing piano" duration 10
+python src/voder.py eva ttv animify "character.png" reference "pose.mp4"
+python src/voder.py eva ttv edit "input.mp4" desc "make it night time"
+python src/voder.py eva ttv lipsync "face.png" reference "voice.wav"
+python src/voder.py eva ttt gen "how are you?"
+python src/voder.py eva ttt  # enters interactive VADAR chat
+python src/voder.py eva ttw gen "a medieval castle on a hill"
+python src/voder.py eva ttw objectify "character.png"
+python src/voder.py eva ttw edit objectify "character.glb" reference "bronze_texture.png"
 ```
+
+> **Project Eva envs** — each Eva model runs in its own isolated Python venv under `src/envs/<model>/`. The first time you use an Eva mode, set up its env once:
+>
+> ```bash
+> python setup.py --envs all          # set up all Eva model envs
+> python setup.py --envs flux2        # set up only the Flux 2 Dev env
+> ```
+>
+> See [docs/Guide.md → Project Eva Model Environments](docs/Guide.md#project-eva-model-environments) for details.
 
 > **Run in Colab** — no installation needed: [Open in Google Colab](https://colab.research.google.com/drive/1hditIfW9JzusNcFhlHFoclCIIsNiRFNk?usp=sharing)
 
@@ -184,6 +210,10 @@ VODER has **8 main processing modes** — the engine's primary audio transformat
 | **train** | Train voice clones from reference audio, save as `.tts` / `.ttse` for reuse in TTS | Audio / Video / URL | `.tts` / `.ttse` voice file |
 | **quest** | Side-quests — lightweight utility tasks outside the voder engine (`download`, `noframes`, `mix`, …) | URL / local video | Audio / Video file |
 | **chains** | Compose user-defined pipelines of voder oneline tasks; later chains reference earlier chain names | A sequence of voder oneline commands | Final chain's output |
+| **eva tti** | Text-to-Image (gen, edit, nbg transparent PNG) — Flux 2 Dev | Text / image | PNG |
+| **eva ttv** | Text-to-Video (gen with audio, edit) — MiniMax H3 / Wan 2.1 VACE | Text / video | MP4 |
+| **eva ttt** | Text-to-Text chat (VADAR) — Gemma 4 12B via Ollama | Text | Text |
+| **eva ttw** | Text-to-World (3D scene gen, edit, objectify) — HY-World 2.0 / TRELLIS.2 | Text / image | GLB / OBJ |
 
 ---
 
@@ -204,6 +234,16 @@ VODER orchestrates state-of-the-art open-source models — each selected for qua
 | Any-to-Any Translation | [TranslateGemma 12B](https://huggingface.co/google/translategemma-12b-it) |
 | Speaker Diarization | [pyannote](https://github.com/pyannote/pyannote-audio) |
 | Image Text Extraction | [EasyOCR](https://github.com/JaidedAI/EasyOCR) |
+| **Project Eva — Image Generation** | [Flux 2 Dev](https://huggingface.co/black-forest-labs/FLUX.2-dev) / [Flux 2 Klein 9B](https://huggingface.co/black-forest-labs/FLUX.2-klein-9B) (mini) |
+| **Project Eva — Video Generation** | [MiniMax H3](https://github.com/MiniMax-AI/MiniMax-H3) |
+| **Project Eva — Video Animation** | [Wan 2.2 Animate 14B](https://huggingface.co/Wan-AI/Wan2.2-Animate-14B) |
+| **Project Eva — Video Editing** | [Wan 2.1 VACE 14B](https://huggingface.co/Wan-AI/Wan2.1-VACE-14B) |
+| **Project Eva — Video Lip-Sync** | [Wan 2.2 S2V 14B](https://huggingface.co/Wan-AI/Wan2.2-S2V-14B) |
+| **Project Eva — 3D World Generation** | [HY-World 2.0](https://github.com/Tencent-Hunyuan/HY-World-2.0) |
+| **Project Eva — Image to 3D Object** | [TRELLIS.2](https://github.com/microsoft/TRELLIS.2) |
+| **Project Eva — Segmentation** | [SAM 3.1](https://huggingface.co/facebook/sam3.1) |
+| **Project Eva — Vision Encoder** | [SigLIP 2](https://huggingface.co/google/siglip2-giant-opt-patch16-384) |
+| **Project Eva — Chat (VADAR)** | [Gemma 4 12B](https://huggingface.co/Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit) (abliterated, via Ollama) / [Qwen3.8-27B OBLITERATED](https://huggingface.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED) (vadar-heavy) |
 
 ---
 
@@ -217,9 +257,9 @@ VODER orchestrates state-of-the-art open-source models — each selected for qua
 | VRAM | 4 GB (6 GB recommended, 16 GB for music modes) |
 | Storage | SSD recommended |
 
-Some modes (SS, TTM overdose, ACE-Step complete) benefit from 24-32 GB VRAM or 48 GB+ system memory. See [Guide.md](docs/Guide.md) for the full per-mode breakdown.
+Some modes (SS, TTM overdose, ACE-Step complete) benefit from 24-32 GB VRAM or 48 GB+ system memory. Project Eva models (Flux 2 Dev, H3, VACE, HY-World, TRELLIS) benefit from 24GB+ VRAM. VADAR chat works on 16GB RAM. See [Guide.md](docs/Guide.md) for the full per-mode breakdown.
 
-> Speaker diarization requires a free [Hugging Face token](https://huggingface.co/settings/tokens) — set `HF_TOKEN` env var or `HF_TOKEN.txt`. See [READ.md](docs/READ.md) for details.
+> Speaker diarization requires a free [Hugging Face token](https://huggingface.co/settings/tokens) — set `HF_TOKEN` env var or `HF_TOKEN.txt`. Some Project Eva models (Flux 2 Dev) are gated and also require this token. See [READ.md](docs/READ.md) for details.
 
 ---
 

@@ -4,6 +4,122 @@
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 - If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
+## 08/20/2026
+- Status: In development — Project Eva DLC
+- **Project Eva — the expansion DLC for VODER**
+
+### Project Eva
+
+Project Eva is VODER's first DLC (Downloadable Content) expansion. It extends VODER beyond audio into image, video, chat, and world generation — all under the same engine, same infrastructure, same CLI patterns. Eva is NOT a standalone app; it lives inside VODER as `voders/DLCs/eva/` and uses the same model download/cache/load/unload patterns as every other VODER feature.
+
+**The DLC system** is the real foundation of this update. A new `voders/DLCs/` folder houses expansion packs. Each DLC registers its modes, and VODER routes to them via `voder.py eva <mode>`. The interactive CLI gets a new option `0. DLCs` that opens a DLC submenu. Future DLCs (like Klarify) plug into the same system.
+
+**Eva modes:**
+
+| Mode | Name | Sub-modes | Model |
+|------|------|-----------|-------|
+| `tti` | Text-to-Image | gen, edit, nbg (transparent PNG) | Flux 2 Dev |
+| `ttv` | Text-to-Video | gen (with audio), animify, edit, lipsync | MiniMax H3 (gen), Wan 2.2 Animate 14B (animify), Wan 2.1 VACE 14B (edit), Wan 2.2 S2V 14B (lipsync) |
+| `ttt` | Text-to-Text (VADAR) | gen (chat) | Gemma 4 12B (abliterated, GGUF via Ollama) |
+| `ttw` | Text-to-World | gen, edit objectify (retexture), objectify (image→3D) | Tencent HY-World 2.0 (gen), Microsoft TRELLIS.2 (edit objectify/objectify) |
+
+**Supporting models:**
+- **SAM 3.1** (facebook/sam3.1) — segmentation for image/video editing masks
+- **SigLIP 2 giant** (google/siglip2-giant-opt-patch16-384) — vision encoder for feature extraction
+
+**VADAR reborn:** The chat model from the old VADAR agent system is back — but stripped down to just chat. No agent loop, no brotherhood, no tools, no Eval, no Catcher, no Summarizer. Just Gemma 4 12B (abliterated uncensored) via Ollama, with streaming responses, dynamic context window calculation, and personality files. Interactive CLI focused — type `voder.py eva ttt` to enter chat mode, or `voder.py eva ttt gen "how are you"` for a one-shot response.
+
+**Command syntax:**
+```
+voder.py eva tti gen "a cyberpunk city at night" [resolution "1024x1024"] [seed 0]
+voder.py eva tti edit "input.png" desc "add a red sky" [reference "ref.png"] [resolution "1024x1024"]
+voder.py eva tti nbg "a character standing" [resolution "1024x1024"]
+voder.py eva ttv gen "a cat playing piano" [duration 10] [resolution "1280x720"]
+voder.py eva ttv animify "character.png" [desc "..."] reference "pose.mp4"
+voder.py eva ttv edit "input.mp4" desc "make it night time" [reference "ref.mp4"] [duration 5]
+voder.py eva ttv lipsync "face.png" [desc "..."] reference "voice.wav"
+voder.py eva ttt gen "how are you?"
+voder.py eva ttt  (enters interactive chat mode)
+voder.py eva ttw gen "a medieval castle on a hill"
+voder.py eva ttw edit objectify "character.glb" reference "texture.png"
+voder.py eva ttw objectify "character.png"
+```
+
+**All Eva modes support:**
+- The `result` keyword (bare names, `.auto`, quoted paths — same as VODER modes)
+- `&&` extended commands with the Dimensions Resolver
+- Chains integration
+- Output naming: `voder_eva_<mode>_<sub_mode>_<description>_<timestamp>.<format>`
+
+**Interactive CLI:** Option `0. DLCs` → `1. Eva` → `1-4` (TTI, TTV, TTT, TTW). Each mode has its own interactive submenu with step-by-step prompts. TTT goes directly to VADAR's streaming chat.
+
+**Model integration patterns:**
+- **Diffusers-native** (Flux 2 Dev, SigLIP 2): Direct `from_pretrained` loading, same as other VODER models
+- **Ollama subprocess** (VADAR/Gemma 4): GGUF model registered via `ollama create`, inference via `ollama.chat()` with streaming
+- **Custom pipeline** (MiniMax H3, Wan 2.1 VACE, Wan 2.2 Animate, Wan 2.2 S2V, HY-World 2.0, TRELLIS.2): Loads via custom pipeline classes, with source code vendored under `src/{h3,wan21,wan22,hyworld2,trellis2}/`
+- **Isolated venvs**: Each Eva model runs in its own Python venv under `src/envs/<model>/` (flux2, h3, animate, vace, s2v, hyworld, trellis, sam3, siglip2). Each venv installs per its official requirements with no version conflicts. Wrappers shell out via a JSON-spec protocol.
+
+**Uncensored:** All models use uncensored/abliterated variants where available. VADAR uses the abliterated Gemma 4 12B GGUF. Other models are used as-is from their official repos.
+
+**Downscaling:** Images and videos that exceed a model's maximum resolution are automatically downscaled using a high-quality LANCZOS resampling method (ported from the Klarity project).
+
+**Files:**
+- New: `src/voders/DLCs/` — DLC system root
+- New: `src/voders/DLCs/eva/__init__.py` — Eva DLC registration and menu
+- New: `src/voders/DLCs/eva/image/flux2.py` — Flux 2 Dev wrapper (TTI gen/edit/nbg)
+- New: `src/voders/DLCs/eva/image/sam.py` — SAM 3.1 wrapper (segmentation)
+- New: `src/voders/DLCs/eva/image/siglip.py` — SigLIP 2 wrapper (vision encoder)
+- New: `src/voders/DLCs/eva/chat/vadar.py` — VADAR reborn (Ollama chat)
+- New: `src/voders/DLCs/eva/video/h3.py` — MiniMax H3 wrapper (TTV gen)
+- New: `src/voders/DLCs/eva/video/animate.py` — Wan 2.2 Animate 14B wrapper (TTV animify)
+- New: `src/voders/DLCs/eva/video/vace.py` — Wan 2.1 VACE wrapper (TTV edit)
+- New: `src/voders/DLCs/eva/video/s2v.py` — Wan 2.2 S2V 14B wrapper (TTV lipsync)
+- New: `src/voders/DLCs/eva/world/hyworld.py` — HY-World 2.0 wrapper (TTW gen/edit)
+- New: `src/voders/DLCs/eva/world/trellis.py` — TRELLIS.2 wrapper (TTW objectify)
+- New: `src/voders/DLCs/eva/_envrunner.py` — venv discovery + JSON-spec subprocess protocol
+- New: `src/voders/DLCs/eva/_paths.py` — shared checkpoint dir constants
+- New: `src/voders/DLCs/eva/_runners/*.py` — per-model entry-point scripts that run inside each venv
+- New: `src/wan22/` — Wan 2.2 inference code (animify + lipsync pipeline classes, 57 files)
+- New: `src/envs/{flux2,h3,animate,vace,s2v,hyworld,trellis,sam3,siglip2}/requirements.txt` — per-model venv requirements
+- New: `src/voders/DLCs/eva/downscale.py` — Downscaling utility
+- New: `src/eva.png` — Project Eva logo
+- Modified: `src/voder.py` — added EVA constants, `oneline_eva()` and sub-functions, Eva arg parsing, `eva` in valid_modes
+- Modified: `src/voders/interactiveCLI/__init__.py` — added option 0 for DLCs, Eva submenu with TTI/TTV/TTT/TTW interactive modes
+
+### Klarify DLC
+
+Klarify is VODER's second DLC. It integrates the [Klarity](https://github.com/HAKORADev/klarity) project's upscaling, enhancement, and frame interpolation into VODER's DLC system.
+
+**Modes:**
+- `klarify upscale` — Upscale x4 with Real-HAT-GAN-sharper, then -2 with LANCZOS. Double pixels with x4 quality without fine-artifacts. Images and videos.
+- `klarify enhance` — Denoise (NAFNet-SIDD-width64) + Deblur (NAFNet-GoPro-width64) in one pass. Images and videos.
+- `klarify interpolate` — Frame interpolation with RIFE v4.25. Multiplies FPS by N (default 2). Videos only.
+
+**Models (heavy/SOTA only, no lite variant):**
+- NAFNet-SIDD-width64 (denoise) — ~440MB
+- NAFNet-GoPro-width64 (deblur) — ~260MB
+- Real-HAT-GAN-sharper (upscale) — ~167MB
+- RIFE v4.25 (interpolation) — ~21MB
+
+All models auto-downloaded from Google Drive on first use. Same cache/load/unload pattern as all VODER models. CPU and GPU supported.
+
+**Multi-step workflow:** For the full treatment on a video (enhance → upscale → interpolate), chain with `&&`:
+```
+python voder.py klarify enhance "input.mp4" result step1.auto "&&" klarify upscale "results/step1.mp4" result step2.auto "&&" klarify interpolate "results/step2.mp4" result final.auto
+```
+
+**DLC results directory:** All DLC outputs now go to `results/DLCs/<dlc_name>/` instead of flat in `results/`. Eva outputs go to `results/DLCs/eva/`, Klarify outputs go to `results/DLCs/klarify/`.
+
+**Files:**
+- New: `src/voders/DLCs/klarify/__init__.py` — Klarify DLC registration
+- New: `src/voders/DLCs/klarify/klarify_engine.py` — All model loading, processing, and cleanup logic
+- New: `src/voders/DLCs/klarify/nafnet_arch.py` — NAFNet architecture (denoise + deblur)
+- New: `src/voders/DLCs/klarify/hat_gan_arch.py` — HAT architecture (upscale)
+- New: `src/voders/DLCs/klarify/rife_arch.py` — RIFE architecture (interpolation)
+- New: `src/voders/DLCs/klarify/sr_arch.py` — SR VGG architecture (fallback)
+- Modified: `src/voder.py` — added `KLARIFY_MODES`, `oneline_klarify()`, klarify arg parsing, `klarify` in valid_modes, `EVA_RESULTS_DIR` changed to `results/DLCs/eva`
+- Modified: `src/voders/interactiveCLI/__init__.py` — DLC menu now shows both Eva and Klarify, added `_klarify_mode_menu()` and `_klarify_interactive()`
+
 ## 08/16/2026
 - Status: Stable, all features work, still developing
 - **Extreme text-to-song model addition — MiniMax Music 3**

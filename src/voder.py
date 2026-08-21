@@ -38,6 +38,10 @@ MUSIC3_MAX_FRAMES = 9000
 QWEN3_TTS_VOICE_CLONE_MAX_SECONDS = 1200
 FISH_S2PRO_VOICE_CLONE_MAX_SECONDS = 600
 
+EVA_MODES = {'tti', 'ttv', 'ttt', 'ttw'}
+EVA_SUB_MODES = {'gen', 'edit', 'nbg', 'objectify', 'animify', 'lipsync', 'mini'}
+KLARIFY_MODES = {'upscale', 'enhance', 'interpolate'}
+
 os.environ["HF_HOME"] = MODELS_DIR
 os.environ["HF_HUB_CACHE"] = MODELS_TMP_DIR
 os.environ["TRANSFORMERS_CACHE"] = MODELS_TMP_DIR
@@ -895,6 +899,11 @@ _MODE_PREFIXES = {
     'quest': 'quest', 'chains': 'chains',
 }
 
+_DLC_PREFIXES = {
+    'eva': 'DLCs/eva',
+    'klarify': 'DLCs/klarify',
+}
+
 
 def organize_results(results_dir=None):
     if results_dir is None:
@@ -909,10 +918,15 @@ def organize_results(results_dir=None):
             continue
         after = fname[len("voder_"):]
         mode = None
-        for prefix in sorted(_MODE_PREFIXES.keys(), key=len, reverse=True):
+        for prefix in sorted(_DLC_PREFIXES.keys(), key=len, reverse=True):
             if after.startswith(prefix + "_") or after.startswith(prefix):
-                mode = prefix
+                mode = _DLC_PREFIXES[prefix]
                 break
+        if mode is None:
+            for prefix in sorted(_MODE_PREFIXES.keys(), key=len, reverse=True):
+                if after.startswith(prefix + "_") or after.startswith(prefix):
+                    mode = prefix
+                    break
         if mode is None:
             continue
         mode_dir = os.path.join(results_dir, mode)
@@ -5590,6 +5604,68 @@ def parse_oneline_args(args):
         result['params']['result_path'] = result_path
         return result
 
+    if mode == 'eva':
+        eva_mode = None
+        eva_sub = None
+        eva_args = []
+        result_path = None
+        if i >= len(args):
+            print("Error: eva requires a mode: tti, ttv, ttt, or ttw")
+            print("  Usage: python voder.py eva <tti|ttv|ttt|ttw> <gen|edit|nbg|objectify|animify|lipsync> [args]")
+            return result
+        eva_mode = args[i].lower()
+        i += 1
+        if i < len(args) and args[i].lower() in EVA_SUB_MODES:
+            eva_sub = args[i].lower()
+            i += 1
+            if eva_mode == 'ttw' and eva_sub == 'edit' and i < len(args) and args[i].lower() == 'objectify':
+                i += 1
+            elif eva_mode == 'tti' and eva_sub == 'mini' and i < len(args) and args[i].lower() in ('gen', 'edit', 'nbg'):
+                eva_sub = f'mini_{args[i].lower()}'
+                i += 1
+        elif i < len(args):
+            eva_sub = 'gen'
+        while i < len(args):
+            arg = args[i]
+            al = arg.lower()
+            if al == 'result' and i + 1 < len(args):
+                result_path = args[i + 1]
+                i += 2
+            else:
+                eva_args.append(arg)
+                i += 1
+        result['params']['eva_mode'] = eva_mode
+        result['params']['eva_sub_mode'] = eva_sub
+        result['params']['eva_args'] = eva_args
+        result['params']['result_path'] = result_path
+        return result
+
+    if mode == 'klarify':
+        klarify_mode = None
+        klarify_args = []
+        result_path = None
+        if i >= len(args):
+            print("Error: klarify requires a mode: upscale, enhance, or interpolate")
+            return result
+        klarify_mode = args[i].lower()
+        i += 1
+        while i < len(args):
+            arg = args[i]
+            al = arg.lower()
+            if al == 'result' and i + 1 < len(args):
+                result_path = args[i + 1]
+                i += 2
+            elif al == 'multi' and i + 1 < len(args):
+                klarify_args.extend(['multi', args[i + 1]])
+                i += 2
+            else:
+                klarify_args.append(arg)
+                i += 1
+        result['params']['klarify_mode'] = klarify_mode
+        result['params']['klarify_args'] = klarify_args
+        result['params']['result_path'] = result_path
+        return result
+
     while i < len(args):
         arg = args[i]
         arg_lower = arg.lower()
@@ -6239,7 +6315,7 @@ def _check_voice_extreme_mismatch(voice_path, use_extreme):
 def validate_oneline_mode(mode_name):
     if mode_name.lower() == 'overdose':
         return 'overdose'
-    valid_modes = ['tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'ss', 'train', 'quest', 'chains', 'overdose']
+    valid_modes = ['tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'ss', 'train', 'quest', 'chains', 'overdose', 'eva', 'klarify']
     if mode_name.lower() in valid_modes:
         return mode_name.lower()
     return None
@@ -6578,6 +6654,10 @@ def execute_oneline_command(parsed):
         success = oneline_quest(params)
     elif mode == 'chains':
         success = oneline_chains(params)
+    elif mode == 'eva':
+        success = oneline_eva(params)
+    elif mode == 'klarify':
+        success = oneline_klarify(params)
     else:
         print(f"Error: Unknown mode '{mode}'")
         show_oneline_usage()
@@ -16924,6 +17004,531 @@ def _run_extended_commands(args):
                     return False
 
     return True
+
+
+EVA_RESULTS_DIR = 'results/DLCs/eva'
+
+
+def oneline_eva(params):
+    eva_mode = params.get('eva_mode')
+    eva_sub = params.get('eva_sub_mode')
+    eva_args = params.get('eva_args', [])
+
+    if not eva_mode:
+        print("Error: eva requires a mode: tti, ttv, ttt, or ttw")
+        print("  Usage: python voder.py eva <tti|ttv|ttt|ttw> <gen|edit|nbg|objectify|animify|lipsync> [args]")
+        return False
+
+    if eva_mode == 'tti':
+        return _eva_tti(eva_sub, eva_args)
+    elif eva_mode == 'ttv':
+        return _eva_ttv(eva_sub, eva_args)
+    elif eva_mode == 'ttt':
+        return _eva_ttt(eva_sub, eva_args)
+    elif eva_mode == 'ttw':
+        return _eva_ttw(eva_sub, eva_args)
+    else:
+        print(f"Error: unknown eva mode '{eva_mode}'. Available: tti, ttv, ttt, ttw")
+        return False
+
+
+def _eva_parse_common_args(args):
+    desc = None
+    resolution = None
+    seed = 0
+    duration = None
+    references = []
+    result_path = None
+    format_type = None
+    input_path = None
+    _url_items = []
+
+    def _flush_url_items():
+        nonlocal input_path
+        for item in _url_items:
+            if input_path is None:
+                input_path = item
+            else:
+                references.append(item)
+        _url_items.clear()
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        al = arg.lower()
+        if al == 'desc' and i + 1 < len(args):
+            _flush_url_items()
+            desc = args[i + 1]
+            i += 2
+        elif al == 'resolution' and i + 1 < len(args):
+            _flush_url_items()
+            resolution = args[i + 1]
+            i += 2
+        elif al == 'seed' and i + 1 < len(args):
+            _flush_url_items()
+            try:
+                seed = int(args[i + 1])
+            except ValueError:
+                pass
+            i += 2
+        elif al == 'duration' and i + 1 < len(args):
+            _flush_url_items()
+            try:
+                duration = int(args[i + 1])
+            except ValueError:
+                pass
+            i += 2
+        elif al == 'reference' and i + 1 < len(args):
+            _flush_url_items()
+            references.append(args[i + 1])
+            i += 2
+        elif al == 'url':
+            i += 1
+            while i < len(args):
+                sub = args[i].lower()
+                if sub in ('image', 'video', 'audio') and i + 1 < len(args):
+                    _url_items.append((f'url_{sub}', args[i + 1]))
+                    i += 2
+                elif sub in ('desc', 'resolution', 'seed', 'duration', 'reference', 'result', 'format', 'url', 'gen', 'edit', 'nbg', 'objectify', 'animify', 'lipsync', 'mini'):
+                    break
+                else:
+                    _url_items.append(args[i])
+                    i += 1
+            _flush_url_items()
+        elif al == 'format' and i + 1 < len(args):
+            _flush_url_items()
+            format_type = args[i + 1]
+            i += 2
+        elif al == 'result' and i + 1 < len(args):
+            _flush_url_items()
+            result_path = args[i + 1]
+            i += 2
+        elif input_path is None and not al in ('gen', 'edit', 'nbg', 'objectify', 'animify', 'lipsync', 'mini', 'url', 'image', 'video', 'audio'):
+            input_path = arg
+            i += 1
+        else:
+            i += 1
+    _flush_url_items()
+    return desc, resolution, seed, duration, references, result_path, format_type, input_path
+
+
+def _eva_tti(sub_mode, args):
+    from voders.DLCs.eva.image.flux2 import Flux2Wrapper
+    from voders.DLCs.eva.downscale import check_and_downscale_input
+
+    desc, resolution, seed, duration, references, result_path, fmt, input_path = _eva_parse_common_args(args)
+
+    if sub_mode == 'gen':
+        if not desc:
+            print("Error: tti gen requires desc \"<description>\"")
+            return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', desc[:100]) or 'image'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_tti_gen_{safe_desc}_{timestamp}.png")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        wrapper = Flux2Wrapper()
+        try:
+            success = wrapper.generate(desc, output_path, resolution=resolution, seed=seed)
+            if success:
+                print(f"\n✓ Success! Output saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
+    elif sub_mode == 'edit':
+        if not input_path:
+            print("Error: tti edit requires an input image path or URL")
+            return False
+        if not desc:
+            print("Error: tti edit requires desc \"<description>\"")
+            return False
+        from voder import resolve_target_to_audio, is_supported_url, is_known_platform_url
+        if is_supported_url(input_path):
+            if not is_known_platform_url(input_path):
+                print(f"Error: unsupported platform URL. Use quest download first.")
+                return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', desc[:100]) or 'edit'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_tti_edit_{safe_desc}_{timestamp}.png")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        wrapper = Flux2Wrapper()
+        try:
+            success = wrapper.edit(input_path, desc, output_path, reference_paths=references if references else None, resolution=resolution, seed=seed)
+            if success:
+                print(f"\n✓ Success! Output saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
+    elif sub_mode == 'nbg':
+        if not desc:
+            print("Error: tti nbg requires desc \"<description>\"")
+            return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', desc[:100]) or 'nbg'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_tti_nbg_{safe_desc}_{timestamp}.png")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        wrapper = Flux2Wrapper()
+        try:
+            success = wrapper.generate_nbg(desc, output_path, resolution=resolution, seed=seed)
+            if success:
+                print(f"\n✓ Success! Output saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
+    elif sub_mode == 'mini_gen':
+        if not desc:
+            print("Error: tti mini gen requires desc \"<description>\"")
+            return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', desc[:100]) or 'mini_gen'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_tti_mini_gen_{safe_desc}_{timestamp}.png")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        from voders.DLCs.eva.image.flux2 import KleinWrapper
+        wrapper = KleinWrapper()
+        try:
+            success = wrapper.mini_gen(desc, output_path, resolution=resolution, seed=seed)
+            if success:
+                print(f"\n✓ Success! Output saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
+    elif sub_mode == 'mini_edit':
+        if not input_path:
+            print("Error: tti mini edit requires an input image path")
+            return False
+        if not desc:
+            print("Error: tti mini edit requires desc \"<description>\"")
+            return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', desc[:100]) or 'mini_edit'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_tti_mini_edit_{safe_desc}_{timestamp}.png")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        from voders.DLCs.eva.image.flux2 import KleinWrapper
+        wrapper = KleinWrapper()
+        try:
+            success = wrapper.mini_edit(input_path, desc, output_path, reference_paths=references if references else None, resolution=resolution, seed=seed)
+            if success:
+                print(f"\n✓ Success! Output saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
+    elif sub_mode == 'mini_nbg':
+        if not desc:
+            print("Error: tti mini nbg requires desc \"<description>\"")
+            return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', desc[:100]) or 'mini_nbg'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_tti_mini_nbg_{safe_desc}_{timestamp}.png")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        from voders.DLCs.eva.image.flux2 import KleinWrapper
+        wrapper = KleinWrapper()
+        try:
+            success = wrapper.mini_nbg(desc, output_path, resolution=resolution, seed=seed)
+            if success:
+                print(f"\n✓ Success! Transparent PNG saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
+    else:
+        print(f"Error: unknown tti sub-mode '{sub_mode}'. Available: gen, edit, nbg, mini gen, mini edit, mini nbg")
+        return False
+
+
+def _eva_ttv(sub_mode, args):
+    from voders.DLCs.eva.video.h3 import H3Wrapper
+    from voders.DLCs.eva.video.vace import VACEWrapper
+    from voders.DLCs.eva.video.animate import AnimateWrapper
+    from voders.DLCs.eva.video.s2v import S2VWrapper
+
+    desc, resolution, seed, duration, references, result_path, fmt, input_path = _eva_parse_common_args(args)
+
+    if sub_mode == 'gen':
+        if not desc:
+            print("Error: ttv gen requires a description")
+            return False
+        if duration is None:
+            duration = 10
+        image_refs = [r for r in references if r.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tiff'))]
+        video_refs = [r for r in references if r.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.m4v'))]
+        audio_refs = [r for r in references if r.lower().endswith(('.wav', '.mp3', '.flac', '.ogg', '.aac', '.m4a'))]
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', desc[:100]) or 'video'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_ttv_gen_{safe_desc}_{timestamp}.mp4")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        wrapper = H3Wrapper()
+        try:
+            success = wrapper.generate(desc, output_path, duration=duration, resolution=resolution, seed=seed,
+                                       image_refs=image_refs if image_refs else None,
+                                       video_refs=video_refs if video_refs else None,
+                                       audio_refs=audio_refs if audio_refs else None)
+            if success:
+                print(f"\n✓ Success! Output saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
+    elif sub_mode == 'animify':
+        if not input_path:
+            print("Error: ttv animify requires an input image path (the character to animate)")
+            return False
+        if not references:
+            print("Error: ttv animify requires a reference video (the motion source) passed via reference <video>")
+            return False
+        video_refs = [r for r in references if r.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.m4v'))]
+        if not video_refs:
+            print("Error: ttv animify requires a reference video (the motion source) — got only non-video references")
+            return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', (desc or 'animify')[:100]) or 'animify'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_ttv_animify_{safe_desc}_{timestamp}.mp4")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        wrapper = AnimateWrapper()
+        try:
+            success = wrapper.animify(
+                reference_image=input_path,
+                pose_video=video_refs[0],
+                output_path=output_path,
+                prompt=desc or "",
+                seed=seed,
+            )
+            if success:
+                print(f"\n✓ Success! Output saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
+    elif sub_mode == 'edit':
+        if not input_path:
+            print("Error: ttv edit requires an input video path or URL")
+            return False
+        if not desc:
+            print("Error: ttv edit requires desc \"<description>\"")
+            return False
+        if duration is None:
+            duration = 5
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', desc[:100]) or 'edit'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_ttv_edit_{safe_desc}_{timestamp}.mp4")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        wrapper = VACEWrapper()
+        try:
+            success = wrapper.edit(input_path, desc, output_path, reference_paths=references if references else None, resolution=resolution, duration=duration, seed=seed)
+            if success:
+                print(f"\n✓ Success! Output saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
+    elif sub_mode == 'lipsync':
+        if not input_path:
+            print("Error: ttv lipsync requires an input image path (the face/character first frame)")
+            return False
+        audio_refs = [r for r in references if r.lower().endswith(('.wav', '.mp3', '.flac', '.ogg', '.aac', '.m4a'))]
+        if not audio_refs:
+            print("Error: ttv lipsync requires an audio reference (passed via reference <audio>)")
+            return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', (desc or 'lipsync')[:100]) or 'lipsync'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_ttv_lipsync_{safe_desc}_{timestamp}.mp4")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        wrapper = S2VWrapper()
+        try:
+            success = wrapper.lipsync(
+                reference_image=input_path,
+                audio_path=audio_refs[0],
+                output_path=output_path,
+                prompt=desc or "",
+                seed=seed,
+            )
+            if success:
+                print(f"\n✓ Success! Output saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
+    else:
+        print(f"Error: unknown ttv sub-mode '{sub_mode}'. Available: gen, animify, edit, lipsync")
+        return False
+
+
+def _eva_ttt(sub_mode, args):
+    from voders.DLCs.eva.chat.vadar import vadar_interactive, vadar_chat_stream, vadar_load_model
+
+    model_name = 'vadar'
+    if args and args[0].lower() == 'heavy':
+        model_name = 'vadar-heavy'
+        args = args[1:]
+        sub_mode = sub_mode or 'gen'
+
+    if not args and sub_mode in ('gen', None):
+        if model_name == 'vadar':
+            try:
+                print("\nVADAR chat models:")
+                print("  1. vadar      — Gemma 4 12B (abliterated, 7GB, fast)")
+                print("  2. vadar-heavy — Qwen3.8-27B OBLITERATED (19GB, true 0% refusal)")
+                choice = input("\nUse vadar-heavy? (y/N): ").strip().lower()
+                if choice == 'y':
+                    model_name = 'vadar-heavy'
+                    ok, err = vadar_load_model('vadar-heavy')
+                    if err:
+                        print(f"vadar-heavy not available: {err}")
+                        print("Falling back to vadar (Gemma 4 12B)...")
+                        model_name = 'vadar'
+            except (EOFError, KeyboardInterrupt):
+                print()
+                model_name = 'vadar'
+        return vadar_interactive(model_name=model_name)
+
+    if sub_mode == 'gen':
+        if args:
+            user_message = ' '.join(args)
+            print(f"\n[VADAR]: ", end='', flush=True)
+            for chunk in vadar_chat_stream(user_message, model_name=model_name):
+                print(chunk, end='', flush=True)
+            print('\n')
+            return True
+        else:
+            return vadar_interactive(model_name=model_name)
+    else:
+        if not args:
+            return vadar_interactive(model_name=model_name)
+        user_message = ' '.join(args)
+        print(f"\n[VADAR]: ", end='', flush=True)
+        for chunk in vadar_chat_stream(user_message, model_name=model_name):
+            print(chunk, end='', flush=True)
+        print('\n')
+        return True
+
+
+def _eva_ttw(sub_mode, args):
+    from voders.DLCs.eva.world.hyworld import HYWorldWrapper
+    from voders.DLCs.eva.world.trellis import Trellis2Wrapper
+
+    desc, resolution, seed, duration, references, result_path, fmt, input_path = _eva_parse_common_args(args)
+
+    if sub_mode == 'gen':
+        if not desc:
+            print("Error: ttw gen requires a description")
+            return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', desc[:100]) or 'world'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_ttw_gen_{safe_desc}_{timestamp}.glb")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        wrapper = HYWorldWrapper()
+        try:
+            success = wrapper.generate(desc, output_path, resolution=resolution, seed=seed,
+                                       reference_paths=references if references else None)
+            if success:
+                print(f"\n✓ Success! Output saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
+    elif sub_mode == 'edit':
+        if not input_path:
+            print("Error: ttw edit requires an input 3D object file (.glb)")
+            return False
+        if not references:
+            print("Error: ttw edit requires a reference image (passed via reference <image>)")
+            return False
+        image_refs = [r for r in references if r.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tiff'))]
+        if not image_refs:
+            print("Error: ttw edit requires a reference image — got only non-image references")
+            return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', (desc or 'edit')[:100]) or 'edit'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_ttw_edit_{safe_desc}_{timestamp}.glb")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        wrapper = Trellis2Wrapper()
+        try:
+            success = wrapper.edit(input_path, image_refs[0], output_path, seed=seed)
+            if success:
+                print(f"\n✓ Success! Retextured object saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
+    elif sub_mode == 'objectify':
+        if not input_path:
+            print("Error: ttw objectify requires an input image path")
+            return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_ttw_objectify_{timestamp}.glb")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        wrapper = Trellis2Wrapper()
+        try:
+            success = wrapper.objectify(input_path, output_path, seed=seed)
+            if success:
+                print(f"\n✓ Success! 3D object saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
+    else:
+        print(f"Error: unknown ttw sub-mode '{sub_mode}'. Available: gen, edit, objectify")
+        return False
+
+
+def oneline_klarify(params):
+    klarify_mode = params.get('klarify_mode')
+    klarify_args = params.get('klarify_args', [])
+    if not klarify_mode:
+        print("Error: klarify requires a mode: upscale, enhance, or interpolate")
+        return False
+    if klarify_mode not in KLARIFY_MODES:
+        print(f"Error: unknown klarify mode '{klarify_mode}'. Available: {', '.join(KLARIFY_MODES)}")
+        return False
+    input_path = None
+    multi = 2
+    i = 0
+    while i < len(klarify_args):
+        arg = klarify_args[i]
+        al = arg.lower()
+        if al == 'multi' and i + 1 < len(klarify_args):
+            try:
+                multi = int(klarify_args[i + 1])
+            except ValueError:
+                pass
+            i += 2
+        elif input_path is None:
+            input_path = arg
+            i += 1
+        else:
+            i += 1
+    if not input_path:
+        print(f"Error: klarify {klarify_mode} requires an input file path")
+        return False
+    from voders.DLCs.klarify.klarify_engine import (
+        klarify_upscale, klarify_enhance, klarify_interpolate, klarify_cleanup,
+        KLARIFY_RESULTS_DIR
+    )
+    results_dir = os.path.join(os.getcwd(), "results", "DLCs", "klarify")
+    os.makedirs(results_dir, exist_ok=True)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    ext = os.path.splitext(input_path)[1] or '.png'
+    if klarify_mode == 'interpolate':
+        ext = '.mp4'
+    output_path = os.path.join(results_dir, f"voder_klarify_{klarify_mode}_{timestamp}{ext}")
+    try:
+        if klarify_mode == 'upscale':
+            success = klarify_upscale(input_path, output_path)
+        elif klarify_mode == 'enhance':
+            success = klarify_enhance(input_path, output_path)
+        elif klarify_mode == 'interpolate':
+            success = klarify_interpolate(input_path, output_path, multi=multi)
+        else:
+            print(f"Error: unknown klarify mode '{klarify_mode}'")
+            return False
+        if success:
+            print(f"\n✓ Success! Output saved to: {output_path}")
+        return success
+    finally:
+        klarify_cleanup()
 
 
 if __name__ == "__main__":

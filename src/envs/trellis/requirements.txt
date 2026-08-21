@@ -1,0 +1,25 @@
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+transformers>=4.49.0,<=4.51.3
+accelerate>=1.1.1
+safetensors>=0.4.0
+sentencepiece>=0.2.0
+protobuf>=5.29.0
+Pillow>=10.0.0
+huggingface-hub>=0.34.0
+einops>=0.6.0
+imageio>=2.31.0
+imageio-ffmpeg>=0.4.9
+opencv-python-headless>=4.9.0.80
+numpy>=1.23.5,<2
+trimesh>=4.0.0
+rembg>=2.0.50
+easydict>=1.11
+ninja>=1.11
+tqdm>=4.65.0
+kornia>=0.7.0
+timm>=0.9.8
+lpips>=0.1.4
+zstandard>=0.22.0
+pandas>=1.5.0

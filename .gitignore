@@ -1,2 +1,17 @@
 __pycache__/
 *.pyc
+src/voders/DLCs/eva/chat/memories/vadar/*
+!src/voders/DLCs/eva/chat/memories/vadar/.gitkeep
+src/voders/DLCs/eva/chat/memories/user/*
+!src/voders/DLCs/eva/chat/memories/user/.gitkeep
+src/voders/DLCs/eva/chat/sessions/*
+!src/voders/DLCs/eva/chat/sessions/.gitkeep
+
+# Per-model venvs — only track requirements.txt, ignore the installed venv contents
+src/envs/*/bin/
+src/envs/*/lib/
+src/envs/*/lib64/
+src/envs/*/include/
+src/envs/*/share/
+src/envs/*/.venv/
+src/envs/*/pyvenv.cfg
