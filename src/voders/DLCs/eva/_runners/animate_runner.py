@@ -136,6 +136,7 @@ def handle_animify(spec):
 def _save_video(video, output_path, fps=30):
     import numpy as np
     import imageio
+    import torch
     if isinstance(video, torch.Tensor):
         video = video.cpu().numpy()
     if isinstance(video, list):

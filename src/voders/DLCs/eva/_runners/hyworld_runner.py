@@ -33,7 +33,7 @@ def main():
         write_result(False, error="No spec provided")
         return 1
     action = spec.get("action")
-    handlers = {"generate": handle_generate, "edit": handle_edit}
+    handlers = {"generate": handle_generate}
     handler = handlers.get(action)
     if handler is None:
         write_result(False, error=f"Unknown action '{action}'. Available: {list(handlers.keys())}")

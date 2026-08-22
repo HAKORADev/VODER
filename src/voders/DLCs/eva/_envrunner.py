@@ -24,8 +24,12 @@ EVA_RUNNERS = {
 }
 
 
+def _venv_name(model_name):
+    return EVA_RUNNERS.get(model_name, model_name)
+
+
 def venv_python(model_name):
-    env_dir = os.path.join(ENVS_DIR, model_name)
+    env_dir = os.path.join(ENVS_DIR, _venv_name(model_name))
     if sys.platform == "win32":
         return os.path.join(env_dir, "Scripts", "python.exe")
     return os.path.join(env_dir, "bin", "python")
@@ -50,7 +54,7 @@ def run_in_venv(model_name, spec, timeout=None):
             "success": False,
             "error": (
                 f"Python environment for '{model_name}' is not set up. "
-                f"Run: python setup.py --envs {model_name}  "
+                f"Run: python setup.py --envs {_venv_name(model_name)}  "
                 f"(or: python setup.py --envs all)"
             ),
         }

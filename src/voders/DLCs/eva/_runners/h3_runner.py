@@ -110,16 +110,26 @@ def handle_generate(spec):
     prompt = spec["prompt"]
     output_path = spec["output_path"]
     duration = int(spec.get("duration", 10))
+    resolution = spec.get("resolution", "1280x720")
     seed = int(spec.get("seed", 0))
     image_refs = spec.get("image_refs") or []
     video_refs = spec.get("video_refs") or []
     audio_refs = spec.get("audio_refs") or []
-    print(f"Generating video with MiniMax H3 (up to {duration}s)...")
+    try:
+        parts = resolution.lower().split("x")
+        width, height = int(parts[0]), int(parts[1])
+    except Exception:
+        width, height = 1280, 720
+    num_frames = max(1, int(duration * 24))
+    print(f"Generating video with MiniMax H3 ({width}x{height}, {num_frames} frames, up to {duration}s)...")
     generator = torch.Generator(device=device).manual_seed(seed)
     kwargs = dict(
         prompt=prompt,
         generator=generator,
-        output="videos",
+        width=width,
+        height=height,
+        num_frames=num_frames,
+        output_type="pt",
     )
     if image_refs:
         kwargs["images"] = image_refs
@@ -128,18 +138,27 @@ def handle_generate(spec):
     if audio_refs:
         kwargs["audios"] = audio_refs
     output = pipe(**kwargs)
-    video = output
+    video = None
+    audio = None
+    audio_sr = None
+    if isinstance(output, dict):
+        video = output.get("videos", output.get("video", None))
+        audio = output.get("audios", output.get("audio", None))
+        audio_sr = output.get("sampling_rate", None)
+    elif isinstance(output, torch.Tensor):
+        video = output
+    elif isinstance(output, list) and len(output) > 0:
+        video = output[0]
+    if video is None:
+        write_result(False, error="H3 produced no output")
+        return 1
     if isinstance(video, torch.Tensor):
         video = video.cpu().numpy()
     if isinstance(video, list) and len(video) > 0:
         video = video[0]
-    if isinstance(video, dict):
-        video = video.get("video", video.get("videos", None))
-    if video is None:
-        write_result(False, error="H3 produced no output")
-        return 1
+    temp_video_path = output_path + ".temp_video.mp4"
     if isinstance(video, bytes):
-        with open(output_path, "wb") as f:
+        with open(temp_video_path, "wb") as f:
             f.write(video)
     elif isinstance(video, np.ndarray):
         import imageio
@@ -151,23 +170,42 @@ def handle_generate(spec):
             video = video.transpose(0, 2, 3, 1)
         elif video.shape[0] in (3, 4):
             video = video.transpose(1, 2, 0)
-        imageio.mimsave(output_path, video, fps=24)
+        imageio.mimsave(temp_video_path, video, fps=24)
     else:
         if hasattr(video, "save"):
-            video.save(output_path)
+            video.save(temp_video_path)
         else:
             print(f"Warning: unknown output type {type(video)}, trying pickle...")
-            with open(output_path, "wb") as f:
+            with open(temp_video_path, "wb") as f:
                 import pickle
                 pickle.dump(video, f)
-    print(f"Video generated: {output_path}")
+    if audio is not None and audio_sr is not None:
+        if isinstance(audio, torch.Tensor):
+            audio = audio.cpu().numpy()
+        if isinstance(audio, np.ndarray) and audio.ndim > 1:
+            audio = audio[0] if audio.shape[0] == 1 else audio
+        try:
+            import soundfile as sf
+            temp_audio_path = output_path + ".temp_audio.wav"
+            sf.write(temp_audio_path, audio.T if audio.ndim > 1 else audio, audio_sr)
+            import subprocess
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", temp_video_path, "-i", temp_audio_path,
+                 "-c:v", "copy", "-c:a", "aac", "-shortest", output_path],
+                capture_output=True, check=True, timeout=120
+            )
+            os.remove(temp_audio_path)
+            os.remove(temp_video_path)
+            print(f"Video with audio generated: {output_path}")
+        except Exception as e:
+            print(f"Warning: audio muxing failed ({e}), saving video only")
+            os.rename(temp_video_path, output_path)
+            print(f"Video generated (no audio): {output_path}")
+    else:
+        os.rename(temp_video_path, output_path)
+        print(f"Video generated: {output_path}")
     write_result(True, output_path=output_path)
     return 0
-
-
-def handle_edit(spec):
-    write_result(False, error="H3 does not support edit; use VACE for video editing.")
-    return 1
 
 
 if __name__ == "__main__":

@@ -61,7 +61,7 @@ class H3Wrapper:
         resolved_audio_refs = []
         if audio_refs:
             for ref_path in audio_refs:
-                resolved = resolve_input_path(ref_path, media_type='image')
+                resolved = resolve_input_path(ref_path, media_type='audio')
                 if resolved:
                     resolved_audio_refs.append(resolved)
         print(f"Generating video with MiniMax H3 (up to {duration}s)...")
