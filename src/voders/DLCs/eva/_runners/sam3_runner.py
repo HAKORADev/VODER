@@ -35,8 +35,6 @@ def main():
     action = spec.get("action")
     handlers = {
         "auto_mask": handle_auto_mask,
-        "segment_image": handle_segment_image,
-        "segment_video": handle_segment_video,
     }
     handler = handlers.get(action)
     if handler is None:
@@ -93,16 +91,6 @@ def handle_auto_mask(spec):
     print(f"Mask saved: {output_path}")
     write_result(True, output_path=output_path)
     return 0
-
-
-def handle_segment_image(spec):
-    write_result(False, error="segment_image not implemented yet — use auto_mask")
-    return 1
-
-
-def handle_segment_video(spec):
-    write_result(False, error="segment_video not implemented yet")
-    return 1
 
 
 if __name__ == "__main__":

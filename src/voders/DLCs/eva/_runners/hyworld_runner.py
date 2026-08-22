@@ -100,10 +100,8 @@ def handle_generate(spec):
                 output_saved = True
                 break
     if not output_saved:
-        import pickle
-        with open(save_path, "wb") as f:
-            pickle.dump(result, f)
-        print(f"World saved (raw): {save_path}")
+        write_result(False, error="HY-World produced no exportable mesh output — pipeline returned an unrecognized object type")
+        return 1
     write_result(True, output_path=save_path)
     return 0
 

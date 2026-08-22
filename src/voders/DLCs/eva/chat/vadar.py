@@ -9,13 +9,11 @@ if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
 VADAR_MODEL_DIR = os.path.join(_src_dir, "models", "checkpoints", "vadar_eva")
-VADAR_GGUF_REPO = "Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit"
-VADAR_GGUF_FILENAME = "SuperGemma-4-12b-abliterated-Q4_K_M.gguf"
 VADAR_OLLAMA_MODEL_NAME = "vadar-eva"
 
 VADAR_HEAVY_MODEL_DIR = os.path.join(_src_dir, "models", "checkpoints", "vadar_heavy")
-VADAR_HEAVY_GGUF_REPO = "OBLITERATUS/Qwen3.8-27B-OBLITERATED"
-VADAR_HEAVY_GGUF_FILENAME = "Qwen3.8-27B-OBLITERATED-Q5_K_M.gguf"
+VADAR_HEAVY_GGUF_REPO = "JonathanColetti/Qwen3.8-27B-Uncensored-GGUF"
+VADAR_HEAVY_GGUF_FILENAME = "Qwen3.8-27B-Uncensored-Q4_K_M.gguf"
 VADAR_HEAVY_OLLAMA_MODEL_NAME = "vadar-heavy"
 
 VADAR_MEMORIES_DIR = os.path.join(_src_dir, "voders", "DLCs", "eva", "chat", "memories")
@@ -27,26 +25,28 @@ _MODEL_CONFIGS = {
     'vadar': {
         'ollama_name': VADAR_OLLAMA_MODEL_NAME,
         'model_dir': VADAR_MODEL_DIR,
-        'gguf_repo': VADAR_GGUF_REPO,
-        'gguf_filename': VADAR_GGUF_FILENAME,
-        'model_size_gb': 8.0,
+        'ollama_pull': 'igorls/gemma-4-12B-it-qat-q4_0-unquantized-heretic:Q4_K_M',
+        'gguf_repo': None,
+        'gguf_filename': None,
+        'model_size_gb': 7.0,
         'temperature': 0.8,
         'top_p': 0.95,
         'top_k': 64,
         'repeat_penalty': 1.1,
-        'display_name': 'Gemma 4 12B (abliterated, GGUF Q4_K_M)',
+        'display_name': 'Gemma 4 12B Heretic (QAT Q4_K_M)',
     },
     'vadar-heavy': {
         'ollama_name': VADAR_HEAVY_OLLAMA_MODEL_NAME,
         'model_dir': VADAR_HEAVY_MODEL_DIR,
+        'ollama_pull': None,
         'gguf_repo': VADAR_HEAVY_GGUF_REPO,
         'gguf_filename': VADAR_HEAVY_GGUF_FILENAME,
-        'model_size_gb': 19.0,
+        'model_size_gb': 17.0,
         'temperature': 0.7,
         'top_p': 0.95,
         'top_k': 64,
         'repeat_penalty': 1.15,
-        'display_name': 'Qwen3.8-27B OBLITERATED (GGUF Q5_K_M)',
+        'display_name': 'Qwen3.8-27B Uncensored Heretic (GGUF Q4_K_M)',
     },
 }
 
@@ -167,40 +167,61 @@ def vadar_load_model(model_name='vadar', force_reload=False):
 
     if not _ollama_model_exists(config['ollama_name']):
         import subprocess
-        gguf_path = os.path.join(config['model_dir'], config['gguf_filename'])
-        if not os.path.exists(gguf_path):
-            print(f"Downloading {model_name} model ({config['gguf_filename']})...")
-            os.makedirs(config['model_dir'], exist_ok=True)
+        if config.get('ollama_pull'):
+            print(f"Pulling {model_name} model from Ollama registry ({config['ollama_pull']})...")
             try:
-                from huggingface_hub import hf_hub_download
-                hf_hub_download(
-                    repo_id=config['gguf_repo'],
-                    filename=config['gguf_filename'],
-                    local_dir=config['model_dir'],
+                subprocess.run(
+                    ["ollama", "pull", config['ollama_pull']],
+                    check=True,
+                    timeout=600,
                 )
             except Exception as e:
-                return False, f"Failed to download model: {e}"
+                return False, f"Failed to pull model: {e}"
+            try:
+                subprocess.run(
+                    ["ollama", "cp", config['ollama_pull'], config['ollama_name']],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+            except Exception:
+                pass
+        elif config.get('gguf_repo') and config.get('gguf_filename'):
+            gguf_path = os.path.join(config['model_dir'], config['gguf_filename'])
+            if not os.path.exists(gguf_path):
+                print(f"Downloading {model_name} model ({config['gguf_filename']})...")
+                os.makedirs(config['model_dir'], exist_ok=True)
+                try:
+                    from huggingface_hub import hf_hub_download
+                    hf_hub_download(
+                        repo_id=config['gguf_repo'],
+                        filename=config['gguf_filename'],
+                        local_dir=config['model_dir'],
+                    )
+                except Exception as e:
+                    return False, f"Failed to download model: {e}"
 
-        modelfile_path = os.path.join(config['model_dir'], "Modelfile")
-        with open(modelfile_path, 'w') as f:
-            f.write(f"FROM ./{config['gguf_filename']}\n")
-            f.write(f"PARAMETER num_ctx {_MAX_CONTEXT}\n")
-            f.write(f"PARAMETER temperature {config['temperature']}\n")
-            f.write(f"PARAMETER top_p {config['top_p']}\n")
-            f.write(f"PARAMETER top_k {config['top_k']}\n")
-            f.write(f"PARAMETER repeat_penalty {config['repeat_penalty']}\n")
+            modelfile_path = os.path.join(config['model_dir'], "Modelfile")
+            with open(modelfile_path, 'w') as f:
+                f.write(f"FROM ./{config['gguf_filename']}\n")
+                f.write(f"PARAMETER num_ctx {_MAX_CONTEXT}\n")
+                f.write(f"PARAMETER temperature {config['temperature']}\n")
+                f.write(f"PARAMETER top_p {config['top_p']}\n")
+                f.write(f"PARAMETER top_k {config['top_k']}\n")
+                f.write(f"PARAMETER repeat_penalty {config['repeat_penalty']}\n")
 
-        try:
-            subprocess.run(
-                ["ollama", "create", config['ollama_name'], "-f", modelfile_path],
-                cwd=config['model_dir'],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=600,
-            )
-        except Exception as e:
-            return False, f"Failed to create Ollama model: {e}"
+            try:
+                subprocess.run(
+                    ["ollama", "create", config['ollama_name'], "-f", modelfile_path],
+                    cwd=config['model_dir'],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                )
+            except Exception as e:
+                return False, f"Failed to create Ollama model: {e}"
 
     _context_lengths[model_name] = _calculate_dynamic_context(model_name)
     _loaded_models[model_name] = True

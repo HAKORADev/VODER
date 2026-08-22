@@ -113,11 +113,16 @@ def handle_lipsync(spec):
         write_result(False, error="Wan2.2-S2V produced no output")
         return 1
     _save_video(video, output_path, fps=24)
+    audio_merged = True
     try:
         _merge_audio(output_path, audio_path)
     except Exception as e:
         print(f"Warning: audio merge failed: {e}")
-    print(f"Lip-sync video saved: {output_path}")
+        audio_merged = False
+    if audio_merged:
+        print(f"Lip-sync video with audio saved: {output_path}")
+    else:
+        print(f"Lip-sync video saved (no audio): {output_path}")
     write_result(True, output_path=output_path)
     return 0
 

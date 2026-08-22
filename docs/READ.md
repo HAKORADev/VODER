@@ -72,7 +72,7 @@ Project Eva extends VODER with image, video, chat, and world generation. Additio
 | Wan 2.1 VACE 14B | `src/models/checkpoints/wan_vace_14b/` | ~28GB | TTV (edit) |
 | Wan 2.2 S2V 14B | `src/models/checkpoints/wan2_2_s2v_14b/` | ~28GB | TTV (lipsync) |
 | Gemma 4 12B (GGUF) | `src/models/checkpoints/vadar_eva/` | ~8GB | TTT (VADAR chat — default) |
-| Qwen3.8-27B OBLITERATED (GGUF) | `src/models/checkpoints/vadar_heavy/` | ~19GB | TTT (VADAR chat — heavy) |
+| Qwen3.8-27B Uncensored Heretic (GGUF) | `src/models/checkpoints/vadar_heavy/` | ~17GB | TTT (VADAR chat — heavy) |
 | HY-World 2.0 | `src/models/checkpoints/hy_world/` | ~40GB | TTW (gen) |
 | TRELLIS.2 | `src/models/checkpoints/trellis2/` | ~14GB | TTW (edit/objectify) |
 | SAM 3.1 | `src/models/checkpoints/sam3/` | ~4GB | Segmentation (internal) |

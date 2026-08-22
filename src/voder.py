@@ -15379,7 +15379,7 @@ CHAIN_FILE_EXT = ".chain"
 PREBUILT_CHAINS_DIR = os.path.join(_src_dir, "chains")
 _TIMESTAMP_RE = re.compile(r"^\d{8}_\d{6}$")
 _NAME_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
-_VALID_CONTENT_MODES = {'tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'ss', 'train', 'quest'}
+_VALID_CONTENT_MODES = {'tts', 'sts', 'ttm', 'stt', 'se', 'sfx', 'svs', 'ss', 'train', 'quest', 'eva', 'klarify'}
 
 def _err(step_index, step_name, category, message, fix=""):
     return {
@@ -15643,7 +15643,7 @@ def _verify_content_syntax(step_idx, chain_step, all_chain_names=None):
     if mode not in _VALID_CONTENT_MODES:
         errors.append(_err(step_idx, chain_step["name"], "syntax",
                            f"Unknown oneline mode '{mode}'",
-                           "Use one of: tts, sts, ttm, stt, se, sfx, svs, ss, train, quest."))
+                           "Use one of: tts, sts, ttm, stt, se, sfx, svs, ss, train, quest, eva, klarify."))
         return errors
     names_set = set(all_chain_names or [])
     placeholder_path = None

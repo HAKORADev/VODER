@@ -21,7 +21,7 @@ class S2VWrapper:
         from voders.DLCs.eva._envrunner import venv_exists
         if venv_exists(ENV_KEY):
             return True
-        print(f"Wan2.2-S2V env not set up. Run: python setup.py --envs {ENV_KEY}")
+        print(f"Wan2.2-S2V env not set up. Run: python setup.py --envs animate")
         return False
 
     def lipsync(self, reference_image, audio_path, output_path, prompt="", seed=-1,

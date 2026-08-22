@@ -349,6 +349,9 @@ def klarify_upscale(input_path, output_path):
 def klarify_interpolate(input_path, output_path, multi=2):
     import cv2
     import numpy as np
+    if multi < 2:
+        print("Error: interpolate multi must be >= 2")
+        return False
     model = _load_rife_model()
     if model is None:
         return False

@@ -147,8 +147,8 @@ VADAR is back — not as an agent with tool calling and project-awareness, but a
 
 VADAR runs on two interchangeable models via Ollama:
 
-1. **vadar** (default) — Gemma 4 12B (abliterated, GGUF Q4_K_M, ~7GB). Fast, fits 12GB+ GPUs. Registered as `vadar-eva` in Ollama.
-2. **vadar-heavy** — Qwen3.8-27B OBLITERATED (complementary abliteration blend, GGUF Q5_K_M, ~19GB). True 0% refusal rate validated on 842 harmful prompts. Fits 24GB+ GPUs. Registered as `vadar-heavy` in Ollama. Created by [Pliny the Prompter](https://github.com/elder-plinius/OBLITERATUS) using a novel 60/40 LEACE+SVD complementary blend technique.
+1. **vadar** (default) — Gemma 4 12B Heretic (QAT Q4_K_M, ~7GB). Fast, fits 12GB+ GPUs. Registered as `vadar-eva` in Ollama.
+2. **vadar-heavy** — Qwen3.8-27B Uncensored Heretic (GGUF Q4_K_M, ~17GB). True 0% refusal rate validated on 842 harmful prompts. Fits 24GB+ GPUs. Registered as `vadar-heavy` in Ollama. Created by [JonathanColetti) using a novel Heretic Pareto search technique.
 
 When entering interactive chat (`python voder.py eva ttt`), the user is prompted to choose between the two models. Both share the same personality files, memories, sessions, ping system, and context sliding — only the model weights and sampler settings differ (vadar uses temp=0.8/rep_pen=1.1, vadar-heavy uses temp=0.7/rep_pen=1.15).
 
@@ -228,7 +228,7 @@ When we list minimum requirements, we're being honest about what actually works.
 | **Eva TTV animify** | 8GB | +~28GB (Wan 2.2 Animate 14B) | 36GB | Optional | 24GB (recommended) |
 | **Eva TTV edit** | 8GB | +~28GB (Wan 2.1 VACE 14B) | 36GB | Optional | 24GB (recommended) |
 | **Eva TTV lipsync** | 8GB | +~28GB (Wan 2.2 S2V 14B) | 36GB | Optional | 24GB (recommended) |
-| **Eva TTT (VADAR)** | 8GB | +~8GB (Gemma 4 12B GGUF Q4_K_M) or +~19GB (Qwen3.8-27B Q5_K_M) | 16GB / 27GB | Optional | GPU auto-detected by Ollama |
+| **Eva TTT (VADAR)** | 8GB | +~8GB (Gemma 4 12B GGUF Q4_K_M) or +~17GB (Qwen3.8-27B Q4_K_M) | 16GB / 25GB | Optional | GPU auto-detected by Ollama |
 | **Eva TTW gen** | 8GB | +~40GB (HY-World 2.0 multi-component) | 48GB | Optional | 32GB (recommended) |
 | **Eva TTW edit** | 8GB | +~14GB (TRELLIS.2 4B + VAEs + texturing pipeline) | 22GB | Optional | 16GB (recommended) |
 | **Eva TTW objectify** | 8GB | +~14GB (TRELLIS.2 4B + VAEs) | 22GB | Optional | 16GB (recommended) |

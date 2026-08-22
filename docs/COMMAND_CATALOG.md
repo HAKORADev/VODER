@@ -3138,7 +3138,7 @@ Interactive CLI: option `0. DLCs` → `1. Eva` → select mode (1-4).
 |------|------|-----------|-------|--------------|
 | `tti` | Text-to-Image | `gen`, `edit`, `nbg`, `mini gen`, `mini edit`, `mini nbg` | Flux 2 Dev (32B), Flux 2 Klein 9B (mini) | `src/envs/flux2/` |
 | `ttv` | Text-to-Video | `gen`, `animify`, `edit`, `lipsync` | MiniMax H3 (gen), Wan 2.2 Animate 14B (animify), Wan 2.1 VACE 14B (edit), Wan 2.2 S2V 14B (lipsync) | `src/envs/h3/`, `src/envs/animate/`, `src/envs/vace/` |
-| `ttt` | Text-to-Text (VADAR) | `gen` (chat) | Gemma 4 12B (abliterated GGUF via Ollama) | system `ollama` binary |
+| `ttt` | Text-to-Text (VADAR) | `gen` (chat) | Gemma 4 12B Heretic (QAT Q4_K_M via Ollama) | system `ollama` binary |
 | `ttw` | Text-to-World | `gen`, `edit objectify`, `objectify` | HY-World 2.0 (gen), TRELLIS.2 (edit objectify/objectify) | `src/envs/hyworld/`, `src/envs/trellis/` |
 
 ### Setup
@@ -3344,8 +3344,8 @@ The output MP4 from `lipsync` is automatically merged with the input audio (via 
 ### 11.3 TTT — Text-to-Text (VADAR Chat)
 
 **Models:**
-- [Gemma 4 12B](https://huggingface.co/Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit) (abliterated uncensored, GGUF Q4_K_M via Ollama) — the default `vadar` model, ~7GB, fast, fits 12GB+ GPU
-- [Qwen3.8-27B OBLITERATED](https://huggingface.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED) (complementary abliteration blend, GGUF Q5_K_M via Ollama) — the `vadar-heavy` model, ~19GB, true 0% refusal rate, fits 24GB+ GPU
+- [Gemma 4 12B Heretic (QAT Q4_K_M, via Ollama) — the default `vadar` model, ~7GB, fast, fits 12GB+ GPU, fits 12GB+ GPU
+- [Qwen3.8-27B Uncensored Heretic (GGUF Q4_K_M, via Ollama) — the `vadar-heavy` model, ~17GB, fits 24GB+ GPU, true 0% refusal rate, fits 24GB+ GPU
 
 **Features:**
 - Streaming responses (thinking is always on but hidden from user)
@@ -3374,8 +3374,8 @@ python voder.py eva ttt heavy
 When entering interactive chat, the user is prompted:
 ```
 VADAR chat models:
-  1. vadar      — Gemma 4 12B (abliterated, 7GB, fast)
-  2. vadar-heavy — Qwen3.8-27B OBLITERATED (19GB, true 0% refusal)
+  1. vadar      — Gemma 4 12B Heretic (7GB, fast)
+  2. vadar-heavy — Qwen3.8-27B Uncensored Heretic (17GB)
 Use vadar-heavy? (y/N):
 ```
 If the user chooses `vadar-heavy` but the model isn't downloaded yet, VODER automatically downloads the GGUF (~19GB) from HuggingFace and registers it in Ollama. If download fails, it falls back to the default `vadar` model.

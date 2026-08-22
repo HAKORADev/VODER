@@ -243,7 +243,7 @@ VODER orchestrates state-of-the-art open-source models — each selected for qua
 | **Project Eva — Image to 3D Object** | [TRELLIS.2](https://github.com/microsoft/TRELLIS.2) |
 | **Project Eva — Segmentation** | [SAM 3.1](https://huggingface.co/facebook/sam3.1) |
 | **Project Eva — Vision Encoder** | [SigLIP 2](https://huggingface.co/google/siglip2-giant-opt-patch16-384) |
-| **Project Eva — Chat (VADAR)** | [Gemma 4 12B](https://huggingface.co/Jiunsong/SuperGemma-4-12b-abliterated-gguf-4bit) (abliterated, via Ollama) / [Qwen3.8-27B OBLITERATED](https://huggingface.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED) (vadar-heavy) |
+| **Project Eva — Chat (VADAR)** | [Gemma 4 12B](https://huggingface.co/igorls/gemma-4-12B-it-qat-q4_0-unquantized-heretic) (Heretic, via Ollama) / [Qwen3.8-27B Uncensored Heretic](https://huggingface.co/JonathanColetti/Qwen3.8-27B-Uncensored-GGUF) (vadar-heavy) |
 
 ---
 
