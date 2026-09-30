@@ -39,7 +39,7 @@ QWEN3_TTS_VOICE_CLONE_MAX_SECONDS = 1200
 FISH_S2PRO_VOICE_CLONE_MAX_SECONDS = 600
 
 EVA_MODES = {'tti', 'ttv', 'ttt', 'ttw'}
-EVA_SUB_MODES = {'gen', 'edit', 'nbg', 'objectify', 'animify', 'lipsync', 'mini'}
+EVA_SUB_MODES = {'gen', 'edit', 'nbg', 'objectify', 'animify', 'lipsync', 'mini', 'overdose'}
 KLARIFY_MODES = {'upscale', 'enhance', 'interpolate'}
 
 os.environ["HF_HOME"] = MODELS_DIR
@@ -5622,6 +5622,9 @@ def parse_oneline_args(args):
                 i += 1
             elif eva_mode == 'tti' and eva_sub == 'mini' and i < len(args) and args[i].lower() in ('gen', 'edit', 'nbg'):
                 eva_sub = f'mini_{args[i].lower()}'
+                i += 1
+            elif eva_mode == 'tti' and eva_sub == 'overdose' and i < len(args) and args[i].lower() in ('gen', 'edit'):
+                eva_sub = f'overdose_{args[i].lower()}'
                 i += 1
         elif i < len(args):
             eva_sub = 'gen'
@@ -17089,7 +17092,7 @@ def _eva_parse_common_args(args):
                 if sub in ('image', 'video', 'audio') and i + 1 < len(args):
                     _url_items.append((f'url_{sub}', args[i + 1]))
                     i += 2
-                elif sub in ('desc', 'resolution', 'seed', 'duration', 'reference', 'result', 'format', 'url', 'gen', 'edit', 'nbg', 'objectify', 'animify', 'lipsync', 'mini'):
+                elif sub in ('desc', 'resolution', 'seed', 'duration', 'reference', 'result', 'format', 'url', 'gen', 'edit', 'nbg', 'objectify', 'animify', 'lipsync', 'mini', 'overdose'):
                     break
                 else:
                     _url_items.append(args[i])
@@ -17103,7 +17106,7 @@ def _eva_parse_common_args(args):
             _flush_url_items()
             result_path = args[i + 1]
             i += 2
-        elif input_path is None and not al in ('gen', 'edit', 'nbg', 'objectify', 'animify', 'lipsync', 'mini', 'url', 'image', 'video', 'audio'):
+        elif input_path is None and not al in ('gen', 'edit', 'nbg', 'objectify', 'animify', 'lipsync', 'mini', 'overdose', 'url', 'image', 'video', 'audio'):
             input_path = arg
             i += 1
         else:
@@ -17234,8 +17237,52 @@ def _eva_tti(sub_mode, args):
         finally:
             wrapper.cleanup()
 
+    elif sub_mode == 'overdose_gen':
+        if not desc:
+            print("Error: tti overdose gen requires desc \"<description>\"")
+            return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', desc[:100]) or 'overdose_gen'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_tti_overdose_gen_{safe_desc}_{timestamp}.png")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        from voders.DLCs.eva.image.qwen import QwenImageUCWrapper
+        wrapper = QwenImageUCWrapper()
+        try:
+            success = wrapper.generate(desc, output_path, resolution=resolution, seed=seed, reference_paths=references if references else None)
+            if success:
+                print(f"\n✓ Success! Output saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
+    elif sub_mode == 'overdose_edit':
+        if not input_path:
+            print("Error: tti overdose edit requires an input image path or URL")
+            return False
+        if not desc:
+            print("Error: tti overdose edit requires desc \"<description>\"")
+            return False
+        from voder import is_supported_url, is_known_platform_url
+        if is_supported_url(input_path):
+            if not is_known_platform_url(input_path):
+                print(f"Error: unsupported platform URL. Use quest download first.")
+                return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', desc[:100]) or 'overdose_edit'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_tti_overdose_edit_{safe_desc}_{timestamp}.png")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        from voders.DLCs.eva.image.qwen import QwenImageUCWrapper
+        wrapper = QwenImageUCWrapper()
+        try:
+            success = wrapper.edit(input_path, desc, output_path, reference_paths=references if references else None, resolution=resolution, seed=seed)
+            if success:
+                print(f"\n✓ Success! Output saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
     else:
-        print(f"Error: unknown tti sub-mode '{sub_mode}'. Available: gen, edit, nbg, mini gen, mini edit, mini nbg")
+        print(f"Error: unknown tti sub-mode '{sub_mode}'. Available: gen, edit, nbg, mini gen, mini edit, mini nbg, overdose gen, overdose edit")
         return False
 
 

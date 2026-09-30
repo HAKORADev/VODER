@@ -56,6 +56,7 @@ VODER downloads and caches models automatically on first use. Models are stored 
 Project Eva extends VODER with image, video, chat, and world generation. Additional dependencies and setup:
 
 - **Ollama** — Required for VADAR chat (TTT mode). Installs Gemma 4 12B GGUF model automatically on first use. `setup.py` installs Ollama automatically. Manual install: `curl -fsSL https://ollama.com/install.sh | sh` (Linux/macOS) or `irm https://ollama.com/install.ps1 | iex` (Windows).
+- **git** — Required for the Eva TTI overdose sub-mode: ComfyUI and the ComfyUI-GGUF custom node are cloned automatically on first use (or during `setup.py --envs qwen-image2.1-uc`).
 - **HF_TOKEN** — Required for gated models (Flux 2 Dev). Create a free token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) and paste it in `src/HF_TOKEN.txt`. `setup.py` creates this file automatically if it doesn't exist.
 - **segment-anything** — Required for SAM 3.1 segmentation (`pip install segment-anything`). Used internally by TTI/TTV editing for automatic masking.
 - **trimesh** — Required for 3D mesh export in TTW objectify (`pip install trimesh`).
@@ -67,6 +68,7 @@ Project Eva extends VODER with image, video, chat, and world generation. Additio
 | Model | Directory | Size | Mode |
 |-------|-----------|------|------|
 | Flux 2 Dev | `src/models/checkpoints/flux2_dev/` | ~64GB | TTI (gen/edit/nbg) |
+| Qwen-Image-2.1 UC (ComfyUI stack) | `src/models/checkpoints/qwen_image_2_1_uc/ComfyUI/` | ~14.6GB | TTI (overdose gen/edit) |
 | MiniMax H3 | `src/models/checkpoints/minimax_h3/` | ~130GB | TTV (gen) |
 | Wan 2.2 Animate 14B | `src/models/checkpoints/wan2_2_animate_14b/` | ~28GB | TTV (animify) |
 | Wan 2.1 VACE 14B | `src/models/checkpoints/wan_vace_14b/` | ~28GB | TTV (edit) |

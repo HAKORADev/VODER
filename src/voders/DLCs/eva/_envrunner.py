@@ -13,6 +13,7 @@ if _SRC_DIR not in sys.path:
 
 EVA_RUNNERS = {
     "flux2": "flux2",
+    "qwen-image2.1-uc": "qwen-image2.1-uc",
     "h3": "h3",
     "vace": "vace",
     "animate": "animate",

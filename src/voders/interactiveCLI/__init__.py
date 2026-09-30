@@ -94,7 +94,8 @@ def _eva_tti_interactive():
     print("1. Generate (from text description)")
     print("2. Edit (modify existing image)")
     print("3. NBG (generate transparent PNG)")
-    sub = input("Select sub-mode (1-3): ").strip()
+    print("4. Overdose (uncensored generation — Qwen-Image-2.1 UC)")
+    sub = input("Select sub-mode (1-4): ").strip()
 
     if sub == '1':
         desc = input("Enter image description: ").strip()
@@ -135,6 +136,22 @@ def _eva_tti_interactive():
         w = Flux2Wrapper()
         try:
             w.generate_nbg(desc, out)
+        finally:
+            w.cleanup()
+    elif sub == '4':
+        desc = input("Enter image description: ").strip()
+        resolution = input("Resolution (e.g. 1024x1024, or press Enter for default): ").strip() or None
+        refs_input = input("Reference images (comma-separated paths or URLs, or press Enter to skip): ").strip()
+        references = [r.strip() for r in refs_input.split(',') if r.strip()]
+        from voders.DLCs.eva.image.qwen import QwenImageUCWrapper
+        import time, re, os
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^A-Za-z0-9_\-]', '_', desc[:100]) or 'overdose'
+        out = os.path.join("results", "DLCs", "eva", f"voder_eva_tti_overdose_gen_{safe}_{ts}.png")
+        os.makedirs(os.path.join("results", "DLCs", "eva"), exist_ok=True)
+        w = QwenImageUCWrapper()
+        try:
+            w.generate(desc, out, resolution=resolution, reference_paths=references if references else None)
         finally:
             w.cleanup()
     else:

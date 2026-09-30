@@ -3136,7 +3136,7 @@ Interactive CLI: option `0. DLCs` → `1. Eva` → select mode (1-4).
 
 | Mode | Name | Sub-modes | Model | Isolated Env |
 |------|------|-----------|-------|--------------|
-| `tti` | Text-to-Image | `gen`, `edit`, `nbg`, `mini gen`, `mini edit`, `mini nbg` | Flux 2 Dev (32B), Flux 2 Klein 9B (mini) | `src/envs/flux2/` |
+| `tti` | Text-to-Image | `gen`, `edit`, `nbg`, `mini gen`, `mini edit`, `mini nbg`, `overdose gen`, `overdose edit` | Flux 2 Dev (32B), Flux 2 Klein 9B (mini), Qwen-Image-2.1 UC (overdose) | `src/envs/flux2/`, `src/envs/qwen-image2.1-uc/` |
 | `ttv` | Text-to-Video | `gen`, `animify`, `edit`, `lipsync` | MiniMax H3 (gen), Wan 2.2 Animate 14B (animify), Wan 2.1 VACE 14B (edit), Wan 2.2 S2V 14B (lipsync) | `src/envs/h3/`, `src/envs/animate/`, `src/envs/vace/` |
 | `ttt` | Text-to-Text (VADAR) | `gen` (chat) | Gemma 4 12B Heretic (QAT Q4_K_M via Ollama) | system `ollama` binary |
 | `ttw` | Text-to-World | `gen`, `edit objectify`, `objectify` | HY-World 2.0 (gen), TRELLIS.2 (edit objectify/objectify) | `src/envs/hyworld/`, `src/envs/trellis/` |
@@ -3229,6 +3229,39 @@ python voder.py eva tti mini edit "input.png" desc "replace the car" reference "
 # Mini nbg — faster transparent PNG (no background)
 python voder.py eva tti mini nbg desc "a character standing"
 python voder.py eva tti mini nbg desc "a logo" resolution "1024x1024" seed 42
+```
+
+**Overdose gen / overdose edit — [Qwen-Image-2.1 Uncensored](https://huggingface.co/0xSojalSec/Qwen-Image-2.1-Uncensored-HF):** The uncensored image generation and editing sub-mode, and the second uncensored model in VODER next to the VADAR chat model. It runs the same exact Qwen-Image-2.1 base weights with safety checks disabled — quality is identical to the censored model, nothing is lost. Despite the `overdose` name (which in VODER usually means high-resource over-the-top models), this one is the opposite trade: it runs on **16GB VRAM + 16GB RAM** (less than the main Flux 2 Dev) while producing sharper, more detailed results. Runs through ComfyUI + the ComfyUI-GGUF custom node (leejet fork) inside its own isolated venv — `python setup.py --envs qwen-image2.1-uc` sets it up, ComfyUI is cloned and the weights (Q4_K_M GGUF transformer ~4.6GB, qwen3vl 8B int8 text encoder ~9.35GB, VAE ~676MB) are auto-downloaded on first use into `src/models/checkpoints/qwen_image_2_1_uc/ComfyUI/`. CPU-only machines are supported (32GB RAM recommended, generation is slow).
+
+| Keyword | Description | Default | Valid range |
+|---------|-------------|---------|-------------|
+| `desc "<text>"` | Description / prompt. Required. | (none) | any text |
+| `resolution "WxH"` | Output resolution for `overdose gen`. For `overdose edit`, sets the sampling pixel area while the output keeps the input image's aspect ratio (per the official edit behavior). Unsupported values warn and use the default. | `1024x1024` (gen), input image size (edit) | see below |
+| `seed N` | Random seed for reproducibility. | `0` | any integer |
+| `reference "<path>"` | Reference images seen by the text encoder and spliced into the sequence as VAE latents (up to 3). Local paths or URLs — URLs are downloaded through VODER's universal downloader. | (none) | up to 3 image refs |
+
+**Supported resolutions (gen):** `512x512`, `768x768`, `1024x1024` (default), `1536x1536`, `2048x2048`, `1024x768`, `768x1024`, `1536x1024`, `1024x1536`, `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, plus the model's native 2K aspect ratios `2400x1792`, `1792x2400`, `2528x1696`, `1696x2528`, `2752x1536`, `1536x2752`. Max dimension: 2752. Higher resolutions need more VRAM — `1024x1024` fits the 16GB target.
+
+**Inference settings (locked for best quality per official model docs):** 40 steps, guidance 1.0, euler sampler with simple scheduler (the official Qwen-Image-2.1 settings; the ComfyUI official template ships 25 steps as a faster preset).
+
+**Editing model:** instruction-based editing per the official Qwen-Image-2.1 edit workflow — the input image and up to 3 references are encoded through the `TextEncodeQwenImage21` node (reference latents), the output follows the input image's aspect ratio. No SAM masking is applied — Qwen editing is whole-image instruction editing, not inpainting.
+
+**Interactive CLI:** TTI menu option `4. Overdose` — generation only (with optional references). Overdose editing is available in one-line mode only.
+
+```
+# Overdose gen — uncensored image generation
+python voder.py eva tti overdose gen desc "a mythical dragon perched atop a snowy mountain peak at sunset"
+python voder.py eva tti overdose gen desc "a portrait" resolution "1024x1024" seed 42
+
+# Overdose gen — with reference images (up to 3, local paths or URLs)
+python voder.py eva tti overdose gen desc "a character in the same style" reference "style_ref.png" seed 7
+
+# Overdose edit — instruction-based image editing
+python voder.py eva tti overdose edit "input.png" desc "change the outfit color to red"
+python voder.py eva tti overdose edit "input.png" desc "replace the background with a beach" resolution "1024x1024"
+
+# Overdose edit — with reference images and URL inputs
+python voder.py eva tti overdose edit "input.png" desc "add the jacket from the reference" reference "jacket.png"
 ```
 
 ### 11.2 TTV — Text-to-Video

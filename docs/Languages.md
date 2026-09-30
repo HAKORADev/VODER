@@ -24,6 +24,7 @@ VODER is not an English‑only tool. The AI models it orchestrates collectively 
 | **VibeVoice ASR** | STT (overdose), SS, TTS (dub) | 53 | Yes | Native speaker diarization; 24GB+ VRAM or 48GB+ RAM required; audio events preserved for dub pipeline |
 | **TranslateGemma 12B** | STT (translate), TTS (SLC translate, dub), STT (subtitle translate) | 76 | Yes | Any-to-any translation; decoupled from ASR; 24GB+ VRAM recommended; auto-detects source language with `auto` |
 | **Flux 2 Dev** (Eva TTI) | Image generation/editing | Any (text prompts) | N/A | Prompt language detected from text; best results in English |
+| **Qwen-Image-2.1 UC** (Eva TTI overdose) | Image generation/editing | 80+ | Yes | Qwen3-VL 8B text encoder is multilingual; prompt detected from text; strong multilingual text rendering inside generated images |
 | **MiniMax H3** (Eva TTV) | Video generation with audio | 80+ | Yes | Qwen3-VL text encoder is multilingual; prompt detected from text |
 | **Wan 2.1 VACE** (Eva TTV edit) | Video editing | 50+ | Yes | CLIP + T5 encoders detect language from prompt |
 | **HY-World 2.0** (Eva TTW) | 3D world generation | Any (text prompts) | N/A | Prompt language detected from text; best results in English |

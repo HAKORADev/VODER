@@ -4,6 +4,57 @@
 - This project does not use version names like v1.2.3; it just timestamps changes. It will always be updated every time I notice something wrong.
 - If you are really interested on what happens in this project, tracing the commit history would be better because I forget to document every change (or if you are mad enough, just read voder.py).
 
+## 10/01/2026
+- Status: In development — Project Eva DLC (v6 polishing)
+- **Eva TTI overdose — Qwen-Image-2.1 Uncensored for uncensored image generation and editing**
+
+### TTI Overdose — Qwen-Image-2.1 UC
+
+Added a third TTI sub-mode family: `overdose gen` and `overdose edit`, running [Qwen-Image-2.1 Uncensored](https://huggingface.co/0xSojalSec/Qwen-Image-2.1-Uncensored-HF) — GGUF quantizations of [Qwen/Qwen-Image-2.1](https://huggingface.co/Qwen/Qwen-Image-2.1), the original upstream base weights with safety checks disabled. Because it is the same exact base model with only the safety checks removed, quality is identical to the censored model — nothing is lost anywhere. This is the second uncensored model in VODER next to the VADAR chat model.
+
+**The overdose naming nuance:** in core VODER, `overdose` refers to high-resource, over-the-top model variants. TTI overdose is the opposite trade — it runs on **16GB VRAM + 16GB RAM** (less than the main Flux 2 Dev, which wants 24GB+ and ~64GB of weights) while producing sharper, more detailed results. Same name, inverted economics.
+
+**Inference settings (locked for best quality per official model docs):** 40 steps, guidance 1.0, euler sampler with simple scheduler, denoise 1.0 — taken from the official Qwen-Image-2.1 model card and the official Comfy-Org workflow templates (the ComfyUI template ships 25 steps as a faster preset). Qwen-Image-2.1 needs no negative-prompt CFG pass; negative guidance is not part of the model's tuned recipe.
+
+**Architecture:** The model runs through **ComfyUI** with the **ComfyUI-GGUF** custom node (leejet fork, native Qwen-Image 2.1 support) inside its own isolated venv — a new integration pattern for Eva (diffusers-native, Ollama subprocess, custom pipeline, and now ComfyUI backend). The runner clones ComfyUI into `src/models/checkpoints/qwen_image_2_1_uc/ComfyUI/` if missing, clones the GGUF node into `custom_nodes/`, auto-downloads the weights on first use, launches the ComfyUI server on a free local port (`--lowvram`, or `--cpu` on CPU-only machines), submits the workflow over the local API, polls the history endpoint and copies the output PNG to the result path. The server is terminated after every run — same load, run, unload discipline as every other VODER model.
+
+**Weights (auto-downloaded into the ComfyUI model folders):**
+
+| File | Role | Size |
+|------|------|------|
+| `qwen-image-2.1-UC-Q4_K_M.gguf` | Transformer (GGUF, recommended quant) | ~4.6GB |
+| `text_encoders/qwen3vl_8b_int8_convrot.safetensors` | Text encoder (qwen3vl 8B int8) | ~9.35GB |
+| `vae/qwen_image_2.1_vae_bf16.safetensors` | VAE | ~676MB |
+
+**Command syntax:**
+```
+voder.py eva tti overdose gen desc "a mythical dragon perched atop a snowy mountain peak" [resolution "1024x1024"] [seed 0] [reference "ref.png"]
+voder.py eva tti overdose edit "input.png" desc "change the outfit color" [reference "ref.png"] [resolution "1024x1024"] [seed 0]
+```
+
+**References:** up to 3 image references per call, local paths or URLs — URLs are resolved through VODER's universal URL downloader (the same unified internal net layer every other mode uses, no duplications). References are seen by the qwen3vl text encoder and spliced into the sequence as VAE reference latents through the official `TextEncodeQwenImage21` node. Generation defaults to `1024x1024` with the full Qwen native 2K aspect-ratio set supported up to a 2752px max dimension (unsupported values warn and fall back, same as every other Eva model). Editing follows the official Qwen-Image-2.1 edit workflow: instruction-based whole-image editing where the output keeps the input image's aspect ratio at the requested pixel area — no SAM masking, this is not an inpainting model.
+
+**Resources:** 16GB VRAM + 16GB RAM (CUDA), or CPU-only with 32GB RAM (generation is slow but works — ComfyUI runs with `--cpu`). Tested reference point: a T4 (16GB) at ~12GB RAM / ~14GB VRAM with the lowvram flag.
+
+**Interactive CLI:** TTI menu gets a new option `4. Overdose (uncensored generation — Qwen-Image-2.1 UC)` — generation only, with optional references (the sub-mode supports it, and the interactive CLI keeps editing out of it). Overdose editing is available in one-line mode.
+
+**All existing Eva infrastructure applies:** the `result` keyword, `&&` extended commands with the Dimensions Resolver, chains integration, and output naming `voder_eva_tti_overdose_<gen|edit>_<description>_<timestamp>.png`.
+
+**Files:**
+- New: `src/envs/qwen-image2.1-uc/` — isolated venv folder (torch, gguf, transformers, accelerate, ComfyUI dependency base)
+- New: `src/voders/DLCs/eva/image/qwen.py` — `QwenImageUCWrapper` (overdose gen/edit, reference and URL resolution through the shared media layer)
+- New: `src/voders/DLCs/eva/_runners/qwen-image2.1-uc_runner.py` — ComfyUI backend runner (clone/custom-node/weights self-healing, server lifecycle on a free port, official t2i and edit workflows, result polling and copy)
+- Modified: `src/voder.py` — `overdose` added to `EVA_SUB_MODES`, `eva tti overdose <gen|edit>` parsing, `overdose_gen`/`overdose_edit` routing in `_eva_tti` with the platform-URL gate, keyword lists updated. No in-code comments.
+- Modified: `src/voders/interactiveCLI/__init__.py` — TTI interactive menu option 4 (overdose generation with references)
+- Modified: `setup.py` — `qwen-image2.1-uc` registered in `EVA_ENVS` with a ComfyUI post-install step (clones ComfyUI + ComfyUI-GGUF, installs their requirements into the venv)
+- Modified: `src/voders/DLCs/eva/_paths.py` — `QWEN_IMAGE_UC_DIR` / `QWEN_IMAGE_UC_COMFYUI_DIR` checkpoint paths
+- Modified: `src/voders/DLCs/eva/_envrunner.py` — `qwen-image2.1-uc` registered in `EVA_RUNNERS`
+- Modified: `README.md` — Eva feature bullet, modes-at-a-glance row, models table, system requirements note, overdose examples
+- Modified: `docs/Guide.md` — Eva requirements table row, VRAM summary, env directory tree and rationale
+- Modified: `docs/COMMAND_CATALOG.md` — Eva modes table, full overdose subsection under TTI (keywords, resolutions, locked inference settings, editing model, examples)
+- Modified: `docs/READ.md` — git dependency note, Qwen-Image-2.1 UC model directory row
+- Modified: `docs/Languages.md` — Qwen-Image-2.1 UC row (80+ languages via the qwen3vl 8B text encoder)
+
 ## 08/20/2026
 - Status: In development — Project Eva DLC
 - **Project Eva — the expansion DLC for VODER**

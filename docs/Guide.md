@@ -224,6 +224,7 @@ When we list minimum requirements, we're being honest about what actually works.
 | SS (overdose) | 8GB | +~8GB (VibeVoice ASR) +2-3GB (UniSE TSE) +~3GB (SVS) | 24GB | Optional | 24GB (recommended) |
 | **Eva TTI (gen/edit/nbg)** | 8GB | +~64GB (Flux 2 Dev 32B BF16) | 72GB | Optional | 24GB (recommended, bfloat16) |
 | **Eva TTI (mini gen/mini edit)** | 8GB | +~18GB (Flux 2 Klein 9B BF16) | 26GB | Optional | 12GB (recommended) |
+| **Eva TTI (overdose gen/overdose edit)** | 8GB | +~8GB runtime (Qwen-Image-2.1 UC GGUF Q4_K_M + qwen3vl 8B int8 + VAE, ~14.6GB on disk) | 16GB | Optional | 16GB (recommended) |
 | **Eva TTV gen** | 8GB | +~130GB (MiniMax H3 33B + Qwen3-VL-32B) | 138GB | Optional | 48GB+ (multi-GPU) |
 | **Eva TTV animify** | 8GB | +~28GB (Wan 2.2 Animate 14B) | 36GB | Optional | 24GB (recommended) |
 | **Eva TTV edit** | 8GB | +~28GB (Wan 2.1 VACE 14B) | 36GB | Optional | 24GB (recommended) |
@@ -238,7 +239,7 @@ When we list minimum requirements, we're being honest about what actually works.
 - **CPU**: 4-6 cores minimum for model loading and non-GPU operations
 - **RAM**: 12GB minimum for basic modes (STT, TTS VoiceDesign, SE, SFX, SVS), 15-16GB for modes with voice cloning or diarization, 23GB for standard ACE-related modes (TTM, TTS with music), 32GB+ for overdose and complete modes
 - **GPU (CUDA)**: Optional - all modes work on CPU. GPU acceleration significantly speeds up STS, TTM, and modes using Seed-VC or ACE-Step
-- **VRAM**: 4GB minimum (6GB recommended, 16GB for best performance with music modes, 32GB for overdose modes). STT and diarization modes are CPU-only and require no GPU. Project Eva modes benefit from 24GB+ VRAM (Flux 2 Dev, VACE, HY-World, TRELLIS). VADAR chat runs on 16GB RAM with Ollama auto-detecting GPU.
+- **VRAM**: 4GB minimum (6GB recommended, 16GB for best performance with music modes, 32GB for overdose modes). STT and diarization modes are CPU-only and require no GPU. Project Eva modes benefit from 24GB+ VRAM (Flux 2 Dev, VACE, HY-World, TRELLIS). The Eva TTI overdose sub-mode (Qwen-Image-2.1 UC) runs on 16GB VRAM + 16GB RAM, or CPU-only with 32GB RAM — unlike other overdose modes it uses fewer resources than the main image model while producing better quality. VADAR chat runs on 16GB RAM with Ollama auto-detecting GPU.
 - **Storage**: SSD recommended for model downloads and result saving
 
 **VRAM Guidelines:**
@@ -350,9 +351,10 @@ The centralized system solves all of these problems. Everything VODER needs live
 
 ### Project Eva Model Environments
 
-Project Eva models (Flux 2 Dev, MiniMax H3, Wan 2.1 VACE, HY-World 2.0, TRELLIS.2, SAM 3.1, SigLIP 2) each run in their **own isolated Python virtual environment** under `src/envs/<model>/`. This is necessary because:
+Project Eva models (Flux 2 Dev, Qwen-Image-2.1 UC, MiniMax H3, Wan 2.1 VACE, HY-World 2.0, TRELLIS.2, SAM 3.1, SigLIP 2) each run in their **own isolated Python virtual environment** under `src/envs/<model>/`. This is necessary because:
 
 - Flux 2 Dev needs the latest `diffusers` from git main (the version pinned in VODER's main requirements doesn't have `Flux2Pipeline`).
+- Qwen-Image-2.1 UC (overdose) runs through ComfyUI with the GGUF quantized transformer and the ComfyUI-GGUF custom node — the whole ComfyUI dependency stack is isolated from VODER's main env and from the diffusers-based envs.
 - MiniMax H3 needs recent `transformers` and `diffusers` from main (for Qwen3-VL support).
 - TRELLIS.2 needs custom CUDA packages (`nvdiffrast`, `flash-attn`, `cumesh`, `o-voxel`, `flexgemm`) that conflict with VODER's main env.
 - SAM 3.1 needs `torch>=2.7` and recent `transformers`.
@@ -366,6 +368,8 @@ src/envs/
 │   ├── bin/                 # Python venv binaries
 │   ├── lib/                 # Installed packages
 │   └── requirements.txt     # Per-model pinned requirements
+├── qwen-image2.1-uc/        # Qwen-Image-2.1 UC (overdose image gen / edit)
+│   └── requirements.txt
 ├── h3/                      # MiniMax H3 (video gen)
 │   └── requirements.txt
 ├── animate/                 # Wan 2.2 Animate 14B + S2V 14B (video animify + lipsync)

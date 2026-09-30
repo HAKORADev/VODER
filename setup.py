@@ -15,6 +15,7 @@ ENVS_DIR = os.path.join(SRC_DIR, "envs")
 
 EVA_ENVS = {
     "flux2":   "Flux 2 Dev / Klein 9B (image gen / edit / nbg / mini)",
+    "qwen-image2.1-uc": "Qwen-Image-2.1 UC (overdose uncensored image gen / edit)",
     "h3":      "MiniMax H3 (video gen)",
     "vace":    "Wan 2.1 VACE 14B (video edit)",
     "animate": "Wan 2.2 Animate 14B + S2V 14B (video animify + lipsync)",
@@ -306,6 +307,43 @@ def install_venv_requirements(env_name, py_bin):
     return True
 
 
+def _post_install_qwen_comfyui(py_bin):
+    comfy_dir = os.path.join(SRC_DIR, "models", "checkpoints", "qwen_image_2_1_uc", "ComfyUI")
+    if not os.path.exists(os.path.join(comfy_dir, "main.py")):
+        if not command_exists("git"):
+            print("  ERROR: git is required to clone ComfyUI for the qwen-image2.1-uc env")
+            return False
+        os.makedirs(os.path.dirname(comfy_dir), exist_ok=True)
+        result = subprocess.run(["git", "clone", "--depth", "1",
+                                 "https://github.com/comfyanonymous/ComfyUI", comfy_dir],
+                                env=_clean_subprocess_env())
+        if result.returncode != 0:
+            print("  ERROR: ComfyUI clone failed")
+            return False
+    node_dir = os.path.join(comfy_dir, "custom_nodes", "ComfyUI-GGUF")
+    if not os.path.exists(os.path.join(node_dir, "__init__.py")):
+        result = subprocess.run(["git", "clone", "--depth", "1",
+                                 "https://github.com/leejet/ComfyUI-GGUF", node_dir],
+                                env=_clean_subprocess_env())
+        if result.returncode != 0:
+            print("  ERROR: ComfyUI-GGUF clone failed")
+            return False
+    comfy_req = os.path.join(comfy_dir, "requirements.txt")
+    print("  Installing ComfyUI requirements into the qwen-image2.1-uc venv...")
+    if subprocess.run([py_bin, "-m", "pip", "install", "-r", comfy_req],
+                      env=_clean_subprocess_env()).returncode != 0:
+        print("  WARNING: ComfyUI requirements install returned a non-zero exit code")
+        return False
+    node_req = os.path.join(node_dir, "requirements.txt")
+    if os.path.exists(node_req):
+        print("  Installing ComfyUI-GGUF requirements...")
+        if subprocess.run([py_bin, "-m", "pip", "install", "-r", node_req],
+                          env=_clean_subprocess_env()).returncode != 0:
+            print("  WARNING: ComfyUI-GGUF requirements install returned a non-zero exit code")
+            return False
+    return True
+
+
 def _post_install_extras(env_name, py_bin):
     if env_name == "trellis":
         cuda_home = _ensure_cuda_dev_headers(py_bin)
@@ -323,6 +361,8 @@ def _post_install_extras(env_name, py_bin):
         if not _post_install_sam2(py_bin, cuda_home):
             return False
         return True
+    if env_name == "qwen-image2.1-uc":
+        return _post_install_qwen_comfyui(py_bin)
     return True
 
 
