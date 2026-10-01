@@ -1,0 +1,8 @@
+defaults:
+  - default
+
+slam:
+  keyframe_depth: dav3
+
+post:
+  depth_align_model: "mvd_dav3"

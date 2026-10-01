@@ -21,6 +21,7 @@ EVA_ENVS = {
     "animate": "Wan 2.2 Animate 14B + S2V 14B (video animify + lipsync)",
     "hyworld": "Tencent HY-World 2.0 (world gen / edit)",
     "trellis": "Microsoft TRELLIS.2 (image to 3D)",
+    "lyra2":   "NVIDIA Lyra 2.0 (image to explorable 3D world scene)",
     "sam3":    "Meta SAM 3.1 (segmentation)",
     "siglip2": "SigLIP 2 giant (vision encoder)",
 }
@@ -344,6 +345,77 @@ def _post_install_qwen_comfyui(py_bin):
     return True
 
 
+def _pip_install_build(py_bin, args, cuda_home, extra_env=None, fail_lines=()):
+    env = _clean_subprocess_env()
+    env["CUDA_HOME"] = cuda_home
+    env["CUDA_PATH"] = cuda_home
+    env["MAX_JOBS"] = env.get("MAX_JOBS", "16")
+    cuda_bin = os.path.join(cuda_home, "bin")
+    if os.path.isdir(cuda_bin):
+        env["PATH"] = cuda_bin + os.pathsep + env.get("PATH", "")
+    if extra_env:
+        env.update(extra_env)
+    rc = subprocess.run([py_bin, "-m", "pip", "install"] + args, env=env).returncode
+    if rc != 0:
+        for line in fail_lines:
+            print(f"  WARNING: {line}")
+        return False
+    return True
+
+
+def _post_install_lyra2(py_bin, cuda_home):
+    print("  Installing Lyra 2.0 compiled/external inference extras (official INSTALL.md steps 5-7)...")
+    build_env_note = "This usually means CUDA Toolkit (nvcc 12.4+, matching PyTorch's CUDA) is missing or a build failed."
+
+    site_packages = _venv_site_packages(py_bin)
+    if site_packages:
+        cudart = os.path.join(site_packages, "nvidia", "cudart")
+        cuda_runtime = os.path.join(site_packages, "nvidia", "cuda_runtime")
+        if os.path.isdir(cuda_runtime) and not os.path.exists(cudart):
+            try:
+                os.symlink(cuda_runtime, cudart)
+                print("  Symlinked nvidia/cuda_runtime as nvidia/cudart (transformer_engine compatibility).")
+            except OSError:
+                pass
+
+    print("  Installing transformer_engine[pytorch]...")
+    if not _pip_install_build(py_bin, ["transformer_engine[pytorch]"], cuda_home,
+                              fail_lines=("transformer_engine install failed. " + build_note)):
+        return False
+
+    print("  Installing MoGe (depth scale alignment, official install: git+https://github.com/microsoft/MoGe.git)...")
+    if not _pip_install_build(py_bin, ["git+https://github.com/microsoft/MoGe.git"], cuda_home,
+                              fail_lines=("MoGe install failed — explorify needs it for the official depth scale alignment.",)):
+        return False
+
+    print("  Installing gsplat (official pinned commit for the DA3 Gaussian renderer)...")
+    gsplat_url = "gsplat @ git+https://github.com/nerfstudio-project/gsplat.git@0b4dddf04cb687367602c01196913cde6a743d70"
+    if not _pip_install_build(py_bin, [gsplat_url], cuda_home,
+                              fail_lines=("gsplat install failed — GS scene rendering will not work. " + build_note)):
+        return False
+
+    print("  Installing flash-attn==2.6.3 (official Lyra 2 pin, source build)...")
+    if not _pip_install_build(py_bin, ["flash-attn==2.6.3", "--no-build-isolation"], cuda_home,
+                              fail_lines=("flash-attn install failed. " + build_note,
+                                          "The official attention path requires flash-attn — the model will not run without it.")):
+        return False
+
+    vipe_dir = os.path.join(SRC_DIR, "lyra2", "lyra_2", "_src", "inference", "vipe")
+    if os.path.isdir(vipe_dir):
+        print("  Installing the vendored VIPE package (pose estimation for the GS reconstruction step)...")
+        if not _pip_install_build(py_bin, ["-e", vipe_dir, "--no-build-isolation"], cuda_home,
+                                  extra_env={"USE_SYSTEM_EIGEN": "0"},
+                                  fail_lines=("VIPE editable install failed. " + build_note,
+                                              "VIPE downloads its own Eigen 3.4 headers when USE_SYSTEM_EIGEN=0.")):
+            return False
+    else:
+        print(f"  WARNING: vendored VIPE not found at {vipe_dir} — the reconstruction step will not work")
+        return False
+
+    print("  Lyra 2.0 extras installed.")
+    return True
+
+
 def _post_install_extras(env_name, py_bin):
     if env_name == "trellis":
         cuda_home = _ensure_cuda_dev_headers(py_bin)
@@ -363,6 +435,13 @@ def _post_install_extras(env_name, py_bin):
         return True
     if env_name == "qwen-image2.1-uc":
         return _post_install_qwen_comfyui(py_bin)
+    if env_name == "lyra2":
+        cuda_home = _ensure_cuda_dev_headers(py_bin)
+        if cuda_home is None:
+            print("  WARNING: CUDA dev headers unavailable — continuing Lyra 2.0 setup without the compiled extras")
+            print("  Lyra 2.0 needs CUDA Toolkit (nvcc) for flash-attn, transformer_engine, gsplat and the VIPE extension.")
+            return False
+        return _post_install_lyra2(py_bin, cuda_home)
     return True
 
 
@@ -800,6 +879,8 @@ def main():
     python voder.py eva ttw gen "a medieval castle on a hill"
     python voder.py eva ttw objectify "character.png"
     python voder.py eva ttw edit objectify "character.glb" reference "bronze_texture.png"
+    python voder.py eva ttw explorify "scene.png"
+    python voder.py eva ttw explorify desc "a medieval castle on a hill"
 
   Each Eva model runs in its own venv under src/envs/<model>/.
   Set them up separately if you skipped them in the main install:

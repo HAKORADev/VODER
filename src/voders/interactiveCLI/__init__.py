@@ -206,7 +206,8 @@ def _eva_ttw_interactive():
     print("\n--- TTW: Text-to-World ---")
     print("1. Generate (create 3D world from description)")
     print("2. Objectify (convert image to 3D object)")
-    sub = input("Select sub-mode (1-2): ").strip()
+    print("3. Explorify (image to explorable 3D scene — NVIDIA Lyra 2.0)")
+    sub = input("Select sub-mode (1-3): ").strip()
 
     if sub == '1':
         desc = input("Enter world description: ").strip()
@@ -232,6 +233,19 @@ def _eva_ttw_interactive():
         w = Trellis2Wrapper()
         try:
             w.objectify(inp, out, output_format=fmt)
+        finally:
+            w.cleanup()
+    elif sub == '3':
+        inp = input("Input image path (or URL): ").strip()
+        from voders.DLCs.eva.world.lyra import Lyra2Wrapper
+        import time, re, os
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^A-Za-z0-9_\-]', '_', (os.path.splitext(os.path.basename(inp))[0] if inp else 'explorify')[:100]) or 'explorify'
+        out = os.path.join("results", "DLCs", "eva", f"voder_eva_ttw_explorify_{safe}_{ts}")
+        os.makedirs(os.path.join("results", "DLCs", "eva"), exist_ok=True)
+        w = Lyra2Wrapper()
+        try:
+            w.explorify(inp, out)
         finally:
             w.cleanup()
     else:

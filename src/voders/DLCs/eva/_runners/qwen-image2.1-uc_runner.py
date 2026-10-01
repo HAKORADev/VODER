@@ -465,6 +465,42 @@ def handle_edit(spec):
     return 0
 
 
+def handle_edit_nbg(spec):
+    from voders.DLCs.eva._paths import QWEN_IMAGE_UC_COMFYUI_DIR
+    from PIL import Image
+    comfy_dir = QWEN_IMAGE_UC_COMFYUI_DIR
+    if not ensure_comfyui(comfy_dir):
+        write_result(False, error="Failed to clone ComfyUI or ComfyUI-GGUF (git must be available)")
+        return 1
+    ensure_weights(comfy_dir)
+    input_path = spec["input_path"]
+    prompt = spec["prompt"]
+    output_path = spec["output_path"]
+    seed = int(spec.get("seed", 0))
+    steps = int(spec.get("num_inference_steps", QWEN_STEPS))
+    with Image.open(input_path) as img:
+        input_size = img.size
+        had_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
+    width, height = _parse_target_size(spec.get("resolution"), input_path)
+    if spec.get("resolution") is None and max(input_size) != max(width, height):
+        print(f"Warning: edit follows the input image aspect; sampling area set to {width}x{height}")
+    if not had_alpha:
+        print("Warning: the input image has no alpha channel — the edit runs on the opaque input and only the output carries transparency")
+    input_name = stage_input(input_path, comfy_dir, "input")
+    nbg_prompt = f"{QWEN_NBG_PROMPT_PREFIX} {prompt}. {QWEN_NBG_PROMPT_SUFFIX}"
+    resolution_int = _resolve_int(width, height)
+    workflow = build_workflow("edit", nbg_prompt, width, height, seed, steps, resolution_int, input_name=input_name)
+    produced = _execute_workflow(comfy_dir, workflow, f"Editing image with transparent output ({width}x{height}) using Qwen-Image-2.1 UC overdose...")
+    if produced is None:
+        return 1
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    shutil.copyfile(produced, output_path)
+    _warn_if_opaque(output_path)
+    print(f"Transparent image edited: {output_path}")
+    write_result(True, output_path=output_path)
+    return 0
+
+
 def handle_generate_nbg(spec):
     from voders.DLCs.eva._paths import QWEN_IMAGE_UC_COMFYUI_DIR
     comfy_dir = QWEN_IMAGE_UC_COMFYUI_DIR
@@ -504,6 +540,7 @@ def main():
         "generate": handle_generate,
         "edit": handle_edit,
         "generate_nbg": handle_generate_nbg,
+        "edit_nbg": handle_edit_nbg,
     }
     handler = handlers.get(action)
     if handler is None:

@@ -1,0 +1,59 @@
+repos:
+  - repo: 'https://github.com/pre-commit/pre-commit-hooks'
+    rev: v4.5.0
+    hooks:
+      - id: check-added-large-files
+        args:
+          - '--maxkb=125'
+      - id: check-ast
+      - id: check-executables-have-shebangs
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-toml
+      - id: check-yaml
+      - id: debug-statements
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: no-commit-to-branch
+        args:
+          - '--branch'
+          - 'master'
+      - id: pretty-format-json
+        exclude: '.*\.ipynb$'
+        args:
+          - '--autofix'
+          - '--indent'
+          - '4'
+      - id: trailing-whitespace
+        args:
+          - '--markdown-linebreak-ext=md'
+  - repo: 'https://github.com/pycqa/isort'
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args:
+          - '--settings-file'
+          - 'pyproject.toml'
+          - '--filter-files'
+  - repo: 'https://github.com/asottile/pyupgrade'
+    rev: v3.15.2
+    hooks:
+      - id: pyupgrade
+        args: [--py38-plus, --keep-runtime-typing]
+  - repo: 'https://github.com/psf/black.git'
+    rev: 24.3.0
+    hooks:
+      - id: black
+        args:
+          - '--config=pyproject.toml'
+  - repo: 'https://github.com/PyCQA/flake8'
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        args:
+          - '--config=.flake8'
+  - repo: 'https://github.com/myint/autoflake'
+    rev: v1.4
+    hooks:
+      - id: autoflake
+        args: [ '--remove-all-unused-imports', '--recursive', '--remove-unused-variables', '--in-place']

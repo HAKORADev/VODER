@@ -39,7 +39,7 @@ QWEN3_TTS_VOICE_CLONE_MAX_SECONDS = 1200
 FISH_S2PRO_VOICE_CLONE_MAX_SECONDS = 600
 
 EVA_MODES = {'tti', 'ttv', 'ttt', 'ttw'}
-EVA_SUB_MODES = {'gen', 'edit', 'nbg', 'objectify', 'animify', 'lipsync', 'mini', 'overdose'}
+EVA_SUB_MODES = {'gen', 'edit', 'nbg', 'objectify', 'animify', 'lipsync', 'mini', 'overdose', 'explorify'}
 KLARIFY_MODES = {'upscale', 'enhance', 'interpolate'}
 
 os.environ["HF_HOME"] = MODELS_DIR
@@ -5611,7 +5611,7 @@ def parse_oneline_args(args):
         result_path = None
         if i >= len(args):
             print("Error: eva requires a mode: tti, ttv, ttt, or ttw")
-            print("  Usage: python voder.py eva <tti|ttv|ttt|ttw> <gen|edit|nbg|objectify|animify|lipsync> [args]")
+            print("  Usage: python voder.py eva <tti|ttv|ttt|ttw> <gen|edit|nbg|objectify|animify|lipsync|mini|overdose|explorify> [args]")
             return result
         eva_mode = args[i].lower()
         i += 1
@@ -5626,6 +5626,12 @@ def parse_oneline_args(args):
             elif eva_mode == 'tti' and eva_sub == 'overdose' and i < len(args) and args[i].lower() in ('gen', 'edit', 'nbg'):
                 eva_sub = f'overdose_{args[i].lower()}'
                 i += 1
+                if eva_sub == 'overdose_edit' and i < len(args) and args[i].lower() == 'nbg':
+                    eva_sub = 'overdose_edit_nbg'
+                    i += 1
+                elif eva_sub == 'overdose_gen' and i < len(args) and args[i].lower() == 'nbg':
+                    eva_sub = 'overdose_nbg'
+                    i += 1
         elif i < len(args):
             eva_sub = 'gen'
         while i < len(args):
@@ -17019,7 +17025,7 @@ def oneline_eva(params):
 
     if not eva_mode:
         print("Error: eva requires a mode: tti, ttv, ttt, or ttw")
-        print("  Usage: python voder.py eva <tti|ttv|ttt|ttw> <gen|edit|nbg|objectify|animify|lipsync> [args]")
+        print("  Usage: python voder.py eva <tti|ttv|ttt|ttw> <gen|edit|nbg|objectify|animify|lipsync|mini|overdose|explorify> [args]")
         return False
 
     if eva_mode == 'tti':
@@ -17299,8 +17305,34 @@ def _eva_tti(sub_mode, args):
         finally:
             wrapper.cleanup()
 
+    elif sub_mode == 'overdose_edit_nbg':
+        if not input_path:
+            print("Error: tti overdose edit nbg requires an input image path or URL")
+            return False
+        if not desc:
+            print("Error: tti overdose edit nbg requires desc \"<description>\"")
+            return False
+        from voder import is_supported_url, is_known_platform_url
+        if is_supported_url(input_path):
+            if not is_known_platform_url(input_path):
+                print(f"Error: unsupported platform URL. Use quest download first.")
+                return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', desc[:100]) or 'overdose_edit_nbg'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_tti_overdose_edit_nbg_{safe_desc}_{timestamp}.png")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        from voders.DLCs.eva.image.qwen import QwenImageUCWrapper
+        wrapper = QwenImageUCWrapper()
+        try:
+            success = wrapper.edit_nbg(input_path, desc, output_path, resolution=resolution, seed=seed)
+            if success:
+                print(f"\n✓ Success! Transparent PNG saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
     else:
-        print(f"Error: unknown tti sub-mode '{sub_mode}'. Available: gen, edit, nbg, mini gen, mini edit, mini nbg, overdose gen, overdose edit, overdose nbg")
+        print(f"Error: unknown tti sub-mode '{sub_mode}'. Available: gen, edit, nbg, mini gen, mini edit, mini nbg, overdose gen, overdose edit, overdose nbg, overdose edit nbg")
         return False
 
 
@@ -17470,6 +17502,33 @@ def _eva_ttt(sub_mode, args):
         return True
 
 
+def _parse_explorify_args(args):
+    extra = {"trajectory": None, "direction": None, "strength": None, "fast": False}
+    remaining = []
+    i = 0
+    while i < len(args):
+        al = args[i].lower()
+        if al == 'trajectory' and i + 1 < len(args):
+            extra["trajectory"] = args[i + 1].lower()
+            i += 2
+        elif al == 'direction' and i + 1 < len(args):
+            extra["direction"] = args[i + 1].lower()
+            i += 2
+        elif al == 'strength' and i + 1 < len(args):
+            try:
+                extra["strength"] = float(args[i + 1])
+            except ValueError:
+                print(f"Warning: invalid camera strength '{args[i + 1]}', using the default")
+            i += 2
+        elif al == 'fast':
+            extra["fast"] = True
+            i += 1
+        else:
+            remaining.append(args[i])
+            i += 1
+    return extra, remaining
+
+
 def _eva_ttw(sub_mode, args):
     from voders.DLCs.eva.world.hyworld import HYWorldWrapper
     from voders.DLCs.eva.world.trellis import Trellis2Wrapper
@@ -17534,8 +17593,46 @@ def _eva_ttw(sub_mode, args):
         finally:
             wrapper.cleanup()
 
+    elif sub_mode == 'explorify':
+        extra, args = _parse_explorify_args(args)
+        desc, resolution, seed, duration, references, result_path, fmt, input_path = _eva_parse_common_args(args)
+        trajectory = extra.get("trajectory")
+        direction = extra.get("direction")
+        strength = extra.get("strength")
+        fast = extra.get("fast", False)
+        from voders.DLCs.eva.world.lyra import LYRA_TRAJECTORIES, LYRA_DIRECTIONS, LYRA_DEFAULT_TRAJECTORY, LYRA_DEFAULT_STRENGTH
+        if trajectory is not None and trajectory not in LYRA_TRAJECTORIES:
+            print(f"Warning: unknown camera trajectory '{trajectory}', using '{LYRA_DEFAULT_TRAJECTORY}'. Available: {', '.join(LYRA_TRAJECTORIES)}")
+            trajectory = None
+        if direction is not None and direction not in LYRA_DIRECTIONS:
+            print(f"Warning: unknown camera direction '{direction}', using the default. Available: {', '.join(LYRA_DIRECTIONS)}")
+            direction = None
+        if not input_path and not desc:
+            print("Error: ttw explorify requires an input image path (or desc to generate one with TTI overdose first)")
+            return False
+        if input_path:
+            from voder import is_supported_url, is_known_platform_url
+            if is_supported_url(input_path):
+                if not is_known_platform_url(input_path):
+                    print(f"Error: unsupported platform URL. Use quest download first.")
+                    return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', (desc or input_path or 'explorify')[:100]) or 'explorify'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_ttw_explorify_{safe_desc}_{timestamp}")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        from voders.DLCs.eva.world.lyra import Lyra2Wrapper
+        wrapper = Lyra2Wrapper()
+        try:
+            success = wrapper.explorify(input_path, output_path, desc=desc, seed=seed, duration=duration,
+                                        trajectory=trajectory, direction=direction, strength=strength, fast=fast)
+            if success:
+                print(f"\n✓ Success! Explorable scene saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
     else:
-        print(f"Error: unknown ttw sub-mode '{sub_mode}'. Available: gen, edit, objectify")
+        print(f"Error: unknown ttw sub-mode '{sub_mode}'. Available: gen, edit, objectify, explorify")
         return False
 
 

@@ -225,6 +225,7 @@ When we list minimum requirements, we're being honest about what actually works.
 | **Eva TTI (gen/edit/nbg)** | 8GB | +~64GB (Flux 2 Dev 32B BF16) | 72GB | Optional | 24GB (recommended, bfloat16) |
 | **Eva TTI (mini gen/mini edit)** | 8GB | +~18GB (Flux 2 Klein 9B BF16) | 26GB | Optional | 12GB (recommended) |
 | **Eva TTI (overdose gen/edit/nbg)** | 8GB | +~8GB runtime (Qwen-Image-2.1 UC GGUF Q4_K_M + qwen3vl 8B int8 + VAE, ~14.6GB on disk) | 16GB | Optional | 16GB (recommended) |
+| **Eva TTW (explorify)** | 16GB | +~64GB runtime with offload (Lyra 2.0 14B-class AR model + umt5-xxl T5 + DA3 giant + VIPE + MoGe, ~70GB on disk) | 80GB+ | Required (Linux + CUDA 12.4+) | 80GB (H100 — official reference point) |
 | **Eva TTV gen** | 8GB | +~130GB (MiniMax H3 33B + Qwen3-VL-32B) | 138GB | Optional | 48GB+ (multi-GPU) |
 | **Eva TTV animify** | 8GB | +~28GB (Wan 2.2 Animate 14B) | 36GB | Optional | 24GB (recommended) |
 | **Eva TTV edit** | 8GB | +~28GB (Wan 2.1 VACE 14B) | 36GB | Optional | 24GB (recommended) |
@@ -239,7 +240,7 @@ When we list minimum requirements, we're being honest about what actually works.
 - **CPU**: 4-6 cores minimum for model loading and non-GPU operations
 - **RAM**: 12GB minimum for basic modes (STT, TTS VoiceDesign, SE, SFX, SVS), 15-16GB for modes with voice cloning or diarization, 23GB for standard ACE-related modes (TTM, TTS with music), 32GB+ for overdose and complete modes
 - **GPU (CUDA)**: Optional - all modes work on CPU. GPU acceleration significantly speeds up STS, TTM, and modes using Seed-VC or ACE-Step
-- **VRAM**: 4GB minimum (6GB recommended, 16GB for best performance with music modes, 32GB for overdose modes). STT and diarization modes are CPU-only and require no GPU. Project Eva modes benefit from 24GB+ VRAM (Flux 2 Dev, VACE, HY-World, TRELLIS). The Eva TTI overdose sub-mode (Qwen-Image-2.1 UC) runs on 16GB VRAM + 16GB RAM, or CPU-only with 32GB RAM — unlike other overdose modes it uses fewer resources than the main image model while producing better quality. VADAR chat runs on 16GB RAM with Ollama auto-detecting GPU.
+- **VRAM**: 4GB minimum (6GB recommended, 16GB for best performance with music modes, 32GB for overdose modes). STT and diarization modes are CPU-only and require no GPU. Project Eva modes benefit from 24GB+ VRAM (Flux 2 Dev, VACE, HY-World, TRELLIS). The Eva TTI overdose sub-mode (Qwen-Image-2.1 UC) runs on 16GB VRAM + 16GB RAM, or CPU-only with 32GB RAM — unlike other overdose modes it uses fewer resources than the main image model while producing better quality. The Eva TTW explorify sub-mode (NVIDIA Lyra 2.0) is the most demanding model in VODER — the official reference point is an H100 80GB with CUDA 12.8, Linux-only, no CPU mode. VADAR chat runs on 16GB RAM with Ollama auto-detecting GPU.
 - **Storage**: SSD recommended for model downloads and result saving
 
 **VRAM Guidelines:**
@@ -254,6 +255,7 @@ When we list minimum requirements, we're being honest about what actually works.
 | 15-16GB | Recommended | TTS with music, TTM (standard), TTM+VC, all modes |
 | 24GB | High | All standard modes at full speed, SS (overdose), STT (overdose), Eva TTV animify/edit/lipsync, Eva TTW objectify, Eva TTW edit, Eva TTT (vadar-heavy — Qwen3.8-27B) |
 | 32GB | Maximum | TTM (overdose), TTM (complete), all modes at full speed (RTX 4090), Eva TTI (Flux 2 Dev with offload), Eva TTV gen (H3), Eva TTW gen |
+| 80GB | Data-center | Eva TTW explorify (NVIDIA Lyra 2.0 — official H100 80GB reference point) |
 | T4 (16GB) | Server-grade | All standard modes (not typical consumer GPU) |
 
 These aren't arbitrary numbers. They're based on actual testing of the models VODER uses.
@@ -357,6 +359,7 @@ Project Eva models (Flux 2 Dev, Qwen-Image-2.1 UC, MiniMax H3, Wan 2.1 VACE, HY-
 - Qwen-Image-2.1 UC (overdose) runs through ComfyUI with the GGUF quantized transformer and the ComfyUI-GGUF custom node — the whole ComfyUI dependency stack is isolated from VODER's main env and from the diffusers-based envs.
 - MiniMax H3 needs recent `transformers` and `diffusers` from main (for Qwen3-VL support).
 - TRELLIS.2 needs custom CUDA packages (`nvdiffrast`, `flash-attn`, `cumesh`, `o-voxel`, `flexgemm`) that conflict with VODER's main env.
+- NVIDIA Lyra 2.0 (explorify) needs torch 2.7.1+cu128, flash-attn 2.6.3, transformer_engine, gsplat (official pinned commit), MoGe, and the vendored VIPE package — the heaviest and most pinned stack in VODER, fully isolated.
 - SAM 3.1 needs `torch>=2.7` and recent `transformers`.
 - Each model's official installation recipe is followed exactly — no version compromises.
 
@@ -379,6 +382,8 @@ src/envs/
 ├── hyworld/                 # Tencent HY-World 2.0 (world gen / edit)
 │   └── requirements.txt
 ├── trellis/                 # Microsoft TRELLIS.2 (image to 3D)
+│   └── requirements.txt
+├── lyra2/                   # NVIDIA Lyra 2.0 (explorify — image to explorable 3DGS scene)
 │   └── requirements.txt
 ├── sam3/                    # Meta SAM 3.1 (segmentation)
 │   └── requirements.txt

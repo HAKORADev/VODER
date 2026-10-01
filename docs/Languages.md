@@ -24,11 +24,12 @@ VODER is not an English‑only tool. The AI models it orchestrates collectively 
 | **VibeVoice ASR** | STT (overdose), SS, TTS (dub) | 53 | Yes | Native speaker diarization; 24GB+ VRAM or 48GB+ RAM required; audio events preserved for dub pipeline |
 | **TranslateGemma 12B** | STT (translate), TTS (SLC translate, dub), STT (subtitle translate) | 76 | Yes | Any-to-any translation; decoupled from ASR; 24GB+ VRAM recommended; auto-detects source language with `auto` |
 | **Flux 2 Dev** (Eva TTI) | Image generation/editing | Any (text prompts) | N/A | Prompt language detected from text; best results in English |
-| **Qwen-Image-2.1 UC** (Eva TTI overdose) | Image generation/editing (incl. native transparent PNG via nbg) | 80+ | Yes | Qwen3-VL 8B text encoder is multilingual; prompt detected from text; strong multilingual text rendering inside generated images |
+| **Qwen-Image-2.1 UC** (Eva TTI overdose) | Image generation/editing (incl. native transparent PNG generation and editing via nbg) | 80+ | Yes | Qwen3-VL 8B text encoder is multilingual; prompt detected from text; strong multilingual text rendering inside generated images |
 | **MiniMax H3** (Eva TTV) | Video generation with audio | 80+ | Yes | Qwen3-VL text encoder is multilingual; prompt detected from text |
 | **Wan 2.1 VACE** (Eva TTV edit) | Video editing | 50+ | Yes | CLIP + T5 encoders detect language from prompt |
 | **HY-World 2.0** (Eva TTW) | 3D world generation | Any (text prompts) | N/A | Prompt language detected from text; best results in English |
 | **TRELLIS.2** (Eva TTW objectify) | Image to 3D object | N/A | N/A | Language-agnostic (image input only, no text processing) |
+| **NVIDIA Lyra 2.0** (Eva TTW explorify) | Image to explorable 3D scene | 100+ | Yes | umt5-xxl T5 text encoder is multilingual; scene captions detected from text (captions are optional — image-only runs use a generic one) |
 | **SAM 3.1** (Eva segmentation) | Image/video segmentation | Any | N/A | Language-agnostic (vision model, no text processing) |
 | **SigLIP 2** (Eva vision encoder) | Feature extraction | Any (text + image) | N/A | Multilingual text encoder; processes text + image embeddings |
 | **Gemma 4 12B** (Eva VADAR) | Text-to-text chat | 80+ | Yes | Qwen3/Gemma multilingual; auto-detects language from user input |

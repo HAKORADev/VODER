@@ -56,7 +56,7 @@ VODER downloads and caches models automatically on first use. Models are stored 
 Project Eva extends VODER with image, video, chat, and world generation. Additional dependencies and setup:
 
 - **Ollama** — Required for VADAR chat (TTT mode). Installs Gemma 4 12B GGUF model automatically on first use. `setup.py` installs Ollama automatically. Manual install: `curl -fsSL https://ollama.com/install.sh | sh` (Linux/macOS) or `irm https://ollama.com/install.ps1 | iex` (Windows).
-- **git** — Required for the Eva TTI overdose sub-mode: ComfyUI and the ComfyUI-GGUF custom node are cloned automatically on first use (or during `setup.py --envs qwen-image2.1-uc`).
+- **git** — Required for the Eva TTI overdose sub-mode: ComfyUI and the ComfyUI-GGUF custom node are cloned automatically on first use (or during `setup.py --envs qwen-image2.1-uc`). Also required by the Eva TTW explorify sub-mode setup: MoGe is installed from git and gsplat is built from its official pinned commit (or during `setup.py --envs lyra2`).
 - **HF_TOKEN** — Required for gated models (Flux 2 Dev). Create a free token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) and paste it in `src/HF_TOKEN.txt`. `setup.py` creates this file automatically if it doesn't exist.
 - **segment-anything** — Required for SAM 3.1 segmentation (`pip install segment-anything`). Used internally by TTI/TTV editing for automatic masking.
 - **trimesh** — Required for 3D mesh export in TTW objectify (`pip install trimesh`).
@@ -76,6 +76,7 @@ Project Eva extends VODER with image, video, chat, and world generation. Additio
 | Gemma 4 12B (GGUF) | `src/models/checkpoints/vadar_eva/` | ~8GB | TTT (VADAR chat — default) |
 | Qwen3.8-27B Uncensored Heretic (GGUF) | `src/models/checkpoints/vadar_heavy/` | ~17GB | TTT (VADAR chat — heavy) |
 | HY-World 2.0 | `src/models/checkpoints/hy_world/` | ~40GB | TTW (gen) |
+| NVIDIA Lyra 2.0 | `src/models/checkpoints/lyra2/checkpoints/` | ~70GB | TTW (explorify) |
 | TRELLIS.2 | `src/models/checkpoints/trellis2/` | ~14GB | TTW (edit/objectify) |
 | SAM 3.1 | `src/models/checkpoints/sam3/` | ~4GB | Segmentation (internal) |
 | SigLIP 2 giant | `src/models/checkpoints/siglip2/` | ~8GB | Vision encoder (internal) |
@@ -89,6 +90,7 @@ Project Eva extends VODER with image, video, chat, and world generation. Additio
 | `src/wan22/` | Wan 2.2 inference code (57 files) | Video animify + lipsync pipeline classes |
 | `src/trellis2/` | Microsoft TRELLIS.2 source (72 files, trimmed) | Image-to-3D pipeline classes |
 | `src/hyworld2/` | Tencent HY-World 2.0 source (128 files) | 3D world generation classes |
+| `src/lyra2/` | NVIDIA Lyra 2.0 source (lyra_2 package + VIPE + Depth Anything 3 submodules, inference path only) | Explorable 3D scene pipeline classes |
 | `src/music3/` | MiniMax Music 3 pipeline (10 files) | Extreme TTM pipeline classes |
 
 ### Mode History

@@ -1,0 +1,53 @@
+buffer: 1024
+# weight for translation / rotation components of flow
+beta: 0.3
+# how much motion before considering new keyframe
+filter_thresh: 2.4
+# number of warmup frames
+warmup: 8
+# threshold to create a new keyframe
+keyframe_thresh: 4.0
+# add edges between frames whithin this distance
+frontend_thresh: 16.0
+# frontend optimization window
+frontend_window: 25
+# force edges between frames within radius
+frontend_radius: 2
+# non-maximal supression of edges
+frontend_nms: 1
+# Whether to initialize sequentially
+seq_init: true
+# Keyframe ids for running backends
+frontend_backend_iters: [16, 64, 256]
+backend_thresh: 22.0
+backend_radius: 2
+backend_nms: 3
+backend_iters: 24
+# Initial values for disparity
+init_disp: 1.0
+# Whether to optimize intrinsics
+optimize_intrinsics: ???
+# Whether to optimize rig
+optimize_rig_rotation: false
+# Whether add reproj factors for cross-views
+cross_view: true
+cross_view_idx: null  # null means default
+adaptive_cross_view: false  # Backend only, recompute cross_view_idx
+# Chunk size of the infill
+infill_chunk_size: 16
+# Whether or not to infill dense disparity
+infill_dense_disp: False
+# Filter threshold for SLAM map (percentage of the mean depth difference allowed)
+# (This is also used for dense disp extraction)
+map_filter_thresh: 0.05
+# Whether to visualize the results using rerun
+visualize: false
+# Use keyframe depth for recovering metric depth
+keyframe_depth: metric3d-small
+
+ba:
+  dense_disp_alpha: 0.001
+  intrinsics_damping_scale: 1.0
+
+sparse_tracks:
+  name: dummy

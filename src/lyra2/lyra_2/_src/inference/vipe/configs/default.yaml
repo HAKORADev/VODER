@@ -1,0 +1,16 @@
+defaults:
+  - _self_
+  - streams: raw_mp4_stream
+  - pipeline: ???
+  - override hydra/hydra_logging: none
+  - override hydra/job_logging: disabled
+
+ray: false
+prefilter: false
+
+hydra:
+  output_subdir: null
+  job:
+    chdir: false
+  run:
+    dir: .

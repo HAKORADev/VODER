@@ -1,0 +1,14 @@
+defaults:
+  - default
+
+init:
+  camera_type: "mei"
+
+slam:
+  keyframe_depth: unidepth-l
+
+post:
+  depth_align_model: null
+
+output:
+  viz_attributes: [['rgb', 'instance'], ['rectified', 'pcd']]

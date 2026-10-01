@@ -20,6 +20,7 @@ EVA_RUNNERS = {
     "s2v": "animate",
     "hyworld": "hyworld",
     "trellis": "trellis",
+    "lyra2": "lyra2",
     "sam3": "sam3",
     "siglip2": "siglip2",
 }

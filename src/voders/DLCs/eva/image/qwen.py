@@ -107,5 +107,32 @@ class QwenImageUCWrapper:
         print(f"Error: {result.get('error', 'unknown')}")
         return False
 
+    def edit_nbg(self, input_path, prompt, output_path, resolution=None, seed=0, num_inference_steps=QWEN_DEFAULT_STEPS):
+        from voders.DLCs.eva._envrunner import run_in_venv
+        from voders.DLCs.eva.downscale import validate_resolution, check_and_downscale_input
+        from voders.DLCs.eva.media_download import resolve_input_path
+        resolved = resolve_input_path(input_path, media_type='image')
+        if resolved is None:
+            return False
+        input_path = resolved
+        input_path = check_and_downscale_input(input_path, QWEN_MAX_DIMENSION, QWEN_MAX_DIMENSION)
+        if resolution:
+            resolution = validate_resolution(resolution, QWEN_SUPPORTED_RESOLUTIONS, None, QWEN_MAX_DIMENSION)
+        spec = {
+            "action": "edit_nbg",
+            "input_path": input_path,
+            "prompt": prompt,
+            "output_path": output_path,
+            "resolution": resolution,
+            "seed": seed,
+            "num_inference_steps": num_inference_steps,
+        }
+        result = run_in_venv(ENV_KEY, spec)
+        if result.get("success"):
+            print(f"\n✓ Success! Transparent PNG saved to: {result.get('output_path', output_path)}")
+            return True
+        print(f"Error: {result.get('error', 'unknown')}")
+        return False
+
     def cleanup(self):
         pass

@@ -3136,10 +3136,10 @@ Interactive CLI: option `0. DLCs` → `1. Eva` → select mode (1-4).
 
 | Mode | Name | Sub-modes | Model | Isolated Env |
 |------|------|-----------|-------|--------------|
-| `tti` | Text-to-Image | `gen`, `edit`, `nbg`, `mini gen`, `mini edit`, `mini nbg`, `overdose gen`, `overdose edit`, `overdose nbg` | Flux 2 Dev (32B), Flux 2 Klein 9B (mini), Qwen-Image-2.1 UC (overdose) | `src/envs/flux2/`, `src/envs/qwen-image2.1-uc/` |
+| `tti` | Text-to-Image | `gen`, `edit`, `nbg`, `mini gen`, `mini edit`, `mini nbg`, `overdose gen`, `overdose edit`, `overdose nbg`, `overdose edit nbg` | Flux 2 Dev (32B), Flux 2 Klein 9B (mini), Qwen-Image-2.1 UC (overdose) | `src/envs/flux2/`, `src/envs/qwen-image2.1-uc/` |
 | `ttv` | Text-to-Video | `gen`, `animify`, `edit`, `lipsync` | MiniMax H3 (gen), Wan 2.2 Animate 14B (animify), Wan 2.1 VACE 14B (edit), Wan 2.2 S2V 14B (lipsync) | `src/envs/h3/`, `src/envs/animate/`, `src/envs/vace/` |
 | `ttt` | Text-to-Text (VADAR) | `gen` (chat) | Gemma 4 12B Heretic (QAT Q4_K_M via Ollama) | system `ollama` binary |
-| `ttw` | Text-to-World | `gen`, `edit objectify`, `objectify` | HY-World 2.0 (gen), TRELLIS.2 (edit objectify/objectify) | `src/envs/hyworld/`, `src/envs/trellis/` |
+| `ttw` | Text-to-World | `gen`, `edit objectify`, `objectify`, `explorify` | HY-World 2.0 (gen), TRELLIS.2 (edit objectify/objectify), NVIDIA Lyra 2.0 (explorify) | `src/envs/hyworld/`, `src/envs/trellis/`, `src/envs/lyra2/` |
 
 ### Setup
 
@@ -3246,7 +3246,7 @@ python voder.py eva tti mini nbg desc "a logo" resolution "1024x1024" seed 42
 
 **Editing model:** instruction-based editing per the official Qwen-Image-2.1 edit workflow — the input image and up to 3 references are encoded through the `TextEncodeQwenImage21` node (reference latents), the output follows the input image's aspect ratio. No SAM masking is applied — Qwen editing is whole-image instruction editing, not inpainting.
 
-**Native transparency:** Qwen-Image-2.1 generates RGBA natively — its VAE decodes the 64-channel latent straight to RGB+alpha. `overdose nbg` wraps the description in the official RGBA prompt format from the model card ("This is an RGBA image with transparency. ... The image has alpha channel and the background is transparent.") and saves the decoded alpha directly as a transparent PNG — no green-screen generation, no chroma keying, no SAM cutout like the Flux 2 nbg path; if the model still returns a fully opaque frame the run warns instead of pretending it worked. Transparent inputs work natively in `overdose edit` too: alpha survives the whole input chain (downscale included), so transparent layers can be edited without flattening.
+**Native transparency:** Qwen-Image-2.1 generates RGBA natively — its VAE decodes the 64-channel latent straight to RGB+alpha. `overdose nbg` wraps the description in the official RGBA prompt format from the model card ("This is an RGBA image with transparency. ... The image has alpha channel and the background is transparent.") and saves the decoded alpha directly as a transparent PNG — no green-screen generation, no chroma keying, no SAM cutout like the Flux 2 nbg path; if the model still returns a fully opaque frame the run warns instead of pretending it worked. The same native RGBA recipe covers editing: `overdose edit nbg` edits an existing image and returns a transparent PNG (transparent inputs are preserved end-to-end — alpha survives the whole input chain, downscale included, so transparent layers can be edited without flattening; an opaque input still works, the edit runs on it and only the output carries transparency, with a warning), and `overdose gen nbg` is the explicit long form of `overdose nbg`. The nbg modes take no references, same contract as the other nbg modes.
 
 **Interactive CLI:** TTI menu option `4. Overdose` asks for the generation type — standard generation (with optional references) or NBG transparent PNG. Overdose editing is available in one-line mode only.
 
@@ -3268,6 +3268,13 @@ python voder.py eva tti overdose edit "input.png" desc "add the jacket from the 
 # Overdose nbg — native transparent PNG (official RGBA prompt format, no green-screen, no SAM)
 python voder.py eva tti overdose nbg desc "a cute cartoon dragon sticker"
 python voder.py eva tti overdose nbg desc "a game character sprite" resolution "1024x1024" seed 42
+
+# Overdose edit nbg — edit an image and get a transparent PNG back
+python voder.py eva tti overdose edit nbg "input.png" desc "remove the background, keep the character"
+python voder.py eva tti overdose edit nbg "layer.png" desc "change the jacket color to red" resolution "1024x1024"
+
+# Overdose gen nbg — explicit long form of overdose nbg (same thing)
+python voder.py eva tti overdose gen nbg desc "a cute cartoon dragon sticker"
 ```
 
 ### 11.2 TTV — Text-to-Video
@@ -3473,12 +3480,58 @@ python voder.py eva ttw edit objectify "character.glb" reference "rust_texture.p
 
 **Output files:** `voder_eva_ttw_gen_<desc>_<timestamp>.glb`, `voder_eva_ttw_edit_<desc>_<timestamp>.glb`, `voder_eva_ttw_objectify_<timestamp>.glb`
 
+**Explorify — [NVIDIA Lyra 2.0](https://huggingface.co/nvidia/Lyra-2.0) (image → explorable 3D world scene):** A different kind of world model than `ttw gen` — it does not build a closed 3D-environment mesh from text; it takes an input image, generates a camera-controlled exploration video from it internally, then lifts that video into a persistent 3D Gaussian Splatting scene that sticks closely to the input image and extends it like you really moved through the area. The final scene can be imported into Blender, Unity, Unreal, Godot, and any engine or viewer that reads 3DGS PLY files. Everything runs headless — the camera movement is programmatic, driven by the official trajectory system, no GUI needed.
+
+The pipeline runs the two official Lyra 2.0 steps back to back, each as its own process (load, run, unload — the step-1 diffusion model is fully off the GPU before the reconstruction step starts):
+1. **Video generation** — the official `lyra2_zoomgs_inference` autoregressive generator produces a zoom-in + zoom-out exploration video from the input image (depth-estimated with Depth Anything 3, depth-scale aligned with MoGe, exactly the official defaults: guidance 5.0, shift 5.0, 50 sampling steps, 480x832 canvas, 16 fps).
+2. **3D reconstruction** — the official `vipe_da3_gs_recon` (VIPE pose estimation + DA3 depth + Gaussian reconstruction) writes `reconstructed_scene.ply` plus a rendered camera flythrough.
+
+**Inputs:** a local image path or URL. If only `desc` is given (no file), VODER first generates the seed image with TTI overdose (Qwen-Image-2.1 UC, pre-set: `1280x720` — the closest supported aspect to the official 832x480 Lyra canvas — seed shared with `seed N`) and feeds that in — which makes text-to-explorable-world possible as a two-model chain. When both an input file and `desc` are given, the input image is used directly and `desc` becomes the scene caption the video model conditions on.
+
+| Keyword | Description | Default | Valid range |
+|---------|-------------|---------|-------------|
+| input path | Input image (file path or URL). Optional — omit it and pass `desc` to generate the seed image with TTI overdose first. | (none) | image files / URLs |
+| `desc "<text>"` | Scene caption. With an input image it describes the scene for the video model (the official flow pairs every image with a caption — omitted captions fall back to a generic one). Without an input image it is also the TTI overdose prompt for the seed image. | (none) | any text |
+| `seed N` | Random seed (also the seed image seed when `desc` generates it). | `0` | any integer |
+| `duration N` | Approximate exploration length in seconds at 16 fps, split ~25/75 into zoom-in/zoom-out. Snapped to the official `1 + 80k` chunk rule (81, 161, 241, … frames per direction, minimum 81) — the run prints the exact counts it snapped to. | official default: 81 + 241 frames (~20s) | ≥ 5 (shorter snaps up to the minimum) |
+| `trajectory <name>` | Headless camera trajectory for both zoom-in and zoom-out (the official preset system, with built-in collision detection). | `horizontal_zoom` | see below |
+| `direction <name>` | Camera direction for both directions. | official: right (in) / left (out) | `left`, `right`, `up`, `down` |
+| `strength N` | Camera movement scale for both directions. | official: 0.5 (in) / 1.5 (out) | positive float (clamped at 5.0) |
+| `fast` | Enable the official DMD distillation LoRA — 4 sampling steps, roughly a 15× speedup, at the cost of prompt following and scene variety (the official recommendation for best quality is without it). | off | flag |
+
+**Camera trajectories (official preset set):** `original`, `spiral`, `spiral_center`, `spiral_outwards`, `horizontal`, `horizontal_noise`, `horizontal_lift`, `horizontal_lift_noise`, `horizontal_zoom`, `horizontal_zoom_noise`, `horizontal_zoom_bend`, `horizontal_zoom_noise_bend`, `horizontal_zoom_still`, `horizontal_still`, `horizontal_simple`, `vertical_simple`, `horizontal_outward`, `back`, `back_simple`, `dolly_zoom`, `horizontal_spiral`, `orbit_horizontal`, `orbit_vertical`, `rotate_zoom_in`, `rotate_zoom_out`, `rotate_spot`, `rotate_spot_noise`. Unknown values warn and use the default — no silent guesses.
+
+**Output:** a result folder `voder_eva_ttw_explorify_<desc>_<timestamp>/` containing:
+- `reconstructed_scene.ply` — the 3D Gaussian Splatting scene (import into Blender via a 3DGS add-on, or Unity/Unreal/Godot splat plugins)
+- `exploration_video.mp4` — the generated zoom-in + zoom-out exploration video
+- `camera_flythrough.mp4` — the rendered flythrough of the reconstructed scene
+
+```
+# Explorify — image to explorable 3D scene (official camera defaults)
+python voder.py eva ttw explorify "scene.png"
+python voder.py eva ttw explorify "scene.png" desc "a narrow european alley in the afternoon" seed 42
+
+# Explorify — text to explorable world (TTI overdose generates the seed image first)
+python voder.py eva ttw explorify desc "a medieval castle on a hill at sunset"
+
+# Explorify — custom headless camera movement and length
+python voder.py eva ttw explorify "scene.png" trajectory "orbit_horizontal" direction "left" strength 1.2 duration 30
+
+# Explorify — DMD fast mode (15x faster, lower prompt fidelity)
+python voder.py eva ttw explorify "scene.png" fast
+```
+
+**Resources:** this is the most demanding model in VODER — the official reference point is an H100 80GB with CUDA 12.8 (a ~70GB checkpoint download on first use, Linux + NVIDIA GPU required, no CPU mode). The runner passes the official `--offload` / `--offload_when_prompt` flags so the diffusion transformer, T5 encoder, and VAE caches move to system RAM between uses; treat 48GB of system RAM as the practical floor.
+
+**Env:** `python setup.py --envs lyra2` — installs the inference-only subset of the official requirements plus the compiled extras (flash-attn 2.6.3, transformer_engine, gsplat at the official pinned commit, MoGe, and the vendored VIPE package). The Lyra 2.0, VIPE, and Depth Anything 3 sources are vendored under `src/lyra2/` (upstream Apache 2.0 code, only the inference path — no GUI, no training assets, no notebooks).
+
 ### 11.5 Supporting Models
 
 | Model | Purpose | Used by |
 |-------|---------|---------|
 | [SAM 3.1](https://huggingface.co/facebook/sam3.1) | Segmentation (image/video masking for editing) | TTI edit, TTV edit |
 | [SigLIP 2 giant](https://huggingface.co/google/siglip2-giant-opt-patch16-384) | Vision encoder (feature extraction) | TTI, TTV (internal) |
+| [MoGe](https://huggingface.co/Ruicheng/moge-vitl) + [Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3) + [VIPE](https://github.com/nv-tlabs/vipe) | Depth scale alignment, depth/pose estimation and Gaussian reconstruction | TTW explorify (internal) |
 
 ### 11.6 Automatic Downscaling
 
@@ -3497,6 +3550,7 @@ Examples:
 - `voder_eva_tti_gen_a_cyberpunk_city_at_night_20260820_120000.png`
 - `voder_eva_ttv_edit_make_it_night_time_20260820_120000.mp4`
 - `voder_eva_ttw_objectify_20260820_120000.glb`
+- `voder_eva_ttw_explorify_a_medieval_castle_on_a_hill_20260820_120000/` (folder with `reconstructed_scene.ply` + videos)
 
 ---
 

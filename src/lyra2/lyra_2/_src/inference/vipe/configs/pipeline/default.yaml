@@ -1,0 +1,47 @@
+defaults:
+  - /slam: default
+
+instance: vipe.pipeline.default.DefaultAnnotationPipeline
+
+# Init configs
+init:
+  camera_type: "pinhole"
+  intrinsics: "geocalib"
+  instance:
+    kf_gap_sec: 2.0
+    phrases: 
+      - person
+      - animal
+      - vehicle
+      - ball
+      - balloon
+      - gun
+      - pet
+      - car
+      - bus
+    add_sky: true
+
+slam:
+  keyframe_depth: unidepth-l
+  optimize_intrinsics: ${neq:${..init.intrinsics},"gt"}
+
+# Post-processing configs
+post:
+  depth_align_model: "adaptive_unidepth-l_svda"
+
+# Output configs
+output:
+  # Path to save results
+  path: vipe_results/
+  skip_exists: false
+
+  # Save artifacts and a info file
+  save_artifacts: false
+
+  # Save reconstruction from SLAM
+  save_slam_map: false
+
+  # Visualization videos to BASE_PATH/vipe/xxx.mp4
+  save_viz: true
+  viz_downsample: 2
+  viz_attributes: [['rgb', 'instance'], ['depth', 'pcd']]
