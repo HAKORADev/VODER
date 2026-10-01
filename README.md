@@ -41,7 +41,7 @@ With **Project Eva** (the DLC expansion), VODER also does **text-to-image** (TTI
 - **Side-Quests** — Lightweight utility tasks that live outside the main engine: URL download, audio format conversion, cutting / merging / mixing / removing ranges, silence stripping, speed / pitch / soundlevel / bassboost / reverb / loudnorm effects, and more. Run `python voder.py quest` to see all available quests, grouped by category.
 - **Chains** — User-defined pipelines that wire any number of voder tasks together: each chain is named, its output is captured to temp, and later chains can reference earlier chain names as input paths. Build a song, isolate its vocals, train a voice from them, then dub a video — all in one command.
 - **Smart Input Pipeline** — Paste a YouTube, TikTok, Bilibili, Snapchat, Instagram, Facebook, or X/Twitter URL directly as input. VODER verifies the link actually points to a video before downloading. Feed an image and VODER extracts text via OCR. Automatically extract voice clips from multi-speaker audio for one-click voice cloning.
-- **Project Eva DLC** — Image generation/editing (Flux 2 Dev, plus the uncensored Qwen-Image-2.1 UC as the `overdose` sub-mode), video generation with audio (MiniMax H3), video editing (Wan 2.1 VACE), 3D world generation (HY-World 2.0), image-to-3D object conversion (TRELLIS.2), and VADAR — the uncensored local AI chatbot (Gemma 4 12B via Ollama). All accessible via `voder.py eva <tti|ttv|ttt|ttw>`.
+- **Project Eva DLC** — Image generation/editing (Flux 2 Dev, plus the uncensored Qwen-Image-2.1 UC as the `overdose` sub-mode with native transparent PNG generation/editing), video generation with audio (MiniMax H3), video editing (Wan 2.1 VACE), 3D world generation (HY-World 2.0), image-to-3D object conversion (TRELLIS.2), and VADAR — the uncensored local AI chatbot (Gemma 4 12B via Ollama). All accessible via `voder.py eva <tti|ttv|ttt|ttw>`.
 
 ---
 
@@ -162,6 +162,7 @@ python src/voder.py eva tti edit "input.png" desc "add a red sky" reference "ref
 python src/voder.py eva tti nbg "a character standing"
 python src/voder.py eva tti overdose gen "a mythical dragon on a snowy peak" resolution "1024x1024"
 python src/voder.py eva tti overdose edit "input.png" desc "change the outfit color" reference "outfit.png"
+python src/voder.py eva tti overdose nbg "a cartoon dragon sticker"
 python src/voder.py eva ttv gen "a cat playing piano" duration 10
 python src/voder.py eva ttv animify "character.png" reference "pose.mp4"
 python src/voder.py eva ttv edit "input.mp4" desc "make it night time"
@@ -212,7 +213,7 @@ VODER has **8 main processing modes** — the engine's primary audio transformat
 | **train** | Train voice clones from reference audio, save as `.tts` / `.ttse` for reuse in TTS | Audio / Video / URL | `.tts` / `.ttse` voice file |
 | **quest** | Side-quests — lightweight utility tasks outside the voder engine (`download`, `noframes`, `mix`, …) | URL / local video | Audio / Video file |
 | **chains** | Compose user-defined pipelines of voder oneline tasks; later chains reference earlier chain names | A sequence of voder oneline commands | Final chain's output |
-| **eva tti** | Text-to-Image (gen, edit, nbg transparent PNG, overdose uncensored gen/edit) — Flux 2 Dev / Qwen-Image-2.1 UC | Text / image | PNG |
+| **eva tti** | Text-to-Image (gen, edit, nbg transparent PNG, overdose uncensored gen/edit/nbg) — Flux 2 Dev / Qwen-Image-2.1 UC | Text / image | PNG |
 | **eva ttv** | Text-to-Video (gen with audio, edit) — MiniMax H3 / Wan 2.1 VACE | Text / video | MP4 |
 | **eva ttt** | Text-to-Text chat (VADAR) — Gemma 4 12B via Ollama | Text | Text |
 | **eva ttw** | Text-to-World (3D scene gen, edit, objectify) — HY-World 2.0 / TRELLIS.2 | Text / image | GLB / OBJ |

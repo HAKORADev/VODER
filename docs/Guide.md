@@ -224,7 +224,7 @@ When we list minimum requirements, we're being honest about what actually works.
 | SS (overdose) | 8GB | +~8GB (VibeVoice ASR) +2-3GB (UniSE TSE) +~3GB (SVS) | 24GB | Optional | 24GB (recommended) |
 | **Eva TTI (gen/edit/nbg)** | 8GB | +~64GB (Flux 2 Dev 32B BF16) | 72GB | Optional | 24GB (recommended, bfloat16) |
 | **Eva TTI (mini gen/mini edit)** | 8GB | +~18GB (Flux 2 Klein 9B BF16) | 26GB | Optional | 12GB (recommended) |
-| **Eva TTI (overdose gen/overdose edit)** | 8GB | +~8GB runtime (Qwen-Image-2.1 UC GGUF Q4_K_M + qwen3vl 8B int8 + VAE, ~14.6GB on disk) | 16GB | Optional | 16GB (recommended) |
+| **Eva TTI (overdose gen/edit/nbg)** | 8GB | +~8GB runtime (Qwen-Image-2.1 UC GGUF Q4_K_M + qwen3vl 8B int8 + VAE, ~14.6GB on disk) | 16GB | Optional | 16GB (recommended) |
 | **Eva TTV gen** | 8GB | +~130GB (MiniMax H3 33B + Qwen3-VL-32B) | 138GB | Optional | 48GB+ (multi-GPU) |
 | **Eva TTV animify** | 8GB | +~28GB (Wan 2.2 Animate 14B) | 36GB | Optional | 24GB (recommended) |
 | **Eva TTV edit** | 8GB | +~28GB (Wan 2.1 VACE 14B) | 36GB | Optional | 24GB (recommended) |

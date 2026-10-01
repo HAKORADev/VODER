@@ -8,6 +8,7 @@ import subprocess
 import time
 import urllib.request
 import urllib.error
+import uuid
 
 _SRC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 if _SRC_DIR not in sys.path:
@@ -33,6 +34,18 @@ QWEN_MAX_REFS = 3
 SERVER_WAIT_SECONDS = 120
 GENERATION_WAIT_SECONDS = 7200
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tiff")
+QWEN_NBG_PROMPT_PREFIX = "This is an RGBA image with transparency."
+QWEN_NBG_PROMPT_SUFFIX = "The image has alpha channel and the background is transparent."
+NODE_LABELS = {
+    "10": "Loading transformer",
+    "11": "Loading text encoder",
+    "12": "Loading VAE",
+    "15": "Preparing model cache",
+    "13": "Encoding prompt",
+    "3": "Sampling",
+    "8": "Decoding",
+    "9": "Saving",
+}
 
 
 def write_result(success, output_path=None, error=None, extra=None):
@@ -182,8 +195,8 @@ def stage_input(path, comfy_dir, tag):
     return os.path.basename(dest)
 
 
-def submit_workflow(port, workflow):
-    data = json.dumps({"prompt": workflow}).encode("utf-8")
+def submit_workflow(port, workflow, client_id):
+    data = json.dumps({"prompt": workflow, "client_id": client_id}).encode("utf-8")
     req = urllib.request.Request(f"http://127.0.0.1:{port}/prompt", data=data, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -193,28 +206,129 @@ def submit_workflow(port, workflow):
         raise RuntimeError(f"ComfyUI rejected the workflow: {details}")
 
 
-def wait_for_output(port, prompt_id, comfy_dir, timeout):
+def _fmt_secs(secs):
+    secs = int(max(0, secs))
+    return f"{secs // 60:02d}:{secs % 60:02d}"
+
+
+def _connect_progress(port, client_id):
+    try:
+        from websocket import create_connection, WebSocketTimeoutException
+    except ImportError:
+        print("Warning: websocket-client is not installed in this env, live step progress is unavailable")
+        return None, None
+    try:
+        ws = create_connection(f"ws://127.0.0.1:{port}/ws?clientId={client_id}", timeout=5)
+        return ws, WebSocketTimeoutException
+    except Exception as e:
+        print(f"Warning: progress stream unavailable ({e}), live step progress is unavailable")
+        return None, None
+
+
+def _render_bar(label, value, total, started):
+    elapsed = time.time() - started
+    if value > 0:
+        rate = elapsed / value
+        eta = rate * (total - value)
+        text = f"{label}: {value}/{total} [{_fmt_secs(elapsed)}<{_fmt_secs(eta)}, {rate:.2f}s/it]"
+    else:
+        text = f"{label}: 0/{total} [{_fmt_secs(elapsed)}<...]"
+    print("\r" + text + " " * max(0, 24 - len(text)), end="", flush=True)
+
+
+def _handle_progress_message(msg, prompt_id, state):
+    if not isinstance(msg, dict):
+        return state
+    mtype = msg.get("type")
+    data = msg.get("data") or {}
+    if data.get("prompt_id") != prompt_id:
+        return state
+    if mtype == "execution_error":
+        message = data.get("exception_message") or data.get("exception_type") or "unknown ComfyUI execution error"
+        raise RuntimeError(f"ComfyUI execution error: {message}")
+    if mtype == "executing":
+        label = NODE_LABELS.get(str(data.get("node")))
+        if label and label != state.get("bar") and label != state.get("stage"):
+            if state.get("bar") is not None:
+                print()
+                state["bar"] = None
+            print(f"{label}...")
+            state["stage"] = label
+        return state
+    if mtype != "progress":
+        return state
+    node = str(data.get("node"))
+    value = int(data.get("value") or 0)
+    total = int(data.get("max") or 0)
+    if total <= 0:
+        return state
+    label = NODE_LABELS.get(node, f"Node {node}")
+    if state.get("bar") != label:
+        if state.get("bar") is not None:
+            print()
+        if state.get("stage") != label:
+            print(f"{label}...")
+        state["bar"] = label
+        state["stage"] = label
+        state["started"] = time.time()
+    _render_bar(label, value, total, state["started"])
+    return state
+
+
+def wait_for_output(port, prompt_id, comfy_dir, timeout, ws=None, ws_timeout_exc=None):
     deadline = time.time() + timeout
+    next_poll = 0.0
+    state = {"bar": None, "stage": None, "started": 0.0}
     while time.time() < deadline:
-        try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/history/{prompt_id}", timeout=30) as resp:
-                history = json.loads(resp.read())
-        except (urllib.error.URLError, socket.timeout):
-            time.sleep(2)
-            continue
-        if prompt_id in history:
-            entry = history[prompt_id]
-            status = entry.get("status", {})
-            if status.get("status_str") == "error":
-                raise RuntimeError("ComfyUI reported an execution error (check the log in the model folder)")
-            outputs = entry.get("outputs", {})
-            for node_output in outputs.values():
-                for image_info in node_output.get("images", []):
-                    if image_info.get("type") == "output":
-                        subfolder = image_info.get("subfolder", "")
-                        return os.path.join(comfy_dir, "output", subfolder, image_info["filename"])
-            raise RuntimeError("ComfyUI finished but produced no output image")
-        time.sleep(2)
+        if ws is not None:
+            try:
+                frame = ws.recv()
+                if isinstance(frame, str) and frame:
+                    try:
+                        _handle_progress_message(json.loads(frame), prompt_id, state)
+                    except json.JSONDecodeError:
+                        pass
+            except ws_timeout_exc:
+                pass
+            except RuntimeError:
+                raise
+            except Exception:
+                if state.get("bar") is not None:
+                    print()
+                    state["bar"] = None
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+                ws = None
+                print("Warning: progress stream lost, continuing on history polling")
+        now = time.time()
+        if now >= next_poll:
+            next_poll = now + 2
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/history/{prompt_id}", timeout=30) as resp:
+                    history = json.loads(resp.read())
+            except (urllib.error.URLError, socket.timeout):
+                continue
+            if prompt_id in history:
+                entry = history[prompt_id]
+                status = entry.get("status", {})
+                if status.get("status_str") == "error":
+                    raise RuntimeError("ComfyUI reported an execution error (check the log in the model folder)")
+                produced = None
+                for node_output in entry.get("outputs", {}).values():
+                    for image_info in node_output.get("images", []):
+                        if image_info.get("type") == "output":
+                            subfolder = image_info.get("subfolder", "")
+                            produced = os.path.join(comfy_dir, "output", subfolder, image_info["filename"])
+                if produced:
+                    if state.get("bar") is not None:
+                        print()
+                    return produced
+                raise RuntimeError("ComfyUI finished but produced no output image")
+        time.sleep(0.2)
+    if state.get("bar") is not None:
+        print()
     raise RuntimeError(f"Generation timed out after {timeout} seconds")
 
 
@@ -246,6 +360,46 @@ def _resolve_int(width, height):
     return max(32, int(round(math.sqrt(width * height))))
 
 
+def _execute_workflow(comfy_dir, workflow, stage_msg):
+    client_id = str(uuid.uuid4())
+    port = free_port()
+    proc, log_file = launch_server(comfy_dir, port)
+    try:
+        if not wait_for_port(port, SERVER_WAIT_SECONDS):
+            write_result(False, error=f"ComfyUI server failed to start within {SERVER_WAIT_SECONDS} seconds (log: {os.path.join(comfy_dir, 'voder_comfyui.log')})")
+            return None
+        print(stage_msg)
+        response = submit_workflow(port, workflow, client_id)
+        prompt_id = response["prompt_id"]
+        ws, ws_timeout_exc = _connect_progress(port, client_id)
+        try:
+            return wait_for_output(port, prompt_id, comfy_dir, GENERATION_WAIT_SECONDS, ws, ws_timeout_exc)
+        except RuntimeError as e:
+            write_result(False, error=str(e))
+            return None
+        finally:
+            if ws is not None:
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+    finally:
+        proc.terminate()
+        log_file.close()
+
+
+def _warn_if_opaque(path):
+    try:
+        from PIL import Image
+        with Image.open(path) as img:
+            if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+                alpha = img.convert("RGBA").getchannel("A")
+                if alpha.getextrema()[0] >= 250:
+                    print("Warning: the output came back fully opaque — the model did not apply transparency for this prompt")
+    except Exception:
+        pass
+
+
 def handle_generate(spec):
     from voders.DLCs.eva._paths import QWEN_IMAGE_UC_COMFYUI_DIR
     comfy_dir = QWEN_IMAGE_UC_COMFYUI_DIR
@@ -265,24 +419,14 @@ def handle_generate(spec):
     ref_names = [stage_input(ref, comfy_dir, f"ref{i}") for i, ref in enumerate(references)]
     resolution_int = _resolve_int(width, height)
     workflow = build_workflow("generate", prompt, width, height, seed, steps, resolution_int, ref_names=ref_names)
-    port = free_port()
-    proc, log_file = launch_server(comfy_dir, port)
-    try:
-        if not wait_for_port(port, SERVER_WAIT_SECONDS):
-            write_result(False, error=f"ComfyUI server failed to start within {SERVER_WAIT_SECONDS} seconds (log: {os.path.join(comfy_dir, 'voder_comfyui.log')})")
-            return 1
-        print(f"Generating image ({width}x{height}) with Qwen-Image-2.1 UC overdose...")
-        response = submit_workflow(port, workflow)
-        prompt_id = response["prompt_id"]
-        produced = wait_for_output(port, prompt_id, comfy_dir, GENERATION_WAIT_SECONDS)
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-        shutil.copyfile(produced, output_path)
-        print(f"Image generated: {output_path}")
-        write_result(True, output_path=output_path)
-        return 0
-    finally:
-        proc.terminate()
-        log_file.close()
+    produced = _execute_workflow(comfy_dir, workflow, f"Generating image ({width}x{height}) with Qwen-Image-2.1 UC overdose...")
+    if produced is None:
+        return 1
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    shutil.copyfile(produced, output_path)
+    print(f"Image generated: {output_path}")
+    write_result(True, output_path=output_path)
+    return 0
 
 
 def handle_edit(spec):
@@ -311,24 +455,40 @@ def handle_edit(spec):
     ref_names = [stage_input(ref, comfy_dir, f"ref{i}") for i, ref in enumerate(references)]
     resolution_int = _resolve_int(width, height)
     workflow = build_workflow("edit", prompt, width, height, seed, steps, resolution_int, input_name=input_name, ref_names=ref_names)
-    port = free_port()
-    proc, log_file = launch_server(comfy_dir, port)
-    try:
-        if not wait_for_port(port, SERVER_WAIT_SECONDS):
-            write_result(False, error=f"ComfyUI server failed to start within {SERVER_WAIT_SECONDS} seconds (log: {os.path.join(comfy_dir, 'voder_comfyui.log')})")
-            return 1
-        print(f"Editing image ({width}x{height}) with Qwen-Image-2.1 UC overdose...")
-        response = submit_workflow(port, workflow)
-        prompt_id = response["prompt_id"]
-        produced = wait_for_output(port, prompt_id, comfy_dir, GENERATION_WAIT_SECONDS)
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-        shutil.copyfile(produced, output_path)
-        print(f"Image edited: {output_path}")
-        write_result(True, output_path=output_path)
-        return 0
-    finally:
-        proc.terminate()
-        log_file.close()
+    produced = _execute_workflow(comfy_dir, workflow, f"Editing image ({width}x{height}) with Qwen-Image-2.1 UC overdose...")
+    if produced is None:
+        return 1
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    shutil.copyfile(produced, output_path)
+    print(f"Image edited: {output_path}")
+    write_result(True, output_path=output_path)
+    return 0
+
+
+def handle_generate_nbg(spec):
+    from voders.DLCs.eva._paths import QWEN_IMAGE_UC_COMFYUI_DIR
+    comfy_dir = QWEN_IMAGE_UC_COMFYUI_DIR
+    if not ensure_comfyui(comfy_dir):
+        write_result(False, error="Failed to clone ComfyUI or ComfyUI-GGUF (git must be available)")
+        return 1
+    ensure_weights(comfy_dir)
+    prompt = spec["prompt"]
+    output_path = spec["output_path"]
+    seed = int(spec.get("seed", 0))
+    steps = int(spec.get("num_inference_steps", QWEN_STEPS))
+    width, height = _parse_target_size(spec.get("resolution"), None)
+    nbg_prompt = f"{QWEN_NBG_PROMPT_PREFIX} {prompt}. {QWEN_NBG_PROMPT_SUFFIX}"
+    resolution_int = _resolve_int(width, height)
+    workflow = build_workflow("generate", nbg_prompt, width, height, seed, steps, resolution_int)
+    produced = _execute_workflow(comfy_dir, workflow, f"Generating transparent image ({width}x{height}) with Qwen-Image-2.1 UC overdose...")
+    if produced is None:
+        return 1
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    shutil.copyfile(produced, output_path)
+    _warn_if_opaque(output_path)
+    print(f"Transparent image generated: {output_path}")
+    write_result(True, output_path=output_path)
+    return 0
 
 
 def main():
@@ -343,6 +503,7 @@ def main():
     handlers = {
         "generate": handle_generate,
         "edit": handle_edit,
+        "generate_nbg": handle_generate_nbg,
     }
     handler = handlers.get(action)
     if handler is None:

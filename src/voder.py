@@ -5623,7 +5623,7 @@ def parse_oneline_args(args):
             elif eva_mode == 'tti' and eva_sub == 'mini' and i < len(args) and args[i].lower() in ('gen', 'edit', 'nbg'):
                 eva_sub = f'mini_{args[i].lower()}'
                 i += 1
-            elif eva_mode == 'tti' and eva_sub == 'overdose' and i < len(args) and args[i].lower() in ('gen', 'edit'):
+            elif eva_mode == 'tti' and eva_sub == 'overdose' and i < len(args) and args[i].lower() in ('gen', 'edit', 'nbg'):
                 eva_sub = f'overdose_{args[i].lower()}'
                 i += 1
         elif i < len(args):
@@ -17281,8 +17281,26 @@ def _eva_tti(sub_mode, args):
         finally:
             wrapper.cleanup()
 
+    elif sub_mode == 'overdose_nbg':
+        if not desc:
+            print("Error: tti overdose nbg requires desc \"<description>\"")
+            return False
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        safe_desc = re.sub(r'[^A-Za-z0-9_\-]', '_', desc[:100]) or 'overdose_nbg'
+        output_path = os.path.join(EVA_RESULTS_DIR, f"voder_eva_tti_overdose_nbg_{safe_desc}_{timestamp}.png")
+        os.makedirs(EVA_RESULTS_DIR, exist_ok=True)
+        from voders.DLCs.eva.image.qwen import QwenImageUCWrapper
+        wrapper = QwenImageUCWrapper()
+        try:
+            success = wrapper.generate_nbg(desc, output_path, resolution=resolution, seed=seed)
+            if success:
+                print(f"\n✓ Success! Transparent PNG saved to: {output_path}")
+            return success
+        finally:
+            wrapper.cleanup()
+
     else:
-        print(f"Error: unknown tti sub-mode '{sub_mode}'. Available: gen, edit, nbg, mini gen, mini edit, mini nbg, overdose gen, overdose edit")
+        print(f"Error: unknown tti sub-mode '{sub_mode}'. Available: gen, edit, nbg, mini gen, mini edit, mini nbg, overdose gen, overdose edit, overdose nbg")
         return False
 
 

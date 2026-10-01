@@ -11,7 +11,7 @@ def downscale_image(image_path, max_width, max_height, output_path=None):
     try:
         import cv2
         import numpy as np
-        img = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
         if img is None:
             from PIL import Image
             pil_img = Image.open(image_path).convert("RGB")
@@ -32,8 +32,16 @@ def downscale_image(image_path, max_width, max_height, output_path=None):
         if output_path is None:
             base, ext = os.path.splitext(image_path)
             output_path = base + '_downscaled' + ext
-        cv2.imwrite(output_path, resized)
-        print(f"Image downscaled from {w}x{h} to {new_w}x{new_h} (LANCZOS)")
+        if cv2.imwrite(output_path, resized):
+            print(f"Image downscaled from {w}x{h} to {new_w}x{new_h} (LANCZOS)")
+            return output_path
+        from PIL import Image
+        if resized.ndim == 3 and resized.shape[2] == 4:
+            Image.fromarray(cv2.cvtColor(resized, cv2.COLOR_BGRA2RGBA)).save(output_path)
+            print(f"Image downscaled from {w}x{h} to {new_w}x{new_h} (LANCZOS, alpha preserved)")
+        else:
+            Image.fromarray(cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)).save(output_path)
+            print(f"Image downscaled from {w}x{h} to {new_w}x{new_h} (LANCZOS)")
         return output_path
     except Exception as e:
         print(f"Downscale error: {e}")

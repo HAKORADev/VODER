@@ -16,7 +16,7 @@ Added a third TTI sub-mode family: `overdose gen` and `overdose edit`, running [
 
 **Inference settings (locked for best quality per official model docs):** 40 steps, guidance 1.0, euler sampler with simple scheduler, denoise 1.0 — taken from the official Qwen-Image-2.1 model card and the official Comfy-Org workflow templates (the ComfyUI template ships 25 steps as a faster preset). Qwen-Image-2.1 needs no negative-prompt CFG pass; negative guidance is not part of the model's tuned recipe.
 
-**Architecture:** The model runs through **ComfyUI** with the **ComfyUI-GGUF** custom node (leejet fork, native Qwen-Image 2.1 support) inside its own isolated venv — a new integration pattern for Eva (diffusers-native, Ollama subprocess, custom pipeline, and now ComfyUI backend). The runner clones ComfyUI into `src/models/checkpoints/qwen_image_2_1_uc/ComfyUI/` if missing, clones the GGUF node into `custom_nodes/`, auto-downloads the weights on first use, launches the ComfyUI server on a free local port (`--lowvram`, or `--cpu` on CPU-only machines), submits the workflow over the local API, polls the history endpoint and copies the output PNG to the result path. The server is terminated after every run — same load, run, unload discipline as every other VODER model.
+**Architecture:** The model runs through **ComfyUI** with the **ComfyUI-GGUF** custom node (leejet fork, native Qwen-Image 2.1 support) inside its own isolated venv — a new integration pattern for Eva (diffusers-native, Ollama subprocess, custom pipeline, and now ComfyUI backend). The runner clones ComfyUI into `src/models/checkpoints/qwen_image_2_1_uc/ComfyUI/` if missing, clones the GGUF node into `custom_nodes/`, auto-downloads the weights on first use, launches the ComfyUI server on a free local port (`--lowvram`, or `--cpu` on CPU-only machines), submits the workflow over the local API, follows the whole run live over ComfyUI's websocket progress stream and copies the output PNG to the result path. The server is terminated after every run — same load, run, unload discipline as every other VODER model.
 
 **Weights (auto-downloaded into the ComfyUI model folders):**
 
@@ -30,28 +30,34 @@ Added a third TTI sub-mode family: `overdose gen` and `overdose edit`, running [
 ```
 voder.py eva tti overdose gen desc "a mythical dragon perched atop a snowy mountain peak" [resolution "1024x1024"] [seed 0] [reference "ref.png"]
 voder.py eva tti overdose edit "input.png" desc "change the outfit color" [reference "ref.png"] [resolution "1024x1024"] [seed 0]
+voder.py eva tti overdose nbg desc "a cartoon dragon sticker" [resolution "1024x1024"] [seed 0]
 ```
 
 **References:** up to 3 image references per call, local paths or URLs — URLs are resolved through VODER's universal URL downloader (the same unified internal net layer every other mode uses, no duplications). References are seen by the qwen3vl text encoder and spliced into the sequence as VAE reference latents through the official `TextEncodeQwenImage21` node. Generation defaults to `1024x1024` with the full Qwen native 2K aspect-ratio set supported up to a 2752px max dimension (unsupported values warn and fall back, same as every other Eva model). Editing follows the official Qwen-Image-2.1 edit workflow: instruction-based whole-image editing where the output keeps the input image's aspect ratio at the requested pixel area — no SAM masking, this is not an inpainting model.
 
+**Native transparency (`overdose nbg`):** Qwen-Image-2.1 generates RGBA natively — its VAE decodes the 64-channel latent straight to RGB+alpha, so `nbg` here does NOT use the Flux 2 green-screen trick or any SAM cutout. `voder.py eva tti overdose nbg desc "..."` wraps the description in the official RGBA prompt format from the model card ("This is an RGBA image with transparency. ... The image has alpha channel and the background is transparent.") and saves the decoded alpha directly as a transparent PNG — if the model still returns a fully opaque frame the run prints a warning instead of pretending it worked. The same native pipeline is what makes transparent inputs work in `overdose edit`: alpha survives the whole chain (input downscale included), the vision tower sees alpha-over-white while the VAE keeps all four channels, so transparent layers can be edited without flattening.
+
+**Progress in the CLI:** the runner subscribes to ComfyUI's websocket progress stream with a per-run client id and renders the sampler step counts as a tqdm-style bar (`Sampling: 12/40 [01:23<02:45, 3.50s/it]`) plus stage notes for transformer/text-encoder/VAE loading, prompt encoding and decoding — the same steps visibility the other Eva modes get from their diffusers progress bars. If the stream cannot be opened the run falls back to history polling and says so.
+
 **Resources:** 16GB VRAM + 16GB RAM (CUDA), or CPU-only with 32GB RAM (generation is slow but works — ComfyUI runs with `--cpu`). Tested reference point: a T4 (16GB) at ~12GB RAM / ~14GB VRAM with the lowvram flag.
 
-**Interactive CLI:** TTI menu gets a new option `4. Overdose (uncensored generation — Qwen-Image-2.1 UC)` — generation only, with optional references (the sub-mode supports it, and the interactive CLI keeps editing out of it). Overdose editing is available in one-line mode.
+**Interactive CLI:** TTI menu option `4. Overdose (uncensored generation — Qwen-Image-2.1 UC)` asks for the generation type first — standard generation with optional references, or `NBG` transparent PNG (no references, same contract as the other nbg modes). Editing stays out of the interactive CLI; overdose editing is available in one-line mode.
 
-**All existing Eva infrastructure applies:** the `result` keyword, `&&` extended commands with the Dimensions Resolver, chains integration, and output naming `voder_eva_tti_overdose_<gen|edit>_<description>_<timestamp>.png`.
+**All existing Eva infrastructure applies:** the `result` keyword, `&&` extended commands with the Dimensions Resolver, chains integration, and output naming `voder_eva_tti_overdose_<gen|edit|nbg>_<description>_<timestamp>.png`.
 
 **Files:**
-- New: `src/envs/qwen-image2.1-uc/` — isolated venv folder (torch, gguf, transformers, accelerate, ComfyUI dependency base)
-- New: `src/voders/DLCs/eva/image/qwen.py` — `QwenImageUCWrapper` (overdose gen/edit, reference and URL resolution through the shared media layer)
-- New: `src/voders/DLCs/eva/_runners/qwen-image2.1-uc_runner.py` — ComfyUI backend runner (clone/custom-node/weights self-healing, server lifecycle on a free port, official t2i and edit workflows, result polling and copy)
-- Modified: `src/voder.py` — `overdose` added to `EVA_SUB_MODES`, `eva tti overdose <gen|edit>` parsing, `overdose_gen`/`overdose_edit` routing in `_eva_tti` with the platform-URL gate, keyword lists updated. No in-code comments.
-- Modified: `src/voders/interactiveCLI/__init__.py` — TTI interactive menu option 4 (overdose generation with references)
+- New: `src/envs/qwen-image2.1-uc/` — isolated venv folder (torch, gguf, transformers, accelerate, websocket-client, ComfyUI dependency base)
+- New: `src/voders/DLCs/eva/image/qwen.py` — `QwenImageUCWrapper` (overdose gen/edit/nbg, reference and URL resolution through the shared media layer)
+- New: `src/voders/DLCs/eva/_runners/qwen-image2.1-uc_runner.py` — ComfyUI backend runner (clone/custom-node/weights self-healing, server lifecycle on a free port, official t2i, edit and native-RGBA nbg workflows, websocket step progress, result polling and copy)
+- Modified: `src/voder.py` — `overdose` added to `EVA_SUB_MODES`, `eva tti overdose <gen|edit|nbg>` parsing, `overdose_gen`/`overdose_edit`/`overdose_nbg` routing in `_eva_tti` with the platform-URL gate, keyword lists updated. No in-code comments.
+- Modified: `src/voders/interactiveCLI/__init__.py` — TTI interactive menu option 4 (overdose generation type choice: standard with references or NBG transparent PNG)
 - Modified: `setup.py` — `qwen-image2.1-uc` registered in `EVA_ENVS` with a ComfyUI post-install step (clones ComfyUI + ComfyUI-GGUF, installs their requirements into the venv)
 - Modified: `src/voders/DLCs/eva/_paths.py` — `QWEN_IMAGE_UC_DIR` / `QWEN_IMAGE_UC_COMFYUI_DIR` checkpoint paths
 - Modified: `src/voders/DLCs/eva/_envrunner.py` — `qwen-image2.1-uc` registered in `EVA_RUNNERS`
+- Modified: `src/voders/DLCs/eva/downscale.py` — image downscale now keeps the alpha channel (IMREAD_UNCHANGED) so oversized transparent inputs survive into overdose edit, with a PIL fallback when cv2 cannot write the target format
 - Modified: `README.md` — Eva feature bullet, modes-at-a-glance row, models table, system requirements note, overdose examples
 - Modified: `docs/Guide.md` — Eva requirements table row, VRAM summary, env directory tree and rationale
-- Modified: `docs/COMMAND_CATALOG.md` — Eva modes table, full overdose subsection under TTI (keywords, resolutions, locked inference settings, editing model, examples)
+- Modified: `docs/COMMAND_CATALOG.md` — Eva modes table, full overdose subsection under TTI (keywords, resolutions, locked inference settings, native-transparency nbg, editing model, examples)
 - Modified: `docs/READ.md` — git dependency note, Qwen-Image-2.1 UC model directory row
 - Modified: `docs/Languages.md` — Qwen-Image-2.1 UC row (80+ languages via the qwen3vl 8B text encoder)
 

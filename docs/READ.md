@@ -68,7 +68,7 @@ Project Eva extends VODER with image, video, chat, and world generation. Additio
 | Model | Directory | Size | Mode |
 |-------|-----------|------|------|
 | Flux 2 Dev | `src/models/checkpoints/flux2_dev/` | ~64GB | TTI (gen/edit/nbg) |
-| Qwen-Image-2.1 UC (ComfyUI stack) | `src/models/checkpoints/qwen_image_2_1_uc/ComfyUI/` | ~14.6GB | TTI (overdose gen/edit) |
+| Qwen-Image-2.1 UC (ComfyUI stack) | `src/models/checkpoints/qwen_image_2_1_uc/ComfyUI/` | ~14.6GB | TTI (overdose gen/edit/nbg) |
 | MiniMax H3 | `src/models/checkpoints/minimax_h3/` | ~130GB | TTV (gen) |
 | Wan 2.2 Animate 14B | `src/models/checkpoints/wan2_2_animate_14b/` | ~28GB | TTV (animify) |
 | Wan 2.1 VACE 14B | `src/models/checkpoints/wan_vace_14b/` | ~28GB | TTV (edit) |
